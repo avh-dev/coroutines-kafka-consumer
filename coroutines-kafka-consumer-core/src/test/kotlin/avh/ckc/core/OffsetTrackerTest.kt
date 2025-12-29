@@ -1,6 +1,8 @@
-package avh.ckc.core.offset
+package avh.ckc.core
 
-class FinalOffsetTrackerTest : AbstractOffsetTrackerTest() {
+import avh.ckc.core.avh.ckc.core.AbstractOffsetTrackerTest
+
+class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     override fun createOffsetTracker(baseOffset: Long): AbstractOffsetTracker = object : AbstractOffsetTracker {
         val delegate = OffsetTracker(baseOffset)
         override fun markProcessed(offset: Long) = delegate.markProcessed(offset)

@@ -1,5 +1,7 @@
 package avh.ckc.core.offset
 
+import avh.ckc.core.avh.ckc.core.AbstractOffsetTrackerTest
+
 class HashSetOffsetTrackerTest : AbstractOffsetTrackerTest() {
     override fun createOffsetTracker(baseOffset: Long): AbstractOffsetTracker {
         return object : AbstractOffsetTracker {
