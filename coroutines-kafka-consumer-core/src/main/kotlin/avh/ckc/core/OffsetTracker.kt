@@ -1,4 +1,4 @@
-package avh.ckc.core.offset
+package avh.ckc.core
 
 import java.lang.System.arraycopy
 import kotlin.math.max
@@ -119,6 +119,9 @@ class OffsetTracker(
      */
     private fun ceilPow2(v: Int) = 1 shl (32 - (v - 1).countLeadingZeroBits())
 
+    /**
+     * Extends ring buffer capacity to be able to store bitIndex
+     */
     private fun extendCapacity(bitIndex: Int) {
         val newSize = ceilPow2((bitIndex ushr 6) + 1)
         val newWords = LongArray(newSize)

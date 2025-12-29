@@ -1,6 +1,6 @@
-package avh.ckc.core.offset
+package avh.ckc.core.avh.ckc.core
 
-import org.junit.jupiter.api.Test
+import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
