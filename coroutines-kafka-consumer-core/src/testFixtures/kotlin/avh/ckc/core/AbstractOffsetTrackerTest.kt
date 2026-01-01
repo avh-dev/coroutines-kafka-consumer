@@ -159,37 +159,24 @@ abstract class AbstractOffsetTrackerTest {
     }
 
     @Test
-    fun `when offsets cross 64-bit boundary relative to baseOffset then commit still advances correctly`() {
+    fun `when offsets cross 128-bit boundary relative to baseOffset then commit still advances correctly`() {
         // This test is important for implementations that use 64-bit words (Long) as bit storage.
         // It validates correct behavior around the boundary between two consecutive 64-bit chunks.
-        //
-        // Layout for baseOffset = 0:
-        //   offsets 1..64  -> first 64-bit word
-        //   offsets 65..128 -> second 64-bit word
 
-        // given
         val tracker = createOffsetTracker(baseOffset = 0L)
 
-        // when
-        // Process 1..63 and 65, but skip 64
-        for (offset in 1L..63L) {
+        for (offset in 1L..127L) {
             tracker.markProcessed(offset)
         }
-        tracker.markProcessed(65L)
+        tracker.markProcessed(129L)
 
         val firstCommit = tracker.advanceCommitOffset()
 
-        // 64 is still missing, so commit should stop at 63
-        assertEquals(63L, firstCommit)
+        assertEquals(127L, firstCommit)
 
-        // when
-        // Now process the missing 64 (the last bit in the first 64-bit word)
-        tracker.markProcessed(64L)
+        tracker.markProcessed(128L)
         val secondCommit = tracker.advanceCommitOffset()
 
-        // then
-        // Now both 64 and 65 are available, so commit must jump to 65,
-        // crossing the 64-bit boundary between the first and the second word.
-        assertEquals(65L, secondCommit)
+        assertEquals(129L, secondCommit)
     }
 }
