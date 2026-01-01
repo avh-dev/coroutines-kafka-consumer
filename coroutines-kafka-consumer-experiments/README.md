@@ -8,3 +8,5 @@ All implementations live in test fixtures and are used only by
 tests and JMH benchmarks.
 
 The module is excluded from the build by default.
+
+To execute test or run benchmarks use parameter `-PwithExperiments=true`
