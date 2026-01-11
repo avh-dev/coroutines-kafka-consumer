@@ -9,7 +9,7 @@ import kotlin.math.max
  * An offset is eligible for commit only if all preceding offsets have been marked as processed.
  * Offsets are stored in a ring buffer of 64-bit words.
  */
-class OffsetTracker(
+internal class OffsetTracker(
     private var lastCommitedOffset: Long,
     initialCapacity: Int = 128
 ) {

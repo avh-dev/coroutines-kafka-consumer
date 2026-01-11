@@ -1,4 +1,4 @@
-package avh.ckc.core.experiments.offset.tracker
+package avh.ckc.core
 
 import avh.ckc.core.avh.ckc.core.AbstractOffsetTrackerTest
 

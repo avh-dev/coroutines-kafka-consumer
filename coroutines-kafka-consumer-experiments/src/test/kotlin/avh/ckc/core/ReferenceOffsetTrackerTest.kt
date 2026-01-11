@@ -1,6 +1,5 @@
-package avh.ckc.core.experiments.offset.tracker
+package avh.ckc.core
 
-import avh.ckc.core.OffsetTracker
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,7 +11,6 @@ class ReferenceOffsetTrackerTest {
         val hashSetTracker = HashSetOffsetTracker(-1)
         val slidingBitsetTracker = SlidingBitsetOffsetTracker(-1)
         val ringBitsetOffsetTracker = RingBitsetOffsetTracker(-1)
-        val finalOffsetTracker = OffsetTracker(-1)
 
         val offsets = shuffleLocal(1000000, 64, Random(12345))
 
@@ -21,16 +19,13 @@ class ReferenceOffsetTrackerTest {
             hashSetTracker.markProcessed(offset)
             slidingBitsetTracker.markProcessed(offset)
             ringBitsetOffsetTracker.markProcessed(offset)
-            finalOffsetTracker.markProcessed(offset)
             if (q++ and 15 == 15) {
                 val hashSetOffset = hashSetTracker.advanceCommitOffset()
                 val slidingBitsetOffset = slidingBitsetTracker.advanceCommitOffset()
                 val ringBitsetOffset = ringBitsetOffsetTracker.advanceCommitOffset()
-                val finalBitsetOffset = finalOffsetTracker.advanceCommitOffset()
                 println(hashSetOffset)
                 assertEquals(hashSetOffset, slidingBitsetOffset, "sliding")
                 assertEquals(hashSetOffset, ringBitsetOffset, "ring")
-                assertEquals(hashSetOffset, finalBitsetOffset, "final")
             }
         }
 

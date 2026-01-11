@@ -1,4 +1,4 @@
-package avh.ckc.core.experiments.offset.tracker
+package avh.ckc.core
 
 import org.openjdk.jmh.annotations.Benchmark
 import org.openjdk.jmh.annotations.BenchmarkMode
@@ -27,7 +27,7 @@ import kotlin.random.Random
 @State(Scope.Benchmark)
 open class OffsetTrackerBenchmark {
 
-    interface OffsetTracker {
+    interface Tracker {
         fun markProcessed(offset: Long)
         fun advanceCommitOffset(): Long?
     }
@@ -113,19 +113,19 @@ open class OffsetTrackerBenchmark {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private fun newTracker(): OffsetTracker =
+    private fun newTracker(): Tracker =
         when (impl) {
-            "hashSet" -> object : OffsetTracker {
+            "hashSet" -> object : Tracker {
                 val delegate = HashSetOffsetTracker(lastCommitOffset = 0L)
                 override fun markProcessed(offset: Long) =  delegate.markProcessed(offset)
                 override fun advanceCommitOffset() = delegate.advanceCommitOffset()
             }
-            "slidingBitset" -> object : OffsetTracker {
+            "slidingBitset" -> object : Tracker {
                 val delegate = SlidingBitsetOffsetTracker(lastCommit = -1L, initialCapacity)
                 override fun markProcessed(offset: Long) =  delegate.markProcessed(offset)
                 override fun advanceCommitOffset() = delegate.advanceCommitOffset()
             }
-            "ringBitset" -> object : OffsetTracker {
+            "ringBitset" -> object : Tracker {
                 val delegate = RingBitsetOffsetTracker(lastCommitedOffset = -1L, initialCapacity)
                 override fun markProcessed(offset: Long) =  delegate.markProcessed(offset)
                 override fun advanceCommitOffset() = delegate.advanceCommitOffset()
