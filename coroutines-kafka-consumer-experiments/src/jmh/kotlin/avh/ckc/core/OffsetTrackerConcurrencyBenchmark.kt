@@ -1,6 +1,5 @@
-package avh.ckc.core.experiments.offset.tracker
+package avh.ckc.core
 
-import avh.ckc.core.OffsetTracker
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
@@ -96,14 +95,6 @@ open class OffsetTrackerConcurrencyBenchmark {
                 override suspend fun advanceCommitOffset(): Long? {
                     lock.withLock { return delegate.advanceCommitOffset() }
                 }
-            })
-            "final_ring_bitset" -> runScenario( object : ThreadSafeOffsetTracker {
-
-                val delegate = OffsetTracker(-1)
-
-                override suspend fun markProcessed(offset: Long) = delegate.markProcessed(offset)
-
-                override suspend fun advanceCommitOffset(): Long? = delegate.advanceCommitOffset()
             })
             "mutex_ring_bitset" -> runScenario(object : ThreadSafeOffsetTracker {
 
