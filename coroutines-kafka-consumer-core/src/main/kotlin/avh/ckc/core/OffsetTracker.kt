@@ -10,7 +10,7 @@ import kotlin.math.max
  * Offsets are stored in a ring buffer of 64-bit words.
  */
 internal class OffsetTracker(
-    private var lastCommitedOffset: Long,
+    var lastCommitedOffset: Long,
     initialCapacity: Int = 128
 ) {
 
