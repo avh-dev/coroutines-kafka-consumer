@@ -65,6 +65,33 @@ class ConsumerPollLoopTest {
                 .subscribe(eq(listOf("topic-a")), any<ConsumerRebalanceListener>())
             verify(fixture.consumer).close()
         }
+
+        @Test
+        fun `when prepare for shutdown called in throttling mode then ready signal completes`() = runBlocking {
+            val fixture = PollLoopFixture(
+                overflowStrategy = OverflowStrategy.THROTTLING,
+                workChannelCapacity = 16,
+                pollAnswer = {
+                    Thread.sleep(50)
+                    emptyRecords()
+                }
+            )
+
+            val job = fixture.start()
+
+            verify(fixture.consumer, timeout(2_000))
+                .subscribe(eq(listOf("topic-a")), any<ConsumerRebalanceListener>())
+
+            val readyForShutdown = fixture.loop.prepareForShutdown()
+
+            withTimeout(2_000) { readyForShutdown.await() }
+            verify(fixture.consumer, timeout(2_000)).wakeup()
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
     }
 
     @Nested
@@ -310,13 +337,14 @@ private class PollLoopFixture(
     val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(capacity = workChannelCapacity)
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
+    private val consumerProperties = testConsumerProperties()
     val loop = ConsumerPollLoop(
         id = 1,
         parentContext = Dispatchers.Default,
-        config = testConfig(
-            strategy = overflowStrategy,
-            commitIntervalMs = commitIntervalMs
-        ),
+        overflowStrategy = overflowStrategy,
+        commitIntervalMs = commitIntervalMs,
+        consumerProperties = consumerProperties,
+        consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),
         topicsPattern = null,
         workChannel = workChannel,
