@@ -29,7 +29,7 @@ import kotlin.time.toKotlinDuration
  * Overflow strategies:
  * - BACKPRESSURE: non-blocking dispatch via `trySend` + `pause/resume`
  *   with bounded local stash and explicit contiguous commits.
- * - THROTTLING: suspending `send`, intended for setups relying on
+ * - LOSSY: suspending `send`, intended for setups relying on
  *   channel-level dropping and auto-commit.
  *
  * Invariants (BACKPRESSURE):
@@ -40,7 +40,7 @@ import kotlin.time.toKotlinDuration
 internal class ConsumerPollLoop(
     val id: Int,
     parentContext: CoroutineContext,
-    private val overflowStrategy: OverflowStrategy,
+    private val deliveryStrategy: DeliveryStrategy,
     private val commitIntervalMs: Long,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: ConsumerConfigAdapter,
@@ -123,9 +123,9 @@ internal class ConsumerPollLoop(
 
     private fun subscribe(consumer: KafkaConsumer<ByteArray, ByteArray>) {
         if (topicsPattern != null) {
-            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, overflowStrategy))
+            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, deliveryStrategy))
         } else {
-            consumer.subscribe(topics, createRebalanceListener(consumer, overflowStrategy))
+            consumer.subscribe(topics, createRebalanceListener(consumer, deliveryStrategy))
         }
     }
 
@@ -133,13 +133,13 @@ internal class ConsumerPollLoop(
      * Rebalance listener selection.
      *
      * - BACKPRESSURE: requires rebalance hooks for partition state tracking + commit on revoke.
-     * - THROTTLING: does not maintain commit tracking; no-op listener is sufficient.
+     * - LOSSY: does not maintain commit tracking; no-op listener is sufficient.
      */
     private fun createRebalanceListener(
         consumer: KafkaConsumer<ByteArray, ByteArray>,
-        overflowStrategy: OverflowStrategy
+        deliveryStrategy: DeliveryStrategy
     ): ConsumerRebalanceListener =
-        if (overflowStrategy == OverflowStrategy.BACKPRESSURE)
+        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE)
             backpressureRebalanceListener(consumer)
         else
             NoOpConsumerRebalanceListener()
@@ -200,9 +200,9 @@ internal class ConsumerPollLoop(
     }
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
-        when (overflowStrategy) {
-            OverflowStrategy.BACKPRESSURE -> consumerLoopBackpressure(consumer)
-            OverflowStrategy.THROTTLING -> consumerLoopThrottling(consumer)
+        when (deliveryStrategy) {
+            DeliveryStrategy.BACKPRESSURE -> consumerLoopBackpressure(consumer)
+            DeliveryStrategy.LOSSY -> consumerLoopLOSSY(consumer)
         }
     } catch (_: CancellationException) {
         log.info("Kafka consumer loop #$id cancelled")
@@ -210,7 +210,7 @@ internal class ConsumerPollLoop(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (overflowStrategy == OverflowStrategy.BACKPRESSURE) {
+        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
             // Final best-effort commit on shutdown.
             commitReadyOffsets(consumer, assignedPartitions)
         }
@@ -404,11 +404,11 @@ internal class ConsumerPollLoop(
     }
 
     /**
-     * THROTTLING strategy:
+     * LOSSY strategy:
      * - Minimal mode; uses suspending send().
      * - Intended to be paired with a channel that drops and with client internal auto-commit.
      */
-    private suspend fun consumerLoopThrottling(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private suspend fun consumerLoopLOSSY(consumer: KafkaConsumer<ByteArray, ByteArray>) {
         val pollTimeout = State.ACTIVE.pollTimeout
         val channel = workChannel
         while (currentCoroutineContext().isActive) {

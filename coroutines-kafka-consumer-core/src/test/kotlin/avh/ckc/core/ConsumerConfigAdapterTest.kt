@@ -3,6 +3,7 @@ package avh.ckc.core
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ConsumerConfigAdapterTest {
@@ -37,5 +38,16 @@ class ConsumerConfigAdapterTest {
         )
 
         assertNull(adapter.getInt(ConsumerConfig.MAX_POLL_RECORDS_CONFIG))
+    }
+
+    @Test
+    fun `when kafka boolean property is configured then parsed value is returned`() {
+        val adapter = ConsumerConfigAdapter(
+            testConsumerProperties(
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
+            )
+        )
+
+        assertTrue(adapter.getBoolean(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG) == true)
     }
 }

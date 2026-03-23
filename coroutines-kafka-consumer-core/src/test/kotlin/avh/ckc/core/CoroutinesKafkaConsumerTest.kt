@@ -98,7 +98,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 21L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = OverflowStrategy.BACKPRESSURE,
+                    strategy = DeliveryStrategy.BACKPRESSURE,
                     deserializationDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->
@@ -130,7 +130,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 22L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = OverflowStrategy.BACKPRESSURE,
+                    strategy = DeliveryStrategy.BACKPRESSURE,
                     processingDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->

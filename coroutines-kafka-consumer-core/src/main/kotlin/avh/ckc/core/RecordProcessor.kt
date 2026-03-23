@@ -19,7 +19,7 @@ import kotlinx.coroutines.CoroutineDispatcher
  * - mark offsets as processed for backpressure-based commit tracking.
  */
 internal class RecordProcessor<K, V>(
-    private val overflowStrategy: OverflowStrategy,
+    private val deliveryStrategy: DeliveryStrategy,
     private val deserializationDispatcher: CoroutineDispatcher,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
@@ -47,7 +47,7 @@ internal class RecordProcessor<K, V>(
             processingFailureHandler.handle(key, value, record, error)
         }
 
-        if (overflowStrategy == OverflowStrategy.BACKPRESSURE) {
+        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
             partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
         }
     }

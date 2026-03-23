@@ -1,9 +1,9 @@
 package avh.ckc.core
 
 /**
- * Overflow strategy for the Kafka consumer.
+ * Delivery strategy for the Kafka consumer.
  */
-enum class OverflowStrategy {
+enum class DeliveryStrategy {
     /**
      * Backpressure: suspend the Kafka consumer (poll loop) until there is room
      * in the work channel. This slows down polling from Kafka but does not drop messages.
@@ -11,14 +11,14 @@ enum class OverflowStrategy {
     BACKPRESSURE,
 
     /**
-     * Throttling: commit offsets immediately after each poll and push all records
-     * into the work channel configured with DROP_OLDEST.
+     * Lossy: dispatch records into the work channel configured with DROP_OLDEST
+     * and rely on Kafka auto-commit for offset progression.
      *
      * Oldest buffered records may be dropped when the channel is full.
-     * Dropped records are NOT considered processed and will never be seen again
-     * (because offsets were already committed).
+     * Dropped records are NOT considered processed and may be skipped permanently
+     * once Kafka advances committed offsets via auto-commit.
      *
      * This mode intentionally trades reliability for throughput.
      */
-    THROTTLING
+    LOSSY
 }

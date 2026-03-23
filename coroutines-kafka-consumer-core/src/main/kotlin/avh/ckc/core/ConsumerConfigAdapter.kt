@@ -36,4 +36,17 @@ internal class ConsumerConfigAdapter(
         } catch (_: Exception) {
             null
         }
+
+    /**
+     * Returns the Kafka configuration property as a [Boolean].
+     *
+     * If the property is missing or cannot be parsed as a boolean,
+     * null is returned.
+     */
+    fun getBoolean(key: String): Boolean? =
+        try {
+            consumerConfig.getBoolean(key)
+        } catch (_: Exception) {
+            null
+        }
 }
