@@ -31,6 +31,13 @@ internal class PartitionState(
      */
     fun advanceCommitOffset() = offsetTracker.advanceCommitOffset()
 
+    /**
+     * Marks a record offset as fully processed by a worker.
+     */
+    fun markProcessed(offset: Long) {
+        offsetTracker.markProcessed(offset)
+    }
+
     @VisibleForTesting
     internal fun trackerRefForTest() = offsetTracker
 }

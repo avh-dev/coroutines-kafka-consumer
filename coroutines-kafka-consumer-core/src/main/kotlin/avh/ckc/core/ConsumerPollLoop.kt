@@ -40,14 +40,18 @@ import kotlin.time.toKotlinDuration
 internal class ConsumerPollLoop(
     val id: Int,
     parentContext: CoroutineContext,
-    private val config: CoroutineKafkaConsumerConfig,
+    private val overflowStrategy: OverflowStrategy,
+    private val commitIntervalMs: Long,
+    private val consumerProperties: Map<String, Any?>,
+    private val consumerConfigAdapter: ConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
     private val workChannel: SendChannel<ConsumerRecord<ByteArray, ByteArray>>,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
-        (config: CoroutineKafkaConsumerConfig) -> KafkaConsumer<ByteArray, ByteArray> = { KafkaConsumer(it.kafkaProperties,
-        ByteArrayDeserializer(), ByteArrayDeserializer()) },
+        (consumerProperties: Map<String, Any?>) -> KafkaConsumer<ByteArray, ByteArray> = {
+            KafkaConsumer(it, ByteArrayDeserializer(), ByteArrayDeserializer())
+        },
 ) {
     /** Dedicated poll thread (KafkaConsumer thread-safety). */
     private val dispatcher = Executors
@@ -102,7 +106,7 @@ internal class ConsumerPollLoop(
     }
 
     private suspend fun runLoop() {
-        val consumer = kafkaConsumerFactory(config)
+        val consumer = kafkaConsumerFactory(consumerProperties)
         consumerRef = consumer
         try {
             subscribe(consumer)
@@ -119,9 +123,9 @@ internal class ConsumerPollLoop(
 
     private fun subscribe(consumer: KafkaConsumer<ByteArray, ByteArray>) {
         if (topicsPattern != null) {
-            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, config))
+            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, overflowStrategy))
         } else {
-            consumer.subscribe(topics, createRebalanceListener(consumer, config))
+            consumer.subscribe(topics, createRebalanceListener(consumer, overflowStrategy))
         }
     }
 
@@ -133,9 +137,9 @@ internal class ConsumerPollLoop(
      */
     private fun createRebalanceListener(
         consumer: KafkaConsumer<ByteArray, ByteArray>,
-        config: CoroutineKafkaConsumerConfig
+        overflowStrategy: OverflowStrategy
     ): ConsumerRebalanceListener =
-        if (config.overflowStrategy == OverflowStrategy.BACKPRESSURE)
+        if (overflowStrategy == OverflowStrategy.BACKPRESSURE)
             backpressureRebalanceListener(consumer)
         else
             NoOpConsumerRebalanceListener()
@@ -196,7 +200,7 @@ internal class ConsumerPollLoop(
     }
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
-        when (config.overflowStrategy) {
+        when (overflowStrategy) {
             OverflowStrategy.BACKPRESSURE -> consumerLoopBackpressure(consumer)
             OverflowStrategy.THROTTLING -> consumerLoopThrottling(consumer)
         }
@@ -206,7 +210,7 @@ internal class ConsumerPollLoop(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (config.overflowStrategy == OverflowStrategy.BACKPRESSURE) {
+        if (overflowStrategy == OverflowStrategy.BACKPRESSURE) {
             // Final best-effort commit on shutdown.
             commitReadyOffsets(consumer, assignedPartitions)
         }
@@ -256,13 +260,12 @@ internal class ConsumerPollLoop(
      */
     private suspend fun consumerLoopBackpressure(consumer: KafkaConsumer<ByteArray, ByteArray>) {
 
-        val maxPollRecords = config.getKafkaPropertyInt(MAX_POLL_RECORDS_CONFIG)!!
+        val maxPollRecords = consumerConfigAdapter.getInt(MAX_POLL_RECORDS_CONFIG)!!
 
         // Bounded spill queue for records already fetched when channel is saturated.
         val stash = ArrayDeque<ConsumerRecord<ByteArray, ByteArray>>(maxPollRecords)
 
         // Do not commit on every loop iteration.
-        val commitIntervalMs = config.commitIntervalMs
         var lastCommitAt = System.currentTimeMillis()
 
         val channel = workChannel
@@ -409,7 +412,21 @@ internal class ConsumerPollLoop(
         val pollTimeout = State.ACTIVE.pollTimeout
         val channel = workChannel
         while (currentCoroutineContext().isActive) {
-            val records = consumer.poll(pollTimeout)
+            if (shutdownRequested) {
+                readyForShutdownSignal.complete(Unit)
+                break
+            }
+
+            val records = try {
+                consumer.poll(pollTimeout)
+            } catch (_: WakeupException) {
+                if (shutdownRequested) {
+                    readyForShutdownSignal.complete(Unit)
+                    break
+                }
+                continue
+            }
+
             for (record in records) {
                 channel.send(record)
             }
