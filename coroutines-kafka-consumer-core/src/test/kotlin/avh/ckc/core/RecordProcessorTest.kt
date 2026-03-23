@@ -25,6 +25,7 @@ class RecordProcessorTest {
     fun `when retry policy matches then worker retries and eventually succeeds`() = runBlocking {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<String>()
+        val telemetry = RecordingTelemetry()
         val processor = createRecordProcessor<String, String>(
             handler = KafkaRecordHandler { _, value, _ ->
                 if (attempts.getAndIncrement() < 2) {
@@ -32,6 +33,7 @@ class RecordProcessorTest {
                 }
                 processed.complete(value!!)
             },
+            telemetry = telemetry,
             retryPolicy = retryPolicy {
                 retry<IOException> {
                     maxRetries = 2
@@ -47,15 +49,20 @@ class RecordProcessorTest {
 
         assertEquals("payload", withTimeout(2_000) { processed.await() })
         assertEquals(3, attempts.get())
+        assertEquals(listOf(1, 2), telemetry.retries.map { it.attempt })
+        assertEquals(1, telemetry.processed.size)
+        kotlin.test.assertTrue(telemetry.processed.single().recordAgeMillis >= 0)
     }
 
     @Test
     fun `when handler fails with non retriable error then processing failure handler is invoked`() = runBlocking {
         val recovered = CompletableDeferred<Pair<Long?, String>>()
+        val telemetry = RecordingTelemetry()
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler { _, _, _ ->
                 throw IllegalStateException("boom")
             },
+            telemetry = telemetry,
             processingFailureHandler = ProcessingFailureHandler { key, _, rawRecord, error ->
                 recovered.complete(key to "${rawRecord.offset()}:${error.message}")
             }
@@ -67,6 +74,9 @@ class RecordProcessorTest {
         )
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
+        assertEquals(1, telemetry.failed.size)
+        assertEquals("boom", telemetry.failed.single().error.message)
+        kotlin.test.assertTrue(telemetry.failed.single().recordAgeMillis >= 0)
     }
 
     @Test
@@ -168,8 +178,10 @@ class RecordProcessorTest {
 
     @Test
     fun `when deserializer fails with non transient error then processing fails`() = runBlocking {
+        val telemetry = RecordingTelemetry()
         val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, _, _ -> }
+            handler = KafkaRecordHandler { _, _, _ -> },
+            telemetry = telemetry
         )
 
         val error = assertThrows(IllegalStateException::class.java) {
@@ -188,6 +200,9 @@ class RecordProcessorTest {
         }
 
         assertEquals("broken payload", error.message)
+        assertEquals(1, telemetry.failed.size)
+        assertEquals("broken payload", telemetry.failed.single().error.message)
+        kotlin.test.assertTrue(telemetry.failed.single().recordAgeMillis >= 0)
     }
 
     @Test
@@ -201,6 +216,7 @@ class RecordProcessorTest {
             deserializationDispatcher = Dispatchers.IO,
             handler = KafkaRecordHandler<Long, Long> { _, _, _ -> },
             retryPolicy = RetryPolicy.none(),
+            telemetry = ConsumerTelemetry.NOOP,
             processingFailureHandler = ProcessingFailureHandler.skip<Long, Long>(),
             partitionRegistry = registry
         )
@@ -213,6 +229,7 @@ class RecordProcessorTest {
     private fun <K, V> createRecordProcessor(
         handler: KafkaRecordHandler<K, V>,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
+        telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
         partitionRegistry: PartitionRegistry = PartitionRegistry()
@@ -221,6 +238,7 @@ class RecordProcessorTest {
         deserializationDispatcher = runtime.deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,
+        telemetry = telemetry,
         processingFailureHandler = processingFailureHandler,
         partitionRegistry = partitionRegistry
     )

@@ -42,6 +42,7 @@ internal class ConsumerPollLoop(
     parentContext: CoroutineContext,
     private val deliveryStrategy: DeliveryStrategy,
     private val commitIntervalMs: Long,
+    private val telemetry: ConsumerTelemetry,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: ConsumerConfigAdapter,
     private val topics: List<String>?,
@@ -229,9 +230,12 @@ internal class ConsumerPollLoop(
             }
         }
         if (!offsets.isEmpty()) {
+            val startedAt = System.nanoTime()
             try {
                 consumer.commitSync(offsets)
+                telemetry.onCommit(offsets.size, System.nanoTime() - startedAt, true)
             } catch (e: Exception) {
+                telemetry.onCommit(offsets.size, System.nanoTime() - startedAt, false)
                 log.warn("Error committing offsets in manager #$id", e)
             }
         }
@@ -355,7 +359,9 @@ internal class ConsumerPollLoop(
         state: State
     ): ConsumerRecords<ByteArray, ByteArray> {
         return try {
+            val startedAt = System.nanoTime()
             val records = consumer.poll(state.pollTimeout)
+            telemetry.onPoll(records.count(), System.nanoTime() - startedAt)
             if (state.pollTimeout == Duration.ZERO && records.isEmpty) {
                 delay(State.ACTIVE.pollTimeout.toKotlinDuration())
             }
@@ -409,7 +415,6 @@ internal class ConsumerPollLoop(
      * - Intended to be paired with a channel that drops and with client internal auto-commit.
      */
     private suspend fun consumerLoopLOSSY(consumer: KafkaConsumer<ByteArray, ByteArray>) {
-        val pollTimeout = State.ACTIVE.pollTimeout
         val channel = workChannel
         while (currentCoroutineContext().isActive) {
             if (shutdownRequested) {
@@ -417,15 +422,7 @@ internal class ConsumerPollLoop(
                 break
             }
 
-            val records = try {
-                consumer.poll(pollTimeout)
-            } catch (_: WakeupException) {
-                if (shutdownRequested) {
-                    readyForShutdownSignal.complete(Unit)
-                    break
-                }
-                continue
-            }
+            val records = pollRecords(consumer, State.ACTIVE)
 
             for (record in records) {
                 channel.send(record)

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.never
 import org.mockito.Mockito.timeout
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argThat
@@ -96,27 +97,33 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when lossy channel overflows then oldest buffered records are dropped`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.LOSSY,
                 workChannelCapacity = 1,
                 pollAnswer = {
-                    recordsOf(
-                        topicPartition,
-                        record(offset = 101L),
-                        record(offset = 102L),
-                        record(offset = 103L)
-                    )
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(
+                            topicPartition,
+                            record(offset = 101L),
+                            record(offset = 102L),
+                            record(offset = 103L)
+                        )
+                    } else {
+                        emptyRecords()
+                    }
                 }
             )
 
             val job = fixture.start()
+            delay(100)
 
             val received = withTimeout(2_000) { fixture.workChannel.receive() }
 
             assertEquals(103L, received.offset())
-            verify(fixture.consumer, timeout(2_000).times(0)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
-            verify(fixture.consumer, timeout(2_000).times(0)).pause(any())
-            verify(fixture.consumer, timeout(2_000).times(0)).resume(any())
+            verify(fixture.consumer, never()).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+            verify(fixture.consumer, never()).pause(any())
+            verify(fixture.consumer, never()).resume(any())
 
             job.cancel()
             job.join()
@@ -209,8 +216,10 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when partitions assigned in backpressure mode then registry is updated and position is queried`() = runBlocking {
+            val telemetry = RecordingTelemetry()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                telemetry = telemetry,
                 workChannelCapacity = 4,
                 assignmentPosition = 42L,
                 pollAnswer = { emptyRecords() }
@@ -224,6 +233,7 @@ class ConsumerPollLoopTest {
 
             assertEquals(fixture.topicPartition, state.topicPartition)
             assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
+            assertFalse(telemetry.polls.isEmpty())
 
             job.cancel()
             job.join()
@@ -262,8 +272,10 @@ class ConsumerPollLoopTest {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
             val revokeRequested = AtomicBoolean(false)
             val revokedOnce = AtomicBoolean(false)
+            val telemetry = RecordingTelemetry()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                telemetry = telemetry,
                 workChannelCapacity = 4,
                 assignmentPosition = 101L,
                 listenerRef = listenerRef,
@@ -282,6 +294,7 @@ class ConsumerPollLoopTest {
             revokeRequested.set(true)
 
             fixture.awaitCommit(101L)
+            assertEquals(true, telemetry.commits.single().success)
 
             job.cancel()
             job.join()
@@ -357,6 +370,7 @@ class ConsumerPollLoopTest {
 
 private class PollLoopFixture(
     deliveryStrategy: DeliveryStrategy,
+    telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
     commitIntervalMs: Long = 60_000L,
@@ -380,6 +394,7 @@ private class PollLoopFixture(
         parentContext = Dispatchers.Default,
         deliveryStrategy = deliveryStrategy,
         commitIntervalMs = commitIntervalMs,
+        telemetry = telemetry,
         consumerProperties = consumerProperties,
         consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),
