@@ -13,6 +13,7 @@ internal fun <K, V> createTestConsumer(
     consumerProperties: Map<String, Any?>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy = RetryPolicy.none(),
+    telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
     runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
@@ -28,12 +29,13 @@ internal fun <K, V> createTestConsumer(
         deserializationDispatcher = runtime.deserializationDispatcher,
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
+        telemetry = telemetry,
         processingFailureHandler = processingFailureHandler,
         parentContext = kotlinx.coroutines.Dispatchers.Default,
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,
-        pollLoopFactory = { _, context, _, _, _, _, _, _, channel, _ ->
+        pollLoopFactory = { _, context, _, _, _, _, _, _, _, channel, _ ->
             FakePollLoopControl(context, channel, records)
         },
         workerDeserializerFactory = workerDeserializerFactory

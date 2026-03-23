@@ -23,6 +23,7 @@ internal class RecordProcessor<K, V>(
     private val deserializationDispatcher: CoroutineDispatcher,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
+    private val telemetry: ConsumerTelemetry,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val partitionRegistry: PartitionRegistry
 ) {
@@ -33,22 +34,52 @@ internal class RecordProcessor<K, V>(
         record: ConsumerRecord<ByteArray, ByteArray>,
         deserializers: WorkerDeserializers<K, V>
     ) {
-        val (key, value) = deserializeWithRetry(record, deserializers)
-
+        val startedAt = System.nanoTime()
+        val recordAgeMillis = (System.currentTimeMillis() - record.timestamp()).coerceAtLeast(0L)
         try {
-            executeWithRetry {
-                handler.process(key, value, record)
+            val (key, value) = deserializeWithRetry(record, deserializers)
+
+            try {
+                executeWithRetry(record) {
+                    handler.process(key, value, record)
+                }
+            } catch (error: Throwable) {
+                if (error.isCancellation()) {
+                    throw error
+                }
+
+                processingFailureHandler.handle(key, value, record, error)
+                telemetry.onRecordFailed(
+                    topic = record.topic(),
+                    partition = record.partition(),
+                    recordAgeMillis = recordAgeMillis,
+                    error = error,
+                    durationNanos = System.nanoTime() - startedAt
+                )
+                return
             }
+
+            if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
+                partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
+            }
+            telemetry.onRecordProcessed(
+                topic = record.topic(),
+                partition = record.partition(),
+                recordAgeMillis = recordAgeMillis,
+                durationNanos = System.nanoTime() - startedAt
+            )
         } catch (error: Throwable) {
             if (error.isCancellation()) {
                 throw error
             }
-
-            processingFailureHandler.handle(key, value, record, error)
-        }
-
-        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
-            partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
+            telemetry.onRecordFailed(
+                topic = record.topic(),
+                partition = record.partition(),
+                recordAgeMillis = recordAgeMillis,
+                error = error,
+                durationNanos = System.nanoTime() - startedAt
+            )
+            throw error
         }
     }
 
@@ -85,7 +116,10 @@ internal class RecordProcessor<K, V>(
     /**
      * Executes the user handler with the externally configured retry policy.
      */
-    private suspend fun executeWithRetry(block: suspend () -> Unit) {
+    private suspend fun executeWithRetry(
+        record: ConsumerRecord<ByteArray, ByteArray>,
+        block: suspend () -> Unit
+    ) {
         var retries = 0
 
         while (true) {
@@ -103,6 +137,7 @@ internal class RecordProcessor<K, V>(
                 }
 
                 retries++
+                telemetry.onRetry(record.topic(), record.partition(), retries, error)
                 if (rule.delay.isPositive()) {
                     delay(rule.delay)
                 }

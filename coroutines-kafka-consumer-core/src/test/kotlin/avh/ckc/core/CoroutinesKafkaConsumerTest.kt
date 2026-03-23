@@ -1,18 +1,22 @@
 package avh.ckc.core
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import kotlin.coroutines.EmptyCoroutineContext
 
 class CoroutinesKafkaConsumerTest {
 
@@ -144,5 +148,53 @@ class CoroutinesKafkaConsumerTest {
         } finally {
             dispatcher.close()
         }
+    }
+
+    @Test
+    fun `when poll loop fails then telemetry receives consumer failure`() = runBlocking {
+        val telemetry = RecordingTelemetry()
+        val expected = IllegalStateException("poll loop failed")
+        val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
+            deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+            workerConcurrency = 1,
+            consumerPollLoopConcurrency = 1,
+            commitIntervalMs = 1_000L,
+            workChannelCapacity = 16,
+            deserializationDispatcher = kotlinx.coroutines.Dispatchers.IO,
+            processingDispatcher = kotlinx.coroutines.Dispatchers.Default,
+            consumerProperties = stringSerdeProperties(),
+            retryPolicy = RetryPolicy.none(),
+            telemetry = telemetry,
+            handler = KafkaRecordHandler<String, String> { _, _, _ -> },
+            processingFailureHandler = ProcessingFailureHandler.skip<String, String>(),
+            parentContext = EmptyCoroutineContext,
+            topics = listOf("topic-a"),
+            topicsPattern = null,
+            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerTelemetry, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
+                object : ConsumerPollLoopControl {
+                    override fun start() = CoroutineScope(context).launch {
+                        throw expected
+                    }
+
+                    override fun prepareForShutdown() = CompletableDeferred(Unit)
+                }
+            },
+            workerDeserializerFactory = defaultWorkerDeserializerFactoryForTests(stringSerdeProperties())
+        )
+
+        consumer.start()
+        withTimeout(2_000) {
+            awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+                telemetry.consumerFailures.firstOrNull()
+            }
+        }
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                withTimeout(2_000) { consumer.stop() }
+            }
+        }
+
+        assertEquals(expected.message, thrown.message)
+        assertEquals(listOf(expected), telemetry.consumerFailures)
     }
 }
