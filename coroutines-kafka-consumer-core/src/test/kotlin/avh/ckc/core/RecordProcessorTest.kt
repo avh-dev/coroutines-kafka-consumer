@@ -197,7 +197,7 @@ class RecordProcessorTest {
         val state = registry.onPartitionsAssigned(listOf(TopicPartition(record.topic(), record.partition()))).single()
         state.init(25L)
         val processor = RecordProcessor(
-            overflowStrategy = OverflowStrategy.BACKPRESSURE,
+            deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
             deserializationDispatcher = Dispatchers.IO,
             handler = KafkaRecordHandler<Long, Long> { _, _, _ -> },
             retryPolicy = RetryPolicy.none(),
@@ -214,10 +214,10 @@ class RecordProcessorTest {
         handler: KafkaRecordHandler<K, V>,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
-        runtime: TestConsumerRuntime = testRuntime(strategy = OverflowStrategy.BACKPRESSURE),
+        runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
         partitionRegistry: PartitionRegistry = PartitionRegistry()
     ): RecordProcessor<K, V> = RecordProcessor(
-        overflowStrategy = runtime.overflowStrategy,
+        deliveryStrategy = runtime.deliveryStrategy,
         deserializationDispatcher = runtime.deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,

@@ -15,12 +15,12 @@ internal fun <K, V> createTestConsumer(
     retryPolicy: RetryPolicy = RetryPolicy.none(),
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
-    runtime: TestConsumerRuntime = testRuntime(strategy = OverflowStrategy.BACKPRESSURE),
+    runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
     workerDeserializerFactory: WorkerDeserializerFactory<K, V> = defaultWorkerDeserializerFactoryForTests(consumerProperties)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,
-        overflowStrategy = runtime.overflowStrategy,
+        deliveryStrategy = runtime.deliveryStrategy,
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
         commitIntervalMs = runtime.commitIntervalMs,

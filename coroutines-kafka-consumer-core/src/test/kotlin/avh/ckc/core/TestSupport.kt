@@ -24,13 +24,13 @@ suspend fun <T : Any> awaitFor(
 }
 
 fun testRuntime(
-    strategy: OverflowStrategy,
+    strategy: DeliveryStrategy,
     commitIntervalMs: Long = 60_000L,
     deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 ): TestConsumerRuntime =
     TestConsumerRuntime(
-        overflowStrategy = strategy,
+        deliveryStrategy = strategy,
         workerConcurrency = 1,
         consumerPollLoopConcurrency = 1,
         commitIntervalMs = commitIntervalMs,
@@ -81,7 +81,7 @@ fun recordsOf(
     ConsumerRecords(mapOf(topicPartition to records.toList()))
 
 data class TestConsumerRuntime(
-    val overflowStrategy: OverflowStrategy,
+    val deliveryStrategy: DeliveryStrategy,
     val workerConcurrency: Int,
     val consumerPollLoopConcurrency: Int,
     val commitIntervalMs: Long,

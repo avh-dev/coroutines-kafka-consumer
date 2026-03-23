@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
+import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.Deserializer
 import java.util.concurrent.atomic.AtomicReference
@@ -65,7 +66,7 @@ internal data class WorkerDeserializers<K, V>(
 private typealias PollLoopFactory = (
     id: Int,
     parentContext: CoroutineContext,
-    overflowStrategy: OverflowStrategy,
+    deliveryStrategy: DeliveryStrategy,
     commitIntervalMs: Long,
     consumerProperties: Map<String, Any?>,
     consumerConfigAdapter: ConsumerConfigAdapter,
@@ -90,7 +91,7 @@ internal typealias WorkerDeserializerFactory<K, V> = (workerIndex: Int) -> Worke
  * This class keeps the low-level constructor for internal wiring and tests.
  */
 class CoroutinesKafkaConsumer<K, V> internal constructor(
-    private val overflowStrategy: OverflowStrategy,
+    private val deliveryStrategy: DeliveryStrategy,
     private val workerConcurrency: Int,
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
@@ -112,7 +113,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
     private val recordProcessor = RecordProcessor(
-        overflowStrategy = overflowStrategy,
+        deliveryStrategy = deliveryStrategy,
         deserializationDispatcher = deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,
@@ -121,9 +122,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     )
     private val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
         capacity = workChannelCapacity,
-        onBufferOverflow = when (overflowStrategy) {
-            OverflowStrategy.BACKPRESSURE -> BufferOverflow.SUSPEND
-            OverflowStrategy.THROTTLING -> BufferOverflow.DROP_OLDEST
+        onBufferOverflow = when (deliveryStrategy) {
+            DeliveryStrategy.BACKPRESSURE -> BufferOverflow.SUSPEND
+            DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
         }
     )
     private val scope = CoroutineScope(
@@ -135,7 +136,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         pollLoopFactory(
             index,
             scope.coroutineContext,
-            overflowStrategy,
+            deliveryStrategy,
             commitIntervalMs,
             consumerProperties,
             consumerConfigAdapter,
@@ -171,11 +172,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerProperties.containsKey(VALUE_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$VALUE_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
+        if (deliveryStrategy == DeliveryStrategy.LOSSY) {
+            require(consumerConfigAdapter.getBoolean(ENABLE_AUTO_COMMIT_CONFIG) == true) {
+                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when deliveryStrategy=LOSSY"
+            }
+        }
     }
 
     internal constructor(
         consumerProperties: Map<String, Any?>,
-        overflowStrategy: OverflowStrategy,
+        deliveryStrategy: DeliveryStrategy,
         workerConcurrency: Int,
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
@@ -189,7 +195,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topicsPattern: Pattern? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
-        overflowStrategy = overflowStrategy,
+        deliveryStrategy = deliveryStrategy,
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
@@ -284,12 +290,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun defaultPollLoopFactory(): PollLoopFactory =
-    { id, context, overflowStrategy, commitIntervalMs, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
+    { id, context, deliveryStrategy, commitIntervalMs, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
         ConsumerPollLoopControlAdapter(
             ConsumerPollLoop(
                 id = id,
                 parentContext = context,
-                overflowStrategy = overflowStrategy,
+                deliveryStrategy = deliveryStrategy,
                 commitIntervalMs = commitIntervalMs,
                 consumerProperties = consumerProperties,
                 consumerConfigAdapter = consumerConfigAdapter,

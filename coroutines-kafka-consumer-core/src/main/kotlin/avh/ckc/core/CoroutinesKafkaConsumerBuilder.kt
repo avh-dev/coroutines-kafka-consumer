@@ -16,7 +16,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
      * Strategy used when workers cannot keep up with incoming records.
      */
-    var overflowStrategy: OverflowStrategy = OverflowStrategy.BACKPRESSURE
+    var deliveryStrategy: DeliveryStrategy = DeliveryStrategy.BACKPRESSURE
 
     /**
      * Number of worker coroutines processing records from the internal work channel.
@@ -116,7 +116,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
         return CoroutinesKafkaConsumer(
             consumerProperties = consumerProperties,
-            overflowStrategy = overflowStrategy,
+            deliveryStrategy = deliveryStrategy,
             workerConcurrency = workerConcurrency,
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
