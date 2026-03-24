@@ -24,6 +24,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.argThat
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration
@@ -326,6 +327,41 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when commit fails then next commit still advances to newer processed offset`() = runBlocking {
+            val fixture = PollLoopFixture(
+                deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                workChannelCapacity = 4,
+                assignmentPosition = 300L,
+                commitIntervalMs = 25L,
+                pollAnswer = { emptyRecords() }
+            )
+
+            whenever(fixture.consumer.commitSync(any<Map<TopicPartition, OffsetAndMetadata>>()))
+                .thenThrow(IllegalStateException("commit failed"))
+                .then { }
+
+            val job = fixture.start()
+            val state = fixture.awaitAssignedState()
+
+            state.trackerRefForTest().markProcessed(300L)
+            fixture.awaitCommitAttempts(1)
+
+            state.trackerRefForTest().markProcessed(301L)
+            fixture.awaitCommitAttempts(2)
+
+            verify(fixture.consumer, timeout(2_000).times(2)).commitSync(
+                argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                    get(fixture.topicPartition)?.offset() in listOf(300L, 301L)
+                }
+            )
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when shutdown drains stashed records then ready signal completes without resume`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
@@ -448,6 +484,10 @@ private class PollLoopFixture(
                 get(topicPartition)?.offset() == offset
             }
         )
+    }
+
+    fun awaitCommitAttempts(attempts: Int) {
+        verify(consumer, timeout(2_000).times(attempts)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
     }
 }
 

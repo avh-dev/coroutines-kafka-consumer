@@ -1,5 +1,7 @@
 import org.gradle.api.JavaVersion
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.kotlin.dsl.register
 
 plugins {
     kotlin("jvm")
@@ -27,6 +29,7 @@ val slf4jVersion = "2.0.12"
 val junitVersion = "5.10.2"
 val mockitoVersion = "5.12.0"
 val mockitoKotlinVersion = "5.3.1"
+val testcontainersVersion = "2.0.2"
 
 dependencies {
     implementation(kotlin("stdlib"))
@@ -48,6 +51,8 @@ dependencies {
     testImplementation("org.mockito:mockito-core")
     testImplementation("org.mockito:mockito-junit-jupiter")
     testImplementation("org.mockito.kotlin:mockito-kotlin")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-kafka")
 
     constraints {
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core") {
@@ -99,11 +104,23 @@ dependencies {
             version { require(mockitoKotlinVersion) }
             because("Tests use Kotlin-friendly Mockito DSL")
         }
+
+        testImplementation("org.testcontainers:testcontainers-junit-jupiter") {
+            version { require(testcontainersVersion) }
+            because("Integration tests run real dependencies via Testcontainers")
+        }
+
+        testImplementation("org.testcontainers:testcontainers-kafka") {
+            version { require(testcontainersVersion) }
+            because("Integration tests require a real Kafka broker")
+        }
     }
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
 
     testLogging {
         events("PASSED", "FAILED", "SKIPPED")
@@ -111,4 +128,26 @@ tasks.test {
         showCauses = true
         showStackTraces = true
     }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Runs integration tests against real dependencies"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    shouldRunAfter(tasks.test)
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+
+    testLogging {
+        events("PASSED", "FAILED", "SKIPPED")
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+}
+
+tasks.check {
+    dependsOn(integrationTest)
 }
