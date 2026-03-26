@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/eta"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "request_id": "{{randomValue type='UUID'}}",
+      "regulatory_trace_id": "mrb-{{jsonPath request.body '$.batch_id'}}-{{jsonPath request.body '$.cauldron_id'}}",
+      "magical_eta_units": "{{#assign 'temperature'}}{{jsonPath request.body '$.temperature_c'}}{{/assign}}{{#assign 'density'}}{{jsonPath request.body '$.density_sg'}}{{/assign}}{{math (math 420 '+' (math (abs (math temperature '-' 93.0)) '*' 11)) '+' (math (abs (math density '-' 1.18)) '*' 160)}}",
+      "moon_phase": "{{#if (matches (jsonPath request.body '$.temperature_c') '^(9[0-9]|[1-9][0-9]{2,})(\\.\\d+)?$')}}waxing_gibbous{{else}}waning_crescent{{/if}}",
+      "planetary_alignment": "{{#if (matches (jsonPath request.body '$.density_sg') '^1\\.(2[1-9]|[3-9][0-9]).*$')}}volatile{{else}}favorable{{/if}}"
+    },
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

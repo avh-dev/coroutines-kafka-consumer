@@ -1,0 +1,28 @@
+spring:
+  profiles:
+    default: ckc
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    listener:
+      auto-startup: false
+
+demo:
+  kafka:
+    enabled: false
+    bootstrap-servers: localhost:9092
+    lifecycle-group-id: potion-tracking-lifecycle
+    telemetry-group-id: potion-tracking-telemetry
+  topics:
+    order-lifecycle: potion.orders.lifecycle.v1
+    cauldron-telemetry: potion.cauldrons.telemetry.v1
+  model:
+    base-url: http://127.0.0.1:18080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
