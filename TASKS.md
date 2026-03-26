@@ -13,3 +13,4 @@
 | CORE-8 | Introduce a library-level telemetry API, wire it through consumer processing/polling paths, and prepare the ground for a Micrometer adapter.                                                            | DONE |
 | CORE-9 | Add integration tests with a real Kafka broker and strengthen failure-path coverage for commit/retry/rebalance scenarios.                                                                              | DONE |
 | DEMO-1 | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
+| DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                      | DONE |
