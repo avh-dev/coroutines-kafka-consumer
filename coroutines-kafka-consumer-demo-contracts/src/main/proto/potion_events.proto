@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package avh.ckc.demo.proto;
+
+option java_multiple_files = true;
+option java_package = "avh.ckc.demo.proto";
+
+message EventMetadata {
+  string event_id = 1;
+  string occurred_at = 2;
+  uint32 event_version = 3;
+  string regulatory_trace_id = 4;
+}
+
+enum OrderLifecycleEventType {
+  ORDER_LIFECYCLE_EVENT_TYPE_UNSPECIFIED = 0;
+  ORDER_CREATED = 1;
+  INGREDIENTS_PREPARED = 2;
+  CAULDRON_ASSIGNED = 3;
+  BREWING_STARTED = 4;
+  BREWING_COMPLETED = 5;
+  ORDER_DELIVERED = 6;
+  ORDER_CANCELLED = 7;
+}
+
+message OrderCreatedPayload {
+  string recipe_id = 1;
+  uint32 batch_size_ml = 2;
+}
+
+message IngredientsPreparedPayload {
+  repeated string ingredient_codes = 1;
+}
+
+message CauldronAssignedPayload {
+  string cauldron_id = 1;
+  string queue_name = 2;
+}
+
+message BrewingStartedPayload {
+  string started_at = 1;
+}
+
+message BrewingCompletedPayload {
+  string completed_at = 1;
+}
+
+message OrderDeliveredPayload {
+  string delivered_at = 1;
+}
+
+message OrderCancelledPayload {
+  string reason = 1;
+}
+
+message OrderLifecycleEvent {
+  EventMetadata metadata = 1;
+  string order_id = 2;
+  string batch_id = 3;
+  string potion_id = 4;
+  string recipe_id = 5;
+  string customer_id = 6;
+  string cauldron_id = 7;
+  OrderLifecycleEventType event_type = 8;
+
+  oneof payload {
+    OrderCreatedPayload order_created = 10;
+    IngredientsPreparedPayload ingredients_prepared = 11;
+    CauldronAssignedPayload cauldron_assigned = 12;
+    BrewingStartedPayload brewing_started = 13;
+    BrewingCompletedPayload brewing_completed = 14;
+    OrderDeliveredPayload order_delivered = 15;
+    OrderCancelledPayload order_cancelled = 16;
+  }
+}
+
+message CauldronTelemetryEvent {
+  EventMetadata metadata = 1;
+  string cauldron_id = 2;
+  string batch_id = 3;
+  double temperature_c = 4;
+  double density_sg = 5;
+  double bubble_rate_hz = 6;
+  double fuel_level_pct = 7;
+  double soot_index = 8;
+  bytes diagnostics_blob = 9;
+}
