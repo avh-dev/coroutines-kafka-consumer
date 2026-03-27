@@ -12,7 +12,7 @@ Current scope:
 
 It is intended to grow into the main load-test entry point for:
 
-- local end-to-end checks against Kafka, Redis, and WireMock
+- local end-to-end checks against Kafka, Redis, and demo stubs
 - cloud load tests with multiple generator shards
 
 ## Load Profile

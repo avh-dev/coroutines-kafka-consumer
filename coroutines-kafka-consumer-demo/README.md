@@ -17,13 +17,13 @@ The application is intended for functional checks and for comparing two consumer
 
 - protobuf payloads in Kafka via `:coroutines-kafka-consumer-demo-contracts`
 - Redis-backed order and batch state
-- WireMock-compatible external ETA model
+- external ETA model stub via `:coroutines-kafka-consumer-demo-stubs`
 - Prometheus metrics endpoint at `/actuator/prometheus`
 - read API for current order state at `/api/orders/{orderId}`
 
 ## Local Environment
 
-Local Kafka, Redis, WireMock, Prometheus, and Grafana are defined in [infra/local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
+Local Kafka, Redis, demo stubs, Prometheus, and Grafana are defined in [infra/local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
 
 Start the local environment:
 
