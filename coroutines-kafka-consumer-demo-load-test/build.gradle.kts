@@ -7,7 +7,7 @@ plugins {
     application
 }
 
-description = "Load-test traffic generator for coroutine Kafka consumer demo"
+description = "Load-test traffic generator for the demo Kafka consumer application"
 
 kotlin {
     jvmToolchain(21)
