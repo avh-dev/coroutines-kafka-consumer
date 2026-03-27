@@ -39,33 +39,39 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic potion.orders.lifecycle.v1 --partitions 6 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic potion.cauldrons.telemetry.v1 --partitions 6 --replication-factor 1
 
-  wiremock:
-    image: wiremock/wiremock:3.13.2-2
-    container_name: ckc-local-wiremock
+  demo-stubs:
+    container_name: ckc-local-demo-stubs
+    build:
+      context: ../..
+      dockerfile: coroutines-kafka-consumer-demo-stubs/Dockerfile
     ports:
       - "18080:8080"
-    command:
-      - --global-response-templating
-      - --verbose
-    volumes:
-      - ./wiremock/mappings:/home/wiremock/mappings:ro
+    environment:
+      PORT: 8080
+      STUB_WORKERS: 64
+      DELAY_P90_MS: 10
+      DELAY_P95_MS: 50
+      DELAY_P99_MS: 150
+      DELAY_P100_MS: 300
+      ERROR_RATE_PERCENT: 0
 
-  wiremock-lt:
-    image: wiremock/wiremock:3.13.2-2
-    container_name: ckc-local-wiremock-lt
+  demo-stubs-lt:
+    container_name: ckc-local-demo-stubs-lt
     profiles:
       - lt
+    build:
+      context: ../..
+      dockerfile: coroutines-kafka-consumer-demo-stubs/Dockerfile
     ports:
       - "18081:8080"
-    command:
-      - --disable-request-journal
-      - --async-response-enabled
-      - --async-response-threads=64
-      - --container-threads=200
-      - --jetty-acceptor-threads=4
-      - --jetty-accept-queue-size=1000
-    volumes:
-      - ./wiremock/mappings-lt:/home/wiremock/mappings:ro
+    environment:
+      PORT: 8080
+      STUB_WORKERS: 128
+      DELAY_P90_MS: 2
+      DELAY_P95_MS: 10
+      DELAY_P99_MS: 30
+      DELAY_P100_MS: 75
+      ERROR_RATE_PERCENT: 0
 
   redis:
     image: redis:7.4-alpine

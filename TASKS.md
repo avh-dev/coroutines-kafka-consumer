@@ -14,6 +14,7 @@
 | CORE-9 | Add integration tests with a real Kafka broker and strengthen failure-path coverage for commit/retry/rebalance scenarios.                                                                              | DONE |
 | DEMO-1 | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                      | DONE |
-| DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, LT-oriented WireMock profile, and improve CKC demo failure visibility in logs.                    | DONE |
+| DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                  | DONE |
 | DEMO-4 | Add the initial load-test traffic generator module, wire it into the Gradle build, and make demo Kafka enablement configurable via environment variables.                                           | DONE |
+| DEMO-6 | Replace WireMock in the local demo environment with a dedicated lightweight `demo-stubs` service that exposes `/eta` and supports configurable latency profiles for local resiliency testing.         | DONE |
 | DEMO-5 | Rename the load-test module to `coroutines-kafka-consumer-demo-load-test` to make demo-related modules explicit and consistent with upcoming demo-side support services.                             | DONE |

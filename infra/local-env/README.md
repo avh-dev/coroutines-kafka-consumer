@@ -1,9 +1,9 @@
-Local environment for `coroutines-kafka-consumer-demo` and future `load-test`.
+Local environment for `coroutines-kafka-consumer-demo` and future demo support services.
 
 Services:
 - Kafka on `localhost:9092`
-- WireMock on `http://localhost:18080`
-- WireMock LT on `http://localhost:18081` when profile `lt` is enabled
+- Demo stubs on `http://localhost:18080`
+- Demo stubs LT on `http://localhost:18081` when profile `lt` is enabled
 - Redis on `localhost:6379`
 - Prometheus on `http://localhost:9090`
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
@@ -13,7 +13,7 @@ Start:
 docker compose -f infra/local-env/docker-compose.yml up -d
 ```
 
-Start with the LT WireMock profile:
+Start with the LT demo-stubs profile:
 ```bash
 docker compose -f infra/local-env/docker-compose.yml --profile lt up -d
 ```
@@ -27,14 +27,14 @@ Created topics:
 - `potion.orders.lifecycle.v1`
 - `potion.cauldrons.telemetry.v1`
 
-WireMock exposes:
+Demo stubs exposes:
 - `POST /eta`
+- `GET /health`
 
-LT WireMock notes:
-- disables request journal
-- enables async responses
-- increases Jetty thread/queue settings
-- uses a lightweight static response mapping on `localhost:18081`
+LT demo-stubs notes:
+- uses a smaller latency profile on `localhost:18081`
+- keeps the same response schema as the demo ETA model client
+- avoids heavyweight mock-server templating and request journaling overhead entirely
 
 Example application startup:
 ```bash
