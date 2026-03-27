@@ -16,3 +16,4 @@
 | DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                      | DONE |
 | DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, LT-oriented WireMock profile, and improve CKC demo failure visibility in logs.                    | DONE |
 | DEMO-4 | Add the initial load-test traffic generator module, wire it into the Gradle build, and make demo Kafka enablement configurable via environment variables.                                           | DONE |
+| DEMO-5 | Rename the load-test module to `coroutines-kafka-consumer-demo-load-test` to make demo-related modules explicit and consistent with upcoming demo-side support services.                             | DONE |
