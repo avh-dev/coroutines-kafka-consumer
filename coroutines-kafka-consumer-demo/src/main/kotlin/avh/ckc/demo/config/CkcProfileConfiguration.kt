@@ -58,25 +58,46 @@ private class CkcConsumerRuntime(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId),
             consumerTelemetry
         ) { _, event ->
-            brewingStateRepository.applyLifecycleEvent(event).await()
+            try {
+                brewingStateRepository.applyLifecycleEvent(event).await()
+            } catch (error: Throwable) {
+                logger.error(
+                    "CKC lifecycle processing failed for orderId={}, eventType={}",
+                    event.orderId,
+                    event.eventType.name,
+                    error
+                )
+                throw error
+            }
         }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId),
             consumerTelemetry
         ) { _, telemetry ->
-            val batchId = telemetry.batchId.ifBlank { brewingStateRepository.findActiveBatchId(telemetry.cauldronId).await() ?: "" }
-            if (batchId.isBlank()) {
-                return@telemetryConsumer
+            try {
+                val batchId = telemetry.batchId.ifBlank { brewingStateRepository.findActiveBatchId(telemetry.cauldronId).await() ?: "" }
+                if (batchId.isBlank()) {
+                    return@telemetryConsumer
+                }
+                val batchState = brewingStateRepository.findBatch(batchId).await() ?: return@telemetryConsumer
+                val estimate = etaRecalculationService.recalculate(batchState, telemetry).await()
+                logger.info(
+                    "CKC ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
+                    estimate.batchId,
+                    estimate.cauldronId,
+                    estimate.etaSeconds
+                )
+            } catch (error: Throwable) {
+                logger.error(
+                    "CKC telemetry processing failed for cauldronId={}, batchId={}, occurredAt={}",
+                    telemetry.cauldronId,
+                    telemetry.batchId,
+                    telemetry.metadata.occurredAt,
+                    error
+                )
+                throw error
             }
-            val batchState = brewingStateRepository.findBatch(batchId).await() ?: return@telemetryConsumer
-            val estimate = etaRecalculationService.recalculate(batchState, telemetry).await()
-            logger.info(
-                "CKC ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
-                estimate.batchId,
-                estimate.cauldronId,
-                estimate.etaSeconds
-            )
         }
 
         lifecycleConsumer.start()

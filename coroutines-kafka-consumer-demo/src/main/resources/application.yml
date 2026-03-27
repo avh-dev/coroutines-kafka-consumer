@@ -11,7 +11,7 @@ spring:
 
 demo:
   kafka:
-    enabled: false
+    enabled: ${KAFKA_ENABLED:false}
     bootstrap-servers: localhost:9092
     lifecycle-group-id: potion-tracking-lifecycle
     telemetry-group-id: potion-tracking-telemetry

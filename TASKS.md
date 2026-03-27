@@ -1,7 +1,7 @@
 # Tasks
 
 | Task   | Description                                                                                                                                                                                                | Status |
-|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|  |
+|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | CORE-1 | Implement `OffsetTracker`, tests, and JMH benchmarks.                                                                                                                                                      | DONE |
 | CORE-2 | Move experiment candidates and benchmarks into a separate `coroutines-kafka-consumer-experiments` module.                                                                                                  | DONE |
 | CORE-3 | Increase `OffsetTracker` test coverage to 100%.                                                                                                                                                            | DONE |
@@ -14,3 +14,5 @@
 | CORE-9 | Add integration tests with a real Kafka broker and strengthen failure-path coverage for commit/retry/rebalance scenarios.                                                                              | DONE |
 | DEMO-1 | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                      | DONE |
+| DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, LT-oriented WireMock profile, and improve CKC demo failure visibility in logs.                    | DONE |
+| DEMO-4 | Add the initial load-test traffic generator module, wire it into the Gradle build, and make demo Kafka enablement configurable via environment variables.                                           | DONE |

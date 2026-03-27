@@ -23,7 +23,7 @@ The application is intended for functional checks and for comparing two consumer
 
 ## Local Environment
 
-Local Kafka, Redis, and WireMock are defined in [infra/local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
+Local Kafka, Redis, WireMock, Prometheus, and Grafana are defined in [infra/local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
 
 Start the local environment:
 
@@ -49,10 +49,18 @@ If `8080` is already occupied, override the port:
 ./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--server.port=8081 --demo.kafka.enabled=true'
 ```
 
+If you override the app port, update `infra/local-env/prometheus/prometheus.yml` to match it.
+
 ## Endpoints
 
 - `GET /actuator/prometheus`
 - `GET /api/orders/{orderId}`
+
+## Observability
+
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Dashboard: `CKC Overview` is provisioned automatically
 
 ## Topics
 

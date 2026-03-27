@@ -50,6 +50,23 @@ services:
     volumes:
       - ./wiremock/mappings:/home/wiremock/mappings:ro
 
+  wiremock-lt:
+    image: wiremock/wiremock:3.13.2-2
+    container_name: ckc-local-wiremock-lt
+    profiles:
+      - lt
+    ports:
+      - "18081:8080"
+    command:
+      - --disable-request-journal
+      - --async-response-enabled
+      - --async-response-threads=64
+      - --container-threads=200
+      - --jetty-acceptor-threads=4
+      - --jetty-accept-queue-size=1000
+    volumes:
+      - ./wiremock/mappings-lt:/home/wiremock/mappings:ro
+
   redis:
     image: redis:7.4-alpine
     container_name: ckc-local-redis
@@ -61,3 +78,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: ckc-local-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: ckc-local-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
