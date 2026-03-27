@@ -4,7 +4,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
 import org.apache.kafka.clients.consumer.*
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
-import org.apache.kafka.clients.consumer.internals.NoOpConsumerRebalanceListener
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.WakeupException
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
@@ -143,7 +142,14 @@ internal class ConsumerPollLoop(
         if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE)
             backpressureRebalanceListener(consumer)
         else
-            NoOpConsumerRebalanceListener()
+            noOpRebalanceListener()
+
+    private fun noOpRebalanceListener(): ConsumerRebalanceListener =
+        object : ConsumerRebalanceListener {
+            override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
+
+            override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) = Unit
+        }
 
     private fun backpressureRebalanceListener(consumer: KafkaConsumer<ByteArray, ByteArray>): ConsumerRebalanceListener =
         object : ConsumerRebalanceListener {
