@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.repository.BrewingStateRepository
+import avh.ckc.demo.service.BrewingLifecycleService
 import avh.ckc.demo.service.EtaRecalculationService
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component
 @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
 class SpringKafkaTrackingListeners(
     private val brewingStateRepository: BrewingStateRepository,
+    private val brewingLifecycleService: BrewingLifecycleService,
     private val etaRecalculationService: EtaRecalculationService
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -30,7 +32,7 @@ class SpringKafkaTrackingListeners(
         @Header(KafkaHeaders.RECEIVED_KEY, required = false) key: String?,
         event: OrderLifecycleEvent
     ) {
-        brewingStateRepository.applyLifecycleEvent(event).toCompletableFuture().join()
+        brewingLifecycleService.applyLifecycleEvent(event).toCompletableFuture().join()
         logger.debug("Spring Kafka lifecycle event received for key={}, order={}", key, event.orderId)
     }
 
