@@ -1,0 +1,10 @@
+aws_region          = "eu-central-1"
+environment         = "dev"
+owner               = "local-user"
+project             = "ckc-load-lab"
+kubernetes_version  = "1.33"
+node_instance_types = ["m7i.large"]
+node_desired_size   = 2
+node_min_size       = 1
+node_max_size       = 4
+node_disk_size      = 100
