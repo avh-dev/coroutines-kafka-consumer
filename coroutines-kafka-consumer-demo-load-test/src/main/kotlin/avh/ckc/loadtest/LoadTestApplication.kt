@@ -1,4 +1,4 @@
-package avh.ckc.loadtest
+    package avh.ckc.loadtest
 
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.domain.OrderLifecycleStateMachine

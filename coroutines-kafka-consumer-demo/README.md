@@ -23,7 +23,7 @@ The application is intended for functional checks and for comparing two consumer
 
 ## Local Environment
 
-Local Kafka, Redis, demo stubs, Prometheus, and Grafana are defined in [infra/local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
+Local Kafka, Redis, demo stubs, Prometheus, and Grafana are defined in `infra/local-env/README.md`.
 
 Start the local environment:
 

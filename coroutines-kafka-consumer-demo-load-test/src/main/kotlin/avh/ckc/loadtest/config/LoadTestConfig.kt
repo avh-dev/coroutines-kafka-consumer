@@ -25,7 +25,7 @@ data class LoadTestConfig(
                 baseRate = environment["BASE_RATE"]?.toIntOrNull() ?: 1000,
                 telemetryRateMultiplier = environment["TELEMETRY_RATE_MULTIPLIER"]?.toDoubleOrNull() ?: 10.0,
                 loadProfile = environment["LOAD_PROFILE"]
-                    ?: "0 -> (200s, warmup) -> 100 -> (1600s, maximum) -> 100 -> (100s, cool-down) -> 0",
+                    ?: "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0",
                 cauldronCount = environment["CAULDRON_COUNT"]?.toIntOrNull() ?: 8,
                 ordersPerBatch = environment["ORDERS_PER_BATCH"]?.toIntOrNull() ?: 3,
                 maxBatchWait = Duration.ofSeconds(environment["MAX_BATCH_WAIT_SECONDS"]?.toLongOrNull() ?: 30L),

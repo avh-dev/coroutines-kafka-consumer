@@ -6,6 +6,7 @@ import avh.ckc.demo.DemoConsumers
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.repository.BrewingStateRepository
+import avh.ckc.demo.service.BrewingLifecycleService
 import avh.ckc.demo.service.EtaRecalculationService
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.runBlocking
@@ -25,12 +26,14 @@ class CkcProfileConfiguration {
     fun ckcConsumerRuntime(
         properties: DemoApplicationProperties,
         brewingStateRepository: BrewingStateRepository,
+        brewingLifecycleService: BrewingLifecycleService,
         etaRecalculationService: EtaRecalculationService,
         consumerTelemetry: ConsumerTelemetry
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
             brewingStateRepository,
+            brewingLifecycleService,
             etaRecalculationService,
             consumerTelemetry
         )
@@ -39,6 +42,7 @@ class CkcProfileConfiguration {
 private class CkcConsumerRuntime(
     private val properties: DemoApplicationProperties,
     private val brewingStateRepository: BrewingStateRepository,
+    private val brewingLifecycleService: BrewingLifecycleService,
     private val etaRecalculationService: EtaRecalculationService,
     private val consumerTelemetry: ConsumerTelemetry
 ) : SmartLifecycle {
@@ -59,7 +63,7 @@ private class CkcConsumerRuntime(
             consumerTelemetry
         ) { _, event ->
             try {
-                brewingStateRepository.applyLifecycleEvent(event).await()
+                brewingLifecycleService.applyLifecycleEvent(event).await()
             } catch (error: Throwable) {
                 logger.error(
                     "CKC lifecycle processing failed for orderId={}, eventType={}",
