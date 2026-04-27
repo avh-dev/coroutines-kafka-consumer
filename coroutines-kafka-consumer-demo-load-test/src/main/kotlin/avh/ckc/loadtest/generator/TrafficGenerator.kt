@@ -38,6 +38,7 @@ class TrafficGenerator(
     private val batchSequence = AtomicLong(0)
     private var orderAccumulator = 0.0
     private var telemetryAccumulator = 0.0
+    private var lastHeartbeatAt = Instant.EPOCH
 
     suspend fun run() {
         val startedAt = shardContext.testRunStartedAt ?: Instant.now()
@@ -48,6 +49,7 @@ class TrafficGenerator(
             val now = Instant.now()
             val activePhase = scenario.phaseAt(now, startedAt, context)
             completeFinishedBatches(now)
+            maybeLogHeartbeat(now, activePhase?.name ?: "completed")
 
             if (activePhase == null) {
                 if (activeBatches.isEmpty() && pendingOrders.values.all { it.isEmpty() }) {
@@ -72,6 +74,18 @@ class TrafficGenerator(
             emitTelemetry(now, telemetryAccumulator, tickSeconds)
             delay(config.tickInterval.toMillis())
         }
+    }
+
+    private fun maybeLogHeartbeat(now: Instant, phaseName: String) {
+        if (Duration.between(lastHeartbeatAt, now) < Duration.ofSeconds(15)) {
+            return
+        }
+        lastHeartbeatAt = now
+        val pendingOrderCount = pendingOrders.values.sumOf { it.size }
+        producers.logSnapshot(
+            "heartbeat phase=$phaseName pendingOrders=$pendingOrderCount activeBatches=${activeBatches.size} " +
+                "cauldronsAvailable=${cauldrons.size} generatedOrders=${orderSequence.get()} generatedBatches=${batchSequence.get()}"
+        )
     }
 
     private fun createOrder(now: Instant) {

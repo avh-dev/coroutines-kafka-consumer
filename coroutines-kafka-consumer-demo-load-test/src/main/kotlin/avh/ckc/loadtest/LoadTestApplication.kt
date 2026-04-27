@@ -21,6 +21,8 @@ fun main() = runBlocking {
     val preview = OrderLifecycleStateMachine(shardContext).createOrderBatch(orderIndex = 1, batchSlot = 0)
 
     println("load-test shard=${shardContext.shardIndex}/${shardContext.totalShards} runId=${shardContext.testRunId ?: "local"}")
+    println("bootstrapServers=${config.bootstrapServers}")
+    println("topics lifecycle=${config.orderLifecycleTopic} telemetry=${config.cauldronTelemetryTopic}")
     println("phase=${currentPhase?.name ?: "completed"} rate=${currentPhase?.currentRate() ?: 0.0} baseRate=${config.baseRate}")
     println("preview lifecycle events=${preview.lifecycleEvents.map { it.eventType.name }}")
 

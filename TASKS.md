@@ -20,4 +20,5 @@
 | DEMO-6 | Replace WireMock in the local demo environment with a dedicated lightweight `demo-stubs` service that exposes `/eta` and supports configurable latency profiles for local resiliency testing.         | DONE |
 | DEMO-5 | Rename the load-test module to `coroutines-kafka-consumer-demo-load-test` to make demo-related modules explicit and consistent with upcoming demo-side support services.                              | DONE |
 | DEMO-7 | Demo logic updated                                                                                                                                                                                    | DONE |
+| DEMO-8 | Add publish-side diagnostics to the demo load-test so AWS smoke runs expose producer acknowledgements, failures, and generator heartbeats without relying on SLF4J.                                  | DONE |
 | INFRA-1 | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
