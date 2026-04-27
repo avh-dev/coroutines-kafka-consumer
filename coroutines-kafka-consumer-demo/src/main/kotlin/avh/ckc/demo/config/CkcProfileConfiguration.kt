@@ -17,6 +17,7 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import org.springframework.beans.factory.annotation.Qualifier
 
 @Configuration(proxyBeanMethods = false)
 @Profile("ckc")
@@ -28,14 +29,16 @@ class CkcProfileConfiguration {
         brewingStateRepository: BrewingStateRepository,
         brewingLifecycleService: BrewingLifecycleService,
         etaRecalculationService: EtaRecalculationService,
-        consumerTelemetry: ConsumerTelemetry
+        @Qualifier("consumerTelemetry") consumerTelemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
+        @Qualifier("lifecycleConsumerTelemetry") lifecycleConsumerTelemetry: ConsumerTelemetry<String, OrderLifecycleEvent>
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
             brewingStateRepository,
             brewingLifecycleService,
             etaRecalculationService,
-            consumerTelemetry
+            consumerTelemetry,
+            lifecycleConsumerTelemetry
         )
 }
 
@@ -44,7 +47,8 @@ private class CkcConsumerRuntime(
     private val brewingStateRepository: BrewingStateRepository,
     private val brewingLifecycleService: BrewingLifecycleService,
     private val etaRecalculationService: EtaRecalculationService,
-    private val consumerTelemetry: ConsumerTelemetry
+    private val consumerTelemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
+    private val lifecycleConsumerTelemetry: ConsumerTelemetry<String, OrderLifecycleEvent>
 ) : SmartLifecycle {
     private val logger = LoggerFactory.getLogger(javaClass)
     private lateinit var lifecycleConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
@@ -60,7 +64,7 @@ private class CkcConsumerRuntime(
 
         lifecycleConsumer = DemoConsumers.lifecycleConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId),
-            consumerTelemetry
+            lifecycleConsumerTelemetry
         ) { _, event ->
             try {
                 brewingLifecycleService.applyLifecycleEvent(event).await()

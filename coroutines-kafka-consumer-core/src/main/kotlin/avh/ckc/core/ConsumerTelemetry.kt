@@ -1,19 +1,40 @@
 package avh.ckc.core
 
-interface ConsumerTelemetry {
+import org.apache.kafka.clients.consumer.ConsumerRecord
+
+interface ConsumerTelemetry<K, V> {
     fun onPoll(recordsCount: Int, durationNanos: Long) = Unit
 
-    fun onRecordProcessed(topic: String, partition: Int, recordAgeMillis: Long, durationNanos: Long) = Unit
+    fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<ByteArray, ByteArray>,
+        recordAgeMillis: Long,
+        durationNanos: Long
+    ) = Unit
 
-    fun onRecordFailed(topic: String, partition: Int, recordAgeMillis: Long, error: Throwable, durationNanos: Long) = Unit
+    fun onRecordFailed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<ByteArray, ByteArray>,
+        recordAgeMillis: Long,
+        error: Throwable,
+        durationNanos: Long
+    ) = Unit
 
-    fun onRetry(topic: String, partition: Int, attempt: Int, error: Throwable) = Unit
+    fun onRetry(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<ByteArray, ByteArray>,
+        attempt: Int,
+        error: Throwable
+    ) = Unit
 
     fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) = Unit
 
     fun onConsumerFailure(error: Throwable) = Unit
 
     companion object {
-        val NOOP: ConsumerTelemetry = object : ConsumerTelemetry {}
+        val NOOP: ConsumerTelemetry<Any?, Any?> = object : ConsumerTelemetry<Any?, Any?> {}
     }
 }

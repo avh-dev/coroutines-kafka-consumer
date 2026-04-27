@@ -13,7 +13,8 @@ internal fun <K, V> createTestConsumer(
     consumerProperties: Map<String, Any?>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy = RetryPolicy.none(),
-    telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
+    @Suppress("UNCHECKED_CAST")
+    telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
     runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),

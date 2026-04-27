@@ -50,8 +50,8 @@ internal interface ConsumerPollLoopControl {
     fun prepareForShutdown(): Deferred<Unit>
 }
 
-private class ConsumerPollLoopControlAdapter(
-    private val delegate: ConsumerPollLoop
+private class ConsumerPollLoopControlAdapter<K, V>(
+    private val delegate: ConsumerPollLoop<K, V>
 ) : ConsumerPollLoopControl {
     override fun start(): Job = delegate.start()
 
@@ -63,12 +63,12 @@ internal data class WorkerDeserializers<K, V>(
     val valueDeserializer: Deserializer<V>
 )
 
-private typealias PollLoopFactory = (
+private typealias PollLoopFactory<K, V> = (
     id: Int,
     parentContext: CoroutineContext,
     deliveryStrategy: DeliveryStrategy,
     commitIntervalMs: Long,
-    telemetry: ConsumerTelemetry,
+    telemetry: ConsumerTelemetry<K, V>,
     consumerProperties: Map<String, Any?>,
     consumerConfigAdapter: ConsumerConfigAdapter,
     topics: List<String>?,
@@ -102,12 +102,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
-    private val telemetry: ConsumerTelemetry,
+    private val telemetry: ConsumerTelemetry<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
-    private val pollLoopFactory: PollLoopFactory,
+    private val pollLoopFactory: PollLoopFactory<K, V>,
     private val workerDeserializerFactory: WorkerDeserializerFactory<K, V>
 ) {
     private val lifecycleMutex = Mutex()
@@ -193,7 +193,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
-        telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
+        @Suppress("UNCHECKED_CAST")
+        telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
@@ -216,7 +217,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics = topics,
         topicsPattern = topicsPattern,
         pollLoopFactory = defaultPollLoopFactory(),
-        workerDeserializerFactory = defaultWorkerDeserializerFactory(consumerProperties)
+        workerDeserializerFactory = defaultWorkerDeserializerFactory<K, V>(consumerProperties)
     )
 
     fun start() {
@@ -297,10 +298,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
-private fun defaultPollLoopFactory(): PollLoopFactory =
+private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
     { id, context, deliveryStrategy, commitIntervalMs, telemetry, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
         ConsumerPollLoopControlAdapter(
-            ConsumerPollLoop(
+            ConsumerPollLoop<K, V>(
                 id = id,
                 parentContext = context,
                 deliveryStrategy = deliveryStrategy,

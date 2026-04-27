@@ -23,7 +23,7 @@ internal class RecordProcessor<K, V>(
     private val deserializationDispatcher: CoroutineDispatcher,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
-    private val telemetry: ConsumerTelemetry,
+    private val telemetry: ConsumerTelemetry<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val partitionRegistry: PartitionRegistry
 ) {
@@ -40,7 +40,7 @@ internal class RecordProcessor<K, V>(
             val (key, value) = deserializeWithRetry(record, deserializers)
 
             try {
-                executeWithRetry(record) {
+                executeWithRetry(record, key, value) {
                     handler.process(key, value, record)
                 }
             } catch (error: Throwable) {
@@ -50,8 +50,9 @@ internal class RecordProcessor<K, V>(
 
                 processingFailureHandler.handle(key, value, record, error)
                 telemetry.onRecordFailed(
-                    topic = record.topic(),
-                    partition = record.partition(),
+                    key = key,
+                    value = value,
+                    record = record,
                     recordAgeMillis = recordAgeMillis,
                     error = error,
                     durationNanos = System.nanoTime() - startedAt
@@ -63,8 +64,9 @@ internal class RecordProcessor<K, V>(
                 partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
             }
             telemetry.onRecordProcessed(
-                topic = record.topic(),
-                partition = record.partition(),
+                key = key,
+                value = value,
+                record = record,
                 recordAgeMillis = recordAgeMillis,
                 durationNanos = System.nanoTime() - startedAt
             )
@@ -73,8 +75,9 @@ internal class RecordProcessor<K, V>(
                 throw error
             }
             telemetry.onRecordFailed(
-                topic = record.topic(),
-                partition = record.partition(),
+                key = null,
+                value = null,
+                record = record,
                 recordAgeMillis = recordAgeMillis,
                 error = error,
                 durationNanos = System.nanoTime() - startedAt
@@ -118,6 +121,8 @@ internal class RecordProcessor<K, V>(
      */
     private suspend fun executeWithRetry(
         record: ConsumerRecord<ByteArray, ByteArray>,
+        key: K?,
+        value: V?,
         block: suspend () -> Unit
     ) {
         var retries = 0
@@ -137,7 +142,7 @@ internal class RecordProcessor<K, V>(
                 }
 
                 retries++
-                telemetry.onRetry(record.topic(), record.partition(), retries, error)
+                telemetry.onRetry(key = key, value = value, record = record, attempt = retries, error = error)
                 if (rule.delay.isPositive()) {
                     delay(rule.delay)
                 }

@@ -152,7 +152,7 @@ class CoroutinesKafkaConsumerTest {
 
     @Test
     fun `when poll loop fails then telemetry receives consumer failure`() = runBlocking {
-        val telemetry = RecordingTelemetry()
+        val telemetry = RecordingTelemetry<String, String>()
         val expected = IllegalStateException("poll loop failed")
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
@@ -170,7 +170,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerTelemetry, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerTelemetry<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected

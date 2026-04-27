@@ -31,6 +31,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testImplementation("io.micrometer:micrometer-core")
+    testImplementation("io.micrometer:micrometer-registry-prometheus")
 
     constraints {
         implementation("io.micrometer:micrometer-core") {
@@ -41,6 +42,11 @@ dependencies {
         testImplementation("io.micrometer:micrometer-core") {
             version { require(micrometerVersion) }
             because("Tests verify metrics against a real registry")
+        }
+
+        testImplementation("io.micrometer:micrometer-registry-prometheus") {
+            version { require(micrometerVersion) }
+            because("Tests verify Prometheus-specific label compatibility")
         }
 
         testImplementation("org.junit.jupiter:junit-jupiter-api") {

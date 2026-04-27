@@ -22,6 +22,8 @@ import org.mockito.Mockito.never
 import org.mockito.Mockito.timeout
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argThat
+import org.mockito.kotlin.doNothing
+import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
@@ -217,7 +219,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when partitions assigned in backpressure mode then registry is updated and position is queried`() = runBlocking {
-            val telemetry = RecordingTelemetry()
+            val telemetry = RecordingTelemetry<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
                 telemetry = telemetry,
@@ -273,7 +275,7 @@ class ConsumerPollLoopTest {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
             val revokeRequested = AtomicBoolean(false)
             val revokedOnce = AtomicBoolean(false)
-            val telemetry = RecordingTelemetry()
+            val telemetry = RecordingTelemetry<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
                 telemetry = telemetry,
@@ -295,6 +297,7 @@ class ConsumerPollLoopTest {
             revokeRequested.set(true)
 
             fixture.awaitCommit(101L)
+            awaitFor(2_000L, 10L) { telemetry.commits.firstOrNull() }
             assertEquals(true, telemetry.commits.single().success)
 
             job.cancel()
@@ -336,9 +339,10 @@ class ConsumerPollLoopTest {
                 pollAnswer = { emptyRecords() }
             )
 
-            whenever(fixture.consumer.commitSync(any<Map<TopicPartition, OffsetAndMetadata>>()))
-                .thenThrow(IllegalStateException("commit failed"))
-                .then { }
+            doThrow(IllegalStateException("commit failed"))
+                .doNothing()
+                .whenever(fixture.consumer)
+                .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
 
             val job = fixture.start()
             val state = fixture.awaitAssignedState()
@@ -406,7 +410,8 @@ class ConsumerPollLoopTest {
 
 private class PollLoopFixture(
     deliveryStrategy: DeliveryStrategy,
-    telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP,
+    @Suppress("UNCHECKED_CAST")
+    telemetry: ConsumerTelemetry<Any?, Any?> = ConsumerTelemetry.NOOP as ConsumerTelemetry<Any?, Any?>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
     commitIntervalMs: Long = 60_000L,
@@ -425,7 +430,7 @@ private class PollLoopFixture(
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
     private val consumerProperties = testConsumerProperties()
-    val loop = ConsumerPollLoop(
+    val loop = ConsumerPollLoop<Any?, Any?>(
         id = 1,
         parentContext = Dispatchers.Default,
         deliveryStrategy = deliveryStrategy,

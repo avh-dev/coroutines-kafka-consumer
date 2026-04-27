@@ -99,7 +99,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry()
+        val telemetry = RecordingTelemetry<String, String>()
         val processed = CopyOnWriteArrayList<String>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId) + mapOf(
@@ -240,7 +240,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry()
+        val telemetry = RecordingTelemetry<String, String>()
         val recovered = CompletableDeferred<Unit>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
@@ -313,7 +313,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry()
+        val telemetry = RecordingTelemetry<Long, Long>()
         val consumer = coroutinesKafkaConsumer<Long, Long>(
             consumerProperties = mapOf(
                 "bootstrap.servers" to kafka.bootstrapServers,
@@ -362,7 +362,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         createTopic(topic)
 
         val attempts = AtomicInteger()
-        val telemetry = RecordingTelemetry()
+        val telemetry = RecordingTelemetry<String, String>()
         val processed = CompletableDeferred<String?>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
@@ -391,7 +391,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             assertEquals("retry-payload", withTimeout(15_000) { processed.await() })
             awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
                 telemetry.takeIf {
-                    it.retries.map(RetryCall::attempt) == listOf(1, 2) &&
+                    it.retries.map { retry -> retry.attempt } == listOf(1, 2) &&
                             it.processed.size == 1 &&
                             it.polls.isNotEmpty()
                 }
