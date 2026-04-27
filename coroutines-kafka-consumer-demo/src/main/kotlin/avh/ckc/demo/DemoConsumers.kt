@@ -14,7 +14,7 @@ import org.apache.kafka.common.serialization.StringDeserializer
 object DemoConsumers {
     fun lifecycleConsumer(
         baseProperties: Map<String, Any>,
-        telemetry: ConsumerTelemetry,
+        telemetry: ConsumerTelemetry<String, OrderLifecycleEvent>,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -38,7 +38,7 @@ object DemoConsumers {
 
     fun telemetryConsumer(
         baseProperties: Map<String, Any>,
-        telemetry: ConsumerTelemetry,
+        telemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(

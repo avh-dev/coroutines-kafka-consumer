@@ -36,12 +36,12 @@ import kotlin.time.toKotlinDuration
  * - Pause/resume applies to all assigned partitions.
  * - Offsets are committed only when contiguous-ready (via [PartitionState]).
  */
-internal class ConsumerPollLoop(
+internal class ConsumerPollLoop<K, V>(
     val id: Int,
     parentContext: CoroutineContext,
     private val deliveryStrategy: DeliveryStrategy,
     private val commitIntervalMs: Long,
-    private val telemetry: ConsumerTelemetry,
+    private val telemetry: ConsumerTelemetry<K, V>,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: ConsumerConfigAdapter,
     private val topics: List<String>?,

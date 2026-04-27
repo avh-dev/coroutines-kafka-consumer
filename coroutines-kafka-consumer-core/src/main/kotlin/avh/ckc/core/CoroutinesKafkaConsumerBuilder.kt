@@ -56,7 +56,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
      * Telemetry sink used to observe runtime activity and failures.
      */
-    var telemetry: ConsumerTelemetry = ConsumerTelemetry.NOOP
+    @Suppress("UNCHECKED_CAST")
+    var telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>
 
     /**
      * Fallback callback invoked after handler retries are exhausted.

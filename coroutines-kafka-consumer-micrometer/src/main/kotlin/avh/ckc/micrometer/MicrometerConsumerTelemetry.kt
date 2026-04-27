@@ -7,57 +7,155 @@ import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Tags
 import io.micrometer.core.instrument.Timer
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
 
+private val reservedRecordTagKeys = setOf("topic", "partition", "error", "attempt", "success")
+
+/**
+ * Definition of a custom record tag that may appear on record-level metrics.
+ *
+ * The metric schema is owned by [MicrometerConsumerTelemetry] and must stay stable for Prometheus.
+ * Consumer-specific providers may only assign values to tag definitions declared upfront.
+ */
+class RecordMetricTag internal constructor(
+    val key: String,
+    val missingValue: String
+)
+
+fun recordMetricTag(key: String, missingValue: String = "NONE"): RecordMetricTag {
+    require(key.isNotBlank()) { "Record metric tag key must not be blank" }
+    require(key !in reservedRecordTagKeys) { "Record metric tag key '$key' is reserved" }
+    return RecordMetricTag(key, missingValue)
+}
+
+class RecordMetricTagSchema internal constructor(
+    internal val tags: List<RecordMetricTag>
+) {
+    init {
+        val duplicateKeys = tags.groupBy { it.key }.filterValues { it.size > 1 }.keys
+        require(duplicateKeys.isEmpty()) { "Record metric tag schema contains duplicate keys: ${duplicateKeys.joinToString()}" }
+    }
+
+    companion object {
+        fun empty(): RecordMetricTagSchema = RecordMetricTagSchema(emptyList())
+    }
+}
+
+fun recordMetricTagSchema(vararg tags: RecordMetricTag): RecordMetricTagSchema =
+    RecordMetricTagSchema(tags.toList())
+
+class RecordMetricTagValueBuilder internal constructor(
+    private val schema: RecordMetricTagSchema
+) {
+    private val values = LinkedHashMap<String, String?>()
+
+    fun set(tag: RecordMetricTag, value: String?) {
+        require(schema.tags.any { it.key == tag.key }) {
+            "Record metric tag '${tag.key}' is not declared in the telemetry schema"
+        }
+        values[tag.key] = value
+    }
+
+    internal fun toTags(): List<Tag> =
+        schema.tags.map { schemaTag ->
+            Tag.of(schemaTag.key, values[schemaTag.key] ?: schemaTag.missingValue)
+        }
+}
+
+fun interface ConsumerRecordTagValueProvider<in K, in V> {
+    fun populateTags(builder: RecordMetricTagValueBuilder, key: K?, value: V?, record: ConsumerRecord<ByteArray, ByteArray>)
+
+    companion object {
+        fun none(): ConsumerRecordTagValueProvider<Any?, Any?> = ConsumerRecordTagValueProvider { _, _, _, _ -> }
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+fun <K, V> consumerRecordTagValueProvider(
+    block: RecordMetricTagValueBuilder.(K?, V?, ConsumerRecord<ByteArray, ByteArray>) -> Unit
+): ConsumerRecordTagValueProvider<Any?, Any?> =
+    ConsumerRecordTagValueProvider { builder, key, value, record -> builder.block(key as K?, value as V?, record) }
+
+/**
+ * Shared Micrometer-backed telemetry that owns the metric schema.
+ *
+ * One instance should be created per metric family configuration. Concrete
+ * [ConsumerTelemetry] instances are then bound per consumer via [forConsumer].
+ */
 class MicrometerConsumerTelemetry(
     private val meterRegistry: MeterRegistry,
     private val meterPrefix: String = "ckc",
-    private val commonTags: Iterable<Tag> = emptyList()
-) : ConsumerTelemetry {
+    private val commonTags: Iterable<Tag> = emptyList(),
+    private val recordTagSchema: RecordMetricTagSchema = RecordMetricTagSchema.empty()
+) {
 
-    override fun onPoll(recordsCount: Int, durationNanos: Long) {
-        timer("poll.duration").record(durationNanos, TimeUnit.NANOSECONDS)
-        summary("poll.records").record(recordsCount.toDouble())
-    }
+    fun <K, V> forConsumer(
+        recordTagValueProvider: ConsumerRecordTagValueProvider<K, V> =
+            ConsumerRecordTagValueProvider.none() as ConsumerRecordTagValueProvider<K, V>
+    ): ConsumerTelemetry<K, V> = BoundConsumerTelemetry(recordTagValueProvider)
 
-    override fun onRecordProcessed(topic: String, partition: Int, recordAgeMillis: Long, durationNanos: Long) {
-        val tags = recordTags(topic, partition)
-        timer("record.process.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
-        summary("record.age", tags).record(recordAgeMillis.toDouble())
-        counter("record.processed", tags).increment()
-    }
+    private inner class BoundConsumerTelemetry<K, V>(
+        private val recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>
+    ) : ConsumerTelemetry<K, V> {
 
-    override fun onRecordFailed(
-        topic: String,
-        partition: Int,
-        recordAgeMillis: Long,
-        error: Throwable,
-        durationNanos: Long
-    ) {
-        val tags = recordTags(topic, partition).and("error", error::class.java.simpleName)
-        timer("record.failed.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
-        summary("record.age", tags).record(recordAgeMillis.toDouble())
-        counter("record.failed", tags).increment()
-    }
+        override fun onPoll(recordsCount: Int, durationNanos: Long) {
+            timer("poll.duration").record(durationNanos, TimeUnit.NANOSECONDS)
+            summary("poll.records").record(recordsCount.toDouble())
+        }
 
-    override fun onRetry(topic: String, partition: Int, attempt: Int, error: Throwable) {
-        counter(
-            "record.retry",
-            recordTags(topic, partition)
-                .and("attempt", attempt.toString())
-                .and("error", error::class.java.simpleName)
-        ).increment()
-    }
+        override fun onRecordProcessed(
+            key: K?,
+            value: V?,
+            record: ConsumerRecord<ByteArray, ByteArray>,
+            recordAgeMillis: Long,
+            durationNanos: Long
+        ) {
+            val tags = recordTags(recordTagValueProvider, key, value, record)
+            timer("record.process.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
+            summary("record.age", tags.and("error", "none")).record(recordAgeMillis.toDouble())
+            counter("record.processed", tags).increment()
+        }
 
-    override fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) {
-        val tags = tags("success" to success.toString())
-        timer("commit.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
-        summary("commit.partitions", tags).record(partitionsCount.toDouble())
-        counter("commit", tags).increment()
-    }
+        override fun onRecordFailed(
+            key: K?,
+            value: V?,
+            record: ConsumerRecord<ByteArray, ByteArray>,
+            recordAgeMillis: Long,
+            error: Throwable,
+            durationNanos: Long
+        ) {
+            val tags = recordTags(recordTagValueProvider, key, value, record).and("error", error::class.java.simpleName)
+            timer("record.failed.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
+            summary("record.age", tags).record(recordAgeMillis.toDouble())
+            counter("record.failed", tags).increment()
+        }
 
-    override fun onConsumerFailure(error: Throwable) {
-        counter("failure", tags("error" to error::class.java.simpleName)).increment()
+        override fun onRetry(
+            key: K?,
+            value: V?,
+            record: ConsumerRecord<ByteArray, ByteArray>,
+            attempt: Int,
+            error: Throwable
+        ) {
+            counter(
+                "record.retry",
+                recordTags(recordTagValueProvider, key, value, record)
+                    .and("attempt", attempt.toString())
+                    .and("error", error::class.java.simpleName)
+            ).increment()
+        }
+
+        override fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) {
+            val tags = tags("success" to success.toString())
+            timer("commit.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
+            summary("commit.partitions", tags).record(partitionsCount.toDouble())
+            counter("commit", tags).increment()
+        }
+
+        override fun onConsumerFailure(error: Throwable) {
+            counter("failure", tags("error" to error::class.java.simpleName)).increment()
+        }
     }
 
     private fun timer(name: String, tags: Iterable<Tag> = commonTags): Timer =
@@ -75,11 +173,19 @@ class MicrometerConsumerTelemetry(
             .tags(tags)
             .register(meterRegistry)
 
-    private fun recordTags(topic: String, partition: Int): Tags =
-        tags(
-            "topic" to topic,
-            "partition" to partition.toString()
-        )
+    private fun <K, V> recordTags(
+        recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>,
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<ByteArray, ByteArray>
+    ): Tags {
+        val builder = RecordMetricTagValueBuilder(recordTagSchema)
+        recordTagValueProvider.populateTags(builder, key, value, record)
+        return tags(
+            "topic" to record.topic(),
+            "partition" to record.partition().toString()
+        ).and(builder.toTags())
+    }
 
     private fun tags(vararg pairs: Pair<String, String>): Tags =
         Tags.of(commonTags).and(pairs.map { Tag.of(it.first, it.second) })
