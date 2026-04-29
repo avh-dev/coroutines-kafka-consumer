@@ -2,7 +2,7 @@ package avh.ckc.core
 
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
-interface ConsumerTelemetry<K, V> {
+interface ConsumerMetrics<K, V> {
     fun onPoll(recordsCount: Int, durationNanos: Long) = Unit
 
     fun onRecordProcessed(
@@ -35,6 +35,6 @@ interface ConsumerTelemetry<K, V> {
     fun onConsumerFailure(error: Throwable) = Unit
 
     companion object {
-        val NOOP: ConsumerTelemetry<Any?, Any?> = object : ConsumerTelemetry<Any?, Any?> {}
+        val NOOP: ConsumerMetrics<Any?, Any?> = object : ConsumerMetrics<Any?, Any?> {}
     }
 }

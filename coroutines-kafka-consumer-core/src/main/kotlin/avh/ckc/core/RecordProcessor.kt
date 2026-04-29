@@ -23,7 +23,7 @@ internal class RecordProcessor<K, V>(
     private val deserializationDispatcher: CoroutineDispatcher,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
-    private val telemetry: ConsumerTelemetry<K, V>,
+    private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val partitionRegistry: PartitionRegistry
 ) {
@@ -49,7 +49,7 @@ internal class RecordProcessor<K, V>(
                 }
 
                 processingFailureHandler.handle(key, value, record, error)
-                telemetry.onRecordFailed(
+                metrics.onRecordFailed(
                     key = key,
                     value = value,
                     record = record,
@@ -63,7 +63,7 @@ internal class RecordProcessor<K, V>(
             if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
                 partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
             }
-            telemetry.onRecordProcessed(
+            metrics.onRecordProcessed(
                 key = key,
                 value = value,
                 record = record,
@@ -74,7 +74,7 @@ internal class RecordProcessor<K, V>(
             if (error.isCancellation()) {
                 throw error
             }
-            telemetry.onRecordFailed(
+            metrics.onRecordFailed(
                 key = null,
                 value = null,
                 record = record,
@@ -142,7 +142,7 @@ internal class RecordProcessor<K, V>(
                 }
 
                 retries++
-                telemetry.onRetry(key = key, value = value, record = record, attempt = retries, error = error)
+                metrics.onRetry(key = key, value = value, record = record, attempt = retries, error = error)
                 if (rule.delay.isPositive()) {
                     delay(rule.delay)
                 }

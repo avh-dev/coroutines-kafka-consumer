@@ -25,7 +25,7 @@ class RecordProcessorTest {
     fun `when retry policy matches then worker retries and eventually succeeds`() = runBlocking {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<String>()
-        val telemetry = RecordingTelemetry<String, String>()
+        val metrics = RecordingMetrics<String, String>()
         val processor = createRecordProcessor<String, String>(
             handler = KafkaRecordHandler { _, value, _ ->
                 if (attempts.getAndIncrement() < 2) {
@@ -33,7 +33,7 @@ class RecordProcessorTest {
                 }
                 processed.complete(value!!)
             },
-            telemetry = telemetry,
+            metrics = metrics,
             retryPolicy = retryPolicy {
                 retry<IOException> {
                     maxRetries = 2
@@ -49,22 +49,22 @@ class RecordProcessorTest {
 
         assertEquals("payload", withTimeout(2_000) { processed.await() })
         assertEquals(3, attempts.get())
-        assertEquals(listOf(1, 2), telemetry.retries.map { it.attempt })
-        assertEquals(1, telemetry.processed.size)
-        assertEquals("payload", telemetry.processed.single().value)
-        assertEquals("payload", telemetry.retries.first().value)
-        kotlin.test.assertTrue(telemetry.processed.single().recordAgeMillis >= 0)
+        assertEquals(listOf(1, 2), metrics.retries.map { it.attempt })
+        assertEquals(1, metrics.processed.size)
+        assertEquals("payload", metrics.processed.single().value)
+        assertEquals("payload", metrics.retries.first().value)
+        kotlin.test.assertTrue(metrics.processed.single().recordAgeMillis >= 0)
     }
 
     @Test
     fun `when handler fails with non retriable error then processing failure handler is invoked`() = runBlocking {
         val recovered = CompletableDeferred<Pair<Long?, String>>()
-        val telemetry = RecordingTelemetry<Long, Long>()
+        val metrics = RecordingMetrics<Long, Long>()
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler { _, _, _ ->
                 throw IllegalStateException("boom")
             },
-            telemetry = telemetry,
+            metrics = metrics,
             processingFailureHandler = ProcessingFailureHandler { key, _, rawRecord, error ->
                 recovered.complete(key to "${rawRecord.offset()}:${error.message}")
             }
@@ -76,11 +76,11 @@ class RecordProcessorTest {
         )
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
-        assertEquals(1, telemetry.failed.size)
-        assertEquals("boom", telemetry.failed.single().error.message)
-        assertEquals(0L, telemetry.failed.single().key)
-        assertEquals(0L, telemetry.failed.single().value)
-        kotlin.test.assertTrue(telemetry.failed.single().recordAgeMillis >= 0)
+        assertEquals(1, metrics.failed.size)
+        assertEquals("boom", metrics.failed.single().error.message)
+        assertEquals(0L, metrics.failed.single().key)
+        assertEquals(0L, metrics.failed.single().value)
+        kotlin.test.assertTrue(metrics.failed.single().recordAgeMillis >= 0)
     }
 
     @Test
@@ -182,10 +182,10 @@ class RecordProcessorTest {
 
     @Test
     fun `when deserializer fails with non transient error then processing fails`() = runBlocking {
-        val telemetry = RecordingTelemetry<Long, Long>()
+        val metrics = RecordingMetrics<Long, Long>()
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler { _, _, _ -> },
-            telemetry = telemetry
+            metrics = metrics
         )
 
         val error = assertThrows(IllegalStateException::class.java) {
@@ -204,10 +204,10 @@ class RecordProcessorTest {
         }
 
         assertEquals("broken payload", error.message)
-        assertEquals(1, telemetry.failed.size)
-        assertEquals("broken payload", telemetry.failed.single().error.message)
-        assertEquals(null, telemetry.failed.single().value)
-        kotlin.test.assertTrue(telemetry.failed.single().recordAgeMillis >= 0)
+        assertEquals(1, metrics.failed.size)
+        assertEquals("broken payload", metrics.failed.single().error.message)
+        assertEquals(null, metrics.failed.single().value)
+        kotlin.test.assertTrue(metrics.failed.single().recordAgeMillis >= 0)
     }
 
     @Test
@@ -221,7 +221,7 @@ class RecordProcessorTest {
             deserializationDispatcher = Dispatchers.IO,
             handler = KafkaRecordHandler<Long, Long> { _, _, _ -> },
             retryPolicy = RetryPolicy.none(),
-            telemetry = ConsumerTelemetry.NOOP as ConsumerTelemetry<Long, Long>,
+            metrics = noopConsumerMetrics(),
             processingFailureHandler = ProcessingFailureHandler.skip<Long, Long>(),
             partitionRegistry = registry
         )
@@ -235,7 +235,7 @@ class RecordProcessorTest {
         handler: KafkaRecordHandler<K, V>,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
-        telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>,
+        metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
         partitionRegistry: PartitionRegistry = PartitionRegistry()
@@ -244,8 +244,12 @@ class RecordProcessorTest {
         deserializationDispatcher = runtime.deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,
-        telemetry = telemetry,
+        metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         partitionRegistry = partitionRegistry
     )
 }
+
+@Suppress("UNCHECKED_CAST")
+private fun <K, V> noopConsumerMetrics(): ConsumerMetrics<K, V> =
+    ConsumerMetrics.NOOP as ConsumerMetrics<K, V>
