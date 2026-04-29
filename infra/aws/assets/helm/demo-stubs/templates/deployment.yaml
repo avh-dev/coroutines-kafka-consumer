@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: demo-stubs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DELAY_P90_MS
+              value: {{ .Values.env.delayP90Ms | quote }}
+            - name: DELAY_P95_MS
+              value: {{ .Values.env.delayP95Ms | quote }}
+            - name: DELAY_P99_MS
+              value: {{ .Values.env.delayP99Ms | quote }}
+            - name: DELAY_P100_MS
+              value: {{ .Values.env.delayP100Ms | quote }}
+            - name: ERROR_RATE_PERCENT
+              value: {{ .Values.env.errorRatePercent | quote }}
+{{- with .Values.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}

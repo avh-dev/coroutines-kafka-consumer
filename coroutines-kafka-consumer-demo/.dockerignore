@@ -1,0 +1,7 @@
+src/
+README.md
+build/tmp/
+build/reports/
+build/test-results/
+build/classes/
+build/generated/

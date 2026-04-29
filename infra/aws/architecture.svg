@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="920" viewBox="0 0 1400 920" role="img" aria-labelledby="title desc">
+  <title id="title">CKC AWS Infrastructure</title>
+  <desc id="desc">Diagram of the long-lived AWS runner, temporary load lab, and local operator access path.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 28px Arial, sans-serif; fill: #172033; }
+      .label { font: 700 18px Arial, sans-serif; fill: #172033; }
+      .text { font: 15px Arial, sans-serif; fill: #23314d; }
+      .small { font: 13px Arial, sans-serif; fill: #41506d; }
+      .box { fill: #ffffff; stroke: #24324d; stroke-width: 2; rx: 18; ry: 18; }
+      .soft { fill: #eef4ff; stroke: #3d6fd6; stroke-width: 2; rx: 18; ry: 18; }
+      .accent { fill: #e8fff5; stroke: #2d8a57; stroke-width: 2; rx: 18; ry: 18; }
+      .warn { fill: #fff6e6; stroke: #d08a1d; stroke-width: 2; rx: 18; ry: 18; }
+      .cloud { fill: #f2f6ff; stroke: #4d6bb3; stroke-width: 3; rx: 28; ry: 28; }
+      .dashed { fill: none; stroke: #5e6d88; stroke-width: 2.5; stroke-dasharray: 10 8; }
+      .arrow { fill: none; stroke: #24324d; stroke-width: 3; marker-end: url(#arrowhead); }
+      .arrowSoft { fill: none; stroke: #3d6fd6; stroke-width: 3; marker-end: url(#arrowheadSoft); }
+      .arrowGreen { fill: none; stroke: #2d8a57; stroke-width: 3; marker-end: url(#arrowheadGreen); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#24324d"/>
+    </marker>
+    <marker id="arrowheadSoft" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#3d6fd6"/>
+    </marker>
+    <marker id="arrowheadGreen" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#2d8a57"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="920"/>
+  <text class="title" x="50" y="55">CKC AWS Test Infrastructure</text>
+  <text class="text" x="50" y="85">Long-lived private runner for orchestration and observability, plus a temporary managed test stack.</text>
+
+  <rect class="box" x="50" y="140" width="280" height="220"/>
+  <text class="label" x="80" y="180">Local workstation</text>
+  <text class="text" x="80" y="220">Operator runs local scripts:</text>
+  <text class="small" x="80" y="250">- aws/scripts/{linux,windows}/create-runner-and-ecr</text>
+  <text class="small" x="80" y="275">- aws/scripts/{linux,windows}/connect-runner</text>
+  <text class="small" x="80" y="300">- aws/scripts/{linux,windows}/start-runner | stop-runner</text>
+  <text class="small" x="80" y="325">- aws/scripts/{linux,windows}/start-grafana-tunnel</text>
+  <text class="small" x="80" y="350">- aws/scripts/{linux,windows}/destroy-all</text>
+
+  <rect class="soft" x="400" y="120" width="930" height="730"/>
+  <text class="label" x="435" y="160">AWS us-east-1</text>
+
+  <rect class="cloud" x="440" y="200" width="400" height="530"/>
+  <text class="label" x="470" y="240">Long-lived runner VPC</text>
+
+  <rect class="warn" x="470" y="280" width="150" height="110"/>
+  <text class="label" x="495" y="320">Public subnet</text>
+  <text class="small" x="495" y="350">NAT Gateway</text>
+  <text class="small" x="495" y="375">for outbound access</text>
+
+  <rect class="soft" x="650" y="280" width="160" height="110"/>
+  <text class="label" x="675" y="320">Private subnet</text>
+  <text class="small" x="675" y="350">No public IP</text>
+  <text class="small" x="675" y="375">SSM access only</text>
+
+  <rect class="box" x="520" y="440" width="260" height="220"/>
+  <text class="label" x="555" y="480">EC2 runner</text>
+  <text class="small" x="555" y="510">Amazon Linux + Docker</text>
+  <text class="small" x="555" y="535">Terraform, kubectl, helm, aws</text>
+  <text class="small" x="555" y="560">Prometheus + Grafana always on</text>
+  <text class="small" x="555" y="585">/opt/ckc-runner/reports</text>
+  <text class="small" x="555" y="610">/opt/ckc-runner/bin/configure-observability.sh</text>
+
+  <rect class="accent" x="470" y="760" width="370" height="70"/>
+  <text class="text" x="495" y="802">Shared dashboard source from repo: infra/shared/grafana/*</text>
+
+  <rect class="box" x="900" y="220" width="380" height="560"/>
+  <text class="label" x="930" y="260">Temporary load lab</text>
+  <text class="text" x="930" y="292">Created for a test window, then destroyed.</text>
+
+  <rect class="soft" x="930" y="330" width="320" height="120"/>
+  <text class="label" x="960" y="370">EKS cluster</text>
+  <text class="small" x="960" y="400">Namespaces:</text>
+  <text class="small" x="960" y="425">- ckc-app</text>
+  <text class="small" x="1060" y="425">- ckc-loadtest</text>
+
+  <rect class="accent" x="930" y="490" width="145" height="110"/>
+  <text class="label" x="955" y="530">MSK Kafka</text>
+  <text class="small" x="955" y="560">Managed brokers</text>
+  <text class="small" x="955" y="585">for benchmark traffic</text>
+
+  <rect class="accent" x="1105" y="490" width="145" height="110"/>
+  <text class="label" x="1120" y="530">ElastiCache</text>
+  <text class="small" x="1135" y="560">Serverless Redis</text>
+  <text class="small" x="1130" y="585">variable latency</text>
+
+  <rect class="warn" x="930" y="640" width="320" height="110"/>
+  <text class="label" x="960" y="680">Workloads under test</text>
+  <text class="small" x="960" y="710">demo app, stubs, load jobs, supporting services</text>
+  <text class="small" x="960" y="735">Prometheus on runner scrapes selected app endpoints</text>
+
+  <path class="arrowSoft" d="M330 235 C365 235, 375 235, 430 235"/>
+  <text class="small" x="340" y="220">terraform + aws cli</text>
+
+  <path class="arrowSoft" d="M330 300 C390 300, 420 350, 520 520"/>
+  <text class="small" x="340" y="330">SSM shell / port forwarding</text>
+
+  <path class="arrow" d="M620 335 L650 335"/>
+  <path class="arrow" d="M730 390 L730 440"/>
+  <text class="small" x="560" y="420">outbound internet via NAT</text>
+
+  <path class="arrowGreen" d="M780 550 C845 550, 860 550, 930 550"/>
+  <text class="small" x="800" y="530">remote script creates / updates test stack</text>
+
+  <path class="arrowGreen" d="M1090 450 L1090 490"/>
+  <path class="arrowGreen" d="M1180 450 L1180 490"/>
+  <path class="arrowGreen" d="M1090 600 L1090 640"/>
+  <path class="arrowGreen" d="M1180 600 L1180 640"/>
+
+  <path class="dashed" d="M905 300 C835 300, 820 300, 760 300"/>
+  <text class="small" x="790" y="285">metrics target endpoints</text>
+
+  <text class="small" x="55" y="885">Access pattern: local machine -> SSM -> private runner -> temporary managed test environment.</text>
+  <text class="small" x="55" y="905">Cost control: keep runner long-lived only if needed; destroy load lab after each benchmark window.</text>
+</svg>

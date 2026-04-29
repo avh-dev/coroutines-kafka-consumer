@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+
+set -eu
+
+TARGETS="$${1:-host.docker.internal:8080}"
+METRICS_PATH="$${2:-/actuator/prometheus}"
+RUNNER_HOME="$${CKC_RUNNER_HOME:-/opt/ckc-runner}"
+PROMETHEUS_CONFIG="$${RUNNER_HOME}/config/prometheus.yml"
+OBSERVABILITY_DIR="$${RUNNER_HOME}/observability"
+TARGETS_YAML="$(printf '%s' "$${TARGETS}" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sed '/^$$/d; s/^/          - /')"
+
+cat > "$${PROMETHEUS_CONFIG}" <<PROMETHEUS_EOF
+global:
+  scrape_interval: ${prometheus_scrape_interval}
+  evaluation_interval: ${prometheus_evaluation_interval}
+
+scrape_configs:
+  - job_name: ckc-demo
+    metrics_path: $${METRICS_PATH}
+    static_configs:
+      - targets:
+$${TARGETS_YAML}
+PROMETHEUS_EOF
+
+docker compose -f "$${OBSERVABILITY_DIR}/docker-compose.yml" up -d
+docker compose -f "$${OBSERVABILITY_DIR}/docker-compose.yml" restart prometheus
+
+printf 'Prometheus targets: %s\n' "$${TARGETS}"
+printf 'Metrics path:       %s\n' "$${METRICS_PATH}"
+printf 'Scrape interval:    %s\n' "${prometheus_scrape_interval}"
+printf 'Prometheus:         http://localhost:9090\n'
+printf 'Grafana:            http://localhost:3000\n'

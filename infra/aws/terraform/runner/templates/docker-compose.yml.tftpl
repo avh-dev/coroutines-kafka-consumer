@@ -1,0 +1,30 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.size=${prometheus_retention_size}
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - /opt/ckc-runner/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/ckc-runner/prometheus:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - /opt/ckc-runner/grafana:/var/lib/grafana
+      - /opt/ckc-runner/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /opt/ckc-runner/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

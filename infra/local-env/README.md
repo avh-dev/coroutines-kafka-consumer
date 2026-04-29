@@ -9,17 +9,17 @@ Services:
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
 
 Start:
-```bash
+```sh
 docker compose -f infra/local-env/docker-compose.yml up -d
 ```
 
 Start with the LT demo-stubs profile:
-```bash
+```sh
 docker compose -f infra/local-env/docker-compose.yml --profile lt up -d
 ```
 
 Stop:
-```bash
+```sh
 docker compose -f infra/local-env/docker-compose.yml down -v
 ```
 
@@ -37,7 +37,7 @@ LT demo-stubs notes:
 - avoids heavyweight mock-server templating and request journaling overhead entirely
 
 Example application startup:
-```bash
+```sh
 ./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
 ```
 
@@ -45,9 +45,9 @@ When the demo app is running on `localhost:8080`, Prometheus scrapes:
 - `http://host.docker.internal:8080/actuator/prometheus`
 
 Grafana uses a pre-provisioned Prometheus datasource.
-It also auto-loads the `CKC Overview` dashboard.
+It also auto-loads the shared `CKC Overview` dashboard from `infra/shared/grafana/dashboards`.
 
 Spring Kafka profile:
-```bash
+```sh
 ./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
 ```
