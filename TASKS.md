@@ -14,7 +14,7 @@
 | CORE-9 | Add integration tests with a real Kafka broker and strengthen failure-path coverage for commit/retry/rebalance scenarios.                                                                             | DONE |
 | CORE-10 | Harden Micrometer telemetry tag customization by introducing a shared record-tag schema, per-consumer value binding, and Prometheus-safe fallback labels.                                            | DONE |
 | CORE-11 | Refactor consumer telemetry naming toward metrics-oriented abstractions as the first step for passing consumer metrics.                                                                                | DONE |
-| CORE-12 | Expand consumer metrics coverage.                                                                                                                                                                      | IN_PROGRESS |
+| CORE-12 | Expand consumer metrics coverage.                                                                                                                                                                      | DONE |
 | DEMO-1 | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                       | DONE |
 | DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -26,3 +26,4 @@
 | INFRA-1 | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | INFRA-2 | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | INFRA-3 | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
+| INFRA-4 | Revise Grafana dashboards to reflect the updated consumer metrics and add missing runtime observability panels.                                                                                      | DONE |
