@@ -61,7 +61,7 @@ If you override the app port, update `infra/local-env/prometheus/prometheus.yml`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 - Dashboard: `CKC Overview` is provisioned automatically
-- CKC Micrometer record metrics use a shared tag schema. Custom consumer tags must be declared once in the telemetry bean and per-consumer bindings only provide values; omitted values fall back to `NONE`.
+- CKC Micrometer record metrics use a shared tag schema. Custom consumer tags must be declared once in the metrics bean and per-consumer bindings only provide values; omitted values fall back to `NONE`.
 
 ## Topics
 
