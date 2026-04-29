@@ -10,6 +10,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -148,6 +149,43 @@ class CoroutinesKafkaConsumerTest {
         } finally {
             dispatcher.close()
         }
+    }
+
+    @Test
+    fun `when consumer starts then runtime metrics expose worker and queue stats`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val firstRecordStarted = CompletableDeferred<Unit>()
+        val releaseFirstRecord = CompletableDeferred<Unit>()
+        val consumer = createTestConsumer(
+            records = listOf(
+                testRecord(offset = 31L, key = "key-31", value = "value-31"),
+                testRecord(offset = 32L, key = "key-32", value = "value-32")
+            ),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
+                if (rawRecord.offset() == 31L) {
+                    firstRecordStarted.complete(Unit)
+                    releaseFirstRecord.await()
+                }
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) { firstRecordStarted.await() }
+
+        val stats = metrics.boundRuntimeStats.single()
+        assertEquals(1, stats.workerCount)
+        assertEquals(1, stats.activeWorkerCount)
+        assertEquals(1, stats.workQueueSize)
+        assertEquals(1024, stats.workQueueCapacity)
+        assertEquals(2, stats.maxObservedWorkQueueSize)
+
+        releaseFirstRecord.complete(Unit)
+        consumer.stop()
+
+        assertSame(stats, metrics.boundRuntimeStats.single())
+        assertEquals(1, metrics.unbindRuntimeMetricsCalls.size)
     }
 
     @Test

@@ -2,6 +2,7 @@ package avh.ckc.core
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -12,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -123,13 +125,21 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         processingFailureHandler = processingFailureHandler,
         partitionRegistry = partitionRegistry
     )
+    private val runtimeStats = DefaultConsumerRuntimeStats(
+        workerCount = workerConcurrency,
+        workQueueCapacity = workChannelCapacity
+    )
     private val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
         capacity = workChannelCapacity,
         onBufferOverflow = when (deliveryStrategy) {
             DeliveryStrategy.BACKPRESSURE -> BufferOverflow.SUSPEND
             DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
+        },
+        onUndeliveredElement = {
+            runtimeStats.onWorkDequeued()
         }
     )
+    private val trackedWorkChannel = TrackingSendChannel(workChannel, runtimeStats)
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
                 parentContext.minusKey(Job) +
@@ -146,7 +156,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             consumerConfigAdapter,
             topics,
             topicsPattern,
-            workChannel,
+            trackedWorkChannel,
             partitionRegistry
         )
     }
@@ -236,11 +246,20 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         workerJobs = List(workerConcurrency) { workerIndex ->
             val deserializers = workerDeserializers[workerIndex]
             scope.launch(processingDispatcher + CoroutineName("KafkaWorker-$workerIndex")) {
-                for (record in workChannel) {
-                    recordProcessor.process(record, deserializers)
+                while (true) {
+                    val record = workChannel.receiveCatching().getOrNull() ?: break
+                    runtimeStats.onWorkDequeued()
+                    runtimeStats.onWorkerStarted()
+                    try {
+                        recordProcessor.process(record, deserializers)
+                    } finally {
+                        runtimeStats.onWorkerFinished()
+                    }
                 }
             }.also { observeFailure(it) }
         }
+
+        metrics.bindRuntimeMetrics(runtimeStats)
 
         pollLoopJobs = pollLoops.map { loop ->
             loop.start().also { observeFailure(it) }
@@ -290,9 +309,41 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 workChannel.close()
                 workerJobs.joinAll()
             } finally {
+                metrics.unbindRuntimeMetrics()
                 workerDeserializers.closeAll()
             }
         }
+    }
+}
+
+@OptIn(DelicateCoroutinesApi::class)
+private class TrackingSendChannel<E>(
+    private val delegate: Channel<E>,
+    private val runtimeStats: DefaultConsumerRuntimeStats
+) : SendChannel<E> {
+    override val isClosedForSend: Boolean
+        get() = delegate.isClosedForSend
+
+    override val onSend
+        get() = delegate.onSend
+
+    override suspend fun send(element: E) {
+        delegate.send(element)
+        runtimeStats.onWorkEnqueued()
+    }
+
+    override fun trySend(element: E): ChannelResult<Unit> {
+        val result = delegate.trySend(element)
+        if (result.isSuccess) {
+            runtimeStats.onWorkEnqueued()
+        }
+        return result
+    }
+
+    override fun close(cause: Throwable?): Boolean = delegate.close(cause)
+
+    override fun invokeOnClose(handler: (cause: Throwable?) -> Unit) {
+        delegate.invokeOnClose(handler)
     }
 }
 

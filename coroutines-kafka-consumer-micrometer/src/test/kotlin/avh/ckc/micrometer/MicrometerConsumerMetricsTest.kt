@@ -1,5 +1,6 @@
 package avh.ckc.micrometer
 
+import avh.ckc.core.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -25,7 +26,7 @@ class MicrometerConsumerMetricsTest {
         val metrics = MicrometerConsumerMetrics(
             meterRegistry = registry,
             commonTags = listOf(Tag.of("app", "test"))
-        ).forConsumer<String, TestLifecycleEvent>()
+        ).forConsumer<String, TestLifecycleEvent>(consumerId = "orders")
 
         metrics.onRecordProcessed(
             key = "key",
@@ -39,8 +40,8 @@ class MicrometerConsumerMetricsTest {
             1.0,
             registry.get("ckc.record.processed")
                 .tag("topic", "orders")
-                .tag("partition", "2")
                 .tag("app", "test")
+                .tag("consumer_id", "orders")
                 .counter()
                 .count()
         )
@@ -48,8 +49,8 @@ class MicrometerConsumerMetricsTest {
             1L,
             registry.get("ckc.record.process.duration")
                 .tag("topic", "orders")
-                .tag("partition", "2")
                 .tag("app", "test")
+                .tag("consumer_id", "orders")
                 .timer()
                 .count()
         )
@@ -57,9 +58,9 @@ class MicrometerConsumerMetricsTest {
             123.0,
             registry.get("ckc.record.age")
                 .tag("topic", "orders")
-                .tag("partition", "2")
                 .tag("error", "none")
                 .tag("app", "test")
+                .tag("consumer_id", "orders")
                 .summary()
                 .totalAmount()
         )
@@ -83,7 +84,6 @@ class MicrometerConsumerMetricsTest {
             1.0,
             registry.get("ckc.record.failed")
                 .tag("topic", "orders")
-                .tag("partition", "1")
                 .tag("error", "IOException")
                 .counter()
                 .count()
@@ -92,7 +92,6 @@ class MicrometerConsumerMetricsTest {
             77.0,
             registry.get("ckc.record.age")
                 .tag("topic", "orders")
-                .tag("partition", "1")
                 .tag("error", "IOException")
                 .summary()
                 .totalAmount()
@@ -113,7 +112,6 @@ class MicrometerConsumerMetricsTest {
             1.0,
             registry.get("ckc.record.retry")
                 .tag("topic", "orders")
-                .tag("partition", "0")
                 .tag("attempt", "1")
                 .tag("error", "IOException")
                 .counter()
@@ -154,6 +152,39 @@ class MicrometerConsumerMetricsTest {
     }
 
     @Test
+    fun `when runtime metrics are bound then gauges expose current runtime values with consumer id`() {
+        val registry = SimpleMeterRegistry()
+        val stats = MutableRuntimeStats(
+            workerCount = 4,
+            activeWorkerCount = 2,
+            workQueueSize = 7,
+            workQueueCapacity = 128,
+            maxObservedWorkQueueSize = 11
+        )
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>(consumerId = "telemetry")
+
+        metrics.bindRuntimeMetrics(stats)
+
+        assertEquals(4.0, registry.get("ckc.workers").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(2.0, registry.get("ckc.workers.active").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(7.0, registry.get("ckc.work.queue.size").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(128.0, registry.get("ckc.work.queue.capacity").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(11.0, registry.get("ckc.work.queue.max").tag("consumer_id", "telemetry").gauge().value())
+
+        stats.activeWorkerCount = 3
+        stats.workQueueSize = 9
+        stats.maxObservedWorkQueueSize = 13
+
+        assertEquals(3.0, registry.get("ckc.workers.active").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(9.0, registry.get("ckc.work.queue.size").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(13.0, registry.get("ckc.work.queue.max").tag("consumer_id", "telemetry").gauge().value())
+
+        metrics.unbindRuntimeMetrics()
+
+        assertTrue(registry.find("ckc.workers").tag("consumer_id", "telemetry").meters().isEmpty())
+    }
+
+    @Test
     fun `when record tag value provider is configured then custom tags are attached to record metrics`() {
         val eventTypeTag = recordMetricTag("event_type")
         val registry = SimpleMeterRegistry()
@@ -161,7 +192,7 @@ class MicrometerConsumerMetricsTest {
             meterRegistry = registry,
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         ).forConsumer(
-            consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, event, _ ->
+            recordTagValueProvider = consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, event, _ ->
                 set(eventTypeTag, event?.eventType)
             }
         )
@@ -178,7 +209,6 @@ class MicrometerConsumerMetricsTest {
             1.0,
             registry.get("ckc.record.processed")
                 .tag("topic", "orders")
-                .tag("partition", "3")
                 .tag("event_type", "BREWING_STARTED")
                 .counter()
                 .count()
@@ -206,7 +236,6 @@ class MicrometerConsumerMetricsTest {
             1.0,
             registry.get("ckc.record.processed")
                 .tag("topic", "orders")
-                .tag("partition", "4")
                 .tag("event_type", "NONE")
                 .counter()
                 .count()
@@ -221,7 +250,7 @@ class MicrometerConsumerMetricsTest {
             meterRegistry = SimpleMeterRegistry(),
             recordTagSchema = recordMetricTagSchema(declaredTag)
         ).forConsumer(
-            consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, _, _ ->
+            recordTagValueProvider = consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, _, _ ->
                 set(undeclaredTag, "acme")
             }
         )
@@ -246,12 +275,12 @@ class MicrometerConsumerMetricsTest {
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         )
         val staticTopicMetrics = sharedMetrics.forConsumer<String, TestLifecycleEvent>(
-            consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, _, _ ->
+            recordTagValueProvider = consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, _, _ ->
                 set(eventTypeTag, "CAULDRON_TELEMETRY")
             }
         )
         val lifecycleTopicMetrics = sharedMetrics.forConsumer<String, TestLifecycleEvent>(
-            consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, event, _ ->
+            recordTagValueProvider = consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, event, _ ->
                 set(eventTypeTag, event?.eventType ?: "UNKNOWN")
             }
         )
@@ -273,8 +302,8 @@ class MicrometerConsumerMetricsTest {
 
         val scrape = registry.scrape()
 
-        assertTrue(scrape.contains("ckc_record_processed_total{event_type=\"CAULDRON_TELEMETRY\",partition=\"1\",topic=\"cauldrons\"} 1.0"))
-        assertTrue(scrape.contains("ckc_record_processed_total{event_type=\"BREWING_STARTED\",partition=\"2\",topic=\"orders\"} 1.0"))
+        assertTrue(scrape.contains("ckc_record_processed_total{event_type=\"CAULDRON_TELEMETRY\",topic=\"cauldrons\"} 1.0"))
+        assertTrue(scrape.contains("ckc_record_processed_total{event_type=\"BREWING_STARTED\",topic=\"orders\"} 1.0"))
     }
 
     @Test
@@ -300,10 +329,18 @@ class MicrometerConsumerMetricsTest {
 
         val scrape = registry.scrape()
 
-        assertTrue(scrape.contains("ckc_record_age_sum{error=\"none\",partition=\"1\",topic=\"orders\"} 5.0"))
-        assertTrue(scrape.contains("ckc_record_age_sum{error=\"IOException\",partition=\"1\",topic=\"orders\"} 7.0"))
+        assertTrue(scrape.contains("ckc_record_age_sum{error=\"none\",topic=\"orders\"} 5.0"))
+        assertTrue(scrape.contains("ckc_record_age_sum{error=\"IOException\",topic=\"orders\"} 7.0"))
     }
 
     private fun testRecord(topic: String = "orders", partition: Int): ConsumerRecord<ByteArray, ByteArray> =
         ConsumerRecord(topic, partition, 0L, "key".toByteArray(), "value".toByteArray())
+
+    private class MutableRuntimeStats(
+        override val workerCount: Int,
+        override var activeWorkerCount: Int,
+        override var workQueueSize: Int,
+        override val workQueueCapacity: Int,
+        override var maxObservedWorkQueueSize: Int
+    ) : ConsumerRuntimeStats
 }

@@ -3,6 +3,10 @@ package avh.ckc.core
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 interface ConsumerMetrics<K, V> {
+    fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) = Unit
+
+    fun unbindRuntimeMetrics() = Unit
+
     fun onPoll(recordsCount: Int, durationNanos: Long) = Unit
 
     fun onRecordProcessed(

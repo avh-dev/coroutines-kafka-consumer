@@ -25,6 +25,7 @@ class MetricsConfiguration {
     @Bean
     fun consumerMetrics(micrometerConsumerMetrics: MicrometerConsumerMetrics): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics.forConsumer(
+            consumerId = "cauldron_telemetry",
             consumerRecordTagValueProvider<String, CauldronTelemetryEvent> { _, _, _ ->
                 set(eventTypeTag, "CAULDRON_TELEMETRY")
             }
@@ -33,6 +34,7 @@ class MetricsConfiguration {
     @Bean
     fun lifecycleConsumerMetrics(micrometerConsumerMetrics: MicrometerConsumerMetrics): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics.forConsumer(
+            consumerId = "order_lifecycle",
             consumerRecordTagValueProvider<String, OrderLifecycleEvent> { _, event, _ ->
                 set(eventTypeTag, event?.eventType?.name ?: "UNKNOWN")
             }
