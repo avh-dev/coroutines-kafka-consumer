@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class MicrometerConsumerTelemetryTest {
+class MicrometerConsumerMetricsTest {
 
     private data class TestLifecycleEvent(
         val eventType: String
@@ -22,12 +22,12 @@ class MicrometerConsumerTelemetryTest {
     @Test
     fun `when record is processed then counters timer and age summary are recorded`() {
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(
+        val metrics = MicrometerConsumerMetrics(
             meterRegistry = registry,
             commonTags = listOf(Tag.of("app", "test"))
         ).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onRecordProcessed(
+        metrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 2),
@@ -68,9 +68,9 @@ class MicrometerConsumerTelemetryTest {
     @Test
     fun `when record fails then failure metrics include error tag`() {
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(registry).forConsumer<String, TestLifecycleEvent>()
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onRecordFailed(
+        metrics.onRecordFailed(
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),
@@ -102,12 +102,12 @@ class MicrometerConsumerTelemetryTest {
     @Test
     fun `when retry commit poll and consumer failure happen then corresponding meters are recorded`() {
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(registry).forConsumer<String, TestLifecycleEvent>()
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
-        telemetry.onPoll(recordsCount = 5, durationNanos = TimeUnit.MILLISECONDS.toNanos(15))
-        telemetry.onCommit(partitionsCount = 2, durationNanos = TimeUnit.MILLISECONDS.toNanos(5), success = false)
-        telemetry.onConsumerFailure(IllegalStateException("boom"))
+        metrics.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
+        metrics.onPoll(recordsCount = 5, durationNanos = TimeUnit.MILLISECONDS.toNanos(15))
+        metrics.onCommit(partitionsCount = 2, durationNanos = TimeUnit.MILLISECONDS.toNanos(5), success = false)
+        metrics.onConsumerFailure(IllegalStateException("boom"))
 
         assertEquals(
             1.0,
@@ -144,10 +144,10 @@ class MicrometerConsumerTelemetryTest {
     @Test
     fun `when metrics are recorded then timers are registered`() {
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(registry).forConsumer<String, TestLifecycleEvent>()
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onPoll(recordsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(1))
-        telemetry.onCommit(partitionsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(2), success = true)
+        metrics.onPoll(recordsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(1))
+        metrics.onCommit(partitionsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(2), success = true)
 
         assertNotNull(registry.find("ckc.poll.duration").timer())
         assertNotNull(registry.find("ckc.commit.duration").timer())
@@ -157,7 +157,7 @@ class MicrometerConsumerTelemetryTest {
     fun `when record tag value provider is configured then custom tags are attached to record metrics`() {
         val eventTypeTag = recordMetricTag("event_type")
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(
+        val metrics = MicrometerConsumerMetrics(
             meterRegistry = registry,
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         ).forConsumer(
@@ -166,7 +166,7 @@ class MicrometerConsumerTelemetryTest {
             }
         )
 
-        telemetry.onRecordProcessed(
+        metrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("BREWING_STARTED"),
             record = testRecord(partition = 3),
@@ -189,12 +189,12 @@ class MicrometerConsumerTelemetryTest {
     fun `when tag value is omitted then schema missing value is used`() {
         val eventTypeTag = recordMetricTag("event_type")
         val registry = SimpleMeterRegistry()
-        val telemetry = MicrometerConsumerTelemetry(
+        val metrics = MicrometerConsumerMetrics(
             meterRegistry = registry,
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         ).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onRecordProcessed(
+        metrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("IGNORED"),
             record = testRecord(partition = 4),
@@ -214,10 +214,10 @@ class MicrometerConsumerTelemetryTest {
     }
 
     @Test
-    fun `when provider uses undeclared tag then telemetry rejects it`() {
+    fun `when provider uses undeclared tag then metrics reject it`() {
         val declaredTag = recordMetricTag("event_type")
         val undeclaredTag = recordMetricTag("tenant")
-        val telemetry = MicrometerConsumerTelemetry(
+        val metrics = MicrometerConsumerMetrics(
             meterRegistry = SimpleMeterRegistry(),
             recordTagSchema = recordMetricTagSchema(declaredTag)
         ).forConsumer(
@@ -227,7 +227,7 @@ class MicrometerConsumerTelemetryTest {
         )
 
         assertThrows(IllegalArgumentException::class.java) {
-            telemetry.onRecordProcessed(
+            metrics.onRecordProcessed(
                 key = "key",
                 value = TestLifecycleEvent("ORDER_CREATED"),
                 record = testRecord(partition = 1),
@@ -241,22 +241,22 @@ class MicrometerConsumerTelemetryTest {
     fun `when prometheus metrics use the same tag keys then all topic series are exposed`() {
         val eventTypeTag = recordMetricTag("event_type")
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-        val sharedTelemetry = MicrometerConsumerTelemetry(
+        val sharedMetrics = MicrometerConsumerMetrics(
             meterRegistry = registry,
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         )
-        val telemetryTopicMetrics = sharedTelemetry.forConsumer<String, TestLifecycleEvent>(
+        val staticTopicMetrics = sharedMetrics.forConsumer<String, TestLifecycleEvent>(
             consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, _, _ ->
                 set(eventTypeTag, "CAULDRON_TELEMETRY")
             }
         )
-        val lifecycleTopicMetrics = sharedTelemetry.forConsumer<String, TestLifecycleEvent>(
+        val lifecycleTopicMetrics = sharedMetrics.forConsumer<String, TestLifecycleEvent>(
             consumerRecordTagValueProvider<String, TestLifecycleEvent> { _, event, _ ->
                 set(eventTypeTag, event?.eventType ?: "UNKNOWN")
             }
         )
 
-        telemetryTopicMetrics.onRecordProcessed(
+        staticTopicMetrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("IGNORED"),
             record = testRecord(topic = "cauldrons", partition = 1),
@@ -280,16 +280,16 @@ class MicrometerConsumerTelemetryTest {
     @Test
     fun `when record age metrics are emitted for success and failure then prometheus exposes both series`() {
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-        val telemetry = MicrometerConsumerTelemetry(registry).forConsumer<String, TestLifecycleEvent>()
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
 
-        telemetry.onRecordProcessed(
+        metrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),
             recordAgeMillis = 5,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(1)
         )
-        telemetry.onRecordFailed(
+        metrics.onRecordFailed(
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),

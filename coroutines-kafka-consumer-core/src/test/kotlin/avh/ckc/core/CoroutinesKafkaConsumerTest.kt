@@ -151,8 +151,8 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
-    fun `when poll loop fails then telemetry receives consumer failure`() = runBlocking {
-        val telemetry = RecordingTelemetry<String, String>()
+    fun `when poll loop fails then metrics receive consumer failure`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
@@ -164,13 +164,13 @@ class CoroutinesKafkaConsumerTest {
             processingDispatcher = kotlinx.coroutines.Dispatchers.Default,
             consumerProperties = stringSerdeProperties(),
             retryPolicy = RetryPolicy.none(),
-            telemetry = telemetry,
+            metrics = metrics,
             handler = KafkaRecordHandler<String, String> { _, _, _ -> },
             processingFailureHandler = ProcessingFailureHandler.skip<String, String>(),
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerTelemetry<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected
@@ -185,7 +185,7 @@ class CoroutinesKafkaConsumerTest {
         consumer.start()
         withTimeout(2_000) {
             awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
-                telemetry.consumerFailures.firstOrNull()
+                metrics.consumerFailures.firstOrNull()
             }
         }
         val thrown = assertThrows(IllegalStateException::class.java) {
@@ -195,6 +195,6 @@ class CoroutinesKafkaConsumerTest {
         }
 
         assertEquals(expected.message, thrown.message)
-        assertEquals(listOf(expected), telemetry.consumerFailures)
+        assertEquals(listOf(expected), metrics.consumerFailures)
     }
 }

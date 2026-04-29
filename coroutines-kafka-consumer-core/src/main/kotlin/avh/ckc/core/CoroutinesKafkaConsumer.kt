@@ -68,7 +68,7 @@ private typealias PollLoopFactory<K, V> = (
     parentContext: CoroutineContext,
     deliveryStrategy: DeliveryStrategy,
     commitIntervalMs: Long,
-    telemetry: ConsumerTelemetry<K, V>,
+    metrics: ConsumerMetrics<K, V>,
     consumerProperties: Map<String, Any?>,
     consumerConfigAdapter: ConsumerConfigAdapter,
     topics: List<String>?,
@@ -102,7 +102,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
-    private val telemetry: ConsumerTelemetry<K, V>,
+    private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
@@ -119,7 +119,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         deserializationDispatcher = deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,
-        telemetry = telemetry,
+        metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         partitionRegistry = partitionRegistry
     )
@@ -141,7 +141,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             scope.coroutineContext,
             deliveryStrategy,
             commitIntervalMs,
-            telemetry,
+            metrics,
             consumerProperties,
             consumerConfigAdapter,
             topics,
@@ -194,7 +194,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
-        telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>,
+        metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
@@ -211,7 +211,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerProperties = consumerProperties,
         handler = handler,
         retryPolicy = retryPolicy,
-        telemetry = telemetry,
+        metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         parentContext = parentContext,
         topics = topics,
@@ -261,7 +261,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         job.invokeOnCompletion { cause ->
             if (cause != null && !cause.isCancellation()) {
                 if (failure.compareAndSet(null, cause)) {
-                    telemetry.onConsumerFailure(cause)
+                    metrics.onConsumerFailure(cause)
                 }
                 workChannel.close(cause)
             }
@@ -299,14 +299,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, deliveryStrategy, commitIntervalMs, telemetry, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
+    { id, context, deliveryStrategy, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
         ConsumerPollLoopControlAdapter(
             ConsumerPollLoop<K, V>(
                 id = id,
                 parentContext = context,
                 deliveryStrategy = deliveryStrategy,
                 commitIntervalMs = commitIntervalMs,
-                telemetry = telemetry,
+                metrics = metrics,
                 consumerProperties = consumerProperties,
                 consumerConfigAdapter = consumerConfigAdapter,
                 topics = loopTopics,

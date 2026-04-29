@@ -5,7 +5,7 @@ plugins {
     kotlin("jvm")
 }
 
-description = "Micrometer adapter for coroutine-based Kafka consumer telemetry"
+description = "Micrometer adapter for coroutine-based Kafka consumer metrics"
 
 kotlin {
     jvmToolchain(21)

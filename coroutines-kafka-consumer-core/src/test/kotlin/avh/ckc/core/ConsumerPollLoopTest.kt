@@ -219,10 +219,10 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when partitions assigned in backpressure mode then registry is updated and position is queried`() = runBlocking {
-            val telemetry = RecordingTelemetry<Any?, Any?>()
+            val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
-                telemetry = telemetry,
+                metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 42L,
                 pollAnswer = { emptyRecords() }
@@ -236,7 +236,7 @@ class ConsumerPollLoopTest {
 
             assertEquals(fixture.topicPartition, state.topicPartition)
             assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
-            assertFalse(telemetry.polls.isEmpty())
+            assertFalse(metrics.polls.isEmpty())
 
             job.cancel()
             job.join()
@@ -275,10 +275,10 @@ class ConsumerPollLoopTest {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
             val revokeRequested = AtomicBoolean(false)
             val revokedOnce = AtomicBoolean(false)
-            val telemetry = RecordingTelemetry<Any?, Any?>()
+            val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
-                telemetry = telemetry,
+                metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 101L,
                 listenerRef = listenerRef,
@@ -297,8 +297,8 @@ class ConsumerPollLoopTest {
             revokeRequested.set(true)
 
             fixture.awaitCommit(101L)
-            awaitFor(2_000L, 10L) { telemetry.commits.firstOrNull() }
-            assertEquals(true, telemetry.commits.single().success)
+            awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
+            assertEquals(true, metrics.commits.single().success)
 
             job.cancel()
             job.join()
@@ -411,7 +411,7 @@ class ConsumerPollLoopTest {
 private class PollLoopFixture(
     deliveryStrategy: DeliveryStrategy,
     @Suppress("UNCHECKED_CAST")
-    telemetry: ConsumerTelemetry<Any?, Any?> = ConsumerTelemetry.NOOP as ConsumerTelemetry<Any?, Any?>,
+    metrics: ConsumerMetrics<Any?, Any?> = ConsumerMetrics.NOOP as ConsumerMetrics<Any?, Any?>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
     commitIntervalMs: Long = 60_000L,
@@ -435,7 +435,7 @@ private class PollLoopFixture(
         parentContext = Dispatchers.Default,
         deliveryStrategy = deliveryStrategy,
         commitIntervalMs = commitIntervalMs,
-        telemetry = telemetry,
+        metrics = metrics,
         consumerProperties = consumerProperties,
         consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),

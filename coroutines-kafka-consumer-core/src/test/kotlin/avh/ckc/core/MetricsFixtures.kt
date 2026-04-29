@@ -34,7 +34,7 @@ data class CommitCall(
     val success: Boolean
 )
 
-internal class RecordingTelemetry<K, V> : ConsumerTelemetry<K, V> {
+internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val polls = CopyOnWriteArrayList<Pair<Int, Long>>()
     val processed = CopyOnWriteArrayList<RecordProcessedCall<K, V>>()
     val failed = CopyOnWriteArrayList<RecordFailedCall<K, V>>()

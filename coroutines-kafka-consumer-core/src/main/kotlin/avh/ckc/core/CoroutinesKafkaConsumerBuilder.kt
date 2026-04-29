@@ -54,10 +54,10 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var retryPolicy: RetryPolicy = RetryPolicy.none()
 
     /**
-     * Telemetry sink used to observe runtime activity and failures.
+     * Metrics sink used to observe runtime activity and failures.
      */
     @Suppress("UNCHECKED_CAST")
-    var telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>
+    var metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>
 
     /**
      * Fallback callback invoked after handler retries are exhausted.
@@ -130,7 +130,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             deserializationDispatcher = deserializationDispatcher,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
-            telemetry = telemetry,
+            metrics = metrics,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,
             topics = topics,

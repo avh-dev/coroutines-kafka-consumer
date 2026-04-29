@@ -99,7 +99,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry<String, String>()
+        val metrics = RecordingMetrics<String, String>()
         val processed = CopyOnWriteArrayList<String>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId) + mapOf(
@@ -109,7 +109,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             deliveryStrategy = DeliveryStrategy.LOSSY
             workerConcurrency = 1
             workChannelCapacity = 1
-            this.telemetry = telemetry
+            this.metrics = metrics
             topics(topic)
             handle { _, value, _ ->
                 delay(100)
@@ -128,8 +128,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             }
 
             assertFalse(processed.isEmpty())
-            assertFalse(telemetry.polls.isEmpty())
-            assertFalse(telemetry.processed.isEmpty())
+            assertFalse(metrics.polls.isEmpty())
+            assertFalse(metrics.processed.isEmpty())
         } finally {
             consumer.stop()
         }
@@ -235,24 +235,24 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when handler fails on real kafka then telemetry records failed outcome`() = runBlocking {
-        val topic = "failure-telemetry-${UUID.randomUUID()}"
+    fun `when handler fails on real kafka then metrics record failed outcome`() = runBlocking {
+        val topic = "failure-metrics-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry<String, String>()
+        val metrics = RecordingMetrics<String, String>()
         val recovered = CompletableDeferred<Unit>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE
-            this.telemetry = telemetry
+            this.metrics = metrics
             topics(topic)
             onProcessingFailure { _, _, _, _ ->
                 recovered.complete(Unit)
             }
             handle { _, _, _ ->
-                throw IllegalStateException("telemetry-boom")
+                throw IllegalStateException("metrics-boom")
             }
         }
 
@@ -261,9 +261,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "failure-key", "failure-payload")
             withTimeout(15_000) { recovered.await() }
 
-            assertEquals(1, telemetry.failed.size)
-            assertEquals("telemetry-boom", telemetry.failed.single().error.message)
-            assertFalse(telemetry.polls.isEmpty())
+            assertEquals(1, metrics.failed.size)
+            assertEquals("metrics-boom", metrics.failed.single().error.message)
+            assertFalse(metrics.polls.isEmpty())
         } finally {
             consumer.stop()
         }
@@ -313,7 +313,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
-        val telemetry = RecordingTelemetry<Long, Long>()
+        val metrics = RecordingMetrics<Long, Long>()
         val consumer = coroutinesKafkaConsumer<Long, Long>(
             consumerProperties = mapOf(
                 "bootstrap.servers" to kafka.bootstrapServers,
@@ -325,7 +325,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             )
         ) {
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE
-            this.telemetry = telemetry
+            this.metrics = metrics
             topics(topic)
             handle { _, _, _ -> }
         }
@@ -336,7 +336,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
             val failure = withTimeout(15_000) {
                 awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
-                    telemetry.consumerFailures.firstOrNull()
+                    metrics.consumerFailures.firstOrNull()
                 }
             }
 
@@ -362,7 +362,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         createTopic(topic)
 
         val attempts = AtomicInteger()
-        val telemetry = RecordingTelemetry<String, String>()
+        val metrics = RecordingMetrics<String, String>()
         val processed = CompletableDeferred<String?>()
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
@@ -374,7 +374,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                     delay = 10.milliseconds
                 }
             }
-            this.telemetry = telemetry
+            this.metrics = metrics
             topics(topic)
             handle { _, value, _ ->
                 if (attempts.getAndIncrement() < 2) {
@@ -390,16 +390,16 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
             assertEquals("retry-payload", withTimeout(15_000) { processed.await() })
             awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
-                telemetry.takeIf {
+                metrics.takeIf {
                     it.retries.map { retry -> retry.attempt } == listOf(1, 2) &&
                             it.processed.size == 1 &&
                             it.polls.isNotEmpty()
                 }
             }
 
-            assertEquals(listOf(1, 2), telemetry.retries.map { it.attempt })
-            assertEquals(1, telemetry.processed.size)
-            assertFalse(telemetry.polls.isEmpty())
+            assertEquals(listOf(1, 2), metrics.retries.map { it.attempt })
+            assertEquals(1, metrics.processed.size)
+            assertFalse(metrics.polls.isEmpty())
         } finally {
             consumer.stop()
         }

@@ -14,7 +14,7 @@ internal fun <K, V> createTestConsumer(
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy = RetryPolicy.none(),
     @Suppress("UNCHECKED_CAST")
-    telemetry: ConsumerTelemetry<K, V> = ConsumerTelemetry.NOOP as ConsumerTelemetry<K, V>,
+    metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
     runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
@@ -30,7 +30,7 @@ internal fun <K, V> createTestConsumer(
         deserializationDispatcher = runtime.deserializationDispatcher,
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
-        telemetry = telemetry,
+        metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         parentContext = kotlinx.coroutines.Dispatchers.Default,
         topics = listOf("topic-a"),

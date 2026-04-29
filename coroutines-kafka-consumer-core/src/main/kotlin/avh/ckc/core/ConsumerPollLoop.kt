@@ -41,7 +41,7 @@ internal class ConsumerPollLoop<K, V>(
     parentContext: CoroutineContext,
     private val deliveryStrategy: DeliveryStrategy,
     private val commitIntervalMs: Long,
-    private val telemetry: ConsumerTelemetry<K, V>,
+    private val metrics: ConsumerMetrics<K, V>,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: ConsumerConfigAdapter,
     private val topics: List<String>?,
@@ -239,9 +239,9 @@ internal class ConsumerPollLoop<K, V>(
             val startedAt = System.nanoTime()
             try {
                 consumer.commitSync(offsets)
-                telemetry.onCommit(offsets.size, System.nanoTime() - startedAt, true)
+                metrics.onCommit(offsets.size, System.nanoTime() - startedAt, true)
             } catch (e: Exception) {
-                telemetry.onCommit(offsets.size, System.nanoTime() - startedAt, false)
+                metrics.onCommit(offsets.size, System.nanoTime() - startedAt, false)
                 log.warn("Error committing offsets in manager #$id", e)
             }
         }
@@ -367,7 +367,7 @@ internal class ConsumerPollLoop<K, V>(
         return try {
             val startedAt = System.nanoTime()
             val records = consumer.poll(state.pollTimeout)
-            telemetry.onPoll(records.count(), System.nanoTime() - startedAt)
+            metrics.onPoll(records.count(), System.nanoTime() - startedAt)
             if (state.pollTimeout == Duration.ZERO && records.isEmpty) {
                 delay(State.ACTIVE.pollTimeout.toKotlinDuration())
             }

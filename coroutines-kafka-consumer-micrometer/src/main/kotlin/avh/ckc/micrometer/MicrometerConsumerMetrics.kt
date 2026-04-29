@@ -1,6 +1,6 @@
 package avh.ckc.micrometer
 
-import avh.ckc.core.ConsumerTelemetry
+import avh.ckc.core.ConsumerMetrics
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
@@ -15,7 +15,7 @@ private val reservedRecordTagKeys = setOf("topic", "partition", "error", "attemp
 /**
  * Definition of a custom record tag that may appear on record-level metrics.
  *
- * The metric schema is owned by [MicrometerConsumerTelemetry] and must stay stable for Prometheus.
+ * The metric schema is owned by [MicrometerConsumerMetrics] and must stay stable for Prometheus.
  * Consumer-specific providers may only assign values to tag definitions declared upfront.
  */
 class RecordMetricTag internal constructor(
@@ -52,7 +52,7 @@ class RecordMetricTagValueBuilder internal constructor(
 
     fun set(tag: RecordMetricTag, value: String?) {
         require(schema.tags.any { it.key == tag.key }) {
-            "Record metric tag '${tag.key}' is not declared in the telemetry schema"
+            "Record metric tag '${tag.key}' is not declared in the metrics schema"
         }
         values[tag.key] = value
     }
@@ -78,12 +78,12 @@ fun <K, V> consumerRecordTagValueProvider(
     ConsumerRecordTagValueProvider { builder, key, value, record -> builder.block(key as K?, value as V?, record) }
 
 /**
- * Shared Micrometer-backed telemetry that owns the metric schema.
+ * Shared Micrometer-backed metrics adapter that owns the metric schema.
  *
  * One instance should be created per metric family configuration. Concrete
- * [ConsumerTelemetry] instances are then bound per consumer via [forConsumer].
+ * [ConsumerMetrics] instances are then bound per consumer via [forConsumer].
  */
-class MicrometerConsumerTelemetry(
+open class MicrometerConsumerMetrics(
     private val meterRegistry: MeterRegistry,
     private val meterPrefix: String = "ckc",
     private val commonTags: Iterable<Tag> = emptyList(),
@@ -93,11 +93,11 @@ class MicrometerConsumerTelemetry(
     fun <K, V> forConsumer(
         recordTagValueProvider: ConsumerRecordTagValueProvider<K, V> =
             ConsumerRecordTagValueProvider.none() as ConsumerRecordTagValueProvider<K, V>
-    ): ConsumerTelemetry<K, V> = BoundConsumerTelemetry(recordTagValueProvider)
+    ): ConsumerMetrics<K, V> = BoundConsumerMetrics(recordTagValueProvider)
 
-    private inner class BoundConsumerTelemetry<K, V>(
+    private inner class BoundConsumerMetrics<K, V>(
         private val recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>
-    ) : ConsumerTelemetry<K, V> {
+    ) : ConsumerMetrics<K, V> {
 
         override fun onPoll(recordsCount: Int, durationNanos: Long) {
             timer("poll.duration").record(durationNanos, TimeUnit.NANOSECONDS)
