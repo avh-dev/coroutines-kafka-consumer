@@ -1,8 +1,11 @@
 package avh.ckc.micrometer
 
 import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.Meter
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Tags
@@ -10,7 +13,7 @@ import io.micrometer.core.instrument.Timer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
 
-private val reservedRecordTagKeys = setOf("topic", "partition", "error", "attempt", "success")
+private val reservedRecordTagKeys = setOf("topic", "error", "attempt", "success")
 
 /**
  * Definition of a custom record tag that may appear on record-level metrics.
@@ -91,13 +94,38 @@ open class MicrometerConsumerMetrics(
 ) {
 
     fun <K, V> forConsumer(
+        consumerId: String? = null,
         recordTagValueProvider: ConsumerRecordTagValueProvider<K, V> =
             ConsumerRecordTagValueProvider.none() as ConsumerRecordTagValueProvider<K, V>
-    ): ConsumerMetrics<K, V> = BoundConsumerMetrics(recordTagValueProvider)
+    ): ConsumerMetrics<K, V> = BoundConsumerMetrics(consumerId, recordTagValueProvider)
 
     private inner class BoundConsumerMetrics<K, V>(
+        private val consumerId: String?,
         private val recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>
     ) : ConsumerMetrics<K, V> {
+        private val consumerTags: Tags = if (consumerId == null) {
+            Tags.of(commonTags)
+        } else {
+            Tags.of(commonTags).and("consumer_id", consumerId)
+        }
+        private val runtimeMeters = mutableListOf<Meter>()
+
+        override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
+            if (consumerId == null || runtimeMeters.isNotEmpty()) {
+                return
+            }
+
+            runtimeMeters += gauge("workers", stats) { it.workerCount.toDouble() }
+            runtimeMeters += gauge("workers.active", stats) { it.activeWorkerCount.toDouble() }
+            runtimeMeters += gauge("work.queue.size", stats) { it.workQueueSize.toDouble() }
+            runtimeMeters += gauge("work.queue.capacity", stats) { it.workQueueCapacity.toDouble() }
+            runtimeMeters += gauge("work.queue.max", stats) { it.maxObservedWorkQueueSize.toDouble() }
+        }
+
+        override fun unbindRuntimeMetrics() {
+            runtimeMeters.forEach(meterRegistry::remove)
+            runtimeMeters.clear()
+        }
 
         override fun onPoll(recordsCount: Int, durationNanos: Long) {
             timer("poll.duration").record(durationNanos, TimeUnit.NANOSECONDS)
@@ -111,7 +139,7 @@ open class MicrometerConsumerMetrics(
             recordAgeMillis: Long,
             durationNanos: Long
         ) {
-            val tags = recordTags(recordTagValueProvider, key, value, record)
+            val tags = recordTags(consumerTags, recordTagValueProvider, key, value, record)
             timer("record.process.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
             summary("record.age", tags.and("error", "none")).record(recordAgeMillis.toDouble())
             counter("record.processed", tags).increment()
@@ -125,7 +153,7 @@ open class MicrometerConsumerMetrics(
             error: Throwable,
             durationNanos: Long
         ) {
-            val tags = recordTags(recordTagValueProvider, key, value, record).and("error", error::class.java.simpleName)
+            val tags = recordTags(consumerTags, recordTagValueProvider, key, value, record).and("error", error::class.java.simpleName)
             timer("record.failed.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
             summary("record.age", tags).record(recordAgeMillis.toDouble())
             counter("record.failed", tags).increment()
@@ -140,7 +168,7 @@ open class MicrometerConsumerMetrics(
         ) {
             counter(
                 "record.retry",
-                recordTags(recordTagValueProvider, key, value, record)
+                recordTags(consumerTags, recordTagValueProvider, key, value, record)
                     .and("attempt", attempt.toString())
                     .and("error", error::class.java.simpleName)
             ).increment()
@@ -156,6 +184,27 @@ open class MicrometerConsumerMetrics(
         override fun onConsumerFailure(error: Throwable) {
             counter("failure", tags("error" to error::class.java.simpleName)).increment()
         }
+
+        private fun timer(name: String, tags: Iterable<Tag> = consumerTags): Timer =
+            this@MicrometerConsumerMetrics.timer(name, tags)
+
+        private fun summary(name: String, tags: Iterable<Tag> = consumerTags): DistributionSummary =
+            this@MicrometerConsumerMetrics.summary(name, tags)
+
+        private fun counter(name: String, tags: Iterable<Tag> = consumerTags): Counter =
+            this@MicrometerConsumerMetrics.counter(name, tags)
+
+        private fun gauge(
+            name: String,
+            stats: ConsumerRuntimeStats,
+            valueFunction: (ConsumerRuntimeStats) -> Double
+        ): Gauge =
+            Gauge.builder(metricName(name), stats, valueFunction)
+                .tags(consumerTags)
+                .register(meterRegistry)
+
+        private fun tags(vararg pairs: Pair<String, String>): Tags =
+            this@MicrometerConsumerMetrics.tags(consumerTags, *pairs)
     }
 
     private fun timer(name: String, tags: Iterable<Tag> = commonTags): Timer =
@@ -174,6 +223,7 @@ open class MicrometerConsumerMetrics(
             .register(meterRegistry)
 
     private fun <K, V> recordTags(
+        baseTags: Iterable<Tag>,
         recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>,
         key: K?,
         value: V?,
@@ -182,13 +232,13 @@ open class MicrometerConsumerMetrics(
         val builder = RecordMetricTagValueBuilder(recordTagSchema)
         recordTagValueProvider.populateTags(builder, key, value, record)
         return tags(
-            "topic" to record.topic(),
-            "partition" to record.partition().toString()
+            baseTags,
+            "topic" to record.topic()
         ).and(builder.toTags())
     }
 
-    private fun tags(vararg pairs: Pair<String, String>): Tags =
-        Tags.of(commonTags).and(pairs.map { Tag.of(it.first, it.second) })
+    private fun tags(baseTags: Iterable<Tag> = commonTags, vararg pairs: Pair<String, String>): Tags =
+        Tags.of(baseTags).and(pairs.map { Tag.of(it.first, it.second) })
 
     private fun metricName(suffix: String): String = "$meterPrefix.$suffix"
 }

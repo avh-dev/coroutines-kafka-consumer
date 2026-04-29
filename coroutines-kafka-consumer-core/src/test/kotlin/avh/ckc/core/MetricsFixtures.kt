@@ -41,6 +41,16 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
     val consumerFailures = CopyOnWriteArrayList<Throwable>()
+    val boundRuntimeStats = CopyOnWriteArrayList<ConsumerRuntimeStats>()
+    val unbindRuntimeMetricsCalls = CopyOnWriteArrayList<Unit>()
+
+    override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
+        boundRuntimeStats += stats
+    }
+
+    override fun unbindRuntimeMetrics() {
+        unbindRuntimeMetricsCalls += Unit
+    }
 
     override fun onPoll(recordsCount: Int, durationNanos: Long) {
         polls += recordsCount to durationNanos
