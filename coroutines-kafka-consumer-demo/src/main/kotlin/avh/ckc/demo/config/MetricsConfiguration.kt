@@ -1,9 +1,9 @@
 package avh.ckc.demo.config
 
-import avh.ckc.core.ConsumerTelemetry
+import avh.ckc.core.ConsumerMetrics
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.micrometer.MicrometerConsumerTelemetry
+import avh.ckc.micrometer.MicrometerConsumerMetrics
 import avh.ckc.micrometer.consumerRecordTagValueProvider
 import avh.ckc.micrometer.recordMetricTag
 import avh.ckc.micrometer.recordMetricTagSchema
@@ -16,23 +16,23 @@ class MetricsConfiguration {
     private val eventTypeTag = recordMetricTag("event_type")
 
     @Bean
-    fun micrometerConsumerTelemetry(meterRegistry: MeterRegistry): MicrometerConsumerTelemetry =
-        MicrometerConsumerTelemetry(
+    fun micrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
+        MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         )
 
     @Bean
-    fun consumerTelemetry(micrometerConsumerTelemetry: MicrometerConsumerTelemetry): ConsumerTelemetry<String, CauldronTelemetryEvent> =
-        micrometerConsumerTelemetry.forConsumer(
+    fun consumerMetrics(micrometerConsumerMetrics: MicrometerConsumerMetrics): ConsumerMetrics<String, CauldronTelemetryEvent> =
+        micrometerConsumerMetrics.forConsumer(
             consumerRecordTagValueProvider<String, CauldronTelemetryEvent> { _, _, _ ->
                 set(eventTypeTag, "CAULDRON_TELEMETRY")
             }
         )
 
     @Bean
-    fun lifecycleConsumerTelemetry(micrometerConsumerTelemetry: MicrometerConsumerTelemetry): ConsumerTelemetry<String, OrderLifecycleEvent> =
-        micrometerConsumerTelemetry.forConsumer(
+    fun lifecycleConsumerMetrics(micrometerConsumerMetrics: MicrometerConsumerMetrics): ConsumerMetrics<String, OrderLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
             consumerRecordTagValueProvider<String, OrderLifecycleEvent> { _, event, _ ->
                 set(eventTypeTag, event?.eventType?.name ?: "UNKNOWN")
             }

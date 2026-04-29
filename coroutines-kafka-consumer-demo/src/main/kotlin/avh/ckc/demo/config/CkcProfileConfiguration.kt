@@ -1,7 +1,7 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.CoroutinesKafkaConsumer
-import avh.ckc.core.ConsumerTelemetry
+import avh.ckc.core.ConsumerMetrics
 import avh.ckc.demo.DemoConsumers
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -29,16 +29,16 @@ class CkcProfileConfiguration {
         brewingStateRepository: BrewingStateRepository,
         brewingLifecycleService: BrewingLifecycleService,
         etaRecalculationService: EtaRecalculationService,
-        @Qualifier("consumerTelemetry") consumerTelemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
-        @Qualifier("lifecycleConsumerTelemetry") lifecycleConsumerTelemetry: ConsumerTelemetry<String, OrderLifecycleEvent>
+        @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
+        @Qualifier("lifecycleConsumerMetrics") lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
             brewingStateRepository,
             brewingLifecycleService,
             etaRecalculationService,
-            consumerTelemetry,
-            lifecycleConsumerTelemetry
+            consumerMetrics,
+            lifecycleConsumerMetrics
         )
 }
 
@@ -47,8 +47,8 @@ private class CkcConsumerRuntime(
     private val brewingStateRepository: BrewingStateRepository,
     private val brewingLifecycleService: BrewingLifecycleService,
     private val etaRecalculationService: EtaRecalculationService,
-    private val consumerTelemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
-    private val lifecycleConsumerTelemetry: ConsumerTelemetry<String, OrderLifecycleEvent>
+    private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
+    private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
 ) : SmartLifecycle {
     private val logger = LoggerFactory.getLogger(javaClass)
     private lateinit var lifecycleConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
@@ -64,7 +64,7 @@ private class CkcConsumerRuntime(
 
         lifecycleConsumer = DemoConsumers.lifecycleConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId),
-            lifecycleConsumerTelemetry
+            lifecycleConsumerMetrics
         ) { _, event ->
             try {
                 brewingLifecycleService.applyLifecycleEvent(event).await()
@@ -81,7 +81,7 @@ private class CkcConsumerRuntime(
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId),
-            consumerTelemetry
+            consumerMetrics
         ) { _, telemetry ->
             try {
                 val batchId = telemetry.batchId.ifBlank { brewingStateRepository.findActiveBatchId(telemetry.cauldronId).await() ?: "" }

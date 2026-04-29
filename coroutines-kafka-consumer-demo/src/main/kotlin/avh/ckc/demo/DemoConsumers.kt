@@ -1,7 +1,7 @@
 package avh.ckc.demo
 
 import avh.ckc.core.CoroutinesKafkaConsumer
-import avh.ckc.core.ConsumerTelemetry
+import avh.ckc.core.ConsumerMetrics
 import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -14,7 +14,7 @@ import org.apache.kafka.common.serialization.StringDeserializer
 object DemoConsumers {
     fun lifecycleConsumer(
         baseProperties: Map<String, Any>,
-        telemetry: ConsumerTelemetry<String, OrderLifecycleEvent>,
+        metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -27,7 +27,7 @@ object DemoConsumers {
             topics(DemoTopics.ORDER_LIFECYCLE)
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE
             workerConcurrency = 2
-            this.telemetry = telemetry
+            this.metrics = metrics
             handle { key, value, _ ->
                 if (value != null) {
                     handler(key, value)
@@ -38,7 +38,7 @@ object DemoConsumers {
 
     fun telemetryConsumer(
         baseProperties: Map<String, Any>,
-        telemetry: ConsumerTelemetry<String, CauldronTelemetryEvent>,
+        metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -52,7 +52,7 @@ object DemoConsumers {
             deliveryStrategy = DeliveryStrategy.LOSSY
             workerConcurrency = 4
             workChannelCapacity = 256
-            this.telemetry = telemetry
+            this.metrics = metrics
             handle { key, value, _ ->
                 if (value != null) {
                     handler(key, value)
