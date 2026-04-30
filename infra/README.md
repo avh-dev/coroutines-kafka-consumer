@@ -17,13 +17,13 @@
 The AWS flow is split into two parts:
 
 1. `terraform/runner`
-   A long-lived private EC2 host in `us-east-1` with Docker, Terraform, kubectl, Helm, AWS CLI, Prometheus, and Grafana.
+   A long-lived private EC2 host in `us-east-1` with Docker, Terraform, kubectl, Helm, AWS CLI, Grafana, and Prometheus-compatible metrics storage.
    Access is through AWS Systems Manager Session Manager only.
-   The default root volume is `20 GiB`, and Prometheus defaults are configured through runner Terraform variables.
+   The default root volume is `20 GiB`, and metrics retention storage is kept on the runner so lab history survives lab destroy.
 
 2. `assets/terraform/load-lab`
    A temporary EKS-based test environment used to deploy the app under test, supporting services, and load generators.
-   It is intended to be created for a test window, used to collect metrics in Grafana/Prometheus on the runner, and then destroyed to avoid ongoing cost.
+   It is intended to be created for a test window, used to collect pod-aware metrics in Grafana on the runner through in-cluster Alloy remote_write, and then destroyed to avoid ongoing cost.
 
 ## Quick Start
 
@@ -46,7 +46,7 @@ Copy-Item infra\aws\terraform\ecr\terraform.tfvars.example infra\aws\terraform\e
 What you get after `apply`:
 
 - a private EC2 runner in AWS
-- Prometheus running on the runner
+- Prometheus-compatible metrics storage running on the runner
 - Grafana running on the runner
 - the shared `CKC Overview` dashboard already provisioned
 - no public inbound access to the instance

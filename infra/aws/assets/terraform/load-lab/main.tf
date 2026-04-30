@@ -12,6 +12,39 @@ locals {
   }
 }
 
+data "aws_vpc" "runner" {
+  count = var.enable_runner_observability_peering ? 1 : 0
+
+  filter {
+    name   = "tag:Project"
+    values = [var.runner_project]
+  }
+
+  filter {
+    name   = "tag:Environment"
+    values = [var.environment]
+  }
+}
+
+data "aws_route_tables" "runner" {
+  count  = var.enable_runner_observability_peering ? 1 : 0
+  vpc_id = data.aws_vpc.runner[0].id
+}
+
+data "aws_security_group" "runner" {
+  count = var.enable_runner_observability_peering ? 1 : 0
+
+  filter {
+    name   = "tag:Name"
+    values = ["${var.runner_project}-${var.environment}"]
+  }
+
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.runner[0].id]
+  }
+}
+
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
@@ -38,6 +71,42 @@ module "vpc" {
   }
 
   tags = local.tags
+}
+
+resource "aws_vpc_peering_connection" "runner" {
+  count       = var.enable_runner_observability_peering ? 1 : 0
+  vpc_id      = module.vpc.vpc_id
+  peer_vpc_id = data.aws_vpc.runner[0].id
+  auto_accept = true
+
+  tags = merge(local.tags, {
+    Name = "${local.name}-to-${var.runner_project}-${var.environment}"
+  })
+}
+
+resource "aws_route" "load_lab_to_runner" {
+  count                     = var.enable_runner_observability_peering ? length(module.vpc.private_route_table_ids) : 0
+  route_table_id            = module.vpc.private_route_table_ids[count.index]
+  destination_cidr_block    = data.aws_vpc.runner[0].cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.runner[0].id
+}
+
+resource "aws_route" "runner_to_load_lab" {
+  count                     = var.enable_runner_observability_peering ? length(data.aws_route_tables.runner[0].ids) : 0
+  route_table_id            = data.aws_route_tables.runner[0].ids[count.index]
+  destination_cidr_block    = var.vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.runner[0].id
+}
+
+resource "aws_security_group_rule" "runner_remote_write_from_load_lab" {
+  count             = var.enable_runner_observability_peering ? 1 : 0
+  type              = "ingress"
+  security_group_id = data.aws_security_group.runner[0].id
+  description       = "Prometheus remote_write from CKC load-lab"
+  from_port         = var.runner_remote_write_port
+  to_port           = var.runner_remote_write_port
+  protocol          = "tcp"
+  cidr_blocks       = [var.vpc_cidr]
 }
 
 resource "aws_security_group" "msk" {
