@@ -4,7 +4,7 @@ set -euo pipefail
 
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
-PROFILE_NAME="${3:-medium}"
+PROFILE_NAME="${3:-default}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 TERRAFORM_DIR="${REPO_DIR}/infra/aws/assets/terraform/load-lab"
@@ -13,7 +13,10 @@ CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
 
-if [ ! -f "${PROFILE_PATH}" ]; then
+PROFILE_ARGS=()
+if [ -f "${PROFILE_PATH}" ]; then
+  PROFILE_ARGS=(-var-file="${PROFILE_PATH}")
+elif [ "${PROFILE_NAME}" != "default" ]; then
   echo "Lab profile not found: ${PROFILE_PATH}" >&2
   exit 1
 fi
@@ -91,7 +94,7 @@ terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   -var="aws_region=${REGION}" \
   -var="environment=${ENVIRONMENT}" \
-  -var-file="${PROFILE_PATH}"
+  "${PROFILE_ARGS[@]}"
 
 aws eks update-kubeconfig --region "${REGION}" --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG_PATH}"
 export KUBECONFIG="${KUBECONFIG_PATH}"

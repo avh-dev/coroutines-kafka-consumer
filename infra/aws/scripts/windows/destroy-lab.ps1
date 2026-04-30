@@ -47,7 +47,7 @@ try {
             "set -euo pipefail",
             "RUNNER_REPO_DIR=$RunnerRepoDir",
             "cd `"`${RUNNER_REPO_DIR}`"",
-            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/assets/runner/destroy-lab.sh $Region $Environment $ProfileName"
+            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/runner-internal/destroy-lab.sh $Region $Environment $ProfileName"
         )
     } | ConvertTo-Json -Depth 3
 

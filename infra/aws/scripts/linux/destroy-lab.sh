@@ -24,7 +24,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "set -euo pipefail",
     "RUNNER_REPO_DIR=${REPO_DIR_ON_RUNNER}",
     "cd \\"\\\${RUNNER_REPO_DIR}\\"",
-    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/assets/runner/destroy-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME}"
+    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/runner-internal/destroy-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME}"
   ]
 }
 EOF

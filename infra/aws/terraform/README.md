@@ -21,6 +21,6 @@ Typical perf-lab workflow after that:
 ```sh
 ./infra/aws/scripts/linux/build-and-push.sh us-east-1 dev
 ./infra/aws/scripts/linux/create-lab.sh us-east-1 dev medium
-./infra/aws/scripts/linux/run-test.sh us-east-1 dev infra/aws/assets/test-definitions/ckc-baseline.yaml
+./infra/aws/scripts/linux/run-test.sh us-east-1 dev infra/shared/test-definitions/ckc-baseline.yaml
 ./infra/aws/scripts/linux/destroy-lab.sh us-east-1 dev
 ```

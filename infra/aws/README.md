@@ -11,8 +11,14 @@
   This currently holds `runner/` and `ecr/`.
 
 - `assets/`
-  Files uploaded to the runner by `update-runner`.
-  This includes runner-side Terraform, Helm charts, test definitions, and remote runner entrypoints.
+  AWS-only files uploaded to the runner by `update-runner`.
+  This currently includes runner-side Terraform for disposable labs.
+
+- `runner-internal/`
+  Remote entrypoints that execute on the runner host.
+
+- `../shared/`
+  Helm charts, test definitions, and test orchestration code reused by AWS and local Kubernetes flows.
 
 - `scripts/`
   Local operator commands split by OS:
@@ -30,13 +36,13 @@
 - `assets/terraform`
   Defines the disposable AWS test lab synced to the runner.
 
-- `assets/runner`
-  Contains remote scripts that execute on the runner and orchestrate lab lifecycle and test runs.
+- `runner-internal`
+  Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `assets/helm`
+- `../shared/helm`
   Helm charts and deployment profiles for the app and stub workloads.
 
-- `assets/test-definitions`
+- `../shared/test-definitions`
   Test-run definitions that select deployment profiles and load configuration.
 
 ## Access Model
