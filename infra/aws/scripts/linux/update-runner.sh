@@ -31,10 +31,10 @@ tar -czf "${BUNDLE_FILE}" \
   infra/aws/assets/terraform/load-lab/versions.tf \
   infra/aws/assets/terraform/load-lab/outputs.tf \
   infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
-  infra/aws/assets/terraform/load-lab/profiles \
-  infra/aws/assets/runner \
-  infra/aws/assets/helm \
-  infra/aws/assets/test-definitions
+  infra/aws/runner-internal \
+  infra/shared/helm \
+  infra/shared/test-definitions \
+  infra/shared/test-orchestration
 
 BUNDLE_BASE64="$(base64 < "${BUNDLE_FILE}" | tr -d '\n')"
 
@@ -50,7 +50,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "PY",
     "mkdir -p \\"${REPO_TARGET}\\"",
     "tar -xzf \\"${BUNDLE_TARGET}\\" -C \\"${REPO_TARGET}\\"",
-    "find \\"${REPO_TARGET}/infra/aws/assets/runner\\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \\"${REPO_TARGET}/infra/aws/runner-internal\\" -type f -name '*.sh' -exec chmod +x {} +",
     "echo synced=true",
     "echo repo_dir=${REPO_TARGET}"
   ]

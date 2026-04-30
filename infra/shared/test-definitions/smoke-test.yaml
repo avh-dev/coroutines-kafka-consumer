@@ -6,12 +6,12 @@ deployment:
 
 load_test:
   shards: 1
-  base_rate: 20
-  telemetry_rate_multiplier: 2.0
-  load_profile: "0 -> (30s, warmup) -> 20 -> (4m, smoke) -> 20 -> (30s, cool-down) -> 0"
+  base_rate: 1
+  telemetry_rate_multiplier: 5.0
+  load_profile: "0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down) -> 0"
   cauldron_count: 2
   orders_per_batch: 2
-  max_batch_wait_seconds: 10
-  brew_duration_seconds: 30
+  max_batch_wait_seconds: 5
+  brew_duration_seconds: 3
   tick_interval_millis: 500
   diagnostics_blob_size: 64

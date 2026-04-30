@@ -9,13 +9,16 @@ REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 
 COMMAND=(
-  "${REPO_DIR}/infra/aws/assets/runner/run-test.sh"
-  "${REGION}"
-  "${ENVIRONMENT}"
+  python3
+  "${REPO_DIR}/infra/shared/test-orchestration/run-test.py"
+  --region "${REGION}"
+  --environment "${ENVIRONMENT}"
+  --repo-dir "${REPO_DIR}"
+  --runner-home "${RUNNER_HOME}"
 )
 
 if [ -n "${TEST_DEFINITION_PATH}" ]; then
-  COMMAND+=("${TEST_DEFINITION_PATH}")
+  COMMAND+=(--test-definition-path "${TEST_DEFINITION_PATH}")
 fi
 
 exec "${COMMAND[@]}"

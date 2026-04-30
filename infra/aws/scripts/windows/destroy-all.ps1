@@ -27,7 +27,7 @@ if ($PSVersionTable.PSEdition -ne "Core") {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
-$loadLabTerraformDir = Join-Path $repoRoot "infra\aws\assets\load-lab\terraform"
+$loadLabTerraformDir = Join-Path $repoRoot "infra\aws\assets\terraform\load-lab"
 $runnerTerraformDir = Join-Path $repoRoot "infra\aws\terraform\runner"
 $ecrTerraformDir = Join-Path $repoRoot "infra\aws\terraform\ecr"
 

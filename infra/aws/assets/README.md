@@ -1,17 +1,11 @@
 # AWS Assets
 
-`infra/aws/assets` contains files that are copied to the runner by `update-runner`.
+`infra/aws/assets` contains AWS-specific files that are copied to the runner by `update-runner`.
 
 - `terraform/`
   Runner-side Terraform for disposable labs.
 
-- `helm/`
-  Helm charts and deployment profiles used by test runs.
-
-- `test-definitions/`
-  YAML definitions that select deployment profiles and load-test settings.
-
-- `runner/`
-  Remote entrypoints that run on the runner itself.
+Shared Helm charts, test definitions, Grafana assets, and test orchestration live under `infra/shared`.
+Runner-internal shell entrypoints live under `infra/aws/runner-internal`.
 
 These files are not the local operator interface. The local operator interface stays in `infra/aws/scripts`.

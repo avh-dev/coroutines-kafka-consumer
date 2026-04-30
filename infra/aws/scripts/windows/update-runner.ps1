@@ -50,10 +50,10 @@ try {
             "infra/aws/assets/terraform/load-lab/versions.tf" `
             "infra/aws/assets/terraform/load-lab/outputs.tf" `
             "infra/aws/assets/terraform/load-lab/terraform.tfvars.example" `
-            "infra/aws/assets/terraform/load-lab/profiles" `
-            "infra/aws/assets/runner" `
-            "infra/aws/assets/helm" `
-            "infra/aws/assets/test-definitions"
+            "infra/aws/runner-internal" `
+            "infra/shared/helm" `
+            "infra/shared/test-definitions" `
+            "infra/shared/test-orchestration"
     } finally {
         Pop-Location
     }
@@ -70,7 +70,7 @@ try {
             'PY',
             "mkdir -p `"$repoTarget`"",
             "tar -xzf `"$bundleTarget`" -C `"$repoTarget`"",
-            "find `"$repoTarget/infra/aws/assets/runner`" -type f -name '*.sh' -exec chmod +x {} +",
+            "find `"$repoTarget/infra/aws/runner-internal`" -type f -name '*.sh' -exec chmod +x {} +",
             'echo synced=true',
             ('echo repo_dir={0}' -f $repoTarget)
         )

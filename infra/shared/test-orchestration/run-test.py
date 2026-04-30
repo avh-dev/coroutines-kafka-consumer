@@ -156,7 +156,7 @@ def load_definition(args: argparse.Namespace, repo_dir: Path) -> tuple[dict[str,
     return load_definition_from_yaml(definition_path), definition_path
 
 
-def update_kubeconfig(region: str, cluster_name: str, kubeconfig_path: Path) -> None:
+def update_eks_kubeconfig(region: str, cluster_name: str, kubeconfig_path: Path) -> None:
     kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
     run(
         [
@@ -172,6 +172,27 @@ def update_kubeconfig(region: str, cluster_name: str, kubeconfig_path: Path) -> 
         ]
     )
     os.environ["KUBECONFIG"] = str(kubeconfig_path)
+
+
+def configure_kube_access(args: argparse.Namespace, lab_context: dict[str, Any], runner_home: Path) -> None:
+    kube_context = as_str(lab_context.get("kube_context"), "")
+    if kube_context:
+        run(["kubectl", "config", "use-context", kube_context])
+
+    kubeconfig_path_value = lab_context.get("kubeconfig_path")
+    if kubeconfig_path_value:
+        os.environ["KUBECONFIG"] = as_str(kubeconfig_path_value, "")
+
+    update_eks = bool(lab_context.get("aws_eks_update_kubeconfig", not kube_context))
+    if update_eks:
+        cluster_name = as_str(lab_context.get("cluster_name"), f"ckc-load-lab-{args.environment}")
+        kubeconfig_path = Path(
+            as_str(
+                kubeconfig_path_value,
+                str(runner_home / "kubeconfig" / f"{cluster_name}.yaml"),
+            )
+        )
+        update_eks_kubeconfig(args.region, cluster_name, kubeconfig_path)
 
 
 def prepare_namespaces() -> None:
@@ -252,9 +273,9 @@ def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: li
     ]
     for value_file in value_files:
         command.extend(["-f", str(value_file)])
-    with contextlib.ExitStack() as exit_stack:
+    overlay_path: Path | None = None
+    try:
         if set_values:
-            overlay_file = exit_stack.enter_context(tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".yaml"))
             nested_values: dict[str, Any] = {}
             for key, value in set_values.items():
                 cursor = nested_values
@@ -274,10 +295,15 @@ def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: li
                         lines.append(f"{prefix}{child_key}: {yaml_scalar(child_value)}")
                 return "\n".join(lines)
 
-            overlay_file.write(write_yaml(nested_values) + "\n")
-            overlay_file.flush()
-            command.extend(["-f", overlay_file.name])
+            fd, overlay_name = tempfile.mkstemp(suffix=".yaml")
+            overlay_path = Path(overlay_name)
+            with os.fdopen(fd, "w", encoding="utf-8") as overlay_file:
+                overlay_file.write(write_yaml(nested_values) + "\n")
+            command.extend(["-f", str(overlay_path)])
         run(command)
+    finally:
+        if overlay_path:
+            overlay_path.unlink(missing_ok=True)
 
 
 def helm_uninstall(name: str, namespace: str) -> None:
@@ -311,6 +337,7 @@ def deploy_load_job(
     image: str,
     load_test: dict[str, Any],
     kafka_bootstrap: str,
+    image_pull_policy: str,
     started_at: str,
     run_id: str,
     active_deadline_seconds: int,
@@ -338,6 +365,7 @@ spec:
       containers:
         - name: load-test
           image: {yaml_string(image)}
+          imagePullPolicy: {yaml_string(image_pull_policy)}
           env:
             - name: BOOTSTRAP_SERVERS
               value: {yaml_string(kafka_bootstrap)}
@@ -419,7 +447,8 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
     deployment = require_section(definition, "deployment")
     app_profile = as_str(deployment.get("app_profile"), "ckc-single")
     stubs_profile = as_str(deployment.get("stubs_profile"), "baseline")
-    charts_dir = repo_dir / "infra" / "aws" / "assets" / "helm"
+    charts_dir = repo_dir / "infra" / "shared" / "helm"
+    image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
     stubs_chart = charts_dir / "demo-stubs"
     stubs_value_files = [
@@ -434,6 +463,7 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
         {
             "image.repository": f"{registry}/demo-stubs",
             "image.tag": "latest",
+            "image.pullPolicy": image_pull_policy,
         },
     )
 
@@ -450,6 +480,7 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
         {
             "image.repository": f"{registry}/demo",
             "image.tag": "latest",
+            "image.pullPolicy": image_pull_policy,
             "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
             "env.redisHost": as_str(lab_context.get("redis_host"), ""),
             "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
@@ -472,14 +503,15 @@ def main() -> None:
     definition, definition_path = load_definition(args, repo_dir)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
-    cluster_name = as_str(lab_context.get("cluster_name"), f"ckc-load-lab-{args.environment}")
-    kubeconfig_path = Path(as_str(lab_context.get("kubeconfig_path"), str(runner_home / "kubeconfig" / f"{cluster_name}.yaml")))
     registry = as_str(lab_context.get("registry"), "")
     if not registry:
-        account_id = run(["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"], capture_output=True).strip()
-        registry = f"{account_id}.dkr.ecr.{args.region}.amazonaws.com/ckc-load-lab-{args.environment}"
+        if bool(lab_context.get("aws_registry_fallback", True)):
+            account_id = run(["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"], capture_output=True).strip()
+            registry = f"{account_id}.dkr.ecr.{args.region}.amazonaws.com/ckc-load-lab-{args.environment}"
+        else:
+            raise ValueError("Lab context must define registry when aws_registry_fallback is disabled.")
 
-    update_kubeconfig(args.region, cluster_name, kubeconfig_path)
+    configure_kube_access(args, lab_context, runner_home)
     prepare_namespaces()
 
     port_forward_pid_file = runner_home / "config" / "ckc-demo-port-forward.pid"
@@ -500,12 +532,14 @@ def main() -> None:
     try:
         deploy_workloads(repo_dir, definition, lab_context, registry)
         wait_for_demo_rollout()
-        configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
+        if bool(lab_context.get("prometheus_bridge_enabled", True)):
+            configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         deploy_definition_config_map(definition)
         job_name = deploy_load_job(
             f"{registry}/load-test:latest",
             load_test,
             as_str(lab_context.get("kafka_bootstrap"), ""),
+            as_str(lab_context.get("image_pull_policy"), "Always"),
             started_at,
             run_id,
             wait_timeout_seconds,
@@ -520,7 +554,8 @@ def main() -> None:
     finally:
         stop_prometheus_bridge(port_forward_pid_file)
         collect_job_logs(job_name, reports_dir, run_id) if job_name else None
-        cleanup_workloads(job_name)
+        if bool(lab_context.get("cleanup_workloads", True)):
+            cleanup_workloads(job_name)
 
 
 if __name__ == "__main__":

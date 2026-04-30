@@ -1,13 +1,15 @@
 # Infrastructure
 
-`infra/` is the entrypoint for local demo services and AWS-based load testing.
+`infra/` is the entrypoint for local demo services, local Kubernetes test runs, and AWS-based load testing.
 
 ## Layout
 
-- `local-env/`: local Kafka, Redis, Prometheus, and Grafana for demo development
-- `shared/`: shared Grafana provisioning and dashboards used by both local and AWS environments
+- `local-dev/`: local Kafka, Redis, Prometheus, and Grafana for fast demo development with Docker Compose
+- `local-k8s/`: minikube-based test environment that reuses the shared Helm charts and test orchestration
+- `shared/`: Helm charts, test definitions, test orchestration, Grafana provisioning, and dashboards shared by local and AWS environments
 - `aws/terraform/`: long-lived AWS Terraform stacks for `runner` and `ecr`
-- `aws/assets/`: assets uploaded to the runner, including the disposable `load-lab`
+- `aws/assets/`: AWS-only assets uploaded to the runner, including disposable `load-lab` Terraform
+- `aws/runner-internal/`: scripts executed inside the AWS runner
 - `aws/scripts/`: local operator scripts split into `linux` and `windows`
 
 ## AWS Model
@@ -19,7 +21,7 @@ The AWS flow is split into two parts:
    Access is through AWS Systems Manager Session Manager only.
    The default root volume is `20 GiB`, and Prometheus defaults are configured through runner Terraform variables.
 
-2. `assets/load-lab`
+2. `assets/terraform/load-lab`
    A temporary EKS-based test environment used to deploy the app under test, supporting services, and load generators.
    It is intended to be created for a test window, used to collect metrics in Grafana/Prometheus on the runner, and then destroyed to avoid ongoing cost.
 
@@ -91,4 +93,4 @@ Or on Windows PowerShell:
 ./infra/aws/scripts/windows/destroy-all.ps1 -Region us-east-1 -Environment dev
 ```
 
-Module details are in [aws/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/README.md), [aws/terraform/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/terraform/README.md), [aws/assets/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/assets/README.md), [aws/assets/load-lab/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/assets/load-lab/README.md), and [local-env/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-env/README.md).
+Module details are in [aws/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/README.md), [aws/terraform/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/terraform/README.md), [aws/assets/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/assets/README.md), [local-dev/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-dev/README.md), and [local-k8s/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-k8s/README.md).

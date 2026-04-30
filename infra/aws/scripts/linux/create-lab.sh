@@ -4,7 +4,7 @@ set -eu
 
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
-PROFILE_NAME="${3:-medium}"
+PROFILE_NAME="${3:-default}"
 INSTANCE_ID="${4:-}"
 REPO_DIR_ON_RUNNER="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -24,7 +24,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "set -euo pipefail",
     "RUNNER_REPO_DIR=${REPO_DIR_ON_RUNNER}",
     "cd \\"\\\${RUNNER_REPO_DIR}\\"",
-    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/assets/runner/create-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME}"
+    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/runner-internal/create-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME}"
   ]
 }
 EOF

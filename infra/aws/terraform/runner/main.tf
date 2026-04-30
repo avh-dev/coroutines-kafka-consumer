@@ -129,7 +129,7 @@ resource "aws_instance" "runner" {
   iam_instance_profile        = aws_iam_instance_profile.runner.name
   associate_public_ip_address = true
   user_data_replace_on_change = true
-  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+  user_data_base64 = base64gzip(templatefile("${path.module}/user_data.sh.tftpl", {
     docker_compose = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
       prometheus_retention_size = var.prometheus_retention_size
     })
@@ -144,7 +144,7 @@ resource "aws_instance" "runner" {
       prometheus_scrape_interval     = var.prometheus_scrape_interval
       prometheus_evaluation_interval = var.prometheus_evaluation_interval
     })
-  })
+  }))
 
   root_block_device {
     volume_size = var.root_volume_size

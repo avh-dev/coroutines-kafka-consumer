@@ -23,12 +23,12 @@ The application is intended for functional checks and for comparing two consumer
 
 ## Local Environment
 
-Local Kafka, Redis, demo stubs, Prometheus, and Grafana are defined in `infra/local-env/README.md`.
+Local Kafka, Redis, demo stubs, Prometheus, and Grafana are defined in `infra/local-dev/README.md`.
 
 Start the local environment:
 
 ```bash
-docker compose -f infra/local-env/docker-compose.yml up -d
+docker compose -f infra/local-dev/docker-compose.yml up -d
 ```
 
 Run the demo with the coroutine-based consumer:
@@ -49,7 +49,7 @@ If `8080` is already occupied, override the port:
 ./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--server.port=8081 --demo.kafka.enabled=true'
 ```
 
-If you override the app port, update `infra/local-env/prometheus/prometheus.yml` to match it.
+If you override the app port, update `infra/local-dev/prometheus/prometheus.yml` to match it.
 
 ## Endpoints
 

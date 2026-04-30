@@ -1,7 +1,7 @@
 param(
     [string]$Region = "us-east-1",
     [string]$Environment = "dev",
-    [string]$ProfileName = "medium",
+    [string]$ProfileName = "default",
     [string]$InstanceId,
     [string]$RunnerRepoDir = "/opt/ckc-runner/assets/repo"
 )
@@ -47,7 +47,7 @@ try {
             "set -euo pipefail",
             "RUNNER_REPO_DIR=$RunnerRepoDir",
             "cd `"`${RUNNER_REPO_DIR}`"",
-            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/assets/runner/create-lab.sh $Region $Environment $ProfileName"
+            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/runner-internal/create-lab.sh $Region $Environment $ProfileName"
         )
     } | ConvertTo-Json -Depth 3
 

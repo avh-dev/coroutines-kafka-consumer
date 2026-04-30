@@ -10,17 +10,17 @@ Services:
 
 Start:
 ```sh
-docker compose -f infra/local-env/docker-compose.yml up -d
+docker compose -f infra/local-dev/docker-compose.yml up -d
 ```
 
 Start with the LT demo-stubs profile:
 ```sh
-docker compose -f infra/local-env/docker-compose.yml --profile lt up -d
+docker compose -f infra/local-dev/docker-compose.yml --profile lt up -d
 ```
 
 Stop:
 ```sh
-docker compose -f infra/local-env/docker-compose.yml down -v
+docker compose -f infra/local-dev/docker-compose.yml down -v
 ```
 
 Created topics:
