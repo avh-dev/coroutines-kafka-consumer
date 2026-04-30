@@ -42,6 +42,7 @@ export KUBECONFIG="${KUBECONFIG_PATH}"
 
 kubectl delete namespace ckc-loadtest --ignore-not-found=true
 kubectl delete namespace ckc-app --ignore-not-found=true
+kubectl delete namespace ckc-observability --ignore-not-found=true
 
 terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve -input=false \

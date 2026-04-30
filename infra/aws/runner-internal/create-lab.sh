@@ -90,6 +90,142 @@ EOF
   kubectl -n ckc-app delete pod ckc-kafka-admin --ignore-not-found=true
 }
 
+get_runner_private_ip() {
+  local token
+  token="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)"
+  if [ -n "${token}" ]; then
+    curl -fsS -H "X-aws-ec2-metadata-token: ${token}" "http://169.254.169.254/latest/meta-data/local-ipv4" 2>/dev/null && return
+  fi
+  hostname -I | awk '{print $1}'
+}
+
+deploy_observability_agent() {
+  local remote_write_url="$1"
+  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ckc-alloy
+  namespace: ckc-observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ckc-alloy-discovery
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "endpoints", "services"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ckc-alloy-discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ckc-alloy-discovery
+subjects:
+  - kind: ServiceAccount
+    name: ckc-alloy
+    namespace: ckc-observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ckc-alloy-config
+  namespace: ckc-observability
+data:
+  config.alloy: |
+    discovery.kubernetes "ckc_demo_pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-app"]
+      }
+    }
+
+    discovery.relabel "ckc_demo" {
+      targets = discovery.kubernetes.ckc_demo_pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        regex         = "ckc-demo"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex         = "8080"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+    }
+
+    prometheus.scrape "ckc_demo" {
+      targets      = discovery.relabel.ckc_demo.output
+      metrics_path = "/actuator/prometheus"
+      forward_to   = [prometheus.remote_write.runner.receiver]
+    }
+
+    prometheus.remote_write "runner" {
+      endpoint {
+        url = "${remote_write_url}"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ckc-alloy
+  namespace: ckc-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ckc-alloy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ckc-alloy
+    spec:
+      serviceAccountName: ckc-alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.5.1
+          args:
+            - run
+            - /etc/alloy/config.alloy
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+      volumes:
+        - name: config
+          configMap:
+            name: ckc-alloy-config
+EOF
+  kubectl -n ckc-observability rollout status deployment/ckc-alloy --timeout=5m
+}
+
 terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   -var="aws_region=${REGION}" \
@@ -101,6 +237,7 @@ export KUBECONFIG="${KUBECONFIG_PATH}"
 
 kubectl create namespace ckc-app --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace ckc-loadtest --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace ckc-observability --dry-run=client -o yaml | kubectl apply -f -
 wait_for_cluster_readiness
 
 helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
@@ -202,6 +339,10 @@ fi
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${ENVIRONMENT}"
+RUNNER_PRIVATE_IP="$(get_runner_private_ip)"
+REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
+
+deploy_observability_agent "${REMOTE_WRITE_URL}"
 
 python3 - <<PY
 import json
@@ -218,6 +359,8 @@ context = {
     "redis_mode": "${REDIS_MODE}",
     "redis_host": "${REDIS_HOST}",
     "registry": "${REGISTRY}",
+    "prometheus_bridge_enabled": False,
+    "remote_write_url": "${REMOTE_WRITE_URL}",
 }
 Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
 PY
@@ -229,4 +372,5 @@ echo "  kafka_mode=${KAFKA_MODE}"
 echo "  kafka_bootstrap=${KAFKA_BOOTSTRAP}"
 echo "  redis_mode=${REDIS_MODE}"
 echo "  redis_host=${REDIS_HOST}"
+echo "  remote_write_url=${REMOTE_WRITE_URL}"
 echo "  lab_context=${LAB_CONTEXT_PATH}"

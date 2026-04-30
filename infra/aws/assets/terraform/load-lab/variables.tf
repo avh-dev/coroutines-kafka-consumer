@@ -22,6 +22,24 @@ variable "project" {
   default     = "ckc-load-lab"
 }
 
+variable "enable_runner_observability_peering" {
+  description = "Create same-account VPC peering so in-cluster agents can remote_write metrics to the runner."
+  type        = bool
+  default     = true
+}
+
+variable "runner_project" {
+  description = "Project tag used by the long-lived runner VPC."
+  type        = string
+  default     = "ckc-runner"
+}
+
+variable "runner_remote_write_port" {
+  description = "Runner TCP port that accepts Prometheus remote_write traffic."
+  type        = number
+  default     = 8428
+}
+
 variable "kubernetes_version" {
   description = "EKS Kubernetes version."
   type        = string

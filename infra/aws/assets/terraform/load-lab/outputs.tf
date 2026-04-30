@@ -13,6 +13,11 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
+output "runner_observability_peering_enabled" {
+  description = "Whether load-lab created VPC peering to the runner for remote_write."
+  value       = var.enable_runner_observability_peering
+}
+
 output "private_subnet_ids" {
   description = "Private subnets used by EKS worker nodes."
   value       = module.vpc.private_subnets
