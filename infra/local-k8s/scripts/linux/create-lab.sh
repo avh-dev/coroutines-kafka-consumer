@@ -381,6 +381,8 @@ YAML
 kubectl rollout restart -n ckc-observability deployment/prometheus
 kubectl rollout status -n ckc-observability deployment/prometheus --timeout=5m
 kubectl rollout status -n ckc-observability deployment/ckc-grafana --timeout=5m
+kubectl apply -f infra/local-k8s/fluent-bit-log-archive.yaml
+kubectl rollout status -n ckc-observability daemonset/ckc-fluent-bit-log-archive --timeout=5m
 
 kafka_service="$(get_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
 redis_service="$(get_service_name ckc-app app.kubernetes.io/instance=ckc-redis 6379 master redis)"
@@ -405,6 +407,7 @@ context = {
     "redis_mode": "kubernetes",
     "redis_host": "${redis_service}.ckc-app.svc.cluster.local",
     "registry": "ckc-local",
+    "local_log_archive_path": "/tmp/ckc-log-archive",
 }
 Path("${CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
 PY
@@ -413,5 +416,6 @@ echo "Local k8s lab is ready."
 echo "  context=${CONTEXT_PATH}"
 echo "  kafka_bootstrap=${kafka_service}.ckc-app.svc.cluster.local:9092"
 echo "  redis_host=${redis_service}.ckc-app.svc.cluster.local"
+echo "  audit_log=minikube -p ${MINIKUBE_PROFILE} ssh -- sudo tail -100 /tmp/ckc-log-archive/audit.log"
 echo "  grafana: kubectl -n ckc-observability port-forward svc/ckc-grafana 3000:3000"
 echo "  prometheus: kubectl -n ckc-observability port-forward svc/ckc-prometheus 9090:9090"
