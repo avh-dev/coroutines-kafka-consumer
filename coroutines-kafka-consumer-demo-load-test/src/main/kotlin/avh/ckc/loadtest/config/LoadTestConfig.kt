@@ -14,7 +14,8 @@ data class LoadTestConfig(
     val maxBatchWait: Duration,
     val brewDuration: Duration,
     val tickInterval: Duration,
-    val diagnosticsBlobSize: Int
+    val diagnosticsBlobSize: Int,
+    val auditLogEnabled: Boolean
 ) {
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): LoadTestConfig =
@@ -31,7 +32,8 @@ data class LoadTestConfig(
                 maxBatchWait = Duration.ofSeconds(environment["MAX_BATCH_WAIT_SECONDS"]?.toLongOrNull() ?: 30L),
                 brewDuration = Duration.ofSeconds(environment["BREW_DURATION_SECONDS"]?.toLongOrNull() ?: 120L),
                 tickInterval = Duration.ofMillis(environment["TICK_INTERVAL_MILLIS"]?.toLongOrNull() ?: 200L),
-                diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512
+                diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,
+                auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true
             )
     }
 }

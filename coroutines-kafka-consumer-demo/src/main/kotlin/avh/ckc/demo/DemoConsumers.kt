@@ -15,6 +15,7 @@ object DemoConsumers {
     fun lifecycleConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+        auditLogEnabled: Boolean,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -28,9 +29,12 @@ object DemoConsumers {
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE
             workerConcurrency = 2
             this.metrics = metrics
-            handle { key, value, _ ->
+            handle { key, value, record ->
                 if (value != null) {
                     handler(key, value)
+                    if (auditLogEnabled) {
+                        AuditLog.processed(record)
+                    }
                 }
             }
         }
@@ -39,6 +43,7 @@ object DemoConsumers {
     fun telemetryConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
+        auditLogEnabled: Boolean,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -53,9 +58,12 @@ object DemoConsumers {
             workerConcurrency = 4
             workChannelCapacity = 256
             this.metrics = metrics
-            handle { key, value, _ ->
+            handle { key, value, record ->
                 if (value != null) {
                     handler(key, value)
+                    if (auditLogEnabled) {
+                        AuditLog.processed(record)
+                    }
                 }
             }
         }

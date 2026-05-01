@@ -64,7 +64,8 @@ private class CkcConsumerRuntime(
 
         lifecycleConsumer = DemoConsumers.lifecycleConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId),
-            lifecycleConsumerMetrics
+            lifecycleConsumerMetrics,
+            properties.audit.enabled
         ) { _, event ->
             try {
                 brewingLifecycleService.applyLifecycleEvent(event).await()
@@ -81,7 +82,8 @@ private class CkcConsumerRuntime(
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId),
-            consumerMetrics
+            consumerMetrics,
+            properties.audit.enabled
         ) { _, telemetry ->
             try {
                 val batchId = telemetry.batchId.ifBlank { brewingStateRepository.findActiveBatchId(telemetry.cauldronId).await() ?: "" }

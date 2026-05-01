@@ -35,6 +35,8 @@ spec:
               value: {{ .Values.env.redisPort | quote }}
             - name: MODEL_BASE_URL
               value: {{ .Values.env.modelBaseUrl | quote }}
+            - name: AUDIT_LOG_ENABLED
+              value: {{ .Values.env.auditLogEnabled | quote }}
           readinessProbe:
             httpGet:
               path: /actuator/health

@@ -16,6 +16,7 @@ env:
   redisHost: ""
   redisPort: 6379
   modelBaseUrl: ""
+  auditLogEnabled: true
 
 resources: {}
 

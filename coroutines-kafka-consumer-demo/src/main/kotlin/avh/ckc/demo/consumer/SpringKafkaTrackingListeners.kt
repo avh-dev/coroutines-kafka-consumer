@@ -1,5 +1,7 @@
 package avh.ckc.demo.consumer
 
+import avh.ckc.demo.AuditLog
+import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.repository.BrewingStateRepository
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Component
 @Profile("spring-kafka")
 @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
 class SpringKafkaTrackingListeners(
+    private val properties: DemoApplicationProperties,
     private val brewingStateRepository: BrewingStateRepository,
     private val brewingLifecycleService: BrewingLifecycleService,
     private val etaRecalculationService: EtaRecalculationService
@@ -30,9 +33,13 @@ class SpringKafkaTrackingListeners(
     )
     fun onOrderLifecycle(
         @Header(KafkaHeaders.RECEIVED_KEY, required = false) key: String?,
+        @Header(KafkaHeaders.RECEIVED_TOPIC) topic: String,
+        @Header(KafkaHeaders.RECEIVED_PARTITION) partition: Int,
+        @Header(KafkaHeaders.OFFSET) offset: Long,
         event: OrderLifecycleEvent
     ) {
         brewingLifecycleService.applyLifecycleEvent(event).toCompletableFuture().join()
+        auditProcessed(topic, partition, offset)
         logger.debug("Spring Kafka lifecycle event received for key={}, order={}", key, event.orderId)
     }
 
@@ -43,16 +50,25 @@ class SpringKafkaTrackingListeners(
     )
     fun onCauldronTelemetry(
         @Header(KafkaHeaders.RECEIVED_KEY, required = false) key: String?,
+        @Header(KafkaHeaders.RECEIVED_TOPIC) topic: String,
+        @Header(KafkaHeaders.RECEIVED_PARTITION) partition: Int,
+        @Header(KafkaHeaders.OFFSET) offset: Long,
         event: CauldronTelemetryEvent
     ) {
         val batchId = event.batchId.ifBlank {
             brewingStateRepository.findActiveBatchId(event.cauldronId).toCompletableFuture().join() ?: ""
         }
         if (batchId.isBlank()) {
+            auditProcessed(topic, partition, offset)
             return
         }
-        val batchState = brewingStateRepository.findBatch(batchId).toCompletableFuture().join() ?: return
+        val batchState = brewingStateRepository.findBatch(batchId).toCompletableFuture().join()
+        if (batchState == null) {
+            auditProcessed(topic, partition, offset)
+            return
+        }
         val estimate = etaRecalculationService.recalculate(batchState, event).toCompletableFuture().join()
+        auditProcessed(topic, partition, offset)
         logger.info(
             "Spring Kafka ETA recalculated for key={}, batch={}, cauldron={}, etaSeconds={}",
             key,
@@ -60,5 +76,11 @@ class SpringKafkaTrackingListeners(
             estimate.cauldronId,
             estimate.etaSeconds
         )
+    }
+
+    private fun auditProcessed(topic: String, partition: Int, offset: Long) {
+        if (properties.audit.enabled) {
+            AuditLog.processed(topic, partition, offset)
+        }
     }
 }
