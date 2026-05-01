@@ -37,6 +37,18 @@ spec:
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
+            - name: LIFECYCLE_WORKER_CONCURRENCY
+              value: {{ .Values.env.lifecycleWorkerConcurrency | quote }}
+            - name: LIFECYCLE_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.lifecyclePollLoopConcurrency | quote }}
+            - name: LIFECYCLE_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.lifecycleWorkChannelCapacity | quote }}
+            - name: TELEMETRY_WORKER_CONCURRENCY
+              value: {{ .Values.env.telemetryWorkerConcurrency | quote }}
+            - name: TELEMETRY_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.telemetryPollLoopConcurrency | quote }}
+            - name: TELEMETRY_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.telemetryWorkChannelCapacity | quote }}
           readinessProbe:
             httpGet:
               path: /actuator/health

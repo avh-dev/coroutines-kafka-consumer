@@ -29,10 +29,12 @@ class SpringKafkaProfileConfiguration {
 
     @Bean
     fun orderLifecycleListenerContainerFactory(
-        consumerFactory: ConsumerFactory<String, OrderLifecycleEvent>
+        consumerFactory: ConsumerFactory<String, OrderLifecycleEvent>,
+        properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent> =
         ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
+            setConcurrency(properties.consumers.lifecycle.pollLoopConcurrency)
         }
 
     @Bean
@@ -47,10 +49,12 @@ class SpringKafkaProfileConfiguration {
 
     @Bean
     fun cauldronTelemetryListenerContainerFactory(
-        consumerFactory: ConsumerFactory<String, CauldronTelemetryEvent>
+        consumerFactory: ConsumerFactory<String, CauldronTelemetryEvent>,
+        properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, CauldronTelemetryEvent> =
         ConcurrentKafkaListenerContainerFactory<String, CauldronTelemetryEvent>().apply {
             this.consumerFactory = consumerFactory
+            setConcurrency(properties.consumers.telemetry.pollLoopConcurrency)
         }
 
     private fun commonConsumerProperties(properties: DemoApplicationProperties): Map<String, Any> = mapOf(

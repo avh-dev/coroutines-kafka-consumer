@@ -4,6 +4,7 @@ import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.ConsumerMetrics
 import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
@@ -16,6 +17,7 @@ object DemoConsumers {
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         auditLogEnabled: Boolean,
+        runtime: DemoApplicationProperties.ConsumerRuntime,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -27,7 +29,9 @@ object DemoConsumers {
         return coroutinesKafkaConsumer(properties) {
             topics(DemoTopics.ORDER_LIFECYCLE)
             deliveryStrategy = DeliveryStrategy.BACKPRESSURE
-            workerConcurrency = 2
+            workerConcurrency = runtime.workerConcurrency
+            consumerPollLoopConcurrency = runtime.pollLoopConcurrency
+            workChannelCapacity = runtime.workChannelCapacity
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {
@@ -44,6 +48,7 @@ object DemoConsumers {
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         auditLogEnabled: Boolean,
+        runtime: DemoApplicationProperties.ConsumerRuntime,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -55,8 +60,9 @@ object DemoConsumers {
         return coroutinesKafkaConsumer(properties) {
             topics(DemoTopics.CAULDRON_TELEMETRY)
             deliveryStrategy = DeliveryStrategy.LOSSY
-            workerConcurrency = 4
-            workChannelCapacity = 256
+            workerConcurrency = runtime.workerConcurrency
+            consumerPollLoopConcurrency = runtime.pollLoopConcurrency
+            workChannelCapacity = runtime.workChannelCapacity
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {

@@ -8,7 +8,8 @@ data class DemoApplicationProperties(
     var kafka: Kafka = Kafka(),
     var topics: Topics = Topics(),
     var model: Model = Model(),
-    var audit: Audit = Audit()
+    var audit: Audit = Audit(),
+    var consumers: Consumers = Consumers()
 ) {
     data class Kafka(
         var enabled: Boolean = false,
@@ -28,5 +29,16 @@ data class DemoApplicationProperties(
 
     data class Audit(
         var enabled: Boolean = true
+    )
+
+    data class Consumers(
+        var lifecycle: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
+        var telemetry: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 4, workChannelCapacity = 256)
+    )
+
+    data class ConsumerRuntime(
+        var workerConcurrency: Int = 1,
+        var pollLoopConcurrency: Int = 1,
+        var workChannelCapacity: Int = 1024
     )
 }
