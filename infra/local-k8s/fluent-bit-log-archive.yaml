@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ckc-fluent-bit-config
+  namespace: ckc-observability
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         1
+        Log_Level     info
+        Parsers_File  parsers.conf
+
+    [INPUT]
+        Name              tail
+        Tag               audit.*
+        Path              /var/log/containers/*.log
+        Parser            docker
+        DB                /buffers/tail-containers.db
+        Mem_Buf_Limit     64MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+        Read_From_Head    On
+
+    [FILTER]
+        Name    grep
+        Match   audit.*
+        Regex   log ^(PUBL|PROC) .*
+
+    [FILTER]
+        Name    lua
+        Match   audit.*
+        Script  trim-log.lua
+        Call    trim_log
+
+    [OUTPUT]
+        Name      file
+        Match     audit.*
+        Path      /archive
+        File      audit.log
+        Format    template
+        Template  {log}
+        Mkdir     On
+  parsers.conf: |
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+  trim-log.lua: |
+    function trim_log(tag, timestamp, record)
+        local log = record["log"]
+        if log ~= nil then
+            record["log"] = string.gsub(log, "[\r\n]+$", "")
+        end
+        return 1, timestamp, record
+    end
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ckc-fluent-bit-log-archive
+  namespace: ckc-observability
+  labels:
+    app.kubernetes.io/name: ckc-fluent-bit-log-archive
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ckc-fluent-bit-log-archive
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ckc-fluent-bit-log-archive
+    spec:
+      containers:
+        - name: fluent-bit
+          image: cr.fluentbit.io/fluent/fluent-bit:4.2.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/fluent-bit/etc/fluent-bit.conf
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: buffers
+              mountPath: /buffers
+            - name: archive
+              mountPath: /archive
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: ckc-fluent-bit-config
+        - name: containers
+          hostPath:
+            path: /var/log/containers
+            type: DirectoryOrCreate
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+            type: DirectoryOrCreate
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+            type: DirectoryOrCreate
+        - name: buffers
+          emptyDir: {}
+        - name: archive
+          hostPath:
+            path: /tmp/ckc-log-archive
+            type: DirectoryOrCreate

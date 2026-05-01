@@ -30,3 +30,4 @@
 | INFRA-4 | Revise Grafana dashboards to reflect the updated consumer metrics and add missing runtime observability panels.                                                                                      | DONE |
 | INFRA-5 | Share Kubernetes test assets across AWS and local environments, add local k8s smoke orchestration, and expose topic metrics in Prometheus/Grafana.                                                   | DONE |
 | INFRA-6 | Add AWS lab remote-write observability so pod-aware metrics are stored on the runner after lab destroy.                                                                                              | DONE |
+| INFRA-7 | Add local Kubernetes Fluent Bit log collection that archives audit records into a temporary local folder.                                                                                              | DONE |

@@ -6,6 +6,7 @@ It installs:
 
 - Kafka and Redis in `ckc-app`
 - Prometheus and Grafana in `ckc-observability`
+- Fluent Bit in `ckc-observability` for audit log archiving
 - shared app/stubs Helm releases during a test run
 - the load-test generator as a Kubernetes Job
 
@@ -69,6 +70,17 @@ Then use:
 The local runner leaves the demo, stubs, and load-test job in the cluster so recent topic-tagged application metrics remain visible after the run.
 Prometheus scrapes `ckc-demo` pods through Kubernetes discovery, so app metrics include pod-level labels such as `pod`, `namespace`, and `node`.
 
+Fluent Bit tails Kubernetes container logs from `/var/log/containers/*.log`, keeps only audit records that start with `PUBL` or `PROC`, and writes them to `/tmp/ckc-log-archive/audit.log`.
+Inspect the audit archive with:
+
+```powershell
+minikube -p minikube ssh -- sudo tail -100 /tmp/ckc-log-archive/audit.log
+```
+
+```sh
+minikube -p minikube ssh -- sudo tail -100 /tmp/ckc-log-archive/audit.log
+```
+
 Cleanup:
 
 ```powershell
@@ -76,5 +88,5 @@ Cleanup:
 ```
 
 ```sh
-./infra/local-k8s/scripts/linux/destroy-lab.sh66
+./infra/local-k8s/scripts/linux/destroy-lab.sh
 ```

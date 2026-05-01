@@ -401,6 +401,8 @@ spec:
     Invoke-Checked kubectl @("rollout", "restart", "-n", "ckc-observability", "deployment/prometheus")
     Invoke-Checked kubectl @("rollout", "status", "-n", "ckc-observability", "deployment/prometheus", "--timeout=5m")
     Invoke-Checked kubectl @("rollout", "status", "-n", "ckc-observability", "deployment/ckc-grafana", "--timeout=5m")
+    Invoke-Checked kubectl @("apply", "-f", "infra/local-k8s/fluent-bit-log-archive.yaml")
+    Invoke-Checked kubectl @("rollout", "status", "-n", "ckc-observability", "daemonset/ckc-fluent-bit-log-archive", "--timeout=5m")
 
     $kafkaService = Get-ServiceName -Namespace "ckc-app" -Selector "app.kubernetes.io/instance=ckc-kafka" -Port 9092 -PreferredTokens @("bootstrap", "kafka")
     $redisService = Get-ServiceName -Namespace "ckc-app" -Selector "app.kubernetes.io/instance=ckc-redis" -Port 6379 -PreferredTokens @("master", "redis")
@@ -421,6 +423,7 @@ spec:
         redis_mode = "kubernetes"
         redis_host = "$redisService.ckc-app.svc.cluster.local"
         registry = "ckc-local"
+        local_log_archive_path = "/tmp/ckc-log-archive"
     }
     $context | ConvertTo-Json -Depth 5 | Set-Content -Path $contextPath -Encoding utf8
 
@@ -428,6 +431,7 @@ spec:
     Write-Host "  context=$contextPath"
     Write-Host "  kafka_bootstrap=$($context['kafka_bootstrap'])"
     Write-Host "  redis_host=$($context['redis_host'])"
+    Write-Host "  audit_log=minikube -p $MinikubeProfile ssh -- sudo tail -100 /tmp/ckc-log-archive/audit.log"
     Write-Host "  grafana: kubectl -n ckc-observability port-forward svc/ckc-grafana 3000:3000"
     Write-Host "  prometheus: kubectl -n ckc-observability port-forward svc/ckc-prometheus 9090:9090"
 } finally {
