@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class DemoApplicationProperties(
     var kafka: Kafka = Kafka(),
     var topics: Topics = Topics(),
-    var model: Model = Model()
+    var model: Model = Model(),
+    var audit: Audit = Audit()
 ) {
     data class Kafka(
         var enabled: Boolean = false,
@@ -23,5 +24,9 @@ data class DemoApplicationProperties(
 
     data class Model(
         var baseUrl: String = "http://127.0.0.1:18080"
+    )
+
+    data class Audit(
+        var enabled: Boolean = true
     )
 }

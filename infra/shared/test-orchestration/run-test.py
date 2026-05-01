@@ -88,6 +88,20 @@ def as_str(value: Any, default: str) -> str:
     return str(value)
 
 
+def as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "y", "on"):
+            return True
+        if normalized in ("false", "0", "no", "n", "off"):
+            return False
+    raise ValueError(f"Unsupported boolean value {value!r}.")
+
+
 def parse_duration_token(token: str) -> int:
     match = re.fullmatch(r"\s*(\d+)\s*([smh])\s*", token)
     if not match:
@@ -387,6 +401,8 @@ spec:
               value: "{as_int(load_test.get("tick_interval_millis"), 200)}"
             - name: DIAGNOSTICS_BLOB_SIZE
               value: "{as_int(load_test.get("diagnostics_blob_size"), 512)}"
+            - name: AUDIT_LOG_ENABLED
+              value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
             - name: TOTAL_SHARDS
               value: "{shards}"
             - name: TEST_RUN_ID

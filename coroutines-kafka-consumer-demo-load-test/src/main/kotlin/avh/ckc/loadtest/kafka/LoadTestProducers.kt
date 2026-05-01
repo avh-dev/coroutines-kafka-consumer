@@ -100,10 +100,14 @@ class LoadTestProducers(
             }
 
             val acked = sentCounter.incrementAndGet()
+            val recordMetadata = metadata!!
+            if (config.auditLogEnabled) {
+                LoadTestAuditLog.published(recordMetadata)
+            }
             if (acked <= 5 || acked % 500 == 0L) {
                 println(
                     "load-test publish ack stream=$stream key=$key " +
-                        "topic=${metadata!!.topic()} partition=${metadata.partition()} offset=${metadata.offset()}"
+                        "topic=${recordMetadata.topic()} partition=${recordMetadata.partition()} offset=${recordMetadata.offset()}"
                 )
             }
         }
