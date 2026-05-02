@@ -542,7 +542,6 @@ def main() -> None:
     load_profile_seconds = estimate_load_profile_seconds(load_profile)
     wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     job_name: str | None = None
 
     try:
@@ -551,6 +550,7 @@ def main() -> None:
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         deploy_definition_config_map(definition)
+        started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         job_name = deploy_load_job(
             f"{registry}/load-test:latest",
             load_test,

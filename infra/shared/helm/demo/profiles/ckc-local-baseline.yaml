@@ -1,0 +1,39 @@
+replicaCount: 2
+
+env:
+  springProfilesActive: ckc
+  lifecycleWorkerConcurrency: 256
+  lifecyclePollLoopConcurrency: 3
+  lifecycleWorkChannelCapacity: 32768
+  telemetryWorkerConcurrency: 256
+  telemetryPollLoopConcurrency: 3
+  telemetryWorkChannelCapacity: 16384
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+probes:
+  readiness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 12
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 15
+    failureThreshold: 8
+  startup:
+    enabled: true
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 30
+
+hpa:
+  enabled: false
