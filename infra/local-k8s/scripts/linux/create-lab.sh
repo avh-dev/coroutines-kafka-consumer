@@ -156,6 +156,19 @@ auth:
 master:
   persistence:
     enabled: false
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  livenessProbe:
+    timeoutSeconds: 15
+    failureThreshold: 10
+  readinessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 10
 YAML
 helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app -f "${redis_values}"
 rm -f "${redis_values}"

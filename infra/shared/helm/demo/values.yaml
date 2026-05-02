@@ -26,6 +26,24 @@ env:
 
 resources: {}
 
+probes:
+  readiness:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 1
+    failureThreshold: 3
+  startup:
+    enabled: false
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 30
+
 hpa:
   enabled: false
   minReplicas: 2
