@@ -85,9 +85,9 @@ $loadTestImage = "$prefix/load-test:latest"
 Push-Location $repoRoot
 try {
     & .\gradlew.bat `
-        ":coroutines-kafka-consumer-demo:bootJar" `
-        ":coroutines-kafka-consumer-demo-stubs:fatJar" `
-        ":coroutines-kafka-consumer-demo-load-test:fatJar"
+        ":ckc-demo:bootJar" `
+        ":ckc-demo-stubs:fatJar" `
+        ":ckc-demo-load-test:fatJar"
 
     aws ecr describe-repositories `
         --region $Region `
@@ -98,13 +98,13 @@ try {
 
     Invoke-DockerEcrLogin -Region $Region -Registry $registry
 
-    docker build -f coroutines-kafka-consumer-demo/Dockerfile -t $demoImage coroutines-kafka-consumer-demo
+    docker build -f ckc-demo/Dockerfile -t $demoImage ckc-demo
     docker push $demoImage
 
-    docker build -f coroutines-kafka-consumer-demo-stubs/Dockerfile -t $demoStubsImage coroutines-kafka-consumer-demo-stubs
+    docker build -f ckc-demo-stubs/Dockerfile -t $demoStubsImage ckc-demo-stubs
     docker push $demoStubsImage
 
-    docker build -f coroutines-kafka-consumer-demo-load-test/Dockerfile -t $loadTestImage coroutines-kafka-consumer-demo-load-test
+    docker build -f ckc-demo-load-test/Dockerfile -t $loadTestImage ckc-demo-load-test
     docker push $loadTestImage
 } finally {
     Pop-Location

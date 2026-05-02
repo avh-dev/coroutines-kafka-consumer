@@ -2,7 +2,7 @@
 
 This module contains the Kotlin-based traffic generator for the demo domain.
 
-Module: `coroutines-kafka-consumer-demo-load-test`
+Module: `ckc-demo-load-test`
 
 Current scope:
 

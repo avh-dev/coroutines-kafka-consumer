@@ -17,13 +17,13 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":coroutines-kafka-consumer-core"))
+    implementation(project(":ckc-core"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
     testImplementation(kotlin("test-junit5"))
     testFixturesImplementation(kotlin("test-junit5"))
 
-    testImplementation(testFixtures(project(":coroutines-kafka-consumer-core")))
+    testImplementation(testFixtures(project(":ckc-core")))
 
     val jmhVersion = "1.37"
     jmhImplementation("org.openjdk.jmh:jmh-core:$jmhVersion")

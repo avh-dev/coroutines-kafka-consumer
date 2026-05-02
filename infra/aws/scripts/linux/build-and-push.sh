@@ -23,9 +23,9 @@ LOAD_TEST_IMAGE="${PREFIX}/load-test:latest"
 cd "${REPO_DIR}"
 
 ./gradlew \
-  :coroutines-kafka-consumer-demo:bootJar \
-  :coroutines-kafka-consumer-demo-stubs:fatJar \
-  :coroutines-kafka-consumer-demo-load-test:fatJar
+  :ckc-demo:bootJar \
+  :ckc-demo-stubs:fatJar \
+  :ckc-demo-load-test:fatJar
 
 aws ecr describe-repositories \
   --region "${REGION}" \
@@ -36,13 +36,13 @@ aws ecr describe-repositories \
 
 aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
 
-docker build -f coroutines-kafka-consumer-demo/Dockerfile -t "${DEMO_IMAGE}" coroutines-kafka-consumer-demo
+docker build -f ckc-demo/Dockerfile -t "${DEMO_IMAGE}" ckc-demo
 docker push "${DEMO_IMAGE}"
 
-docker build -f coroutines-kafka-consumer-demo-stubs/Dockerfile -t "${DEMO_STUBS_IMAGE}" coroutines-kafka-consumer-demo-stubs
+docker build -f ckc-demo-stubs/Dockerfile -t "${DEMO_STUBS_IMAGE}" ckc-demo-stubs
 docker push "${DEMO_STUBS_IMAGE}"
 
-docker build -f coroutines-kafka-consumer-demo-load-test/Dockerfile -t "${LOAD_TEST_IMAGE}" coroutines-kafka-consumer-demo-load-test
+docker build -f ckc-demo-load-test/Dockerfile -t "${LOAD_TEST_IMAGE}" ckc-demo-load-test
 docker push "${LOAD_TEST_IMAGE}"
 
 printf 'Pushed images:\n'

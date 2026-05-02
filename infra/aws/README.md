@@ -64,4 +64,4 @@
 5. Inspect pod-aware metrics in Grafana through the runner tunnel.
 6. Destroy the lab with `destroy-lab` when it is no longer needed. Metrics history remains on the runner.
 
-See [terraform/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/terraform/README.md) and [assets/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/assets/README.md).
+See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).

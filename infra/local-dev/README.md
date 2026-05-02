@@ -1,4 +1,4 @@
-Local environment for `coroutines-kafka-consumer-demo` and future demo support services.
+Local environment for `ckc-demo` and future demo support services.
 
 Services:
 - Kafka on `localhost:9092`
@@ -38,7 +38,7 @@ LT demo-stubs notes:
 
 Example application startup:
 ```sh
-./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
 ```
 
 When the demo app is running on `localhost:8080`, Prometheus scrapes:
@@ -49,5 +49,5 @@ It also auto-loads the shared `CKC Overview` dashboard from `infra/shared/grafan
 
 Spring Kafka profile:
 ```sh
-./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
 ```

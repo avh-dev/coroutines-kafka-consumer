@@ -43,7 +43,7 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
-    testImplementation(testFixtures(project(":coroutines-kafka-consumer-core")))
+    testImplementation(testFixtures(project(":ckc-core")))
 
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")

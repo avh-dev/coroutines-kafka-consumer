@@ -24,7 +24,7 @@ val micrometerVersion = "1.15.0"
 val junitVersion = "5.10.2"
 
 dependencies {
-    api(project(":coroutines-kafka-consumer-core"))
+    api(project(":ckc-core"))
     implementation("io.micrometer:micrometer-core")
 
     testImplementation(kotlin("test-junit5"))

@@ -27,9 +27,9 @@ val serializationVersion = "1.7.1"
 val springBootVersion = "3.3.5"
 
 dependencies {
-    implementation(project(":coroutines-kafka-consumer-core"))
-    implementation(project(":coroutines-kafka-consumer-demo-contracts"))
-    implementation(project(":coroutines-kafka-consumer-micrometer"))
+    implementation(project(":ckc-core"))
+    implementation(project(":ckc-demo-contracts"))
+    implementation(project(":ckc-micrometer"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("reflect"))
     implementation(kotlin("stdlib"))

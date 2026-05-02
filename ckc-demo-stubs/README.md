@@ -2,7 +2,7 @@
 
 This module contains a lightweight HTTP stub service for the demo domain.
 
-Module: `coroutines-kafka-consumer-demo-stubs`
+Module: `ckc-demo-stubs`
 
 Current scope:
 

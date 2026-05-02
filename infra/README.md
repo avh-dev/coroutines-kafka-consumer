@@ -93,4 +93,4 @@ Or on Windows PowerShell:
 ./infra/aws/scripts/windows/destroy-all.ps1 -Region us-east-1 -Environment dev
 ```
 
-Module details are in [aws/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/README.md), [aws/terraform/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/terraform/README.md), [aws/assets/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/aws/assets/README.md), [local-dev/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-dev/README.md), and [local-k8s/README.md](/C:/Users/Alexey/code/coroutines-kafka-consumer/infra/local-k8s/README.md).
+Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), and [local-k8s/README.md](local-k8s/README.md).

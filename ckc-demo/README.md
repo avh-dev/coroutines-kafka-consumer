@@ -15,9 +15,9 @@ The application is intended for functional checks and for comparing two consumer
 
 ## Runtime Features
 
-- protobuf payloads in Kafka via `:coroutines-kafka-consumer-demo-contracts`
+- protobuf payloads in Kafka via `:ckc-demo-contracts`
 - Redis-backed order and batch state
-- external ETA model stub via `:coroutines-kafka-consumer-demo-stubs`
+- external ETA model stub via `:ckc-demo-stubs`
 - Prometheus metrics endpoint at `/actuator/prometheus`
 - read API for current order state at `/api/orders/{orderId}`
 
@@ -34,19 +34,19 @@ docker compose -f infra/local-dev/docker-compose.yml up -d
 Run the demo with the coroutine-based consumer:
 
 ```bash
-./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
 ```
 
 Run the demo with Spring Kafka listeners:
 
 ```bash
-./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
 ```
 
 If `8080` is already occupied, override the port:
 
 ```bash
-./gradlew :coroutines-kafka-consumer-demo:bootRun --args='--server.port=8081 --demo.kafka.enabled=true'
+./gradlew :ckc-demo:bootRun --args='--server.port=8081 --demo.kafka.enabled=true'
 ```
 
 If you override the app port, update `infra/local-dev/prometheus/prometheus.yml` to match it.
@@ -71,5 +71,5 @@ If you override the app port, update `infra/local-dev/prometheus/prometheus.yml`
 ## Tests
 
 ```bash
-./gradlew :coroutines-kafka-consumer-demo:test
+./gradlew :ckc-demo:test
 ```

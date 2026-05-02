@@ -47,10 +47,10 @@ kubectl apply -f "${MANIFEST_DIR}/kafka-init.yaml"
 kubectl wait -n ckc-app --for=condition=Complete job/ckc-kafka-init --timeout=5m
 
 if [ "${SKIP_BUILD}" != "true" ]; then
-  ./gradlew :coroutines-kafka-consumer-demo:bootJar :coroutines-kafka-consumer-demo-stubs:fatJar :coroutines-kafka-consumer-demo-load-test:fatJar
-  docker build -f coroutines-kafka-consumer-demo/Dockerfile -t ckc-local/demo:latest coroutines-kafka-consumer-demo
-  docker build -f coroutines-kafka-consumer-demo-stubs/Dockerfile -t ckc-local/demo-stubs:latest coroutines-kafka-consumer-demo-stubs
-  docker build -f coroutines-kafka-consumer-demo-load-test/Dockerfile -t ckc-local/load-test:latest coroutines-kafka-consumer-demo-load-test
+  ./gradlew :ckc-demo:bootJar :ckc-demo-stubs:fatJar :ckc-demo-load-test:fatJar
+  docker build -f ckc-demo/Dockerfile -t ckc-local/demo:latest ckc-demo
+  docker build -f ckc-demo-stubs/Dockerfile -t ckc-local/demo-stubs:latest ckc-demo-stubs
+  docker build -f ckc-demo-load-test/Dockerfile -t ckc-local/load-test:latest ckc-demo-load-test
   minikube -p "${MINIKUBE_PROFILE}" image load ckc-local/demo:latest
   minikube -p "${MINIKUBE_PROFILE}" image load ckc-local/demo-stubs:latest
   minikube -p "${MINIKUBE_PROFILE}" image load ckc-local/load-test:latest

@@ -62,14 +62,14 @@ try {
 
     if (-not $SkipBuild) {
         Invoke-Checked ".\gradlew.bat" @(
-            ":coroutines-kafka-consumer-demo:bootJar",
-            ":coroutines-kafka-consumer-demo-stubs:fatJar",
-            ":coroutines-kafka-consumer-demo-load-test:fatJar"
+            ":ckc-demo:bootJar",
+            ":ckc-demo-stubs:fatJar",
+            ":ckc-demo-load-test:fatJar"
         )
 
-        Invoke-Checked docker @("build", "-f", "coroutines-kafka-consumer-demo/Dockerfile", "-t", "ckc-local/demo:latest", "coroutines-kafka-consumer-demo")
-        Invoke-Checked docker @("build", "-f", "coroutines-kafka-consumer-demo-stubs/Dockerfile", "-t", "ckc-local/demo-stubs:latest", "coroutines-kafka-consumer-demo-stubs")
-        Invoke-Checked docker @("build", "-f", "coroutines-kafka-consumer-demo-load-test/Dockerfile", "-t", "ckc-local/load-test:latest", "coroutines-kafka-consumer-demo-load-test")
+        Invoke-Checked docker @("build", "-f", "ckc-demo/Dockerfile", "-t", "ckc-local/demo:latest", "ckc-demo")
+        Invoke-Checked docker @("build", "-f", "ckc-demo-stubs/Dockerfile", "-t", "ckc-local/demo-stubs:latest", "ckc-demo-stubs")
+        Invoke-Checked docker @("build", "-f", "ckc-demo-load-test/Dockerfile", "-t", "ckc-local/load-test:latest", "ckc-demo-load-test")
 
         Invoke-Checked minikube @("-p", $MinikubeProfile, "image", "load", "ckc-local/demo:latest")
         Invoke-Checked minikube @("-p", $MinikubeProfile, "image", "load", "ckc-local/demo-stubs:latest")

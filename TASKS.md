@@ -3,7 +3,7 @@
 | Task   | Description                                                                                                                                                                                           | Status |
 |--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | CORE-1 | Implement `OffsetTracker`, tests, and JMH benchmarks.                                                                                                                                                 | DONE |
-| CORE-2 | Move experiment candidates and benchmarks into a separate `coroutines-kafka-consumer-experiments` module.                                                                                             | DONE |
+| CORE-2 | Move experiment candidates and benchmarks into a separate `ckc-experiments` module.                                                                                             | DONE |
 | CORE-3 | Increase `OffsetTracker` test coverage to 100%.                                                                                                                                                       | DONE |
 | CORE-3 | Refactor experiments and update experiments README.                                                                                                                                                   | DONE |
 | CORE-4 | Make `OffsetTracker` internal and clean up related experiments.                                                                                                                                       | DONE |
@@ -16,11 +16,11 @@
 | CORE-11 | Refactor consumer telemetry naming toward metrics-oriented abstractions as the first step for passing consumer metrics.                                                                                | DONE |
 | CORE-12 | Expand consumer metrics coverage.                                                                                                                                                                      | DONE |
 | DEMO-1 | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
-| DEMO-2 | README added to `coroutines-kafka-consumer-demo` and `coroutines-kafka-consumer-demo-contracts`                                                                                                       | DONE |
+| DEMO-2 | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | DEMO-3 | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
 | DEMO-4 | Add the initial load-test traffic generator module, wire it into the Gradle build, and make demo Kafka enablement configurable via environment variables.                                             | DONE |
 | DEMO-6 | Replace WireMock in the local demo environment with a dedicated lightweight `demo-stubs` service that exposes `/eta` and supports configurable latency profiles for local resiliency testing.         | DONE |
-| DEMO-5 | Rename the load-test module to `coroutines-kafka-consumer-demo-load-test` to make demo-related modules explicit and consistent with upcoming demo-side support services.                              | DONE |
+| DEMO-5 | Rename the load-test module to `ckc-demo-load-test` to make demo-related modules explicit and consistent with upcoming demo-side support services.                              | DONE |
 | DEMO-7 | Demo logic updated                                                                                                                                                                                    | DONE |
 | DEMO-8 | Add publish-side diagnostics to the demo load-test so AWS smoke runs expose producer acknowledgements, failures, and generator heartbeats without relying on SLF4J.                                  | DONE |
 | DEMO-9 | Add stdout audit records for load-test publishes and processed demo consumer records.                                                                                                                  | DONE |
@@ -34,3 +34,4 @@
 | INFRA-7 | Add local Kubernetes Fluent Bit log collection that archives audit records into a temporary local folder.                                                                                              | DONE |
 | INFRA-8 | Tune the local Kubernetes baseline.                                                                                                      | DONE |
 | INFRA-9 | Extract local Kubernetes manifests from setup scripts.                                                                                   | DONE |
+| GLOBAL-1 | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
