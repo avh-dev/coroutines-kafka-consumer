@@ -10,6 +10,10 @@ It installs:
 - shared app/stubs Helm releases during a test run
 - the load-test generator as a Kubernetes Job
 
+Local Kubernetes manifests live in `infra/local-k8s/manifests`.
+Config files and Helm values used by those manifests live in `infra/local-k8s/config`.
+Small cross-platform setup helpers live in `infra/local-k8s/scripts/helpers`.
+
 Prerequisites:
 
 - Docker
