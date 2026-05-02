@@ -6,6 +6,7 @@ It installs:
 
 - Kafka and Redis in `ckc-app`
 - Prometheus and Grafana in `ckc-observability`
+- Kafka exporter in `ckc-observability` for consumer-group lag metrics
 - Fluent Bit in `ckc-observability` for audit log archiving
 - shared app/stubs Helm releases during a test run
 - the load-test generator as a Kubernetes Job
@@ -73,6 +74,7 @@ Then use:
 
 The local runner leaves the demo, stubs, and load-test job in the cluster so recent topic-tagged application metrics remain visible after the run.
 Prometheus scrapes `ckc-demo` pods through Kubernetes discovery, so app metrics include pod-level labels such as `pod`, `namespace`, and `node`.
+Prometheus also scrapes `ckc-kafka-exporter`, which exposes Kafka consumer lag metrics such as `kafka_consumergroup_lag` labelled by `consumergroup`, `topic`, and `partition`.
 
 Fluent Bit tails Kubernetes container logs from `/var/log/containers/*.log`, keeps only audit records that start with `PUBL` or `PROC`, and writes them to `/tmp/ckc-log-archive/audit.log`.
 Inspect the audit archive with:

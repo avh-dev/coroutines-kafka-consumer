@@ -187,6 +187,55 @@ data:
       forward_to   = [prometheus.remote_write.runner.receiver]
     }
 
+    discovery.kubernetes "kafka_exporter_pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-observability"]
+      }
+    }
+
+    discovery.relabel "kafka_exporter" {
+      targets = discovery.kubernetes.kafka_exporter_pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        regex         = "ckc-kafka-exporter"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex         = "9308"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+    }
+
+    prometheus.scrape "kafka_exporter" {
+      targets    = discovery.relabel.kafka_exporter.output
+      forward_to = [prometheus.remote_write.runner.receiver]
+    }
+
     prometheus.remote_write "runner" {
       endpoint {
         url = "${remote_write_url}"
@@ -224,6 +273,143 @@ spec:
             name: ckc-alloy-config
 EOF
   kubectl -n ckc-observability rollout status deployment/ckc-alloy --timeout=5m
+}
+
+deploy_kafka_exporter() {
+  local bootstrap="$1"
+  local kafka_server_args=""
+  IFS=',' read -r -a kafka_brokers <<< "${bootstrap}"
+  for broker in "${kafka_brokers[@]}"; do
+    kafka_server_args="${kafka_server_args}            - --kafka.server=${broker}
+"
+  done
+
+  cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ckc-kafka-exporter
+  namespace: ckc-observability
+  labels:
+    app.kubernetes.io/name: ckc-kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ckc-kafka-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ckc-kafka-exporter
+    spec:
+      containers:
+        - name: kafka-exporter
+          image: danielqsj/kafka-exporter:v1.8.0
+          args:
+${kafka_server_args}            - --web.listen-address=:9308
+            - --topic.filter=^potion\\..*
+            - --group.filter=^potion-tracking-.*
+          ports:
+            - name: metrics
+              containerPort: 9308
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ckc-kafka-exporter
+  namespace: ckc-observability
+  labels:
+    app.kubernetes.io/name: ckc-kafka-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: ckc-kafka-exporter
+  ports:
+    - name: metrics
+      port: 9308
+      targetPort: metrics
+EOF
+  kubectl -n ckc-observability rollout status deployment/ckc-kafka-exporter --timeout=5m
+}
+
+stop_msk_cloudwatch_exporter() {
+  docker rm -f ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent >/dev/null 2>&1 || true
+}
+
+configure_msk_cloudwatch_exporter() {
+  local cluster_name="$1"
+  local config_dir="${RUNNER_HOME}/observability/cloudwatch"
+  mkdir -p "${config_dir}"
+
+  cat > "${config_dir}/cloudwatch-exporter.yml" <<EOF
+---
+region: ${REGION}
+metrics:
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: MaxOffsetLag
+    aws_dimensions: ["Cluster Name", "Consumer Group", "Topic"]
+    aws_dimension_select:
+      "Cluster Name": ["${cluster_name}"]
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: SumOffsetLag
+    aws_dimensions: ["Cluster Name", "Consumer Group", "Topic"]
+    aws_dimension_select:
+      "Cluster Name": ["${cluster_name}"]
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: EstimatedMaxTimeLag
+    aws_dimensions: ["Cluster Name", "Consumer Group", "Topic"]
+    aws_dimension_select:
+      "Cluster Name": ["${cluster_name}"]
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: RollingEstimatedTimeLagMax
+    aws_dimensions: ["Cluster Name", "Consumer Group", "Topic"]
+    aws_dimension_select:
+      "Cluster Name": ["${cluster_name}"]
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+EOF
+
+  cat > "${config_dir}/vmagent-prometheus.yml" <<EOF
+global:
+  scrape_interval: 60s
+scrape_configs:
+  - job_name: ckc-msk-cloudwatch
+    static_configs:
+      - targets: ["127.0.0.1:9106"]
+        labels:
+          environment: "${ENVIRONMENT}"
+          msk_cluster_name: "${cluster_name}"
+EOF
+
+  stop_msk_cloudwatch_exporter
+  docker run -d --name ckc-msk-cloudwatch-exporter --restart unless-stopped --network host \
+    -v "${config_dir}/cloudwatch-exporter.yml:/config/config.yml:ro" \
+    quay.io/prometheus/cloudwatch-exporter:v0.16.0 >/dev/null
+  docker run -d --name ckc-msk-cloudwatch-vmagent --restart unless-stopped --network host \
+    -v "${config_dir}/vmagent-prometheus.yml:/etc/vmagent/prometheus.yml:ro" \
+    victoriametrics/vmagent:v1.102.1 \
+    -promscrape.config=/etc/vmagent/prometheus.yml \
+    -remoteWrite.url=http://127.0.0.1:9090/api/v1/write >/dev/null
 }
 
 terraform -chdir="${TERRAFORM_DIR}" init
@@ -342,7 +528,18 @@ REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${ENVIRONME
 RUNNER_PRIVATE_IP="$(get_runner_private_ip)"
 REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
 
+deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
 deploy_observability_agent "${REMOTE_WRITE_URL}"
+
+MSK_CLOUDWATCH_ENABLED=false
+MSK_CLOUDWATCH_CLUSTER_NAME=""
+if [ "${KAFKA_MODE}" = "msk" ]; then
+  MSK_CLOUDWATCH_ENABLED=true
+  MSK_CLOUDWATCH_CLUSTER_NAME="${CLUSTER_NAME}-msk"
+  configure_msk_cloudwatch_exporter "${MSK_CLOUDWATCH_CLUSTER_NAME}"
+else
+  stop_msk_cloudwatch_exporter
+fi
 
 python3 - <<PY
 import json
@@ -361,6 +558,9 @@ context = {
     "registry": "${REGISTRY}",
     "prometheus_bridge_enabled": False,
     "remote_write_url": "${REMOTE_WRITE_URL}",
+    "kafka_exporter_enabled": True,
+    "msk_cloudwatch_enabled": "${MSK_CLOUDWATCH_ENABLED}" == "true",
+    "msk_cloudwatch_cluster_name": "${MSK_CLOUDWATCH_CLUSTER_NAME}",
 }
 Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
 PY
@@ -373,4 +573,6 @@ echo "  kafka_bootstrap=${KAFKA_BOOTSTRAP}"
 echo "  redis_mode=${REDIS_MODE}"
 echo "  redis_host=${REDIS_HOST}"
 echo "  remote_write_url=${REMOTE_WRITE_URL}"
+echo "  kafka_exporter_enabled=true"
+echo "  msk_cloudwatch_enabled=${MSK_CLOUDWATCH_ENABLED}"
 echo "  lab_context=${LAB_CONTEXT_PATH}"

@@ -59,6 +59,8 @@ try {
 
     Invoke-Checked kubectl @("apply", "-f", (Join-Path $manifestDir "kafka-init.yaml"))
     Invoke-Checked kubectl @("wait", "-n", "ckc-app", "--for=condition=Complete", "job/ckc-kafka-init", "--timeout=5m")
+    Invoke-Checked kubectl @("apply", "-f", (Join-Path $manifestDir "kafka-exporter.yaml"))
+    Invoke-Checked kubectl @("rollout", "status", "-n", "ckc-observability", "deployment/ckc-kafka-exporter", "--timeout=5m")
 
     if (-not $SkipBuild) {
         Invoke-Checked ".\gradlew.bat" @(
