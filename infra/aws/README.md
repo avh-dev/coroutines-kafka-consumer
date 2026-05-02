@@ -52,7 +52,8 @@
 - Grafana and Prometheus are exposed locally through SSM port forwarding.
 - Outbound internet access from the runner goes through a NAT gateway.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
-- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods through the Kubernetes API, scrapes `/actuator/prometheus`, and remote-writes pod-labelled metrics to the runner.
+- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
+- AWS labs expose Kafka consumer lag through `kafka_exporter` metrics for both in-cluster Kafka and MSK. MSK profiles also start a runner-side CloudWatch exporter for managed `AWS/Kafka` lag metrics such as `MaxOffsetLag`, `SumOffsetLag`, and `EstimatedMaxTimeLag`.
 - The disposable lab Terraform creates same-account VPC peering, routes, and runner security-group ingress for the remote-write path. `destroy-lab` removes that networking with the lab.
 
 ## Typical Flow

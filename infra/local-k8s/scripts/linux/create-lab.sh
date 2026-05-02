@@ -45,6 +45,8 @@ kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=
 
 kubectl apply -f "${MANIFEST_DIR}/kafka-init.yaml"
 kubectl wait -n ckc-app --for=condition=Complete job/ckc-kafka-init --timeout=5m
+kubectl apply -f "${MANIFEST_DIR}/kafka-exporter.yaml"
+kubectl rollout status -n ckc-observability deployment/ckc-kafka-exporter --timeout=5m
 
 if [ "${SKIP_BUILD}" != "true" ]; then
   ./gradlew :ckc-demo:bootJar :ckc-demo-stubs:fatJar :ckc-demo-load-test:fatJar

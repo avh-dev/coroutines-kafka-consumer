@@ -740,6 +740,214 @@
       ],
       "title": "Consumer Failures (15m)",
       "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 45
+      },
+      "id": 16,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
+          "legendFormat": "total lag",
+          "refId": "A"
+        }
+      ],
+      "title": "Kafka Total Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 45
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
+          "legendFormat": "{{consumergroup}} / {{topic}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Kafka Consumer Lag by Topic",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "id": 18,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "legendFormat": "{{consumer_group}} / {{topic}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "legendFormat": "sum {{consumer_group}} / {{topic}}",
+          "refId": "B"
+        }
+      ],
+      "title": "MSK CloudWatch Offset Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "legendFormat": "{{consumer_group}} / {{topic}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "legendFormat": "rolling {{consumer_group}} / {{topic}}",
+          "refId": "B"
+        }
+      ],
+      "title": "MSK CloudWatch Time Lag",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -789,6 +997,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

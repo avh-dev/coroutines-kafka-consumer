@@ -31,6 +31,7 @@ def main() -> None:
         "image_pull_policy": "IfNotPresent",
         "kafka_mode": "kubernetes",
         "kafka_bootstrap": f"{args.kafka_service}.ckc-app.svc.cluster.local:9092",
+        "kafka_exporter_enabled": True,
         "redis_mode": "kubernetes",
         "redis_host": f"{args.redis_service}.ckc-app.svc.cluster.local",
         "registry": "ckc-local",

@@ -34,4 +34,5 @@
 | INFRA-7 | Add local Kubernetes Fluent Bit log collection that archives audit records into a temporary local folder.                                                                                              | DONE |
 | INFRA-8 | Tune the local Kubernetes baseline.                                                                                                      | DONE |
 | INFRA-9 | Extract local Kubernetes manifests from setup scripts.                                                                                   | DONE |
+| INFRA-10 | Add Kafka lag metrics to local Kubernetes and AWS smoke observability.                                                                   | DONE |
 | GLOBAL-1 | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
