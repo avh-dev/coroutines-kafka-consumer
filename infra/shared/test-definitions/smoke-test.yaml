@@ -3,6 +3,11 @@ name: smoke-test
 deployment:
   app_profile: ckc-single
   stubs_profile: fast
+  kafka_topics:
+    - name: potion.orders.lifecycle.v1
+      partitions: 3
+    - name: potion.cauldrons.telemetry.v1
+      partitions: 3
 
 load_test:
   shards: 1

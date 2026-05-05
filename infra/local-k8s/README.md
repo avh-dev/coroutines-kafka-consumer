@@ -34,6 +34,17 @@ Create or refresh the local lab:
 ./infra/local-k8s/scripts/linux/create-lab.sh
 ```
 
+The default local lab setup flushes Redis, reads `infra/shared/test-definitions/ckc-baseline-local.yaml`, and recreates Kafka topics from `deployment.kafka_topics`.
+To prepare the lab for another definition before running it:
+
+```powershell
+./infra/local-k8s/scripts/windows/create-lab.ps1 -TestDefinitionPath infra/shared/test-definitions/smoke-test.yaml
+```
+
+```sh
+./infra/local-k8s/scripts/linux/create-lab.sh local minikube .ckc-runner/local-k8s false infra/shared/test-definitions/smoke-test.yaml
+```
+
 Run the default local baseline:
 
 ```powershell
@@ -69,8 +80,8 @@ Open Prometheus and Grafana:
 
 Then use:
 
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` with `admin` / `admin`
+- Prometheus: `http://localhost:9091`
+- Grafana: `http://localhost:3001` with `admin` / `admin`
 
 The local runner leaves the demo, stubs, and load-test job in the cluster so recent topic-tagged application metrics remain visible after the run.
 Prometheus scrapes `ckc-demo` pods through Kubernetes discovery, so app metrics include pod-level labels such as `pod`, `namespace`, and `node`.

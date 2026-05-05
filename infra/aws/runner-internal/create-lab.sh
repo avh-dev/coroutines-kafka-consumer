@@ -5,6 +5,7 @@ set -euo pipefail
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
 PROFILE_NAME="${3:-default}"
+TEST_DEFINITION_PATH="${4:-infra/shared/test-definitions/ckc-baseline.yaml}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 TERRAFORM_DIR="${REPO_DIR}/infra/aws/assets/terraform/load-lab"
@@ -61,33 +62,6 @@ wait_for_cluster_readiness() {
   kubectl -n kube-system rollout status daemonset/aws-node --timeout=10m
   kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=10m
   kubectl -n kube-system rollout status deployment/coredns --timeout=10m
-}
-
-ensure_kafka_topics() {
-  local bootstrap="$1"
-  local replication_factor="$2"
-  cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Pod
-metadata:
-  name: ckc-kafka-admin
-  namespace: ckc-app
-spec:
-  restartPolicy: Never
-  containers:
-    - name: kafka-admin
-      image: docker.io/bitnamilegacy/kafka:4.0.0-debian-12-r10
-      command:
-        - /bin/bash
-        - -lc
-        - |
-          set -euo pipefail
-          /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server ${bootstrap} --create --if-not-exists --topic potion.orders.lifecycle.v1 --partitions 12 --replication-factor ${replication_factor}
-          /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server ${bootstrap} --create --if-not-exists --topic potion.cauldrons.telemetry.v1 --partitions 12 --replication-factor ${replication_factor}
-EOF
-  kubectl -n ckc-app wait --for=jsonpath='{.status.phase}'=Succeeded pod/ckc-kafka-admin --timeout=10m
-  kubectl -n ckc-app logs pod/ckc-kafka-admin
-  kubectl -n ckc-app delete pod ckc-kafka-admin --ignore-not-found=true
 }
 
 get_runner_private_ip() {
@@ -472,15 +446,6 @@ broker:
   replicaCount: 0
   persistence:
     enabled: false
-provisioning:
-  enabled: true
-  topics:
-    - name: potion.orders.lifecycle.v1
-      partitions: 12
-      replicationFactor: ${KAFKA_TOPIC_REPLICATION_FACTOR}
-    - name: potion.cauldrons.telemetry.v1
-      partitions: 12
-      replicationFactor: ${KAFKA_TOPIC_REPLICATION_FACTOR}
 EOF
   helm upgrade --install ckc-kafka bitnami/kafka --namespace ckc-app --create-namespace -f "${KAFKA_VALUES_FILE}"
   rm -f "${KAFKA_VALUES_FILE}"
@@ -494,8 +459,13 @@ else
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
   fi
-  ensure_kafka_topics "${KAFKA_BOOTSTRAP}" "${KAFKA_TOPIC_REPLICATION_FACTOR}"
 fi
+
+python3 "${REPO_DIR}/infra/shared/test-orchestration/prepare-kafka-topics.py" \
+  --bootstrap-server "${KAFKA_BOOTSTRAP}" \
+  --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+  --test-definition-path "${TEST_DEFINITION_PATH}" \
+  --repo-dir "${REPO_DIR}"
 
 REDIS_MODE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
@@ -522,6 +492,9 @@ EOF
 else
   REDIS_HOST="$(terraform -chdir="${TERRAFORM_DIR}" output -raw elasticache_primary_endpoint)"
 fi
+
+python3 "${REPO_DIR}/infra/shared/test-orchestration/flush-redis.py" \
+  --host "${REDIS_HOST}"
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${ENVIRONMENT}"
@@ -567,6 +540,7 @@ PY
 
 echo "Lab is ready."
 echo "  profile=${PROFILE_NAME}"
+echo "  test_definition=${TEST_DEFINITION_PATH}"
 echo "  cluster_name=${CLUSTER_NAME}"
 echo "  kafka_mode=${KAFKA_MODE}"
 echo "  kafka_bootstrap=${KAFKA_BOOTSTRAP}"

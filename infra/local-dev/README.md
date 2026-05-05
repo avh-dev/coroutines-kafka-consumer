@@ -13,6 +13,20 @@ Start:
 docker compose -f infra/local-dev/docker-compose.yml up -d
 ```
 
+By default, local Kafka and the created demo topics use 6 partitions.
+Override it with `PARTITIONS` before the first startup:
+
+```sh
+PARTITIONS=4 docker compose -f infra/local-dev/docker-compose.yml up -d
+```
+
+If topics already exist, recreate the local environment so `kafka-init` can create them with the new partition count:
+
+```sh
+docker compose -f infra/local-dev/docker-compose.yml down -v
+PARTITIONS=4 docker compose -f infra/local-dev/docker-compose.yml up -d
+```
+
 Start with the LT demo-stubs profile:
 ```sh
 docker compose -f infra/local-dev/docker-compose.yml --profile lt up -d
@@ -26,6 +40,8 @@ docker compose -f infra/local-dev/docker-compose.yml down -v
 Created topics:
 - `potion.orders.lifecycle.v1`
 - `potion.cauldrons.telemetry.v1`
+
+Both use `${PARTITIONS:-6}` partitions.
 
 Demo stubs exposes:
 - `POST /eta`

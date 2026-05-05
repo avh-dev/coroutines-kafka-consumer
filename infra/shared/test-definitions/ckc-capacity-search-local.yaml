@@ -3,6 +3,11 @@ name: ckc-capacity-search-local
 deployment:
   app_profile: ckc-local-baseline
   stubs_profile: baseline
+  kafka_topics:
+    - name: potion.orders.lifecycle.v1
+      partitions: 6
+    - name: potion.cauldrons.telemetry.v1
+      partitions: 6
 
 load_test:
   shards: 2

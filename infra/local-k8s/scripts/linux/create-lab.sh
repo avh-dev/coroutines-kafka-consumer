@@ -6,6 +6,7 @@ ENVIRONMENT="${1:-local}"
 MINIKUBE_PROFILE="${2:-minikube}"
 RUNNER_HOME="${3:-.ckc-runner/local-k8s}"
 SKIP_BUILD="${4:-false}"
+TEST_DEFINITION_PATH="${5:-infra/shared/test-definitions/ckc-baseline-local.yaml}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 RUNNER_HOME_PATH="${REPO_ROOT}/${RUNNER_HOME}"
@@ -43,8 +44,25 @@ helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app -f "${LOCAL_C
 kubectl rollout status -n ckc-app deployment/ckc-kafka --timeout=10m
 kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=ckc-redis,app.kubernetes.io/component=master --timeout=10m
 
-kubectl apply -f "${MANIFEST_DIR}/kafka-init.yaml"
-kubectl wait -n ckc-app --for=condition=Complete job/ckc-kafka-init --timeout=5m
+redis_service="$(
+  python3 "${HELPER_DIR}/get-service-name.py" \
+    --namespace ckc-app \
+    --selector app.kubernetes.io/instance=ckc-redis \
+    --port 6379 \
+    --preferred-token master \
+    --preferred-token redis
+)"
+
+python3 "${REPO_ROOT}/infra/shared/test-orchestration/flush-redis.py" \
+  --host "${redis_service}.ckc-app.svc.cluster.local"
+
+python3 "${REPO_ROOT}/infra/shared/test-orchestration/prepare-kafka-topics.py" \
+  --bootstrap-server ckc-kafka.ckc-app.svc.cluster.local:9092 \
+  --replication-factor 1 \
+  --test-definition-path "${TEST_DEFINITION_PATH}" \
+  --repo-dir "${REPO_ROOT}" \
+  --admin-image apache/kafka:3.7.2 \
+  --topics-bin /opt/kafka/bin/kafka-topics.sh
 kubectl apply -f "${MANIFEST_DIR}/kafka-exporter.yaml"
 kubectl rollout status -n ckc-observability deployment/ckc-kafka-exporter --timeout=5m
 
@@ -79,15 +97,6 @@ kafka_service="$(
     --preferred-token bootstrap \
     --preferred-token kafka
 )"
-redis_service="$(
-  python3 "${HELPER_DIR}/get-service-name.py" \
-    --namespace ckc-app \
-    --selector app.kubernetes.io/instance=ckc-redis \
-    --port 6379 \
-    --preferred-token master \
-    --preferred-token redis
-)"
-
 mkdir -p "${CONFIG_DIR}"
 python3 "${HELPER_DIR}/write-lab-context.py" \
   --output "${CONTEXT_PATH}" \
@@ -101,5 +110,5 @@ echo "  context=${CONTEXT_PATH}"
 echo "  kafka_bootstrap=${kafka_service}.ckc-app.svc.cluster.local:9092"
 echo "  redis_host=${redis_service}.ckc-app.svc.cluster.local"
 echo "  audit_log=minikube -p ${MINIKUBE_PROFILE} ssh -- sudo tail -100 /tmp/ckc-log-archive/audit.log"
-echo "  grafana: kubectl -n ckc-observability port-forward svc/ckc-grafana 3000:3000"
-echo "  prometheus: kubectl -n ckc-observability port-forward svc/ckc-prometheus 9090:9090"
+echo "  grafana: kubectl -n ckc-observability port-forward svc/ckc-grafana 3001:3000"
+echo "  prometheus: kubectl -n ckc-observability port-forward svc/ckc-prometheus 9091:9090"

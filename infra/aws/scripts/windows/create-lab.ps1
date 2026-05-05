@@ -3,7 +3,8 @@ param(
     [string]$Environment = "dev",
     [string]$ProfileName = "default",
     [string]$InstanceId,
-    [string]$RunnerRepoDir = "/opt/ckc-runner/assets/repo"
+    [string]$RunnerRepoDir = "/opt/ckc-runner/assets/repo",
+    [string]$TestDefinitionPath = "infra/shared/test-definitions/ckc-baseline.yaml"
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,7 +48,7 @@ try {
             "set -euo pipefail",
             "RUNNER_REPO_DIR=$RunnerRepoDir",
             "cd `"`${RUNNER_REPO_DIR}`"",
-            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/runner-internal/create-lab.sh $Region $Environment $ProfileName"
+            "CKC_RUNNER_REPO_DIR=`"`${RUNNER_REPO_DIR}`" ./infra/aws/runner-internal/create-lab.sh $Region $Environment $ProfileName $TestDefinitionPath"
         )
     } | ConvertTo-Json -Depth 3
 

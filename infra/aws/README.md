@@ -49,7 +49,7 @@
 
 - The runner has no public IP.
 - Shell access uses AWS Systems Manager Session Manager.
-- Grafana and Prometheus are exposed locally through SSM port forwarding.
+- Grafana and Prometheus are exposed locally through SSM port forwarding on `http://localhost:3002` and `http://localhost:9093`.
 - Outbound internet access from the runner goes through a NAT gateway.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
 - `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
@@ -66,3 +66,5 @@
 6. Destroy the lab with `destroy-lab` when it is no longer needed. Metrics history remains on the runner.
 
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
+
+`create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `infra/shared/test-definitions/ckc-baseline.yaml`.

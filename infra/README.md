@@ -63,7 +63,13 @@ Or on Windows PowerShell:
 ./infra/aws/scripts/windows/start-grafana-tunnel.ps1 -Region us-east-1
 ```
 
-Then browse to `http://localhost:3000` with `admin` / `admin`.
+Then browse to `http://localhost:3002` with `admin` / `admin`.
+
+Default local observability ports are intentionally distinct:
+
+- local-dev: Prometheus `9090`, Grafana `3000`
+- local-k8s: Prometheus `9091`, Grafana `3001`
+- AWS runner tunnels: Prometheus `9093`, Grafana `3002`
 
 Open a shell on the runner:
 

@@ -1,7 +1,7 @@
 param(
     [string]$Namespace = "ckc-observability",
-    [int]$PrometheusPort = 9090,
-    [int]$GrafanaPort = 3000
+    [int]$PrometheusPort = 9091,
+    [int]$GrafanaPort = 3001
 )
 
 $ErrorActionPreference = "Stop"

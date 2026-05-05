@@ -1,6 +1,6 @@
 param(
     [string]$Region = "us-east-1",
-    [int]$LocalPort = 9090,
+    [int]$LocalPort = 9093,
     [string]$InstanceId
 )
 
