@@ -3,7 +3,7 @@
 set -eu
 
 REGION="${1:-us-east-1}"
-LOCAL_PORT="${2:-9090}"
+LOCAL_PORT="${2:-9093}"
 INSTANCE_ID="${3:-}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"

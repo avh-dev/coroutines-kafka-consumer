@@ -35,4 +35,6 @@
 | INFRA-8 | Tune the local Kubernetes baseline.                                                                                                      | DONE |
 | INFRA-9 | Extract local Kubernetes manifests from setup scripts.                                                                                   | DONE |
 | INFRA-10 | Add Kafka lag metrics to local Kubernetes and AWS smoke observability.                                                                   | DONE |
+| INFRA-11 | Clean Redis and recreate Kafka topics during lab setup from test definition deployment settings.                                          | DONE |
+| INFRA-12 | Separate local-dev, local-k8s, and AWS observability ports, then validate the local Kubernetes baseline run.                              | DONE |
 | GLOBAL-1 | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |

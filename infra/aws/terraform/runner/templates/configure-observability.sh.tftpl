@@ -9,5 +9,5 @@ docker compose -f "$${OBSERVABILITY_DIR}/docker-compose.yml" up -d
 
 printf 'Runner metrics storage: VictoriaMetrics-compatible remote_write receiver\n'
 printf 'Remote write endpoint:  http://<runner-private-ip>:8428/api/v1/write\n'
-printf 'Prometheus API tunnel:  http://localhost:9090\n'
-printf 'Grafana:                http://localhost:3000\n'
+printf 'Prometheus API tunnel:  http://localhost:9093\n'
+printf 'Grafana:                http://localhost:3002\n'

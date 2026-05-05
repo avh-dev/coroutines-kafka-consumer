@@ -3,6 +3,11 @@ name: ckc-baseline
 deployment:
   app_profile: ckc-hpa
   stubs_profile: baseline
+  kafka_topics:
+    - name: potion.orders.lifecycle.v1
+      partitions: 12
+    - name: potion.cauldrons.telemetry.v1
+      partitions: 12
 
 load_test:
   shards: 4

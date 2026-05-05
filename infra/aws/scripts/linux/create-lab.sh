@@ -5,7 +5,15 @@ set -eu
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
 PROFILE_NAME="${3:-default}"
-INSTANCE_ID="${4:-}"
+DEFAULT_TEST_DEFINITION_PATH="infra/shared/test-definitions/ckc-baseline.yaml"
+ARG4="${4:-}"
+if [ -n "${ARG4}" ] && [ "${ARG4#i-}" != "${ARG4}" ]; then
+  TEST_DEFINITION_PATH="${CKC_TEST_DEFINITION_PATH:-${DEFAULT_TEST_DEFINITION_PATH}}"
+  INSTANCE_ID="${ARG4}"
+else
+  TEST_DEFINITION_PATH="${CKC_TEST_DEFINITION_PATH:-${ARG4:-${DEFAULT_TEST_DEFINITION_PATH}}}"
+  INSTANCE_ID="${5:-}"
+fi
 REPO_DIR_ON_RUNNER="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
@@ -24,7 +32,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "set -euo pipefail",
     "RUNNER_REPO_DIR=${REPO_DIR_ON_RUNNER}",
     "cd \\"\\\${RUNNER_REPO_DIR}\\"",
-    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/runner-internal/create-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME}"
+    "CKC_RUNNER_REPO_DIR=\\"\\\${RUNNER_REPO_DIR}\\" ./infra/aws/runner-internal/create-lab.sh ${REGION} ${ENVIRONMENT} ${PROFILE_NAME} ${TEST_DEFINITION_PATH}"
   ]
 }
 EOF

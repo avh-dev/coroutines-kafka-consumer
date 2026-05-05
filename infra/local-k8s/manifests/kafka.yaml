@@ -44,7 +44,7 @@ spec:
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
               value: PLAINTEXT
             - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
-              value: "true"
+              value: "false"
             - name: KAFKA_NUM_PARTITIONS
               value: "6"
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR

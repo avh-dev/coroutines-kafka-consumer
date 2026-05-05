@@ -2,12 +2,12 @@ replicaCount: 2
 
 env:
   springProfilesActive: ckc
-  lifecycleWorkerConcurrency: 256
-  lifecyclePollLoopConcurrency: 3
-  lifecycleWorkChannelCapacity: 32768
-  telemetryWorkerConcurrency: 256
-  telemetryPollLoopConcurrency: 3
-  telemetryWorkChannelCapacity: 16384
+  lifecycleWorkerConcurrency: 50
+  lifecyclePollLoopConcurrency: 1
+  lifecycleWorkChannelCapacity: 512
+  telemetryWorkerConcurrency: 50
+  telemetryPollLoopConcurrency: 1
+  telemetryWorkChannelCapacity: 1
 
 resources:
   requests:

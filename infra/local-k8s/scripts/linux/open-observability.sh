@@ -3,8 +3,8 @@
 set -eu
 
 NAMESPACE="${1:-ckc-observability}"
-PROMETHEUS_PORT="${2:-9090}"
-GRAFANA_PORT="${3:-3000}"
+PROMETHEUS_PORT="${2:-9091}"
+GRAFANA_PORT="${3:-3001}"
 
 kubectl -n "${NAMESPACE}" port-forward svc/ckc-prometheus "${PROMETHEUS_PORT}:9090" >/tmp/ckc-local-prometheus-port-forward.log 2>&1 &
 PROMETHEUS_PID="$!"

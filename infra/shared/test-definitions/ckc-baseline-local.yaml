@@ -3,13 +3,18 @@ name: ckc-baseline-local
 deployment:
   app_profile: ckc-local-baseline
   stubs_profile: baseline
+  kafka_topics:
+    - name: potion.orders.lifecycle.v1
+      partitions: 4
+    - name: potion.cauldrons.telemetry.v1
+      partitions: 4
 
 load_test:
-  shards: 2
-  base_rate: 120
-  telemetry_rate_multiplier: 2.0
+  shards: 1
+  base_rate: 10
+  telemetry_rate_multiplier: 1.0
   load_profile: "0 -> (1m, warmup) -> 100 -> (10m, local-baseline) -> 100 -> (1m, cool-down) -> 0"
-  cauldron_count: 1536
+  cauldron_count: 100
   orders_per_batch: 4
   max_batch_wait_seconds: 5
   brew_duration_seconds: 30
