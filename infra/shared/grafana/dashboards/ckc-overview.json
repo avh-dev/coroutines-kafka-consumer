@@ -182,7 +182,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_processed_total{consumer_id=~\"$consumer_id\"}[5m]))",
+          "expr": "sum(rate(ckc_record_processed_total{consumer_id=~\"$consumer_id\"}[30s]))",
           "refId": "A"
         }
       ],
@@ -226,7 +226,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_failed_total{consumer_id=~\"$consumer_id\"}[5m]))",
+          "expr": "sum(rate(ckc_record_failed_total{consumer_id=~\"$consumer_id\"}[30s]))",
           "refId": "A"
         }
       ],
@@ -354,7 +354,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[5m])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=~\"$consumer_id\"}[5m])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
           "legendFormat": "{{consumer_id}} / {{topic}}",
           "refId": "A"
         }
@@ -397,7 +397,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, topic) (rate(ckc_record_age_sum{consumer_id=~\"$consumer_id\", error=\"none\"}[5m])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_age_count{consumer_id=~\"$consumer_id\", error=\"none\"}[5m])), 1e-9)",
+          "expr": "sum by (consumer_id, topic) (rate(ckc_record_age_sum{consumer_id=~\"$consumer_id\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_age_count{consumer_id=~\"$consumer_id\", error=\"none\"}[30s])), 1e-9)",
           "legendFormat": "{{consumer_id}} / {{topic}}",
           "refId": "A"
         }
@@ -545,7 +545,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"$consumer_id\"}[5m]))",
+          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"$consumer_id\"}[30s]))",
           "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}",
           "refId": "A"
         }
@@ -588,7 +588,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"$consumer_id\"}[5m]))",
+          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"$consumer_id\"}[30s]))",
           "legendFormat": "{{consumer_id}} / success={{success}}",
           "refId": "A"
         }
@@ -631,7 +631,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[5m])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"$consumer_id\"}[5m])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
           "legendFormat": "{{consumer_id}}",
           "refId": "A"
         }
@@ -674,7 +674,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"$consumer_id\"}[5m]))",
+          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"$consumer_id\"}[30s]))",
           "legendFormat": "{{consumer_id}}",
           "refId": "A"
         }
