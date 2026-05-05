@@ -1,13 +1,13 @@
 package avh.ckc.loadtest.generator
 
+import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.domain.ActiveBatch
 import avh.ckc.loadtest.domain.CauldronTelemetryFactory
+import avh.ckc.loadtest.domain.OrderLifecycleStateMachine
 import avh.ckc.loadtest.domain.PendingOrder
 import avh.ckc.loadtest.domain.PotionRecipe
-import avh.ckc.loadtest.domain.SimulatedCauldron
-import avh.ckc.loadtest.domain.OrderLifecycleStateMachine
-import avh.ckc.loadtest.kafka.LoadTestProducers
+import avh.ckc.loadtest.kafka.LoadTestPublisher
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.scenario.LoadScenario
 import avh.ckc.loadtest.scenario.ScenarioEvaluationContext
@@ -22,7 +22,7 @@ class TrafficGenerator(
     private val shardContext: ShardContext,
     private val config: LoadTestConfig,
     private val scenario: LoadScenario,
-    private val producers: LoadTestProducers
+    private val producers: LoadTestPublisher
 ) {
     private val recipes = listOf(
         PotionRecipe("healing-elixir", "healing-elixir-v2"),
@@ -31,47 +31,45 @@ class TrafficGenerator(
     )
     private val stateMachine = OrderLifecycleStateMachine(shardContext)
     private val telemetryFactory = CauldronTelemetryFactory(config.diagnosticsBlobSize)
-    private val cauldrons = ArrayDeque((1..config.cauldronCount).map { SimulatedCauldron("cauldron-$it") })
-    private val pendingOrders = linkedMapOf<String, ArrayDeque<PendingOrder>>()
-    private val activeBatches = linkedMapOf<String, ActiveBatch>()
+    private val lifecycleBacklog = ArrayDeque<OrderLifecycleEvent>()
+    private val telemetryCauldrons = ArrayDeque<TelemetryCauldron>()
     private val orderSequence = AtomicLong(0)
     private val batchSequence = AtomicLong(0)
+    private val cauldronSequence = AtomicLong(0)
     private var orderAccumulator = 0.0
     private var telemetryAccumulator = 0.0
     private var lastHeartbeatAt = Instant.EPOCH
 
     suspend fun run() {
         val startedAt = shardContext.testRunStartedAt ?: Instant.now()
-        val context = ScenarioEvaluationContext(config.baseRate)
+        val lifecycleContext = ScenarioEvaluationContext(config.lifecycleBaseRate)
+        val telemetryContext = ScenarioEvaluationContext(config.telemetryBaseRate)
         val tickSeconds = config.tickInterval.toMillis().toDouble() / 1000.0
 
         while (true) {
             val now = Instant.now()
-            val activePhase = scenario.phaseAt(now, startedAt, context)
-            completeFinishedBatches(now)
-            maybeLogHeartbeat(now, activePhase?.name ?: "completed")
+            val lifecyclePhase = scenario.phaseAt(now, startedAt, lifecycleContext)
+            val telemetryPhase = scenario.phaseAt(now, startedAt, telemetryContext)
+            maybeLogHeartbeat(now, lifecyclePhase?.name ?: "completed")
 
-            if (activePhase == null) {
-                if (activeBatches.isEmpty() && pendingOrders.values.all { it.isEmpty() }) {
-                    producers.flush()
-                    return
-                }
-                emitTelemetry(now, 0.0, tickSeconds)
-                dispatchReadyBatches(now)
-                delay(config.tickInterval.toMillis())
-                continue
+            if (lifecyclePhase == null && telemetryPhase == null) {
+                producers.flush()
+                return
             }
 
-            orderAccumulator += activePhase.currentRate() * tickSeconds
-            telemetryAccumulator += (activePhase.currentRate() * config.telemetryRateMultiplier) * tickSeconds
+            orderAccumulator += (lifecyclePhase?.currentRate() ?: 0.0) * tickSeconds
+            telemetryAccumulator += (telemetryPhase?.currentRate() ?: 0.0) * tickSeconds
 
             repeat(floor(orderAccumulator).toInt()) {
-                createOrder(now)
+                emitLifecycle(now)
                 orderAccumulator -= 1.0
             }
 
-            dispatchReadyBatches(now)
-            emitTelemetry(now, telemetryAccumulator, tickSeconds)
+            repeat(floor(telemetryAccumulator).toInt()) {
+                emitTelemetry(now)
+                telemetryAccumulator -= 1.0
+            }
+
             delay(config.tickInterval.toMillis())
         }
     }
@@ -81,100 +79,74 @@ class TrafficGenerator(
             return
         }
         lastHeartbeatAt = now
-        val pendingOrderCount = pendingOrders.values.sumOf { it.size }
         producers.logSnapshot(
-            "heartbeat phase=$phaseName pendingOrders=$pendingOrderCount activeBatches=${activeBatches.size} " +
-                "cauldronsAvailable=${cauldrons.size} generatedOrders=${orderSequence.get()} generatedBatches=${batchSequence.get()}"
+            "heartbeat phase=$phaseName lifecycleBacklog=${lifecycleBacklog.size} activeCauldrons=${telemetryCauldrons.size} " +
+                "generatedOrders=${orderSequence.get()} generatedBatches=${batchSequence.get()}"
         )
     }
 
-    private fun createOrder(now: Instant) {
-        val absoluteIndex = orderSequence.incrementAndGet().toInt()
-        val recipe = recipes[(absoluteIndex + shardContext.shardIndex) % recipes.size]
-        val orderId = "ord-${shardContext.shardToken()}-${absoluteIndex.toString().padStart(8, '0')}"
+    private fun emitLifecycle(now: Instant) {
+        if (lifecycleBacklog.isEmpty()) {
+            lifecycleBacklog.addAll(createLifecycleBatch(now))
+        }
+
+        val event = lifecycleBacklog.removeFirst()
+        producers.sendLifecycle(event.orderId, event)
+    }
+
+    private fun createLifecycleBatch(now: Instant): List<OrderLifecycleEvent> {
+        val firstOrderIndex = orderSequence.getAndAdd(config.lifecycleOrdersPerBatch.toLong()).toInt() + 1
+        val batchSlot = batchSequence.incrementAndGet().toInt()
+        val recipe = recipes[(batchSlot + shardContext.shardIndex) % recipes.size]
+
+        return stateMachine.createOrderBatch(
+            orderIndex = firstOrderIndex,
+            batchSlot = batchSlot,
+            ordersPerBatch = config.lifecycleOrdersPerBatch,
+            potionId = recipe.potionId,
+            recipeId = recipe.recipeId
+        ).lifecycleEvents
+            .map { it.toBuilder().setMetadata(it.metadata.toBuilder().setOccurredAt(now.toString())).build() }
+    }
+
+    private fun emitTelemetry(now: Instant) {
+        val cauldron = when {
+            telemetryCauldrons.isEmpty() -> createTelemetryCauldron(now)
+            Duration.between(telemetryCauldrons.first().lastTelemetryAt, now) < config.telemetryInterval ->
+                createTelemetryCauldron(now)
+            else -> telemetryCauldrons.removeFirst()
+        }
+
+        producers.sendTelemetry(cauldron.activeBatch.cauldronId, telemetryFactory.create(cauldron.activeBatch, now))
+        telemetryCauldrons.addLast(cauldron.copy(lastTelemetryAt = now))
+    }
+
+    private fun createTelemetryCauldron(now: Instant): TelemetryCauldron {
+        val slot = cauldronSequence.incrementAndGet().toInt()
+        val recipe = recipes[(slot + shardContext.shardIndex) % recipes.size]
         val order = PendingOrder(
-            orderId = orderId,
-            customerId = "customer-${shardContext.shardToken()}-${absoluteIndex.toString().padStart(6, '0')}",
+            orderId = "tel-ord-${shardContext.shardToken()}-${slot.toString().padStart(8, '0')}",
+            customerId = "telemetry-customer-${shardContext.shardToken()}-${slot.toString().padStart(6, '0')}",
             potion = recipe,
             createdAt = now
         )
+        val batchId = "tel-batch-${shardContext.shardToken()}-${slot.toString().padStart(8, '0')}"
 
-        pendingOrders.computeIfAbsent(recipe.recipeId) { ArrayDeque() }.addLast(order)
-        val event = stateMachine.createOrderCreated(order)
-        producers.sendLifecycle(order.orderId, event)
-    }
-
-    private fun dispatchReadyBatches(now: Instant) {
-        if (cauldrons.isEmpty()) {
-            return
-        }
-
-        val availableRecipes = pendingOrders.values.filter { it.isNotEmpty() }
-        availableRecipes.forEach { queue ->
-            if (cauldrons.isEmpty()) {
-                return
-            }
-
-            val shouldStart = queue.size >= config.ordersPerBatch ||
-                Duration.between(queue.first().createdAt, now) >= config.maxBatchWait
-            if (!shouldStart) {
-                return@forEach
-            }
-
-            val cauldron = cauldrons.removeFirst()
-            val orders = buildList {
-                repeat(minOf(config.ordersPerBatch, queue.size)) {
-                    add(queue.removeFirst())
-                }
-            }
-            if (queue.isEmpty()) {
-                pendingOrders.remove(orders.first().potion.recipeId)
-            }
-
-            val batchSlot = batchSequence.incrementAndGet().toInt()
-            val generated = stateMachine.createAssignedBatch(
-                batchSlot = batchSlot,
-                cauldronId = cauldron.cauldronId,
-                orders = orders,
-                brewDuration = config.brewDuration,
-                startedAt = now
-            )
-            generated.lifecycleEvents.forEach { producers.sendLifecycle(it.orderId, it) }
-            activeBatches[generated.batchId] = ActiveBatch(
-                batchId = generated.batchId,
-                cauldronId = generated.cauldronId,
-                potion = orders.first().potion,
-                orders = orders,
+        return TelemetryCauldron(
+            activeBatch = ActiveBatch(
+                batchId = batchId,
+                cauldronId = "cauldron-${shardContext.shardToken()}-${slot.toString().padStart(8, '0')}",
+                potion = recipe,
+                orders = listOf(order),
                 startedAt = now,
-                completesAt = now.plus(config.brewDuration)
-            )
-        }
+                completesAt = Instant.MAX
+            ),
+            lastTelemetryAt = now
+        )
     }
 
-    private fun completeFinishedBatches(now: Instant) {
-        val completedIds = activeBatches.values
-            .filter { !it.completesAt.isAfter(now) }
-            .map { it.batchId }
-
-        completedIds.forEach { batchId ->
-            val batch = activeBatches.remove(batchId) ?: return@forEach
-            stateMachine.createCompletedEvents(batch, now)
-                .forEach { producers.sendLifecycle(it.orderId, it) }
-            cauldrons.addLast(SimulatedCauldron(batch.cauldronId))
-        }
-    }
-
-    private fun emitTelemetry(now: Instant, requestedSamples: Double, tickSeconds: Double) {
-        if (activeBatches.isEmpty()) {
-            telemetryAccumulator = requestedSamples
-            return
-        }
-
-        repeat(floor(requestedSamples).toInt()) { iteration ->
-            val activeBatch = activeBatches.values.elementAt(iteration % activeBatches.size)
-            val telemetry = telemetryFactory.create(activeBatch, now)
-            producers.sendTelemetry(activeBatch.cauldronId, telemetry)
-            telemetryAccumulator -= 1.0
-        }
-    }
+    private data class TelemetryCauldron(
+        val activeBatch: ActiveBatch,
+        val lastTelemetryAt: Instant
+    )
 }

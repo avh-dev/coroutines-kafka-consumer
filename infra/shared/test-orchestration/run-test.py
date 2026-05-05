@@ -383,20 +383,16 @@ spec:
           env:
             - name: BOOTSTRAP_SERVERS
               value: {yaml_string(kafka_bootstrap)}
-            - name: BASE_RATE
-              value: "{as_int(load_test.get("base_rate"), 1000)}"
-            - name: TELEMETRY_RATE_MULTIPLIER
-              value: "{as_float(load_test.get("telemetry_rate_multiplier"), 10.0)}"
+            - name: LIFECYCLE_BASE_RATE
+              value: "{as_int(load_test.get("lifecycle_base_rate"), 1000)}"
+            - name: TELEMETRY_BASE_RATE
+              value: "{as_int(load_test.get("telemetry_base_rate"), 10000)}"
             - name: LOAD_PROFILE
               value: {yaml_string(as_str(load_test.get("load_profile"), "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0"))}
-            - name: CAULDRON_COUNT
-              value: "{as_int(load_test.get("cauldron_count"), 8)}"
-            - name: ORDERS_PER_BATCH
-              value: "{as_int(load_test.get("orders_per_batch"), 3)}"
-            - name: MAX_BATCH_WAIT_SECONDS
-              value: "{as_int(load_test.get("max_batch_wait_seconds"), 30)}"
-            - name: BREW_DURATION_SECONDS
-              value: "{as_int(load_test.get("brew_duration_seconds"), 120)}"
+            - name: LIFECYCLE_ORDERS_PER_BATCH
+              value: "{as_int(load_test.get("lifecycle_orders_per_batch"), 3)}"
+            - name: TELEMETRY_INTERVAL_SECONDS
+              value: "{as_int(load_test.get("telemetry_interval_seconds"), 10)}"
             - name: TICK_INTERVAL_MILLIS
               value: "{as_int(load_test.get("tick_interval_millis"), 200)}"
             - name: DIAGNOSTICS_BLOB_SIZE

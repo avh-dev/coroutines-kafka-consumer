@@ -8,7 +8,7 @@ Current scope:
 
 - load scenario phases over time
 - shard identity for local runs and Kubernetes indexed jobs
-- a simple lifecycle state machine that generates coherent order events
+- rate-driven lifecycle and telemetry publishers that keep demo-domain event shapes coherent
 
 It is intended to grow into the main load-test entry point for:
 
@@ -27,8 +27,10 @@ Example:
 
 Rules:
 
-- the profile starts with an integer percentage of `BASE_RATE`
+- the profile starts with an integer percentage of each stream base rate
 - then alternates between `(duration, optional label)` and the next integer target percentage
 - labels are kept for logging and diagnostics
 - durations use compact units: `s`, `m`, `h`
-- `BASE_RATE` defines the effective rate for `100`
+- `LIFECYCLE_BASE_RATE` defines lifecycle messages per second for `100`
+- `TELEMETRY_BASE_RATE` defines telemetry messages per second for `100`
+- the load-test process flushes producers and exits when the profile schedule ends

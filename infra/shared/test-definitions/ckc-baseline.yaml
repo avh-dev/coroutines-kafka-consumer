@@ -11,12 +11,10 @@ deployment:
 
 load_test:
   shards: 4
-  base_rate: 2000
-  telemetry_rate_multiplier: 10.0
+  lifecycle_base_rate: 2000
+  telemetry_base_rate: 20000
   load_profile: "0 -> (2m, warmup) -> 60 -> (8m, comparison) -> 100 -> (2m, cool-down) -> 0"
-  cauldron_count: 8
-  orders_per_batch: 3
-  max_batch_wait_seconds: 30
-  brew_duration_seconds: 120
+  lifecycle_orders_per_batch: 3
+  telemetry_interval_seconds: 10
   tick_interval_millis: 200
   diagnostics_blob_size: 512
