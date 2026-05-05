@@ -17,13 +17,18 @@ fun main() = runBlocking {
 
     val now = Instant.now()
     val effectiveStart = shardContext.testRunStartedAt ?: now
-    val currentPhase = scenario.phaseAt(now, effectiveStart, ScenarioEvaluationContext(config.baseRate))
+    val lifecyclePhase = scenario.phaseAt(now, effectiveStart, ScenarioEvaluationContext(config.lifecycleBaseRate))
+    val telemetryPhase = scenario.phaseAt(now, effectiveStart, ScenarioEvaluationContext(config.telemetryBaseRate))
     val preview = OrderLifecycleStateMachine(shardContext).createOrderBatch(orderIndex = 1, batchSlot = 0)
 
     println("load-test shard=${shardContext.shardIndex}/${shardContext.totalShards} runId=${shardContext.testRunId ?: "local"}")
     println("bootstrapServers=${config.bootstrapServers}")
     println("topics lifecycle=${config.orderLifecycleTopic} telemetry=${config.cauldronTelemetryTopic}")
-    println("phase=${currentPhase?.name ?: "completed"} rate=${currentPhase?.currentRate() ?: 0.0} baseRate=${config.baseRate}")
+    println(
+        "phase=${lifecyclePhase?.name ?: "completed"} " +
+            "lifecycleRate=${lifecyclePhase?.currentRate() ?: 0.0} lifecycleBaseRate=${config.lifecycleBaseRate} " +
+            "telemetryRate=${telemetryPhase?.currentRate() ?: 0.0} telemetryBaseRate=${config.telemetryBaseRate}"
+    )
     println("preview lifecycle events=${preview.lifecycleEvents.map { it.eventType.name }}")
 
     LoadTestProducers(config).use { producers ->

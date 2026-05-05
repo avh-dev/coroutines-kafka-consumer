@@ -13,9 +13,19 @@ import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
 import java.util.concurrent.atomic.AtomicLong
 
+interface LoadTestPublisher {
+    fun sendLifecycle(key: String, event: OrderLifecycleEvent)
+
+    fun sendTelemetry(key: String, event: CauldronTelemetryEvent)
+
+    fun flush()
+
+    fun logSnapshot(reason: String)
+}
+
 class LoadTestProducers(
     private val config: LoadTestConfig
-) : AutoCloseable {
+) : LoadTestPublisher, AutoCloseable {
     private val lifecycleSent = AtomicLong(0)
     private val lifecycleAcked = AtomicLong(0)
     private val lifecycleFailed = AtomicLong(0)
@@ -31,7 +41,7 @@ class LoadTestProducers(
         producerProperties(CauldronTelemetryEventSerializer::class.java)
     )
 
-    fun sendLifecycle(key: String, event: OrderLifecycleEvent) {
+    override fun sendLifecycle(key: String, event: OrderLifecycleEvent) {
         val sent = lifecycleSent.incrementAndGet()
         lifecycleProducer.send(
             ProducerRecord(config.orderLifecycleTopic, key, event),
@@ -40,7 +50,7 @@ class LoadTestProducers(
         maybeLogProgress(sent + telemetrySent.get())
     }
 
-    fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
+    override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
         val sent = telemetrySent.incrementAndGet()
         telemetryProducer.send(
             ProducerRecord(config.cauldronTelemetryTopic, key, event),
@@ -49,13 +59,13 @@ class LoadTestProducers(
         maybeLogProgress(lifecycleSent.get() + sent)
     }
 
-    fun flush() {
+    override fun flush() {
         lifecycleProducer.flush()
         telemetryProducer.flush()
         logSnapshot("flush")
     }
 
-    fun logSnapshot(reason: String) {
+    override fun logSnapshot(reason: String) {
         println(
             "load-test producer snapshot reason=$reason " +
                 "lifecycle(sent=${lifecycleSent.get()}, acked=${lifecycleAcked.get()}, failed=${lifecycleFailed.get()}) " +
