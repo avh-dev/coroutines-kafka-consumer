@@ -76,11 +76,11 @@
       },
       "targets": [
         {
-          "expr": "sum(ckc_workers_active{consumer_id=~\"$consumer_id\"}) / clamp_min(sum(ckc_workers{consumer_id=~\"$consumer_id\"}), 1)",
+          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum(ckc_workers{consumer_id=~\"$consumer_id\"}), 1)",
           "refId": "A"
         }
       ],
-      "title": "Active Worker Saturation",
+      "title": "Worker Utilization",
       "type": "stat"
     },
     {
@@ -442,17 +442,17 @@
       },
       "targets": [
         {
-          "expr": "ckc_workers{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} total",
+          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s]))",
+          "legendFormat": "{{consumer_id}} busy avg",
           "refId": "A"
         },
         {
-          "expr": "ckc_workers_active{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} active",
+          "expr": "ckc_workers{consumer_id=~\"$consumer_id\"}",
+          "legendFormat": "{{consumer_id}} total",
           "refId": "B"
         }
       ],
-      "title": "Worker Utilization",
+      "title": "Average Busy Workers",
       "type": "timeseries"
     },
     {
@@ -948,6 +948,277 @@
       ],
       "title": "MSK CloudWatch Time Lag",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 20,
+      "panels": [],
+      "title": "Java Runtime",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 62
+      },
+      "id": 21,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage",
+          "legendFormat": "{{job}} / {{instance}} process",
+          "refId": "A"
+        },
+        {
+          "expr": "system_cpu_usage",
+          "legendFormat": "{{job}} / {{instance}} system",
+          "refId": "B"
+        }
+      ],
+      "title": "CPU Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 62
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (job, instance, area) (jvm_memory_used_bytes)",
+          "legendFormat": "{{job}} / {{area}} used",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (job, instance, area) (clamp_min(jvm_memory_max_bytes, 0))",
+          "legendFormat": "{{job}} / {{area}} max",
+          "refId": "B"
+        }
+      ],
+      "title": "JVM Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 62
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "{{job}} / {{instance}} live",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_threads_daemon_threads",
+          "legendFormat": "{{job}} / {{instance}} daemon",
+          "refId": "B"
+        }
+      ],
+      "title": "JVM Threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_sum[30s])) / clamp_min(sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s])), 1e-9)",
+          "legendFormat": "{{job}} / {{gc}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Average GC Pause",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s]))",
+          "legendFormat": "{{job}} / {{gc}}",
+          "refId": "A"
+        }
+      ],
+      "title": "GC Pause Rate",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -997,6 +1268,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

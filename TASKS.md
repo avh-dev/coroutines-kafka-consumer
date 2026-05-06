@@ -39,4 +39,5 @@
 | INFRA-11 | Clean Redis and recreate Kafka topics during lab setup from test definition deployment settings.                                          | DONE |
 | INFRA-12 | Separate local-dev, local-k8s, and AWS observability ports, then validate the local Kubernetes baseline run.                              | DONE |
 | INFRA-13 | Aggregate Grafana dashboard metric rates over 30s windows for clearer local-dev observability.                                            | DONE |
+| INFRA-14 | Replace snapshot-based worker utilization dashboard panels with busy-time utilization queries.                                             | DONE |
 | GLOBAL-1 | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
