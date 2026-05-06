@@ -9,6 +9,7 @@ import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
+import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 
@@ -32,6 +33,7 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
+            deserializationDispatcher = Dispatchers.Default
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {
@@ -63,6 +65,7 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
+            deserializationDispatcher = Dispatchers.Default
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {
