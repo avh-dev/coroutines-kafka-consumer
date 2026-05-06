@@ -1,7 +1,10 @@
 package avh.ckc.demo.config
 
-import avh.ckc.demo.repository.BrewingStateRepository
-import avh.ckc.demo.repository.RedisBrewingStateRepository
+import avh.ckc.demo.repository.RedisBrewingStateStore
+import avh.ckc.demo.repository.RedisSuspendBrewingStateRepository
+import avh.ckc.demo.repository.RedisSyncBrewingStateRepository
+import avh.ckc.demo.repository.SuspendBrewingStateRepository
+import avh.ckc.demo.repository.SyncBrewingStateRepository
 import kotlinx.serialization.json.Json
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -27,8 +30,16 @@ class RedisConfiguration {
     }
 
     @Bean
-    fun brewingStateRepository(
+    fun redisBrewingStateStore(
         orderStateRedisTemplate: ReactiveRedisTemplate<String, ByteArray>,
         redisJson: Json
-    ): BrewingStateRepository = RedisBrewingStateRepository(orderStateRedisTemplate, redisJson)
+    ): RedisBrewingStateStore = RedisBrewingStateStore(orderStateRedisTemplate, redisJson)
+
+    @Bean
+    fun syncBrewingStateRepository(store: RedisBrewingStateStore): SyncBrewingStateRepository =
+        RedisSyncBrewingStateRepository(store)
+
+    @Bean
+    fun suspendBrewingStateRepository(store: RedisBrewingStateStore): SuspendBrewingStateRepository =
+        RedisSuspendBrewingStateRepository(store)
 }

@@ -1,8 +1,8 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.repository.BatchState
-import avh.ckc.demo.repository.BrewingStateRepository
 import avh.ckc.demo.repository.OrderState
+import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given
 import org.springframework.beans.factory.annotation.Autowired
@@ -10,12 +10,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.mock.mockito.MockBean
 import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
-import org.springframework.test.web.servlet.result.MockMvcResultMatchers.request
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
-import java.util.concurrent.CompletableFuture
 
 @SpringBootTest(
     properties = [
@@ -28,43 +25,35 @@ class OrderControllerTest {
     private lateinit var mockMvc: MockMvc
 
     @MockBean
-    private lateinit var brewingStateRepository: BrewingStateRepository
+    private lateinit var brewingStateRepository: SyncBrewingStateRepository
 
     @Test
     fun `returns order with batch details`() {
         given(brewingStateRepository.findOrder("ord-7421")).willReturn(
-            CompletableFuture.completedFuture(
-                OrderState(
-                    orderId = "ord-7421",
-                    batchId = "batch-11",
-                    potionId = "healing-elixir",
-                    recipeId = "healing-elixir-v2",
-                    customerId = "guild-17",
-                    cauldronId = "cauldron-3",
-                    status = "BREWING_STARTED",
-                    updatedAt = "2026-03-26T09:10:11Z"
-                )
+            OrderState(
+                orderId = "ord-7421",
+                batchId = "batch-11",
+                potionId = "healing-elixir",
+                recipeId = "healing-elixir-v2",
+                customerId = "guild-17",
+                cauldronId = "cauldron-3",
+                status = "BREWING_STARTED",
+                updatedAt = "2026-03-26T09:10:11Z"
             )
         )
         given(brewingStateRepository.findBatch("batch-11")).willReturn(
-            CompletableFuture.completedFuture(
-                BatchState(
-                    batchId = "batch-11",
-                    recipeId = "healing-elixir-v2",
-                    potionId = "healing-elixir",
-                    cauldronId = "cauldron-3",
-                    status = "BREWING_STARTED",
-                    orderIds = listOf("ord-7421", "ord-7422"),
-                    updatedAt = "2026-03-26T09:10:11Z"
-                )
+            BatchState(
+                batchId = "batch-11",
+                recipeId = "healing-elixir-v2",
+                potionId = "healing-elixir",
+                cauldronId = "cauldron-3",
+                status = "BREWING_STARTED",
+                orderIds = listOf("ord-7421", "ord-7422"),
+                updatedAt = "2026-03-26T09:10:11Z"
             )
         )
 
-        val mvcResult = mockMvc.perform(get("/api/orders/ord-7421"))
-            .andExpect(request().asyncStarted())
-            .andReturn()
-
-        mockMvc.perform(asyncDispatch(mvcResult))
+        mockMvc.perform(get("/api/orders/ord-7421"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.order.orderId").value("ord-7421"))
             .andExpect(jsonPath("$.order.status").value("BREWING_STARTED"))
@@ -74,13 +63,9 @@ class OrderControllerTest {
 
     @Test
     fun `returns not found for missing order`() {
-        given(brewingStateRepository.findOrder("missing")).willReturn(CompletableFuture.completedFuture(null))
+        given(brewingStateRepository.findOrder("missing")).willReturn(null)
 
-        val mvcResult = mockMvc.perform(get("/api/orders/missing"))
-            .andExpect(request().asyncStarted())
-            .andReturn()
-
-        mockMvc.perform(asyncDispatch(mvcResult))
+        mockMvc.perform(get("/api/orders/missing"))
             .andExpect(status().isNotFound)
     }
 }
