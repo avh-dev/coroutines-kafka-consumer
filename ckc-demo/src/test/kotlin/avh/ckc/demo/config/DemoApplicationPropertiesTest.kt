@@ -10,6 +10,13 @@ class DemoApplicationPropertiesTest {
     fun `consumer runtime defaults preserve existing demo settings`() {
         val properties = bind(emptyMap())
 
+        assertEquals(true, properties.consumers.processingEnabled)
+        assertEquals(
+            DemoApplicationProperties.DeserializationDispatcherMode.DEFAULT,
+            properties.consumers.deserializationDispatcher.mode
+        )
+        assertEquals(8, properties.consumers.deserializationDispatcher.customThreadPoolSize)
+        assertEquals("ckc-demo-deserializer", properties.consumers.deserializationDispatcher.customThreadNamePrefix)
         assertEquals(2, properties.consumers.lifecycle.workerConcurrency)
         assertEquals(1, properties.consumers.lifecycle.pollLoopConcurrency)
         assertEquals(1024, properties.consumers.lifecycle.workChannelCapacity)
@@ -22,6 +29,10 @@ class DemoApplicationPropertiesTest {
     fun `consumer runtime settings can be overridden`() {
         val properties = bind(
             mapOf(
+                "demo.consumers.processing-enabled" to "false",
+                "demo.consumers.deserialization-dispatcher.mode" to "custom-thread-pool",
+                "demo.consumers.deserialization-dispatcher.custom-thread-pool-size" to "16",
+                "demo.consumers.deserialization-dispatcher.custom-thread-name-prefix" to "experiment-deserializer",
                 "demo.consumers.lifecycle.worker-concurrency" to "12",
                 "demo.consumers.lifecycle.poll-loop-concurrency" to "3",
                 "demo.consumers.lifecycle.work-channel-capacity" to "2048",
@@ -31,6 +42,13 @@ class DemoApplicationPropertiesTest {
             )
         )
 
+        assertEquals(false, properties.consumers.processingEnabled)
+        assertEquals(
+            DemoApplicationProperties.DeserializationDispatcherMode.CUSTOM_THREAD_POOL,
+            properties.consumers.deserializationDispatcher.mode
+        )
+        assertEquals(16, properties.consumers.deserializationDispatcher.customThreadPoolSize)
+        assertEquals("experiment-deserializer", properties.consumers.deserializationDispatcher.customThreadNamePrefix)
         assertEquals(12, properties.consumers.lifecycle.workerConcurrency)
         assertEquals(3, properties.consumers.lifecycle.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.lifecycle.workChannelCapacity)

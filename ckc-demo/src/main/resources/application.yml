@@ -23,6 +23,11 @@ demo:
   audit:
     enabled: ${AUDIT_LOG_ENABLED:true}
   consumers:
+    processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
+    deserialization-dispatcher:
+      mode: ${DEMO_CONSUMER_DESERIALIZATION_DISPATCHER:DEFAULT}
+      custom-thread-pool-size: ${DEMO_CONSUMER_DESERIALIZATION_THREADS:8}
+      custom-thread-name-prefix: ${DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX:ckc-demo-deserializer}
     lifecycle:
       worker-concurrency: ${LIFECYCLE_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${LIFECYCLE_POLL_LOOP_CONCURRENCY:1}
