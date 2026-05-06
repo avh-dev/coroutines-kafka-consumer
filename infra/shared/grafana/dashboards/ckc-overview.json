@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum(ckc_workers{consumer_id=~\"$consumer_id\"}), 1)",
+          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum(ckc_workers{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}), 1)",
           "refId": "A"
         }
       ],
@@ -138,7 +138,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ckc_work_queue_size{consumer_id=~\"$consumer_id\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_id=~\"$consumer_id\"}), 1)",
+          "expr": "sum(ckc_work_queue_size{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}), 1)",
           "refId": "A"
         }
       ],
@@ -182,7 +182,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_processed_total{consumer_id=~\"$consumer_id\"}[30s]))",
+          "expr": "sum(rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
           "refId": "A"
         }
       ],
@@ -226,7 +226,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_failed_total{consumer_id=~\"$consumer_id\"}[30s]))",
+          "expr": "sum(rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
           "refId": "A"
         }
       ],
@@ -268,8 +268,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, topic) (rate(ckc_record_processed_total{consumer_id=~\"$consumer_id\"}[1m]))",
-          "legendFormat": "{{consumer_id}} / {{topic}}",
+          "expr": "sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[1m]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
           "refId": "A"
         }
       ],
@@ -311,8 +311,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, topic, error) (rate(ckc_record_failed_total{consumer_id=~\"$consumer_id\"}[1m]))",
-          "legendFormat": "{{consumer_id}} / {{topic}} / {{error}}",
+          "expr": "sum by (consumer_impl, consumer_id, topic, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[1m]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}} / {{error}}",
           "refId": "A"
         }
       ],
@@ -354,8 +354,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_id}} / {{topic}}",
+          "expr": "1000 * sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
           "refId": "A"
         }
       ],
@@ -397,8 +397,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, topic) (rate(ckc_record_age_sum{consumer_id=~\"$consumer_id\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_id, topic) (rate(ckc_record_age_count{consumer_id=~\"$consumer_id\", error=\"none\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_id}} / {{topic}}",
+          "expr": "sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\", error=\"none\"}[30s])), 1e-9)",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
           "refId": "A"
         }
       ],
@@ -442,13 +442,13 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_id}} busy avg",
+          "expr": "sum by (consumer_impl, consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} busy avg",
           "refId": "A"
         },
         {
-          "expr": "ckc_workers{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} total",
+          "expr": "ckc_workers{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} total",
           "refId": "B"
         }
       ],
@@ -492,18 +492,18 @@
       },
       "targets": [
         {
-          "expr": "ckc_work_queue_size{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} size",
+          "expr": "ckc_work_queue_size{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} size",
           "refId": "A"
         },
         {
-          "expr": "ckc_work_queue_capacity{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} capacity",
+          "expr": "ckc_work_queue_capacity{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} capacity",
           "refId": "B"
         },
         {
-          "expr": "ckc_work_queue_max{consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_id}} max observed",
+          "expr": "ckc_work_queue_max{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} max observed",
           "refId": "C"
         }
       ],
@@ -545,8 +545,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}",
+          "expr": "sum by (consumer_impl, consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / attempt={{attempt}} / {{error}}",
           "refId": "A"
         }
       ],
@@ -588,8 +588,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_id}} / success={{success}}",
+          "expr": "sum by (consumer_impl, consumer_id, success) (rate(ckc_commit_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / success={{success}}",
           "refId": "A"
         }
       ],
@@ -631,8 +631,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_id}}",
+          "expr": "1000 * sum by (consumer_impl, consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}}",
           "refId": "A"
         }
       ],
@@ -674,8 +674,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_id}}",
+          "expr": "sum by (consumer_impl, consumer_id) (rate(ckc_poll_records_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}}",
           "refId": "A"
         }
       ],
@@ -733,8 +733,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, error) (increase(ckc_failure_total{consumer_id=~\"$consumer_id\"}[15m]))",
-          "legendFormat": "{{consumer_id}} / {{error}}",
+          "expr": "sum by (consumer_impl, consumer_id, error) (increase(ckc_failure_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[15m]))",
+          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{error}}",
           "refId": "A"
         }
       ],
@@ -1241,7 +1241,34 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(ckc_workers, consumer_id)",
+        "definition": "label_values(ckc_record_processed_total, consumer_impl)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Implementation",
+        "multi": true,
+        "name": "consumer_impl",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ckc_record_processed_total, consumer_impl)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ckc_record_processed_total, consumer_id)",
         "hide": 0,
         "includeAll": true,
         "label": "Consumer",
@@ -1250,7 +1277,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(ckc_workers, consumer_id)",
+          "query": "label_values(ckc_record_processed_total, consumer_id)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,

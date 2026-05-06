@@ -1,0 +1,66 @@
+package avh.ckc.demo.service
+
+import avh.ckc.core.ConsumerMetrics
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.context.annotation.Profile
+import org.springframework.stereotype.Service
+
+@Service
+@Profile("spring-kafka")
+class SpringKafkaRecordMetrics {
+    fun <V> onProcessed(
+        metrics: ConsumerMetrics<String, V>,
+        context: SpringKafkaRecordContext,
+        value: V,
+        startedAtNanos: Long
+    ) {
+        metrics.onRecordProcessed(
+            key = context.key,
+            value = value,
+            record = context.rawRecord(),
+            recordAgeMillis = context.recordAgeMillis(),
+            durationNanos = System.nanoTime() - startedAtNanos
+        )
+    }
+
+    fun <V> onFailed(
+        metrics: ConsumerMetrics<String, V>,
+        context: SpringKafkaRecordContext,
+        value: V,
+        startedAtNanos: Long,
+        error: Throwable
+    ) {
+        metrics.onRecordFailed(
+            key = context.key,
+            value = value,
+            record = context.rawRecord(),
+            recordAgeMillis = context.recordAgeMillis(),
+            error = error,
+            durationNanos = System.nanoTime() - startedAtNanos
+        )
+    }
+}
+
+data class SpringKafkaRecordContext(
+    val key: String?,
+    val topic: String,
+    val partition: Int,
+    val offset: Long,
+    val timestamp: Long
+) {
+    fun recordAgeMillis(): Long =
+        if (timestamp > 0L) {
+            (System.currentTimeMillis() - timestamp).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+    fun rawRecord(): ConsumerRecord<ByteArray, ByteArray> =
+        ConsumerRecord(
+            topic,
+            partition,
+            offset,
+            key?.encodeToByteArray(),
+            null
+        )
+}
