@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.demo.service.SpringKafkaRecordContext
 import avh.ckc.demo.service.SpringKafkaTrackingService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Profile
@@ -26,9 +27,13 @@ class SpringKafkaTrackingListeners(
         @Header(KafkaHeaders.RECEIVED_TOPIC) topic: String,
         @Header(KafkaHeaders.RECEIVED_PARTITION) partition: Int,
         @Header(KafkaHeaders.OFFSET) offset: Long,
+        @Header(KafkaHeaders.RECEIVED_TIMESTAMP) timestamp: Long,
         event: OrderLifecycleEvent
     ) {
-        trackingService.processOrderLifecycle(key, topic, partition, offset, event)
+        trackingService.processOrderLifecycle(
+            SpringKafkaRecordContext(key, topic, partition, offset, timestamp),
+            event
+        )
     }
 
     @KafkaListener(
@@ -41,8 +46,12 @@ class SpringKafkaTrackingListeners(
         @Header(KafkaHeaders.RECEIVED_TOPIC) topic: String,
         @Header(KafkaHeaders.RECEIVED_PARTITION) partition: Int,
         @Header(KafkaHeaders.OFFSET) offset: Long,
+        @Header(KafkaHeaders.RECEIVED_TIMESTAMP) timestamp: Long,
         event: CauldronTelemetryEvent
     ) {
-        trackingService.processCauldronTelemetry(key, topic, partition, offset, event)
+        trackingService.processCauldronTelemetry(
+            SpringKafkaRecordContext(key, topic, partition, offset, timestamp),
+            event
+        )
     }
 }
