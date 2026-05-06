@@ -9,7 +9,7 @@ import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 
@@ -19,6 +19,8 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         auditLogEnabled: Boolean,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        deserializationDispatcher: CoroutineDispatcher,
+        processingEnabled: Boolean,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -33,10 +35,10 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
-            deserializationDispatcher = Dispatchers.Default
+            this.deserializationDispatcher = deserializationDispatcher
             this.metrics = metrics
             handle { key, value, record ->
-                if (value != null) {
+                if (processingEnabled && value != null) {
                     handler(key, value)
                     if (auditLogEnabled) {
                         AuditLog.processed(record)
@@ -51,6 +53,8 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         auditLogEnabled: Boolean,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        deserializationDispatcher: CoroutineDispatcher,
+        processingEnabled: Boolean,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -65,10 +69,10 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
-            deserializationDispatcher = Dispatchers.Default
+            this.deserializationDispatcher = deserializationDispatcher
             this.metrics = metrics
             handle { key, value, record ->
-                if (value != null) {
+                if (processingEnabled && value != null) {
                     handler(key, value)
                     if (auditLogEnabled) {
                         AuditLog.processed(record)

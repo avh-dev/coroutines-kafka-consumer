@@ -26,6 +26,7 @@
 | DEMO-9 | Add stdout audit records for load-test publishes and processed demo consumer records.                                                                                                                  | DONE |
 | DEMO-10 | Parameterize demo consumer runtime worker and queue settings for load-test tuning.                                                                                                                    | DONE |
 | DEMO-11 | Rewrite the demo load-test generator around a shared load profile with separate lifecycle and telemetry message rates, and stop when the schedule ends.                                               | DONE |
+| DEMO-12 | Add demo consumer experiment controls for processing enablement and deserialization dispatcher selection.                                                                                              | DONE |
 | INFRA-1 | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | INFRA-2 | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | INFRA-3 | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
