@@ -5,17 +5,14 @@ import avh.ckc.core.ConsumerMetrics
 import avh.ckc.demo.DemoConsumers
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.repository.BrewingStateRepository
-import avh.ckc.demo.service.BrewingLifecycleService
-import avh.ckc.demo.service.EtaRecalculationService
+import avh.ckc.demo.service.SuspendBrewingLifecycleService
+import avh.ckc.demo.service.SuspendEtaRecalculationService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.future.await
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
-import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
@@ -32,15 +29,13 @@ class CkcProfileConfiguration {
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
     fun ckcConsumerRuntime(
         properties: DemoApplicationProperties,
-        brewingStateRepository: BrewingStateRepository,
-        brewingLifecycleService: BrewingLifecycleService,
-        etaRecalculationService: EtaRecalculationService,
+        brewingLifecycleService: SuspendBrewingLifecycleService,
+        etaRecalculationService: SuspendEtaRecalculationService,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("lifecycleConsumerMetrics") lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
-            brewingStateRepository,
             brewingLifecycleService,
             etaRecalculationService,
             consumerMetrics,
@@ -50,13 +45,11 @@ class CkcProfileConfiguration {
 
 private class CkcConsumerRuntime(
     private val properties: DemoApplicationProperties,
-    private val brewingStateRepository: BrewingStateRepository,
-    private val brewingLifecycleService: BrewingLifecycleService,
-    private val etaRecalculationService: EtaRecalculationService,
+    private val brewingLifecycleService: SuspendBrewingLifecycleService,
+    private val etaRecalculationService: SuspendEtaRecalculationService,
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
 ) : SmartLifecycle {
-    private val logger = LoggerFactory.getLogger(javaClass)
     private lateinit var lifecycleConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
     private lateinit var deserializationDispatcher: DemoDeserializationDispatcher
@@ -78,17 +71,7 @@ private class CkcConsumerRuntime(
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
         ) { _, event ->
-            try {
-                brewingLifecycleService.applyLifecycleEvent(event).await()
-            } catch (error: Throwable) {
-                logger.error(
-                    "CKC lifecycle processing failed for orderId={}, eventType={}",
-                    event.orderId,
-                    event.eventType.name,
-                    error
-                )
-                throw error
-            }
+            brewingLifecycleService.applyLifecycleEvent(event)
         }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
@@ -99,29 +82,7 @@ private class CkcConsumerRuntime(
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
         ) { _, telemetry ->
-            try {
-                val batchId = telemetry.batchId.ifBlank { brewingStateRepository.findActiveBatchId(telemetry.cauldronId).await() ?: "" }
-                if (batchId.isBlank()) {
-                    return@telemetryConsumer
-                }
-                val batchState = brewingStateRepository.findBatch(batchId).await() ?: return@telemetryConsumer
-                val estimate = etaRecalculationService.recalculate(batchState, telemetry).await()
-                logger.info(
-                    "CKC ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
-                    estimate.batchId,
-                    estimate.cauldronId,
-                    estimate.etaSeconds
-                )
-            } catch (error: Throwable) {
-                logger.error(
-                    "CKC telemetry processing failed for cauldronId={}, batchId={}, occurredAt={}",
-                    telemetry.cauldronId,
-                    telemetry.batchId,
-                    telemetry.metadata.occurredAt,
-                    error
-                )
-                throw error
-            }
+            etaRecalculationService.recalculate(telemetry)
         }
 
         lifecycleConsumer.start()

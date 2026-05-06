@@ -4,14 +4,12 @@ import avh.ckc.demo.proto.EventMetadata
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.repository.BatchState
-import avh.ckc.demo.repository.BrewingStateRepository
 import avh.ckc.demo.repository.ModelContextState
 import avh.ckc.demo.repository.OrderState
+import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionStage
 
 class BrewingLifecycleServiceTest {
     @Test
@@ -41,7 +39,7 @@ class BrewingLifecycleServiceTest {
                 )
             )
         )
-        val service = BrewingLifecycleService(repository)
+        val service = SyncBrewingLifecycleService(repository)
 
         service.applyLifecycleEvent(
             lifecycleEvent(
@@ -50,7 +48,7 @@ class BrewingLifecycleServiceTest {
                 cauldronId = "cauldron-3",
                 recipeId = "healing-v2"
             )
-        ).toCompletableFuture().join()
+        )
 
         val order = repository.orders.getValue("ord-1")
         assertEquals("batch-11", order.batchId)
@@ -69,7 +67,7 @@ class BrewingLifecycleServiceTest {
         val repository = FakeBrewingStateRepository(
             activeBatchIds = mutableMapOf("cauldron-3" to "batch-22")
         )
-        val service = BrewingLifecycleService(repository)
+        val service = SyncBrewingLifecycleService(repository)
 
         service.applyLifecycleEvent(
             lifecycleEvent(
@@ -77,7 +75,7 @@ class BrewingLifecycleServiceTest {
                 batchId = "batch-11",
                 cauldronId = "cauldron-3"
             )
-        ).toCompletableFuture().join()
+        )
 
         assertEquals("batch-22", repository.activeBatchIds["cauldron-3"])
     }
@@ -87,7 +85,7 @@ class BrewingLifecycleServiceTest {
         val repository = FakeBrewingStateRepository(
             activeBatchIds = mutableMapOf("cauldron-3" to "batch-11")
         )
-        val service = BrewingLifecycleService(repository)
+        val service = SyncBrewingLifecycleService(repository)
 
         service.applyLifecycleEvent(
             lifecycleEvent(
@@ -95,7 +93,7 @@ class BrewingLifecycleServiceTest {
                 batchId = "batch-11",
                 cauldronId = "cauldron-3"
             )
-        ).toCompletableFuture().join()
+        )
 
         assertNull(repository.activeBatchIds["cauldron-3"])
     }
@@ -129,41 +127,36 @@ private class FakeBrewingStateRepository(
     val batches: MutableMap<String, BatchState> = mutableMapOf(),
     val activeBatchIds: MutableMap<String, String> = mutableMapOf(),
     val modelContexts: MutableMap<String, ModelContextState> = mutableMapOf()
-) : BrewingStateRepository {
-    override fun findOrder(orderId: String): CompletionStage<OrderState?> =
-        CompletableFuture.completedFuture(orders[orderId])
+) : SyncBrewingStateRepository {
+    override fun findOrder(orderId: String): OrderState? =
+        orders[orderId]
 
-    override fun saveOrder(orderState: OrderState): CompletionStage<Void> {
+    override fun saveOrder(orderState: OrderState) {
         orders[orderState.orderId] = orderState
-        return CompletableFuture.completedFuture(null)
     }
 
-    override fun findBatch(batchId: String): CompletionStage<BatchState?> =
-        CompletableFuture.completedFuture(batches[batchId])
+    override fun findBatch(batchId: String): BatchState? =
+        batches[batchId]
 
-    override fun saveBatch(batchState: BatchState): CompletionStage<Void> {
+    override fun saveBatch(batchState: BatchState) {
         batches[batchState.batchId] = batchState
-        return CompletableFuture.completedFuture(null)
     }
 
-    override fun findActiveBatchId(cauldronId: String): CompletionStage<String?> =
-        CompletableFuture.completedFuture(activeBatchIds[cauldronId])
+    override fun findActiveBatchId(cauldronId: String): String? =
+        activeBatchIds[cauldronId]
 
-    override fun saveActiveBatchId(cauldronId: String, batchId: String): CompletionStage<Void> {
+    override fun saveActiveBatchId(cauldronId: String, batchId: String) {
         activeBatchIds[cauldronId] = batchId
-        return CompletableFuture.completedFuture(null)
     }
 
-    override fun deleteActiveBatchId(cauldronId: String): CompletionStage<Void> {
+    override fun deleteActiveBatchId(cauldronId: String) {
         activeBatchIds.remove(cauldronId)
-        return CompletableFuture.completedFuture(null)
     }
 
-    override fun findModelContext(batchId: String): CompletionStage<ModelContextState?> =
-        CompletableFuture.completedFuture(modelContexts[batchId])
+    override fun findModelContext(batchId: String): ModelContextState? =
+        modelContexts[batchId]
 
-    override fun saveModelContext(context: ModelContextState): CompletionStage<Void> {
+    override fun saveModelContext(context: ModelContextState) {
         modelContexts[context.batchId] = context
-        return CompletableFuture.completedFuture(null)
     }
 }
