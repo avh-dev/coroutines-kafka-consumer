@@ -6,6 +6,7 @@
 
 - `local-dev/`: local Kafka, Redis, Prometheus, and Grafana for fast demo development with Docker Compose
 - `local-k8s/`: minikube-based test environment that reuses the shared Helm charts and test orchestration
+- `internal-lab/`: lightweight k3s environment for a dedicated Linux laptop, with host-managed Kafka, Redis, Grafana, and stubs
 - `shared/`: Helm charts, test definitions, test orchestration, Grafana provisioning, and dashboards shared by local and AWS environments
 - `aws/terraform/`: long-lived AWS Terraform stacks for `runner` and `ecr`
 - `aws/assets/`: AWS-only assets uploaded to the runner, including disposable `load-lab` Terraform
@@ -69,6 +70,7 @@ Default local observability ports are intentionally distinct:
 
 - local-dev: Prometheus `9090`, Grafana `3000`
 - local-k8s: Prometheus `9091`, Grafana `3001`
+- internal-lab: app `30080`, Prometheus `30090`, Grafana `3000`
 - AWS runner tunnels: Prometheus `9093`, Grafana `3002`
 
 Open a shell on the runner:
@@ -99,4 +101,4 @@ Or on Windows PowerShell:
 ./infra/aws/scripts/windows/destroy-all.ps1 -Region us-east-1 -Environment dev
 ```
 
-Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), and [local-k8s/README.md](local-k8s/README.md).
+Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), [local-k8s/README.md](local-k8s/README.md), and [internal-lab/README.md](internal-lab/README.md).

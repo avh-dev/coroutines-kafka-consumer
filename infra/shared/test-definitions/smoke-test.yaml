@@ -5,9 +5,9 @@ deployment:
   stubs_profile: fast
   kafka_topics:
     - name: potion.orders.lifecycle.v1
-      partitions: 3
+      partitions: 1
     - name: potion.cauldrons.telemetry.v1
-      partitions: 3
+      partitions: 1
 
 load_test:
   shards: 1
