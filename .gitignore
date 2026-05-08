@@ -28,3 +28,4 @@ crash.*.log
 
 # Local runner state
 .ckc-runner/
+.internal-lab/

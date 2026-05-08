@@ -1,0 +1,23 @@
+replicaCount: 1
+
+image:
+  repository: ckc-perf/demo-stubs
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+env:
+  delayP90Ms: 40
+  delayP95Ms: 80
+  delayP99Ms: 160
+  delayP100Ms: 300
+  errorRatePercent: 0
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

@@ -5,16 +5,16 @@ deployment:
   stubs_profile: baseline
   kafka_topics:
     - name: potion.orders.lifecycle.v1
-      partitions: 4
+      partitions: 2
     - name: potion.cauldrons.telemetry.v1
-      partitions: 4
+      partitions: 2
 
 load_test:
   shards: 1
-  lifecycle_base_rate: 10
-  telemetry_base_rate: 10
+  lifecycle_base_rate: 500
+  telemetry_base_rate: 800
   load_profile: "0 -> (1m, warmup) -> 100 -> (10m, local-baseline) -> 100 -> (1m, cool-down) -> 0"
   lifecycle_orders_per_batch: 4
-  telemetry_interval_seconds: 10
+  telemetry_interval_seconds: 1
   tick_interval_millis: 100
   diagnostics_blob_size: 256

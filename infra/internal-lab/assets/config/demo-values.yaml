@@ -1,0 +1,55 @@
+replicaCount: 2
+
+image:
+  repository: ckc-perf/demo
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+  type: NodePort
+  nodePort: 30080
+
+env:
+  springProfilesActive: ckc
+  kafkaEnabled: true
+  demoKafkaEnabled: true
+  bootstrapServers: ckc-external-kafka.ckc-perf.svc.cluster.local:9092
+  redisHost: ckc-external-redis.ckc-perf.svc.cluster.local
+  redisPort: 6379
+  modelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
+  auditLogEnabled: true
+  lifecycleWorkerConcurrency: 50
+  lifecyclePollLoopConcurrency: 1
+  lifecycleWorkChannelCapacity: 512
+  telemetryWorkerConcurrency: 50
+  telemetryPollLoopConcurrency: 1
+  telemetryWorkChannelCapacity: 1
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+probes:
+  readiness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 12
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 15
+    failureThreshold: 8
+  startup:
+    enabled: true
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 30
+
+hpa:
+  enabled: false
