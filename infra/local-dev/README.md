@@ -10,38 +10,39 @@ Services:
 
 Start:
 ```sh
-docker compose -f infra/local-dev/docker-compose.yml up -d
+infra/local-dev/scripts/start.sh
 ```
 
-By default, local Kafka and the created demo topics use 6 partitions.
-Override it with `PARTITIONS` before the first startup:
-
+Recreate topics after Kafka starts:
 ```sh
-PARTITIONS=4 docker compose -f infra/local-dev/docker-compose.yml up -d
+infra/local-dev/scripts/create-topics.sh --lifecycle 6 --cualdrons 6
 ```
 
-If topics already exist, recreate the local environment so `kafka-init` can create them with the new partition count:
+If no topic parameters are provided, the script prompts for both partition counts and uses `6` as the default:
 
 ```sh
-docker compose -f infra/local-dev/docker-compose.yml down -v
-PARTITIONS=4 docker compose -f infra/local-dev/docker-compose.yml up -d
+infra/local-dev/scripts/create-topics.sh
+```
+
+The topic script uses `docker exec ckc-local-kafka ...`, prints partition changes, deletes existing topics, and recreates:
+- `potion.orders.lifecycle.v1`
+- `potion.cauldrons.telemetry.v1`
+
+To recreate topics with different partition counts:
+
+```sh
+infra/local-dev/scripts/create-topics.sh --lifecycle 4 --cualdrons 4
 ```
 
 Start with the LT demo-stubs profile:
 ```sh
-docker compose -f infra/local-dev/docker-compose.yml --profile lt up -d
+infra/local-dev/scripts/start.sh --profile lt
 ```
 
 Stop:
 ```sh
-docker compose -f infra/local-dev/docker-compose.yml down -v
+infra/local-dev/scripts/stop.sh
 ```
-
-Created topics:
-- `potion.orders.lifecycle.v1`
-- `potion.cauldrons.telemetry.v1`
-
-Both use `${PARTITIONS:-6}` partitions.
 
 Demo stubs exposes:
 - `POST /eta`
