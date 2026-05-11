@@ -26,20 +26,6 @@ services:
       timeout: 5s
       retries: 12
 
-#  kafka-init:
-#    image: apache/kafka:3.7.2
-#    depends_on:
-#      kafka:
-#        condition: service_healthy
-#    restart: "no"
-#    entrypoint:
-#      - /bin/bash
-#      - -lc
-#      - |
-#        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic potion.orders.lifecycle.v1 --partitions ${PARTITIONS:-6} --replication-factor 1
-#        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic potion.cauldrons.telemetry.v1 --partitions ${PARTITIONS:-6} --replication-factor 1
-
-
   redis:
     image: redis:7.4-alpine
     container_name: ckc-local-redis

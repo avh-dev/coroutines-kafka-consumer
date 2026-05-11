@@ -44,6 +44,7 @@
 | [INFRA-13](#infra-13) | Aggregate Grafana dashboard metric rates over 30s windows for clearer local-dev observability.                                            | DONE |
 | [INFRA-14](#infra-14) | Replace snapshot-based worker utilization dashboard panels with busy-time utilization queries.                                             | DONE |
 | [INFRA-15](#infra-15) | Add a lightweight k3s internal lab for running the demo app on a dedicated Linux host with host-managed Kafka, Redis, Grafana, and stubs.   | DONE |
+| [INFRA-16](#infra-16) | Move local-dev Kafka topic creation from compose into explicit helper scripts.                                                             | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
@@ -427,6 +428,15 @@ _Date: 2026-05-08_
 Added an internal k3s lab for running the demo stack on a dedicated Linux host.
 The lab uses host-managed Kafka, Redis, Grafana, and stubs, with scripts for install, image loading, base deployment, test preparation, and execution.
 Internal Helm values, Kubernetes assets, Grafana provisioning, host tuning scripts, and dedicated test definitions were added for this environment.
+
+<a id="infra-16"></a>
+### INFRA-16 - Move local-dev topic creation into scripts
+
+_Date: 2026-05-11_
+
+Removed the local-dev compose topic initialization service from the environment definition.
+Added explicit local-dev helper scripts for starting, stopping, and creating Kafka topics through the running Kafka container.
+Topic partition counts are now supplied through script arguments or interactive prompts, and topic recreation prints the previous and target partition counts.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
