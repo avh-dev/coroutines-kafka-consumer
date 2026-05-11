@@ -7,11 +7,13 @@ import avh.ckc.micrometer.MicrometerConsumerMetrics
 import avh.ckc.micrometer.consumerRecordTagValueProvider
 import avh.ckc.micrometer.recordMetricTag
 import avh.ckc.micrometer.recordMetricTagSchema
+import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Tag
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
+import org.springframework.core.env.Profiles
 
 @Configuration(proxyBeanMethods = false)
 class MetricsConfiguration {
@@ -21,7 +23,6 @@ class MetricsConfiguration {
     fun micrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
-            commonTags = listOf(Tag.of("consumer_impl", "ckc")),
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         )
 
@@ -29,9 +30,21 @@ class MetricsConfiguration {
     fun springKafkaMicrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
-            commonTags = listOf(Tag.of("consumer_impl", "spring_kafka")),
             recordTagSchema = recordMetricTagSchema(eventTypeTag)
         )
+
+    @Bean
+    fun consumerProfileInfoMetric(
+        meterRegistry: MeterRegistry,
+        environment: Environment
+    ): Gauge {
+        val profile = activeConsumerProfile(environment)
+        return Gauge.builder("ckc.demo.consumer.profile.info") { 1.0 }
+            .description("Static marker for the active demo consumer implementation.")
+            .tag("consumer_impl", consumerImplementation(profile))
+            .tag("spring_profile", profile)
+            .register(meterRegistry)
+    }
 
     @Bean
     fun consumerMetrics(
@@ -77,5 +90,19 @@ class MetricsConfiguration {
     private fun orderLifecycleTagValueProvider() =
         consumerRecordTagValueProvider<String, OrderLifecycleEvent> { _, event, _ ->
             set(eventTypeTag, event?.eventType?.name ?: "UNKNOWN")
+        }
+
+    private fun activeConsumerProfile(environment: Environment): String =
+        when {
+            environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
+            environment.acceptsProfiles(Profiles.of("ckc")) -> "ckc"
+            else -> environment.activeProfiles.firstOrNull() ?: "unknown"
+        }
+
+    private fun consumerImplementation(profile: String): String =
+        when (profile) {
+            "spring-kafka" -> "spring_kafka"
+            "ckc" -> "ckc"
+            else -> "unknown"
         }
 }
