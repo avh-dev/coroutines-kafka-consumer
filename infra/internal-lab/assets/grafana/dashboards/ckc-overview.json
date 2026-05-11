@@ -22,66 +22,21 @@
   "links": [],
   "panels": [
     {
+      "collapsed": false,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
       "gridPos": {
-        "h": 5,
-        "w": 6,
+        "h": 1,
+        "w": 24,
         "x": 0,
         "y": 0
       },
       "id": 1,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum(ckc_workers{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}), 1)",
-          "refId": "A"
-        }
-      ],
-      "title": "Worker Utilization",
-      "type": "stat"
+      "panels": [],
+      "title": "Lifecycle Records",
+      "type": "row"
     },
     {
       "datasource": {
@@ -91,40 +46,22 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 0.8
-              }
-            ]
-          },
-          "unit": "percentunit"
+          "unit": "ops"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 6,
-        "y": 0
+        "x": 0,
+        "y": 1
       },
       "id": 2,
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
+        "colorMode": "value",
+        "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
         "reduceOptions": {
@@ -134,15 +71,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
-          "expr": "sum(ckc_work_queue_size{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}), 1)",
-          "refId": "A"
+          "expr": "sum by (consumer_impl) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}}"
         }
       ],
-      "title": "Queue Saturation",
+      "title": "Lifecycle Processed Rate",
       "type": "stat"
     },
     {
@@ -162,8 +100,8 @@
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 12,
-        "y": 0
+        "x": 6,
+        "y": 1
       },
       "id": 3,
       "options": {
@@ -182,11 +120,875 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
+          "expr": "sum by (consumer_impl, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{error}}"
+        }
+      ],
+      "title": "Lifecycle Failed Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m])))",
+          "legendFormat": "{{consumer_impl}} / ${duration_percentile:text}",
           "refId": "A"
         }
       ],
-      "title": "Processed Rate",
+      "title": "Lifecycle Processing Percentile",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} avg"
+        }
+      ],
+      "title": "Lifecycle Average Age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, event_type) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{event_type}}"
+        }
+      ],
+      "title": "Lifecycle Throughput by Event Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, event_type, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} / {{error}}"
+        }
+      ],
+      "title": "Lifecycle Failure Throughput by Event Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m])))",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} / ${duration_percentile:text}",
+          "refId": "A"
+        },
+        {
+          "expr": "1000 * sum by (consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s])) / clamp_min(sum by (consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s])), 1e-9)",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} avg",
+          "refId": "B"
+        },
+        {
+          "expr": "1000 * max by (consumer_impl, event_type) (ckc_record_process_duration_seconds_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"})",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} max",
+          "refId": "C"
+        }
+      ],
+      "title": "Lifecycle Processing Duration by Event Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, event_type) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, event_type) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} avg"
+        },
+        {
+          "expr": "max by (consumer_impl, event_type) (ckc_record_age_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"})",
+          "refId": "C",
+          "legendFormat": "{{consumer_impl}} / {{event_type}} max"
+        }
+      ],
+      "title": "Lifecycle Successful Record Age by Event Type",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 10,
+      "panels": [],
+      "title": "Telemetry Records",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 31
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}}"
+        }
+      ],
+      "title": "Telemetry Processed Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 31
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{error}}"
+        }
+      ],
+      "title": "Telemetry Failed Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 31
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m])))",
+          "legendFormat": "{{consumer_impl}} / ${duration_percentile:text}",
+          "refId": "A"
+        }
+      ],
+      "title": "Telemetry Processing Percentile",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 31
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} avg"
+        }
+      ],
+      "title": "Telemetry Average Age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, topic) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{topic}}"
+        }
+      ],
+      "title": "Telemetry Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, topic, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{topic}} / {{error}}"
+        }
+      ],
+      "title": "Telemetry Failure Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m])))",
+          "legendFormat": "{{consumer_impl}} / {{topic}} / ${duration_percentile:text}",
+          "refId": "A"
+        },
+        {
+          "expr": "1000 * sum by (consumer_impl, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_impl, topic) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s])), 1e-9)",
+          "legendFormat": "{{consumer_impl}} / {{topic}} avg",
+          "refId": "B"
+        },
+        {
+          "expr": "1000 * max by (consumer_impl, topic) (ckc_record_process_duration_seconds_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"})",
+          "legendFormat": "{{consumer_impl}} / {{topic}} max",
+          "refId": "C"
+        }
+      ],
+      "title": "Telemetry Processing Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "id": 18,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_impl, topic) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, topic) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_impl}} / {{topic}} avg"
+        },
+        {
+          "expr": "max by (consumer_impl, topic) (ckc_record_age_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"})",
+          "refId": "C",
+          "legendFormat": "{{consumer_impl}} / {{topic}} max"
+        }
+      ],
+      "title": "Telemetry Successful Record Age",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "id": 19,
+      "panels": [],
+      "title": "CKC Runtime",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percentunit",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 61
+      },
+      "id": 20,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum(ckc_workers{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
+          "refId": "A",
+          "legendFormat": "busy / workers"
+        }
+      ],
+      "title": "CKC Worker Utilization",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percentunit",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 61
+      },
+      "id": 21,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum(ckc_work_queue_size{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
+          "refId": "A",
+          "legendFormat": "queue"
+        }
+      ],
+      "title": "CKC Queue Saturation",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 61
+      },
+      "id": 22,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_id, error) (increase(ckc_failure_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[15m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} / {{error}}"
+        }
+      ],
+      "title": "CKC Consumer Failures (15m)",
       "type": "stat"
     },
     {
@@ -207,9 +1009,9 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 0
+        "y": 61
       },
-      "id": 4,
+      "id": 23,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -226,184 +1028,13 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
-          "refId": "A"
+          "expr": "sum(rate(ckc_record_retry_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "retries"
         }
       ],
-      "title": "Failed Rate",
+      "title": "CKC Retry Rate",
       "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 5
-      },
-      "id": 5,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[1m]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Processed Throughput by Consumer",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 5
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_impl, consumer_id, topic, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[1m]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}} / {{error}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Failure Throughput by Consumer",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 13
-      },
-      "id": 7,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Average Processing Duration",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 13
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id, topic) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\", error=\"none\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{topic}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Average Successful Record Age",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -423,9 +1054,9 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 21
+        "y": 66
       },
-      "id": 9,
+      "id": 24,
       "options": {
         "legend": {
           "calcs": [
@@ -442,17 +1073,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} busy avg",
-          "refId": "A"
+          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} busy avg"
         },
         {
-          "expr": "ckc_workers{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} total",
-          "refId": "B"
+          "expr": "ckc_workers{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "refId": "B",
+          "legendFormat": "{{consumer_id}} total"
         }
       ],
-      "title": "Average Busy Workers",
+      "title": "CKC Busy Workers",
       "type": "timeseries"
     },
     {
@@ -473,9 +1104,9 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 21
+        "y": 66
       },
-      "id": 10,
+      "id": 25,
       "options": {
         "legend": {
           "calcs": [
@@ -492,22 +1123,22 @@
       },
       "targets": [
         {
-          "expr": "ckc_work_queue_size{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} size",
-          "refId": "A"
+          "expr": "ckc_work_queue_size{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} size"
         },
         {
-          "expr": "ckc_work_queue_capacity{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} capacity",
-          "refId": "B"
+          "expr": "ckc_work_queue_capacity{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "refId": "B",
+          "legendFormat": "{{consumer_id}} capacity"
         },
         {
-          "expr": "ckc_work_queue_max{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} max observed",
-          "refId": "C"
+          "expr": "ckc_work_queue_max{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "refId": "C",
+          "legendFormat": "{{consumer_id}} max observed"
         }
       ],
-      "title": "Queue Pressure",
+      "title": "CKC Queue Pressure",
       "type": "timeseries"
     },
     {
@@ -528,9 +1159,9 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 21
+        "y": 66
       },
-      "id": 11,
+      "id": 26,
       "options": {
         "legend": {
           "calcs": [],
@@ -545,55 +1176,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / attempt={{attempt}} / {{error}}",
-          "refId": "A"
+          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}"
         }
       ],
-      "title": "Retry Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 29
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_impl, consumer_id, success) (rate(ckc_commit_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / success={{success}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Commit Throughput",
+      "title": "CKC Retry Throughput",
       "type": "timeseries"
     },
     {
@@ -613,10 +1201,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 29
+        "x": 0,
+        "y": 74
       },
-      "id": 13,
+      "id": 27,
       "options": {
         "legend": {
           "calcs": [],
@@ -631,12 +1219,55 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_impl, consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])) / clamp_min(sum by (consumer_impl, consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}}",
-          "refId": "A"
+          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} avg"
         }
       ],
-      "title": "Average Poll Duration",
+      "title": "CKC Poll Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 74
+      },
+      "id": 28,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}}"
+        }
+      ],
+      "title": "CKC Polled Records Throughput",
       "type": "timeseries"
     },
     {
@@ -657,9 +1288,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 37
+        "y": 82
       },
-      "id": 14,
+      "id": 29,
       "options": {
         "legend": {
           "calcs": [],
@@ -674,72 +1305,30 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, consumer_id) (rate(ckc_poll_records_sum{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[30s]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}}",
-          "refId": "A"
+          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} / success={{success}}"
         }
       ],
-      "title": "Polled Records Throughput",
+      "title": "CKC Commit Throughput",
       "type": "timeseries"
     },
     {
+      "collapsed": false,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 37
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 90
       },
-      "id": 15,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_impl, consumer_id, error) (increase(ckc_failure_total{consumer_impl=~\"$consumer_impl\", consumer_id=~\"$consumer_id\"}[15m]))",
-          "legendFormat": "{{consumer_impl}} / {{consumer_id}} / {{error}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Consumer Failures (15m)",
-      "type": "stat"
+      "id": 30,
+      "panels": [],
+      "title": "Kafka Lag",
+      "type": "row"
     },
     {
       "datasource": {
@@ -751,6 +1340,7 @@
           "color": {
             "mode": "thresholds"
           },
+          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -768,8 +1358,7 @@
                 "value": 100
               }
             ]
-          },
-          "unit": "short"
+          }
         },
         "overrides": []
       },
@@ -777,9 +1366,9 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 45
+        "y": 91
       },
-      "id": 16,
+      "id": 31,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -797,8 +1386,8 @@
       "targets": [
         {
           "expr": "sum(kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
-          "legendFormat": "total lag",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "total lag"
         }
       ],
       "title": "Kafka Total Consumer Lag",
@@ -822,9 +1411,9 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 45
+        "y": 91
       },
-      "id": 17,
+      "id": 32,
       "options": {
         "legend": {
           "calcs": [
@@ -842,8 +1431,8 @@
       "targets": [
         {
           "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
-          "legendFormat": "{{consumergroup}} / {{topic}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{consumergroup}} / {{topic}}"
         }
       ],
       "title": "Kafka Consumer Lag by Topic",
@@ -867,9 +1456,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 99
       },
-      "id": 18,
+      "id": 33,
       "options": {
         "legend": {
           "calcs": [
@@ -887,13 +1476,13 @@
       "targets": [
         {
           "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "legendFormat": "{{consumer_group}} / {{topic}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{consumer_group}} / {{topic}}"
         },
         {
           "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "legendFormat": "sum {{consumer_group}} / {{topic}}",
-          "refId": "B"
+          "refId": "B",
+          "legendFormat": "sum {{consumer_group}} / {{topic}}"
         }
       ],
       "title": "MSK CloudWatch Offset Lag",
@@ -917,9 +1506,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 99
       },
-      "id": 19,
+      "id": 34,
       "options": {
         "legend": {
           "calcs": [
@@ -937,13 +1526,13 @@
       "targets": [
         {
           "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "legendFormat": "{{consumer_group}} / {{topic}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{consumer_group}} / {{topic}}"
         },
         {
           "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "legendFormat": "rolling {{consumer_group}} / {{topic}}",
-          "refId": "B"
+          "refId": "B",
+          "legendFormat": "rolling {{consumer_group}} / {{topic}}"
         }
       ],
       "title": "MSK CloudWatch Time Lag",
@@ -951,13 +1540,17 @@
     },
     {
       "collapsed": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 107
       },
-      "id": 20,
+      "id": 35,
       "panels": [],
       "title": "Java Runtime",
       "type": "row"
@@ -972,6 +1565,7 @@
           "color": {
             "mode": "thresholds"
           },
+          "unit": "percentunit",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -989,8 +1583,7 @@
                 "value": 0.9
               }
             ]
-          },
-          "unit": "percentunit"
+          }
         },
         "overrides": []
       },
@@ -998,9 +1591,9 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 62
+        "y": 108
       },
-      "id": 21,
+      "id": 36,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -1018,13 +1611,13 @@
       "targets": [
         {
           "expr": "process_cpu_usage",
-          "legendFormat": "{{job}} / {{instance}} process",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{job}} / {{instance}} process"
         },
         {
           "expr": "system_cpu_usage",
-          "legendFormat": "{{job}} / {{instance}} system",
-          "refId": "B"
+          "refId": "B",
+          "legendFormat": "{{job}} / {{instance}} system"
         }
       ],
       "title": "CPU Usage",
@@ -1048,9 +1641,9 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 62
+        "y": 108
       },
-      "id": 22,
+      "id": 37,
       "options": {
         "legend": {
           "calcs": [
@@ -1068,13 +1661,13 @@
       "targets": [
         {
           "expr": "sum by (job, instance, area) (jvm_memory_used_bytes)",
-          "legendFormat": "{{job}} / {{area}} used",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{job}} / {{area}} used"
         },
         {
           "expr": "sum by (job, instance, area) (clamp_min(jvm_memory_max_bytes, 0))",
-          "legendFormat": "{{job}} / {{area}} max",
-          "refId": "B"
+          "refId": "B",
+          "legendFormat": "{{job}} / {{area}} max"
         }
       ],
       "title": "JVM Memory",
@@ -1098,9 +1691,9 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 62
+        "y": 108
       },
-      "id": 23,
+      "id": 38,
       "options": {
         "legend": {
           "calcs": [
@@ -1118,13 +1711,13 @@
       "targets": [
         {
           "expr": "jvm_threads_live_threads",
-          "legendFormat": "{{job}} / {{instance}} live",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{job}} / {{instance}} live"
         },
         {
           "expr": "jvm_threads_daemon_threads",
-          "legendFormat": "{{job}} / {{instance}} daemon",
-          "refId": "B"
+          "refId": "B",
+          "legendFormat": "{{job}} / {{instance}} daemon"
         }
       ],
       "title": "JVM Threads",
@@ -1148,9 +1741,9 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 114
       },
-      "id": 24,
+      "id": 39,
       "options": {
         "legend": {
           "calcs": [
@@ -1168,8 +1761,8 @@
       "targets": [
         {
           "expr": "1000 * sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_sum[30s])) / clamp_min(sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s])), 1e-9)",
-          "legendFormat": "{{job}} / {{gc}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{job}} / {{gc}}"
         }
       ],
       "title": "Average GC Pause",
@@ -1193,9 +1786,9 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 114
       },
-      "id": 25,
+      "id": 40,
       "options": {
         "legend": {
           "calcs": [
@@ -1213,8 +1806,8 @@
       "targets": [
         {
           "expr": "sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s]))",
-          "legendFormat": "{{job}} / {{gc}}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{job}} / {{gc}}"
         }
       ],
       "title": "GC Pause Rate",
@@ -1241,7 +1834,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(ckc_poll_duration_seconds_count, consumer_impl)",
+        "definition": "label_values(ckc_record_processed_total, consumer_impl)",
         "hide": 0,
         "includeAll": true,
         "label": "Implementation",
@@ -1250,7 +1843,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(ckc_poll_duration_seconds_count, consumer_impl)",
+          "query": "label_values(ckc_record_processed_total, consumer_impl)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
@@ -1260,30 +1853,36 @@
       },
       {
         "current": {
-          "selected": true,
-          "text": "All",
-          "value": "$__all"
+          "selected": false,
+          "text": "p95",
+          "value": "0.95"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(ckc_poll_duration_seconds_count, consumer_id)",
         "hide": 0,
-        "includeAll": true,
-        "label": "Consumer",
-        "multi": true,
-        "name": "consumer_id",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(ckc_poll_duration_seconds_count, consumer_id)",
-          "refId": "StandardVariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "sort": 1,
-        "type": "query"
+        "includeAll": false,
+        "label": "Processing percentile",
+        "multi": false,
+        "name": "duration_percentile",
+        "options": [
+          {
+            "selected": false,
+            "text": "p50",
+            "value": "0.50"
+          },
+          {
+            "selected": true,
+            "text": "p95",
+            "value": "0.95"
+          },
+          {
+            "selected": false,
+            "text": "p99",
+            "value": "0.99"
+          }
+        ],
+        "query": "p50 : 0.50,p95 : 0.95,p99 : 0.99",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
       }
     ]
   },
@@ -1295,6 +1894,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }
