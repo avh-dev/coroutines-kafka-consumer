@@ -42,3 +42,7 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        ckc.record.process.duration: true
