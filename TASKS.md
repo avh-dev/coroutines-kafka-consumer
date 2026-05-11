@@ -29,6 +29,7 @@
 | [DEMO-12](#demo-12) | Add demo consumer experiment controls for processing enablement and deserialization dispatcher selection.                                                                                              | DONE |
 | [DEMO-13](#demo-13) | Split demo business services into explicit blocking and suspend paths, and keep consumer handlers as thin service adapters.                                                                            | DONE |
 | [DEMO-14](#demo-14) | Add comparable Spring Kafka record metrics with a consumer implementation tag shared with CKC metrics.                                                                                                  | DONE |
+| [DEMO-15](#demo-15) | Move demo consumer implementation identity from every record metric into a dedicated static profile info metric.                                                                                        | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -420,6 +421,15 @@ _Date: 2026-05-06_
 Added Spring Kafka record metrics so Spring and CKC consumers could be compared on the same dashboard.
 The metrics include a shared consumer implementation tag, allowing dashboard queries to split CKC and Spring Kafka behavior consistently.
 Spring listener and service code were updated, and Grafana panels were revised to include the new implementation dimension.
+
+<a id="demo-15"></a>
+### DEMO-15 - Add demo consumer profile info metric
+
+_Date: 2026-05-11_
+
+Move demo consumer implementation identity out of high-volume record metric tags.
+Add a static profile info metric that identifies the active demo consumer implementation and Spring profile for timeline-style observability.
+Keep record metrics focused on consumer, topic, and event labels so dashboard comparisons do not multiply all record series by implementation.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
