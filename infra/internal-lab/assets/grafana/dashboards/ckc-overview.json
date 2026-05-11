@@ -33,6 +33,189 @@
         "x": 0,
         "y": 0
       },
+      "id": 41,
+      "panels": [],
+      "title": "Consumer Profile",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 42,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "name"
+      },
+      "targets": [
+        {
+          "expr": "ckc_demo_consumer_profile_info",
+          "legendFormat": "{{consumer_impl}} / {{spring_profile}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Current Consumer Profile",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "id": 43,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "expr": "ckc_demo_consumer_profile_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{consumer_impl}} / {{spring_profile}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Profile Samples",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "id": 44,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ckc_demo_consumer_profile_info",
+          "legendFormat": "{{consumer_impl}} / {{spring_profile}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Profile Timeline",
+      "type": "state-timeline"
+    },
+    {
+      "collapsed": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 1,
       "panels": [],
       "title": "Lifecycle Records",
@@ -56,7 +239,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 10
       },
       "id": 2,
       "options": {
@@ -75,9 +258,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s]))",
+          "expr": "sum (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[30s]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}}"
+          "legendFormat": "value"
         }
       ],
       "title": "Lifecycle Processed Rate",
@@ -101,7 +284,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 10
       },
       "id": 3,
       "options": {
@@ -120,9 +303,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s]))",
+          "expr": "sum by (error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[30s]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{error}}"
+          "legendFormat": "{{error}}"
         }
       ],
       "title": "Lifecycle Failed Rate",
@@ -146,7 +329,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 10
       },
       "id": 4,
       "options": {
@@ -165,8 +348,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m])))",
-          "legendFormat": "{{consumer_impl}} / ${duration_percentile:text}",
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[1m])))",
+          "legendFormat": "${duration_percentile:text}",
           "refId": "A"
         }
       ],
@@ -191,7 +374,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 10
       },
       "id": 5,
       "options": {
@@ -210,9 +393,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} avg"
+          "legendFormat": "avg"
         }
       ],
       "title": "Lifecycle Average Age",
@@ -236,7 +419,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 15
       },
       "id": 6,
       "options": {
@@ -253,9 +436,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, event_type) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m]))",
+          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[1m]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{event_type}}"
+          "legendFormat": "{{event_type}}"
         }
       ],
       "title": "Lifecycle Throughput by Event Type",
@@ -279,7 +462,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 15
       },
       "id": 7,
       "options": {
@@ -296,9 +479,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, event_type, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m]))",
+          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[1m]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} / {{error}}"
+          "legendFormat": "{{event_type}} / {{error}}"
         }
       ],
       "title": "Lifecycle Failure Throughput by Event Type",
@@ -322,7 +505,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 23
       },
       "id": 8,
       "options": {
@@ -339,18 +522,18 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[1m])))",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} / ${duration_percentile:text}",
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[1m])))",
+          "legendFormat": "{{event_type}} / ${duration_percentile:text}",
           "refId": "A"
         },
         {
-          "expr": "1000 * sum by (consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s])) / clamp_min(sum by (consumer_impl, event_type) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} avg",
+          "expr": "1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_lifecycle\"}[30s])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_lifecycle\"}[30s])), 1e-9)",
+          "legendFormat": "{{event_type}} avg",
           "refId": "B"
         },
         {
-          "expr": "1000 * max by (consumer_impl, event_type) (ckc_record_process_duration_seconds_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\"})",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} max",
+          "expr": "1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_lifecycle\"})",
+          "legendFormat": "{{event_type}} max",
           "refId": "C"
         }
       ],
@@ -375,7 +558,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 31
       },
       "id": 9,
       "options": {
@@ -392,14 +575,14 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, event_type) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, event_type) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} avg"
+          "legendFormat": "{{event_type}} avg"
         },
         {
-          "expr": "max by (consumer_impl, event_type) (ckc_record_age_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"order_lifecycle\", error=\"none\"})",
+          "expr": "max by (event_type) (ckc_record_age_max{consumer_id=\"order_lifecycle\", error=\"none\"})",
           "refId": "C",
-          "legendFormat": "{{consumer_impl}} / {{event_type}} max"
+          "legendFormat": "{{event_type}} max"
         }
       ],
       "title": "Lifecycle Successful Record Age by Event Type",
@@ -415,7 +598,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 39
       },
       "id": 10,
       "panels": [],
@@ -440,7 +623,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 31
+        "y": 40
       },
       "id": 11,
       "options": {
@@ -459,9 +642,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s]))",
+          "expr": "sum (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[30s]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}}"
+          "legendFormat": "value"
         }
       ],
       "title": "Telemetry Processed Rate",
@@ -485,7 +668,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 31
+        "y": 40
       },
       "id": 12,
       "options": {
@@ -504,9 +687,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[30s]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{error}}"
+          "legendFormat": "{{error}}"
         }
       ],
       "title": "Telemetry Failed Rate",
@@ -530,7 +713,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 31
+        "y": 40
       },
       "id": 13,
       "options": {
@@ -549,8 +732,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m])))",
-          "legendFormat": "{{consumer_impl}} / ${duration_percentile:text}",
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[1m])))",
+          "legendFormat": "${duration_percentile:text}",
           "refId": "A"
         }
       ],
@@ -575,7 +758,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 31
+        "y": 40
       },
       "id": 14,
       "options": {
@@ -594,9 +777,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} avg"
+          "legendFormat": "avg"
         }
       ],
       "title": "Telemetry Average Age",
@@ -620,7 +803,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 45
       },
       "id": 15,
       "options": {
@@ -637,9 +820,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, topic) (rate(ckc_record_processed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[1m]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{topic}}"
+          "legendFormat": "{{topic}}"
         }
       ],
       "title": "Telemetry Throughput",
@@ -663,7 +846,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 45
       },
       "id": 16,
       "options": {
@@ -680,9 +863,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, topic, error) (rate(ckc_record_failed_total{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[1m]))",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{topic}} / {{error}}"
+          "legendFormat": "{{topic}} / {{error}}"
         }
       ],
       "title": "Telemetry Failure Throughput",
@@ -706,7 +889,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 53
       },
       "id": 17,
       "options": {
@@ -723,18 +906,18 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, consumer_impl, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[1m])))",
-          "legendFormat": "{{consumer_impl}} / {{topic}} / ${duration_percentile:text}",
+          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[1m])))",
+          "legendFormat": "{{topic}} / ${duration_percentile:text}",
           "refId": "A"
         },
         {
-          "expr": "1000 * sum by (consumer_impl, topic) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_impl, topic) (rate(ckc_record_process_duration_seconds_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"}[30s])), 1e-9)",
-          "legendFormat": "{{consumer_impl}} / {{topic}} avg",
+          "expr": "1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_telemetry\"}[30s])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_telemetry\"}[30s])), 1e-9)",
+          "legendFormat": "{{topic}} avg",
           "refId": "B"
         },
         {
-          "expr": "1000 * max by (consumer_impl, topic) (ckc_record_process_duration_seconds_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\"})",
-          "legendFormat": "{{consumer_impl}} / {{topic}} max",
+          "expr": "1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_telemetry\"})",
+          "legendFormat": "{{topic}} max",
           "refId": "C"
         }
       ],
@@ -759,7 +942,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 61
       },
       "id": 18,
       "options": {
@@ -776,14 +959,14 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_impl, topic) (rate(ckc_record_age_sum{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (consumer_impl, topic) (rate(ckc_record_age_count{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
           "refId": "A",
-          "legendFormat": "{{consumer_impl}} / {{topic}} avg"
+          "legendFormat": "{{topic}} avg"
         },
         {
-          "expr": "max by (consumer_impl, topic) (ckc_record_age_max{consumer_impl=~\"$consumer_impl\", consumer_id=\"cauldron_telemetry\", error=\"none\"})",
+          "expr": "max by (topic) (ckc_record_age_max{consumer_id=\"cauldron_telemetry\", error=\"none\"})",
           "refId": "C",
-          "legendFormat": "{{consumer_impl}} / {{topic}} max"
+          "legendFormat": "{{topic}} max"
         }
       ],
       "title": "Telemetry Successful Record Age",
@@ -799,7 +982,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 69
       },
       "id": 19,
       "panels": [],
@@ -842,7 +1025,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 61
+        "y": 70
       },
       "id": 20,
       "options": {
@@ -861,7 +1044,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum(ckc_workers{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
+          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum(ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
           "refId": "A",
           "legendFormat": "busy / workers"
         }
@@ -905,7 +1088,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 61
+        "y": 70
       },
       "id": 21,
       "options": {
@@ -924,7 +1107,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ckc_work_queue_size{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
+          "expr": "sum(ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
           "refId": "A",
           "legendFormat": "queue"
         }
@@ -964,7 +1147,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 61
+        "y": 70
       },
       "id": 22,
       "options": {
@@ -983,7 +1166,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, error) (increase(ckc_failure_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[15m]))",
+          "expr": "sum by (consumer_id, error) (increase(ckc_failure_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[15m]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / {{error}}"
         }
@@ -1009,7 +1192,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 61
+        "y": 70
       },
       "id": 23,
       "options": {
@@ -1028,7 +1211,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(ckc_record_retry_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum(rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
           "refId": "A",
           "legendFormat": "retries"
         }
@@ -1054,7 +1237,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 66
+        "y": 75
       },
       "id": 24,
       "options": {
@@ -1073,12 +1256,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} busy avg"
         },
         {
-          "expr": "ckc_workers{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "B",
           "legendFormat": "{{consumer_id}} total"
         }
@@ -1104,7 +1287,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 66
+        "y": 75
       },
       "id": 25,
       "options": {
@@ -1123,17 +1306,17 @@
       },
       "targets": [
         {
-          "expr": "ckc_work_queue_size{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "A",
           "legendFormat": "{{consumer_id}} size"
         },
         {
-          "expr": "ckc_work_queue_capacity{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "B",
           "legendFormat": "{{consumer_id}} capacity"
         },
         {
-          "expr": "ckc_work_queue_max{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_max{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "C",
           "legendFormat": "{{consumer_id}} max observed"
         }
@@ -1159,7 +1342,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 66
+        "y": 75
       },
       "id": 26,
       "options": {
@@ -1176,7 +1359,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}"
         }
@@ -1202,7 +1385,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 74
+        "y": 83
       },
       "id": 27,
       "options": {
@@ -1219,7 +1402,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} avg"
         }
@@ -1245,7 +1428,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 74
+        "y": 83
       },
       "id": 28,
       "options": {
@@ -1262,7 +1445,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -1288,7 +1471,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 82
+        "y": 91
       },
       "id": 29,
       "options": {
@@ -1305,7 +1488,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_impl=\"ckc\", consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / success={{success}}"
         }
@@ -1323,7 +1506,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 90
+        "y": 99
       },
       "id": 30,
       "panels": [],
@@ -1366,7 +1549,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 91
+        "y": 100
       },
       "id": 31,
       "options": {
@@ -1411,7 +1594,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 91
+        "y": 100
       },
       "id": 32,
       "options": {
@@ -1456,7 +1639,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 99
+        "y": 108
       },
       "id": 33,
       "options": {
@@ -1506,7 +1689,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 99
+        "y": 108
       },
       "id": 34,
       "options": {
@@ -1548,7 +1731,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 107
+        "y": 116
       },
       "id": 35,
       "panels": [],
@@ -1591,7 +1774,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 108
+        "y": 117
       },
       "id": 36,
       "options": {
@@ -1641,7 +1824,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 108
+        "y": 117
       },
       "id": 37,
       "options": {
@@ -1691,7 +1874,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 108
+        "y": 117
       },
       "id": 38,
       "options": {
@@ -1741,7 +1924,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 114
+        "y": 123
       },
       "id": 39,
       "options": {
@@ -1786,7 +1969,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 114
+        "y": 123
       },
       "id": 40,
       "options": {
@@ -1824,33 +2007,6 @@
   ],
   "templating": {
     "list": [
-      {
-        "current": {
-          "selected": true,
-          "text": "All",
-          "value": "$__all"
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(ckc_record_processed_total, consumer_impl)",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Implementation",
-        "multi": true,
-        "name": "consumer_impl",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(ckc_record_processed_total, consumer_impl)",
-          "refId": "StandardVariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "sort": 1,
-        "type": "query"
-      },
       {
         "current": {
           "selected": false,
@@ -1894,6 +2050,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 5,
+  "version": 6,
   "weekStart": ""
 }
