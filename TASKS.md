@@ -47,6 +47,7 @@
 | [INFRA-15](#infra-15) | Add a lightweight k3s internal lab for running the demo app on a dedicated Linux host with host-managed Kafka, Redis, Grafana, and stubs.   | DONE |
 | [INFRA-16](#infra-16) | Move local-dev Kafka topic creation from compose into explicit helper scripts.                                                             | DONE |
 | [INFRA-17](#infra-17) | Reorganize the Grafana consumer dashboard around lifecycle and telemetry record metrics that work for CKC and Spring Kafka.                | DONE |
+| [INFRA-18](#infra-18) | Rework the Grafana dashboard around the dedicated demo consumer profile info metric and record metrics without implementation tags.        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
@@ -459,6 +460,15 @@ Make throughput, processing duration, and record age panels work for both CKC an
 Keep CKC-only runtime panels separate from the cross-implementation record comparisons.
 Enable Prometheus percentile histogram buckets for processing duration so percentile panels can show p50, p95, and p99 after the app restarts.
 Keep record age panels on average and max values to show whether messages are waiting in topics too long without adding age histogram cardinality.
+
+<a id="infra-18"></a>
+### INFRA-18 - Rework profile dashboard
+
+_Date: 2026-05-11_
+
+Update Grafana after moving implementation identity out of record metrics.
+Remove the implementation dashboard variable and query record panels without `consumer_impl`.
+Add profile visibility from the dedicated demo consumer profile info metric so active implementation periods can be inspected separately from throughput and latency.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
