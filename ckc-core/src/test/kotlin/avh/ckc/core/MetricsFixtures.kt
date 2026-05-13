@@ -30,8 +30,14 @@ data class RetryCall<K, V>(
 
 data class CommitCall(
     val partitionsCount: Int,
+    val offsetsCount: Long,
     val durationNanos: Long,
     val success: Boolean
+)
+
+data class PartitionMetricsKey(
+    val topic: String,
+    val partition: Int
 )
 
 internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
@@ -43,6 +49,8 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val consumerFailures = CopyOnWriteArrayList<Throwable>()
     val boundRuntimeStats = CopyOnWriteArrayList<ConsumerRuntimeStats>()
     val unbindRuntimeMetricsCalls = CopyOnWriteArrayList<Unit>()
+    val boundPartitionStats = CopyOnWriteArrayList<ConsumerPartitionStats>()
+    val unboundPartitionMetrics = CopyOnWriteArrayList<PartitionMetricsKey>()
 
     override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
         boundRuntimeStats += stats
@@ -50,6 +58,14 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
 
     override fun unbindRuntimeMetrics() {
         unbindRuntimeMetricsCalls += Unit
+    }
+
+    override fun bindPartitionMetrics(stats: ConsumerPartitionStats) {
+        boundPartitionStats += stats
+    }
+
+    override fun unbindPartitionMetrics(topic: String, partition: Int) {
+        unboundPartitionMetrics += PartitionMetricsKey(topic, partition)
     }
 
     override fun onPoll(recordsCount: Int, durationNanos: Long) {
@@ -81,8 +97,8 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         retries += RetryCall(key, value, record, attempt, error)
     }
 
-    override fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) {
-        commits += CommitCall(partitionsCount, durationNanos, success)
+    override fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) {
+        commits += CommitCall(partitionsCount, offsetsCount, durationNanos, success)
     }
 
     override fun onConsumerFailure(error: Throwable) {

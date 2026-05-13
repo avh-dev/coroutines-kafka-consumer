@@ -7,6 +7,10 @@ interface ConsumerMetrics<K, V> {
 
     fun unbindRuntimeMetrics() = Unit
 
+    fun bindPartitionMetrics(stats: ConsumerPartitionStats) = Unit
+
+    fun unbindPartitionMetrics(topic: String, partition: Int) = Unit
+
     fun onPoll(recordsCount: Int, durationNanos: Long) = Unit
 
     fun onRecordProcessed(
@@ -34,7 +38,7 @@ interface ConsumerMetrics<K, V> {
         error: Throwable
     ) = Unit
 
-    fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) = Unit
+    fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) = Unit
 
     fun onConsumerFailure(error: Throwable) = Unit
 

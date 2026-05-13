@@ -186,6 +186,9 @@ internal class ConsumerPollLoop<K, V>(
             }
         }
         commitReadyOffsets(consumer, revokedPartitionStates)
+        revokedPartitionStates.forEach {
+            metrics.unbindPartitionMetrics(it.topic, it.partition)
+        }
     }
 
     /**
@@ -202,6 +205,7 @@ internal class ConsumerPollLoop<K, V>(
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
         assignedPartitionStates.forEach {
             it.init(consumer.position(it.topicPartition))
+            metrics.bindPartitionMetrics(it)
         }
         assignedPartitions += assignedPartitionStates
     }
@@ -220,6 +224,10 @@ internal class ConsumerPollLoop<K, V>(
         if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
             // Final best-effort commit on shutdown.
             commitReadyOffsets(consumer, assignedPartitions)
+            assignedPartitions.forEach {
+                metrics.unbindPartitionMetrics(it.topic, it.partition)
+            }
+            assignedPartitions.clear()
         }
     }
 
@@ -229,19 +237,21 @@ internal class ConsumerPollLoop<K, V>(
         partitionStates: Set<PartitionState>
     ) {
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
+        var offsetsCount = 0L
         for (partitionState in partitionStates) {
-            val offset = partitionState.advanceCommitOffset()
-            if (offset != null) {
-                offsets[partitionState.topicPartition] = OffsetAndMetadata(offset)
+            val progress = partitionState.advanceCommitOffsetProgress()
+            if (progress != null) {
+                offsets[partitionState.topicPartition] = OffsetAndMetadata(progress.offset)
+                offsetsCount += progress.offsetsCount
             }
         }
         if (!offsets.isEmpty()) {
             val startedAt = System.nanoTime()
             try {
                 consumer.commitSync(offsets)
-                metrics.onCommit(offsets.size, System.nanoTime() - startedAt, true)
+                metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, true)
             } catch (e: Exception) {
-                metrics.onCommit(offsets.size, System.nanoTime() - startedAt, false)
+                metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, false)
                 log.warn("Error committing offsets in manager #$id", e)
             }
         }

@@ -15,6 +15,8 @@
 | [CORE-10](#core-10) | Harden Micrometer telemetry tag customization by introducing a shared record-tag schema, per-consumer value binding, and Prometheus-safe fallback labels.                                            | DONE |
 | [CORE-11](#core-11) | Refactor consumer telemetry naming toward metrics-oriented abstractions as the first step for passing consumer metrics.                                                                                | DONE |
 | [CORE-12](#core-12) | Expand consumer metrics coverage.                                                                                                                                                                      | DONE |
+| [CORE-13](#core-13) | Add per-partition OffsetTracker capacity gauge.                                                                                                                                                        | DONE |
+| [CORE-14](#core-14) | Expand offset metrics with committed offset advancement measurements.                                                                                                                                   | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -260,6 +262,24 @@ _Date: 2026-04-29_
 Added broader runtime metric coverage for consumer behavior.
 The changes introduced runtime stats and additional measurements while reducing metric cardinality where raw record-level labels were too expensive.
 Core tests and Micrometer tests were updated to validate the new metric surface before dashboards were revised against it.
+
+<a id="core-13"></a>
+### CORE-13 - Add OffsetTracker capacity metric
+
+_Date: 2026-05-12_
+
+Expose OffsetTracker ring bit capacity as a per-partition gauge.
+Wire the value through the existing consumer metrics surface so Micrometer can export it with topic and partition labels.
+Add focused tests around the reported capacity and gauge lifecycle.
+
+<a id="core-14"></a>
+### CORE-14 - Expand offset metrics
+
+_Date: 2026-05-13_
+
+Track how many offset positions each explicit commit attempt advances across committed partitions.
+Expose that advancement through the existing consumer metrics event and Micrometer summary surface.
+Keep the metric tied to commit success labels so failed and successful attempts can be inspected separately.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics
