@@ -22,7 +22,7 @@ Thumbs.db
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
-!infra/aws/assets/terraform/load-lab/profiles/*.tfvars
+!demo/infra/aws/assets/terraform/load-lab/profiles/*.tfvars
 crash.log
 crash.*.log
 

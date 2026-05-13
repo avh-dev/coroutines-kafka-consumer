@@ -51,6 +51,7 @@
 | [INFRA-17](#infra-17) | Reorganize the Grafana consumer dashboard around lifecycle and telemetry record metrics that work for CKC and Spring Kafka.                | DONE |
 | [INFRA-18](#infra-18) | Rework the Grafana dashboard around the dedicated demo consumer profile info metric and record metrics without implementation tags.        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
+| [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 
@@ -361,6 +362,15 @@ _Date: 2026-05-02_
 Renamed repository modules from the longer `coroutines-kafka-consumer-*` names to concise `ckc-*` directories.
 The published artifact naming was preserved while source paths, Gradle settings, Docker files, docs, and tests moved to the shorter layout.
 The change touched core, Micrometer, experiments, demo, contracts, stubs, load-test, and infrastructure references.
+
+<a id="global-2"></a>
+### GLOBAL-2 - Separate production, demo, infrastructure, and experiment layout
+
+_Date: 2026-05-13_
+
+Restructure the repository so top-level module directories represent production library artifacts.
+Move demo modules under `demo/`, demo-owned infrastructure under `demo/infra/`, and benchmark/prototype code under `experiments/`.
+Update Gradle wiring, scripts, and documentation references so the new layout remains buildable and discoverable.
 
 <a id="infra-10"></a>
 ### INFRA-10 - Add Kafka lag metrics to local k8s and AWS smoke observability
