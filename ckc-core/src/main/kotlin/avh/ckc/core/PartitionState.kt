@@ -2,6 +2,11 @@ package avh.ckc.core
 
 import org.apache.kafka.common.TopicPartition
 
+internal data class CommitOffsetProgress(
+    val offset: Long,
+    val offsetsCount: Long
+)
+
 /**
  * Per-partition state used by the backpressure pipeline.
  *
@@ -13,8 +18,17 @@ import org.apache.kafka.common.TopicPartition
  */
 internal class PartitionState(
     val topicPartition: TopicPartition
-) {
+) : ConsumerPartitionStats {
     private var offsetTracker: OffsetTracker = OffsetTracker(-1)
+
+    override val topic: String
+        get() = topicPartition.topic()
+
+    override val partition: Int
+        get() = topicPartition.partition()
+
+    override val offsetTrackerBitCapacity: Int
+        get() = offsetTracker.bitCapacity
 
     /**
      * Initializes (or resets) the tracker if [initialPosition] is not the next offset
@@ -30,6 +44,12 @@ internal class PartitionState(
      * Advances the committable offset if processed offsets allow it.
      */
     fun advanceCommitOffset() = offsetTracker.advanceCommitOffset()
+
+    fun advanceCommitOffsetProgress(): CommitOffsetProgress? {
+        val previousOffset = offsetTracker.lastCommitedOffset
+        val offset = offsetTracker.advanceCommitOffset() ?: return null
+        return CommitOffsetProgress(offset = offset, offsetsCount = offset - previousOffset)
+    }
 
     /**
      * Marks a record offset as fully processed by a worker.

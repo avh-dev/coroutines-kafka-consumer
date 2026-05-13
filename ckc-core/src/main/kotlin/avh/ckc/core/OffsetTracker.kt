@@ -18,10 +18,10 @@ internal class OffsetTracker(
      * Ring bitset capacity in bits.
      * A minimum of two 64-bit words is required to handle out-of-order offsets.
      */
-    private var bitCapacity = ceilPow2( max(128, initialCapacity))
+    private var capacityBits = ceilPow2( max(128, initialCapacity))
 
     /** Bitset buffer (each Long = 64 bits). */
-    private var words: LongArray = LongArray(bitCapacity ushr 6)
+    private var words: LongArray = LongArray(capacityBits ushr 6)
 
     /** Mask to find an index in a ring buffer */
     private var wordMask = words.size - 1
@@ -47,7 +47,7 @@ internal class OffsetTracker(
             if (offset <= lastCommitedOffset) return
 
             val bitIndex = (offset - headWordOffset).toInt()
-            if (bitIndex >= bitCapacity) {
+            if (bitIndex >= capacityBits) {
                 extendCapacity(bitIndex)
             }
 
@@ -111,6 +111,9 @@ internal class OffsetTracker(
         }
     }
 
+    val bitCapacity: Int
+        get() = synchronized(this) { capacityBits }
+
     /**
      * Returns the smallest power of two greater than or equal to [v].
      *
@@ -132,7 +135,7 @@ internal class OffsetTracker(
         arraycopy(words, 0, newWords, words.size - headWordIndex, headWordIndex)
 
         words = newWords
-        bitCapacity = newSize shl 6
+        capacityBits = newSize shl 6
         wordMask = newSize - 1
         headWordIndex = 0
     }

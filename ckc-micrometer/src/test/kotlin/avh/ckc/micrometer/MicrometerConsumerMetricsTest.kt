@@ -1,5 +1,6 @@
 package avh.ckc.micrometer
 
+import avh.ckc.core.ConsumerPartitionStats
 import avh.ckc.core.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -105,7 +106,7 @@ class MicrometerConsumerMetricsTest {
 
         metrics.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
         metrics.onPoll(recordsCount = 5, durationNanos = TimeUnit.MILLISECONDS.toNanos(15))
-        metrics.onCommit(partitionsCount = 2, durationNanos = TimeUnit.MILLISECONDS.toNanos(5), success = false)
+        metrics.onCommit(partitionsCount = 2, offsetsCount = 25, durationNanos = TimeUnit.MILLISECONDS.toNanos(5), success = false)
         metrics.onConsumerFailure(IllegalStateException("boom"))
 
         assertEquals(
@@ -131,6 +132,13 @@ class MicrometerConsumerMetricsTest {
                 .totalAmount()
         )
         assertEquals(
+            25.0,
+            registry.get("ckc.commit.offsets")
+                .tag("success", "false")
+                .summary()
+                .totalAmount()
+        )
+        assertEquals(
             1.0,
             registry.get("ckc.failure")
                 .tag("error", "IllegalStateException")
@@ -145,7 +153,7 @@ class MicrometerConsumerMetricsTest {
         val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
 
         metrics.onPoll(recordsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(1))
-        metrics.onCommit(partitionsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(2), success = true)
+        metrics.onCommit(partitionsCount = 1, offsetsCount = 3, durationNanos = TimeUnit.MILLISECONDS.toNanos(2), success = true)
 
         assertNotNull(registry.find("ckc.poll.duration").timer())
         assertNotNull(registry.find("ckc.commit.duration").timer())
@@ -182,6 +190,52 @@ class MicrometerConsumerMetricsTest {
         metrics.unbindRuntimeMetrics()
 
         assertTrue(registry.find("ckc.workers").tag("consumer_id", "telemetry").meters().isEmpty())
+    }
+
+    @Test
+    fun `when partition metrics are bound then offset tracker capacity gauge exposes current value`() {
+        val registry = SimpleMeterRegistry()
+        val stats = MutablePartitionStats(
+            topic = "orders",
+            partition = 2,
+            offsetTrackerBitCapacity = 128
+        )
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>(consumerId = "telemetry")
+
+        metrics.bindPartitionMetrics(stats)
+
+        assertEquals(
+            128.0,
+            registry.get("ckc.offsettracker.capacity")
+                .tag("consumer_id", "telemetry")
+                .tag("topic", "orders")
+                .tag("partition", "2")
+                .gauge()
+                .value()
+        )
+
+        stats.offsetTrackerBitCapacity = 512
+
+        assertEquals(
+            512.0,
+            registry.get("ckc.offsettracker.capacity")
+                .tag("consumer_id", "telemetry")
+                .tag("topic", "orders")
+                .tag("partition", "2")
+                .gauge()
+                .value()
+        )
+
+        metrics.unbindPartitionMetrics("orders", 2)
+
+        assertTrue(
+            registry.find("ckc.offsettracker.capacity")
+                .tag("consumer_id", "telemetry")
+                .tag("topic", "orders")
+                .tag("partition", "2")
+                .meters()
+                .isEmpty()
+        )
     }
 
     @Test
@@ -343,4 +397,10 @@ class MicrometerConsumerMetricsTest {
         override val workQueueCapacity: Int,
         override var maxObservedWorkQueueSize: Int
     ) : ConsumerRuntimeStats
+
+    private class MutablePartitionStats(
+        override val topic: String,
+        override val partition: Int,
+        override var offsetTrackerBitCapacity: Int
+    ) : ConsumerPartitionStats
 }

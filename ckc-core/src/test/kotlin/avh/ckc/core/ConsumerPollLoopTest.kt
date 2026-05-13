@@ -236,6 +236,7 @@ class ConsumerPollLoopTest {
 
             assertEquals(fixture.topicPartition, state.topicPartition)
             assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
+            assertEquals(listOf(state), metrics.boundPartitionStats.toList())
             assertFalse(metrics.polls.isEmpty())
 
             job.cancel()
@@ -273,8 +274,6 @@ class ConsumerPollLoopTest {
         @Test
         fun `when partition is revoked in backpressure mode then ready offsets are committed`() = runBlocking {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
-            val revokeRequested = AtomicBoolean(false)
-            val revokedOnce = AtomicBoolean(false)
             val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
@@ -282,23 +281,21 @@ class ConsumerPollLoopTest {
                 workChannelCapacity = 4,
                 assignmentPosition = 101L,
                 listenerRef = listenerRef,
-                pollAnswer = {
-                    if (revokeRequested.get() && revokedOnce.compareAndSet(false, true)) {
-                        listenerRef.get()!!.onPartitionsRevoked(listOf(topicPartition))
-                    }
-                    emptyRecords()
-                }
+                pollAnswer = { emptyRecords() }
             )
 
             val job = fixture.start()
 
             val state = fixture.awaitAssignedState()
             state.trackerRefForTest().markProcessed(101L)
-            revokeRequested.set(true)
+            listenerRef.get()!!.onPartitionsRevoked(listOf(fixture.topicPartition))
 
             fixture.awaitCommit(101L)
             awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
             assertEquals(true, metrics.commits.single().success)
+            assertEquals(1L, metrics.commits.single().offsetsCount)
+            awaitFor(2_000L, 10L) { metrics.unboundPartitionMetrics.firstOrNull() }
+            assertEquals(listOf(PartitionMetricsKey("topic-a", 0)), metrics.unboundPartitionMetrics.toList())
 
             job.cancel()
             job.join()
@@ -308,8 +305,10 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when commit interval elapses in backpressure mode then ready offsets are committed`() = runBlocking {
+            val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 201L,
                 commitIntervalMs = 25L,
@@ -320,8 +319,12 @@ class ConsumerPollLoopTest {
 
             val state = fixture.awaitAssignedState()
             state.trackerRefForTest().markProcessed(201L)
+            state.trackerRefForTest().markProcessed(202L)
+            state.trackerRefForTest().markProcessed(203L)
 
-            fixture.awaitCommit(201L)
+            fixture.awaitCommit(203L)
+            awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
+            assertEquals(3L, metrics.commits.single().offsetsCount)
 
             job.cancel()
             job.join()

@@ -42,4 +42,16 @@ class PartitionStateTest {
 
         assertNotSame(trackerBefore, trackerAfter)
     }
+
+    @Test
+    fun `when tracker grows then partition stats expose bit capacity`() {
+        val ps = PartitionState(TopicPartition("t", 3))
+
+        ps.init(0L)
+        ps.markProcessed(256L)
+
+        assertEquals("t", ps.topic)
+        assertEquals(3, ps.partition)
+        assertEquals(512, ps.offsetTrackerBitCapacity)
+    }
 }

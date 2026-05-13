@@ -1,6 +1,7 @@
 package avh.ckc.micrometer
 
 import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.ConsumerPartitionStats
 import avh.ckc.core.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
@@ -109,6 +110,7 @@ open class MicrometerConsumerMetrics(
             Tags.of(commonTags).and("consumer_id", consumerId)
         }
         private val runtimeMeters = mutableListOf<Meter>()
+        private val partitionMeters = mutableMapOf<Pair<String, Int>, Meter>()
 
         override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
             if (consumerId == null || runtimeMeters.isNotEmpty()) {
@@ -125,6 +127,30 @@ open class MicrometerConsumerMetrics(
         override fun unbindRuntimeMetrics() {
             runtimeMeters.forEach(meterRegistry::remove)
             runtimeMeters.clear()
+        }
+
+        override fun bindPartitionMetrics(stats: ConsumerPartitionStats) {
+            if (consumerId == null) {
+                return
+            }
+
+            val key = stats.topic to stats.partition
+            if (partitionMeters.containsKey(key)) {
+                return
+            }
+
+            partitionMeters[key] = Gauge.builder(metricName("offsettracker.capacity"), stats) {
+                it.offsetTrackerBitCapacity.toDouble()
+            }
+                .tags(consumerTags)
+                .tag("topic", stats.topic)
+                .tag("partition", stats.partition.toString())
+                .register(meterRegistry)
+        }
+
+        override fun unbindPartitionMetrics(topic: String, partition: Int) {
+            val meter = partitionMeters.remove(topic to partition) ?: return
+            meterRegistry.remove(meter)
         }
 
         override fun onPoll(recordsCount: Int, durationNanos: Long) {
@@ -174,10 +200,11 @@ open class MicrometerConsumerMetrics(
             ).increment()
         }
 
-        override fun onCommit(partitionsCount: Int, durationNanos: Long, success: Boolean) {
+        override fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) {
             val tags = tags("success" to success.toString())
             timer("commit.duration", tags).record(durationNanos, TimeUnit.NANOSECONDS)
             summary("commit.partitions", tags).record(partitionsCount.toDouble())
+            summary("commit.offsets", tags).record(offsetsCount.toDouble())
             counter("commit", tags).increment()
         }
 
