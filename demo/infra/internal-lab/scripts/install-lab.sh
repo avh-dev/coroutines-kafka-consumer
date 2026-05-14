@@ -10,7 +10,7 @@ fi
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
-STATE_DIR="${REPO_ROOT}/.internal-lab"
+STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
 LAB_ROOT="/opt/ckc-internal-lab"
 SSH_TARGET="root@${LAB_HOST_IP}"

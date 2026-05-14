@@ -4,12 +4,15 @@ set -eu
 
 ENVIRONMENT="${1:-local}"
 TEST_DEFINITION_PATH="${2:-demo/infra/shared/test-definitions/ckc-baseline-local.yaml}"
-RUNNER_HOME="${3:-.ckc-runner/local-k8s}"
+RUNNER_HOME="${3:-.demo-infra/runner/local-k8s}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 RUNNER_HOME_PATH="${REPO_ROOT}/${RUNNER_HOME}"
+TEMP_DIR="${REPO_ROOT}/.demo-infra/tmp"
 
 cd "${REPO_ROOT}"
+mkdir -p "${TEMP_DIR}"
+export CKC_DEMO_INFRA_TMP_DIR="${TEMP_DIR}"
 python3 "${REPO_ROOT}/demo/infra/shared/test-orchestration/run-test.py" \
   --environment "${ENVIRONMENT}" \
   --region local \

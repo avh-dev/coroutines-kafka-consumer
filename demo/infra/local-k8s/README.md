@@ -42,7 +42,7 @@ To prepare the lab for another definition before running it:
 ```
 
 ```sh
-./demo/infra/local-k8s/scripts/linux/create-lab.sh local minikube .ckc-runner/local-k8s false demo/infra/shared/test-definitions/smoke-test.yaml
+./demo/infra/local-k8s/scripts/linux/create-lab.sh local minikube .demo-infra/runner/local-k8s false demo/infra/shared/test-definitions/smoke-test.yaml
 ```
 
 Run the default local baseline:

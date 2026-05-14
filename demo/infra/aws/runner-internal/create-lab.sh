@@ -13,6 +13,7 @@ PROFILE_PATH="${TERRAFORM_DIR}/profiles/${PROFILE_NAME}.tfvars"
 CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
+TEMP_DIR="${RUNNER_HOME}/tmp"
 
 PROFILE_ARGS=()
 if [ -f "${PROFILE_PATH}" ]; then
@@ -22,7 +23,7 @@ elif [ "${PROFILE_NAME}" != "default" ]; then
   exit 1
 fi
 
-mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")"
+mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}"
 
 discover_service_name() {
   local namespace="$1"
@@ -410,7 +411,7 @@ if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
   fi
-  KAFKA_VALUES_FILE="$(mktemp)"
+  KAFKA_VALUES_FILE="$(mktemp "${TEMP_DIR}/kafka-values.XXXXXX.yaml")"
   cat > "${KAFKA_VALUES_FILE}" <<EOF
 image:
   registry: docker.io
@@ -471,7 +472,7 @@ REDIS_MODE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
   REDIS_ARCHITECTURE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kubernetes_redis_architecture)"
   REDIS_REPLICA_COUNT="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kubernetes_redis_replica_count)"
-  REDIS_VALUES_FILE="$(mktemp)"
+  REDIS_VALUES_FILE="$(mktemp "${TEMP_DIR}/redis-values.XXXXXX.yaml")"
   cat > "${REDIS_VALUES_FILE}" <<EOF
 architecture: ${REDIS_ARCHITECTURE}
 auth:

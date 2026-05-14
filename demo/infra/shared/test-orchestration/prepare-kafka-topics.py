@@ -207,7 +207,11 @@ spec:
 
 def main() -> None:
     args = parse_args()
-    definition = load_definition(Path(args.repo_dir), args.test_definition_path)
+    repo_dir = Path(args.repo_dir)
+    temp_dir = Path(os.environ.get("CKC_DEMO_INFRA_TMP_DIR", str(repo_dir / ".demo-infra" / "tmp")))
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    tempfile.tempdir = str(temp_dir)
+    definition = load_definition(repo_dir, args.test_definition_path)
     topics = topic_specs(definition)
     recreate_topics(args, topics)
     print(f"Kafka topics recreated for test definition '{definition.get('name', 'unnamed')}'.")

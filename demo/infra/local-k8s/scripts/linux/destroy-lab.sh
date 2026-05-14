@@ -3,7 +3,7 @@
 set +e
 
 ENVIRONMENT="${1:-local}"
-RUNNER_HOME="${2:-.ckc-runner/local-k8s}"
+RUNNER_HOME="${2:-.demo-infra/runner/local-k8s}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 CONTEXT_PATH="${REPO_ROOT}/${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"

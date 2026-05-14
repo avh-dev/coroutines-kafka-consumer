@@ -1,7 +1,7 @@
 param(
     [string]$Environment = "local",
     [string]$MinikubeProfile = "minikube",
-    [string]$RunnerHome = ".ckc-runner/local-k8s",
+    [string]$RunnerHome = ".demo-infra/runner/local-k8s",
     [string]$TestDefinitionPath = "demo/infra/shared/test-definitions/ckc-baseline-local.yaml",
     [switch]$SkipBuild
 )
@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
 $runnerHomePath = Join-Path $repoRoot $RunnerHome
 $configDir = Join-Path $runnerHomePath "config"
+$tempDir = Join-Path $repoRoot ".demo-infra\tmp"
 $contextPath = Join-Path $configDir "load-lab-$Environment.json"
 $localK8sDir = Join-Path $repoRoot "demo\infra\local-k8s"
 $manifestDir = Join-Path $localK8sDir "manifests"
@@ -36,6 +37,9 @@ function Ensure-Namespace {
 
 Push-Location $repoRoot
 try {
+    New-Item -ItemType Directory -Force $tempDir | Out-Null
+    $env:CKC_DEMO_INFRA_TMP_DIR = $tempDir
+
     minikube -p $MinikubeProfile status | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Invoke-Checked minikube @("start", "-p", $MinikubeProfile)

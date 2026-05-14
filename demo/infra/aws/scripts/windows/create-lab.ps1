@@ -30,6 +30,7 @@ if ($PSVersionTable.PSEdition -ne "Core") {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
 $terraformDir = Join-Path $repoRoot "demo\infra\aws\terraform\runner"
+$tempDir = Join-Path $repoRoot ".demo-infra\tmp"
 
 if (-not $InstanceId) {
     if (-not (Test-Path (Join-Path $terraformDir "terraform.tfstate"))) {
@@ -41,7 +42,8 @@ if (-not $InstanceId) {
 
 & (Join-Path $PSScriptRoot "update-runner.ps1") -Region $Region -InstanceId $InstanceId | Out-Null
 
-$tempFile = [System.IO.Path]::GetTempFileName()
+New-Item -ItemType Directory -Force $tempDir | Out-Null
+$tempFile = Join-Path $tempDir ("ckc-create-lab-ssm.{0}.json" -f [System.IO.Path]::GetRandomFileName())
 try {
     $commands = @{
         commands = @(

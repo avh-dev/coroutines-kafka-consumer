@@ -50,6 +50,7 @@
 | [INFRA-16](#infra-16) | Move local-dev Kafka topic creation from compose into explicit helper scripts.                                                             | DONE |
 | [INFRA-17](#infra-17) | Reorganize the Grafana consumer dashboard around lifecycle and telemetry record metrics that work for CKC and Spring Kafka.                | DONE |
 | [INFRA-18](#infra-18) | Rework the Grafana dashboard around the dedicated demo consumer profile info metric and record metrics without implementation tags.        | DONE |
+| [INFRA-19](#infra-19) | Centralize temporary files created by demo infrastructure scripts under the root `.demo-infra` directory.                                  | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -499,6 +500,15 @@ _Date: 2026-05-11_
 Update Grafana after moving implementation identity out of record metrics.
 Remove the implementation dashboard variable and query record panels without `consumer_impl`.
 Add profile visibility from the dedicated demo consumer profile info metric so active implementation periods can be inspected separately from throughput and latency.
+
+<a id="infra-19"></a>
+### INFRA-19 - Centralize demo infrastructure temporary files
+
+_Date: 2026-05-13_
+
+Reorganized demo infrastructure scripts so generated temporary state is written under the repository root `.demo-infra` directory.
+Moved local Kubernetes runner state, internal lab state, AWS SSM temp files, and Python temporary work directories into the centralized location.
+Kept script outputs predictable across local Kubernetes, AWS, and internal lab flows while reducing root-level clutter from ad hoc folders.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

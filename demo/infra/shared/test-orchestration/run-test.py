@@ -512,6 +512,9 @@ def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir)
     runner_home = Path(args.runner_home)
+    temp_dir = Path(os.environ.get("CKC_DEMO_INFRA_TMP_DIR", str(runner_home / "tmp")))
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
