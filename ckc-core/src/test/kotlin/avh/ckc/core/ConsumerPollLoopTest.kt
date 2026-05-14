@@ -417,7 +417,7 @@ private class PollLoopFixture(
     metrics: ConsumerMetrics<Any?, Any?> = ConsumerMetrics.NOOP as ConsumerMetrics<Any?, Any?>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
-    commitIntervalMs: Long = 60_000L,
+    commitIntervalMs: Long = 5_000L,
     initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
     private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
     private val pollAnswer: PollLoopFixture.() -> ConsumerRecords<ByteArray, ByteArray>

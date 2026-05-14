@@ -25,7 +25,7 @@ suspend fun <T : Any> awaitFor(
 
 fun testRuntime(
     strategy: DeliveryStrategy,
-    commitIntervalMs: Long = 60_000L,
+    commitIntervalMs: Long = 5_000L,
     deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 ): TestConsumerRuntime =

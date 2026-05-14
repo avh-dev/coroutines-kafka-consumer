@@ -30,8 +30,10 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
     /**
      * Interval for periodic best-effort offset commits in backpressure mode.
+     *
+     * The default matches Kafka's `auto.commit.interval.ms` default.
      */
-    var commitIntervalMs: Long = 60_000L
+    var commitIntervalMs: Long = 5_000L
 
     /**
      * Capacity of the internal work channel between poll loops and workers.
