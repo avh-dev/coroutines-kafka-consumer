@@ -98,7 +98,7 @@ Prepare the selected test definition:
 You can still pass an explicit definition when needed:
 
 ```sh
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-local
+./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
 This script:
@@ -122,7 +122,7 @@ Run the load generator locally as a Java process:
 You can still pass an explicit definition when needed:
 
 ```sh
-./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-local
+./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-internal
 ```
 
 The script reads `load_test` settings from the test definition, exports them as environment variables for `ckc-demo-load-test`, and redirects stdout/stderr to:
@@ -201,7 +201,7 @@ Keep these constant between runs:
 Reset state and deploy the same test definition before every run:
 
 ```sh
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-local
+./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
@@ -265,7 +265,7 @@ Recommended before serious runs:
 
 ```sh
 ssh "$SSH_TARGET" "LAB_ROOT=${LAB_ROOT} ${LAB_ROOT}/assets/scripts/tune-host.sh"
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-local
+./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
 Use wired Ethernet when possible. Keep load generation off the lab host. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.

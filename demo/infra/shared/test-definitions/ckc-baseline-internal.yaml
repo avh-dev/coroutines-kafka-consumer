@@ -1,4 +1,4 @@
-name: ckc-baseline-local
+name: ckc-baseline-internal
 
 deployment:
   app_profile: ckc-local-baseline
@@ -13,7 +13,7 @@ load_test:
   shards: 1
   lifecycle_base_rate: 500
   telemetry_base_rate: 800
-  load_profile: "0 -> (1m, warmup) -> 100 -> (10m, local-baseline) -> 100 -> (1m, cool-down) -> 0"
+  load_profile: "0 -> (1m, warmup) -> 100 -> (10m, internal-baseline) -> 100 -> (1m, cool-down) -> 0"
   lifecycle_orders_per_batch: 4
   telemetry_interval_seconds: 1
   tick_interval_millis: 100

@@ -18,7 +18,7 @@
   Remote entrypoints that execute on the runner host.
 
 - `../shared/`
-  Helm charts, test definitions, and test orchestration code reused by AWS and local Kubernetes flows.
+  Helm charts, test definitions, and test orchestration code reused by lab flows.
 
 - `scripts/`
   Local operator commands split by OS:

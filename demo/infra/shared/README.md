@@ -1,8 +1,8 @@
 # Shared Infrastructure Assets
 
-`demo/infra/shared` contains files reused across AWS lab, local Docker development, and local Kubernetes smoke tests.
+`demo/infra/shared` contains files reused across AWS lab, the internal lab, and local Docker development.
 
 - `helm/`: app and stubs Helm charts plus deployment profiles
 - `test-definitions/`: YAML smoke/load definitions
-- `test-orchestration/`: Kubernetes test runner used by AWS and local k8s flows
+- `test-orchestration/`: Kubernetes test runner used by AWS lab flows
 - `grafana/`: shared dashboard and provisioning files

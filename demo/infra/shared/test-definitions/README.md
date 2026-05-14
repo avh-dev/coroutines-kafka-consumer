@@ -11,8 +11,7 @@ Each definition selects:
 Available definitions:
 
 - `smoke-test.yaml`: short functional check with low traffic.
-- `ckc-capacity-search-local.yaml`: short constant-load local profile for quickly probing the two-pod one-core baseline.
-- `ckc-baseline-local.yaml`: local minikube baseline, lower than AWS but large enough to exercise Kafka, Redis, app metrics, Prometheus, and Grafana.
+- `ckc-baseline-internal.yaml`: internal k3s lab baseline for the dedicated Linux host.
 - `ckc-baseline.yaml`: AWS baseline intended for larger, more production-like load.
 
 `load_profile` is a shared percentage schedule. `lifecycle_base_rate` and `telemetry_base_rate` are applied per load-test shard, so each stream's current rate is `stream_base_rate * profile_percent / 100`. The load-test job exits when the profile schedule ends.

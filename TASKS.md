@@ -51,6 +51,7 @@
 | [INFRA-17](#infra-17) | Reorganize the Grafana consumer dashboard around lifecycle and telemetry record metrics that work for CKC and Spring Kafka.                | DONE |
 | [INFRA-18](#infra-18) | Rework the Grafana dashboard around the dedicated demo consumer profile info metric and record metrics without implementation tags.        | DONE |
 | [INFRA-19](#infra-19) | Centralize temporary files created by demo infrastructure scripts under the root `.demo-infra` directory.                                  | DONE |
+| [INFRA-20](#infra-20) | Remove the unsupported local Kubernetes lab and keep local development focused on the local-dev environment.                                | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -509,6 +510,16 @@ _Date: 2026-05-13_
 Reorganized demo infrastructure scripts so generated temporary state is written under the repository root `.demo-infra` directory.
 Moved local Kubernetes runner state, internal lab state, AWS SSM temp files, and Python temporary work directories into the centralized location.
 Kept script outputs predictable across local Kubernetes, AWS, and internal lab flows while reducing root-level clutter from ad hoc folders.
+
+<a id="infra-20"></a>
+### INFRA-20 - Remove local Kubernetes lab
+
+_Date: 2026-05-14_
+
+Removed the minikube-based local Kubernetes lab now that useful load checks have moved to the internal lab.
+Kept local machine development focused on the `local-dev` environment.
+Updated infrastructure documentation and references so the supported environment split is explicit.
+Renamed the internal baseline test label away from the old local Kubernetes wording.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
