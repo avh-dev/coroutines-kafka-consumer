@@ -69,6 +69,28 @@ curl -fsS "http://${LAB_HOST_IP}:3000/api/health"
 curl -fsS "http://${LAB_HOST_IP}:30090/-/ready"
 ```
 
+## Wake Lab Host
+
+If the lab host supports Wake-on-LAN, wake it from the local machine with the
+lab script:
+
+```sh
+./demo/infra/internal-lab/scripts/wakeup-lab.sh aa:bb:cc:dd:ee:ff --host 192.168.1.50 --wait-seconds 120
+```
+
+After install, you can store the host MAC next to the lab IP in local ignored
+state:
+
+```sh
+echo 'LAB_HOST_MAC=aa:bb:cc:dd:ee:ff' >> .demo-infra/internal-lab/lab.env
+./demo/infra/internal-lab/scripts/wakeup-lab.sh --wait-seconds 120
+```
+
+The wrapper delegates to a Python helper under `scripts/helpers/` that uses
+only the Python standard library. It sends Wake-on-LAN magic packets to
+`255.255.255.255:9` by default and can wait for SSH port `22` to become
+reachable.
+
 ## Build Images
 
 Build demo and stubs images locally, copy them to the lab, and load them into Docker and k3s containerd:

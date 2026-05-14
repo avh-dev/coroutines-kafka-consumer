@@ -53,6 +53,7 @@
 | [INFRA-18](#infra-18) | Rework the Grafana dashboard around the dedicated demo consumer profile info metric and record metrics without implementation tags.        | DONE |
 | [INFRA-19](#infra-19) | Centralize temporary files created by demo infrastructure scripts under the root `.demo-infra` directory.                                  | DONE |
 | [INFRA-20](#infra-20) | Remove the unsupported local Kubernetes lab and keep local development focused on the local-dev environment.                                | DONE |
+| [INFRA-21](#infra-21) | Add a standalone Wake-on-LAN helper for the internal lab host.                                                                              | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -530,6 +531,16 @@ Removed the minikube-based local Kubernetes lab now that useful load checks have
 Kept local machine development focused on the `local-dev` environment.
 Updated infrastructure documentation and references so the supported environment split is explicit.
 Renamed the internal baseline test label away from the old local Kubernetes wording.
+
+<a id="infra-21"></a>
+### INFRA-21 - Add internal lab wakeup helper
+
+_Date: 2026-05-14_
+
+Add a standalone Python Wake-on-LAN helper for the internal lab host.
+Support direct MAC/IP arguments and optional local `.demo-infra/internal-lab/lab.env` defaults.
+Document how to wake the host and optionally wait for SSH readiness without depending on platform-specific tools.
+Keep the user-facing entrypoint in `scripts/`, place helper implementation under `scripts/helpers/`, and refresh repo working notes for the current `demo/infra` layout.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
