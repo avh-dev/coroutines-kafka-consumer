@@ -8,6 +8,7 @@ RUNNER_ASSETS_DIR="${CKC_RUNNER_ASSETS_DIR:-/opt/ckc-runner/assets}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 TERRAFORM_DIR="${LOCAL_REPO_DIR}/demo/infra/aws/terraform/runner"
+TEMP_DIR="${LOCAL_REPO_DIR}/.demo-infra/tmp"
 BUNDLE_TARGET="${RUNNER_ASSETS_DIR}/runner-assets.tar.gz"
 REPO_TARGET="${RUNNER_ASSETS_DIR}/repo"
 
@@ -15,8 +16,9 @@ if [ -z "${INSTANCE_ID}" ]; then
   INSTANCE_ID="$(terraform -chdir="${TERRAFORM_DIR}" output -raw instance_id)"
 fi
 
-BUNDLE_FILE="$(mktemp "${TMPDIR:-/tmp}/ckc-runner-assets.XXXXXX.tar.gz")"
-COMMANDS_FILE="$(mktemp "${TMPDIR:-/tmp}/ckc-runner-update.XXXXXX.json")"
+mkdir -p "${TEMP_DIR}"
+BUNDLE_FILE="$(mktemp "${TEMP_DIR}/ckc-runner-assets.XXXXXX.tar.gz")"
+COMMANDS_FILE="$(mktemp "${TEMP_DIR}/ckc-runner-update.XXXXXX.json")"
 
 cleanup() {
   rm -f "${BUNDLE_FILE}" "${COMMANDS_FILE}"

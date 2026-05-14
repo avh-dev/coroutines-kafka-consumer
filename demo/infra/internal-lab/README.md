@@ -2,7 +2,7 @@
 
 `demo/infra/internal-lab` runs the CKC demo on a dedicated Linux laptop with low overhead.
 
-The app, demo stubs, Prometheus, and metrics-server run in k3s. Kafka, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.internal-lab/`, which is ignored by Git.
+The app, demo stubs, Prometheus, and metrics-server run in k3s. Kafka, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.demo-infra/internal-lab/`, which is ignored by Git.
 
 ## Requirements
 
@@ -11,13 +11,13 @@ The app, demo stubs, Prometheus, and metrics-server run in k3s. Kafka, Redis, an
 - Local tools: Git Bash-compatible shell, `ssh`, `scp`, `kubectl`, `helm`, Docker, Java/Gradle.
 - Windows users should run all local scripts from Git Bash, not PowerShell.
 
-The lab host IP is provided to `install-lab.sh` and stored in `.internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP.
+The lab host IP is provided to `install-lab.sh` and stored in `.demo-infra/internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP.
 
 ## Architecture
 
 ```text
 local machine
-  .internal-lab/kubeconfig.yaml -> k3s API on lab host
+  .demo-infra/internal-lab/kubeconfig.yaml -> k3s API on lab host
   kubectl / helm -> k3s
   Docker build -> image archive -> scp -> lab host
   load test -> app NodePort and Kafka on lab host
@@ -50,20 +50,20 @@ From Git Bash at the repository root:
 
 The installer:
 
-- writes `.internal-lab/lab.env`
+- writes `.demo-infra/internal-lab/lab.env`
 - copies `demo/infra/internal-lab/assets` to `/opt/ckc-internal-lab/assets` on the lab host
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
 - starts host Kafka, Redis, and Grafana
 - provisions Grafana datasource and the shared `CKC Overview` dashboard
-- writes `.internal-lab/kubeconfig.yaml`
+- writes `.demo-infra/internal-lab/kubeconfig.yaml`
 - verifies `kubectl`, Grafana, Prometheus, and Kafka from the local machine
 
 After install:
 
 ```sh
-source .internal-lab/lab.env
+source .demo-infra/internal-lab/lab.env
 kubectl --kubeconfig "$KUBECONFIG" get nodes -o wide
 curl -fsS "http://${LAB_HOST_IP}:3000/api/health"
 curl -fsS "http://${LAB_HOST_IP}:30090/-/ready"
@@ -87,7 +87,7 @@ Select a test definition once:
 ./demo/infra/internal-lab/scripts/set-test.sh
 ```
 
-The selection is saved under `.internal-lab/`.
+The selection is saved under `.demo-infra/internal-lab/`.
 
 Prepare the selected test definition:
 
@@ -128,7 +128,7 @@ You can still pass an explicit definition when needed:
 The script reads `load_test` settings from the test definition, exports them as environment variables for `ckc-demo-load-test`, and redirects stdout/stderr to:
 
 ```text
-.internal-lab/logs/
+.demo-infra/internal-lab/logs/
 ```
 
 It prints the Java process PID and the stop command:
@@ -139,7 +139,7 @@ kill <PID>
 
 ## Endpoints
 
-Use `.internal-lab/lab.env` for the actual IP:
+Use `.demo-infra/internal-lab/lab.env` for the actual IP:
 
 ```text
 App:        http://$LAB_HOST_IP:30080
@@ -243,7 +243,7 @@ Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for p
 ## Verification
 
 ```sh
-source .internal-lab/lab.env
+source .demo-infra/internal-lab/lab.env
 kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf get pods,svc,endpoints -o wide
 kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf top pods
 curl -fsS "http://${LAB_HOST_IP}:30080/actuator/health"

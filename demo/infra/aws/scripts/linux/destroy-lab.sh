@@ -10,14 +10,16 @@ REPO_DIR_ON_RUNNER="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 TERRAFORM_DIR="${LOCAL_REPO_DIR}/demo/infra/aws/terraform/runner"
+TEMP_DIR="${LOCAL_REPO_DIR}/.demo-infra/tmp"
 
 if [ -z "${INSTANCE_ID}" ]; then
   INSTANCE_ID="$(terraform -chdir="${TERRAFORM_DIR}" output -raw instance_id)"
 fi
 
+mkdir -p "${TEMP_DIR}"
 "${SCRIPT_DIR}/update-runner.sh" "${REGION}" "${INSTANCE_ID}" >/dev/null
 
-COMMANDS_FILE="$(mktemp)"
+COMMANDS_FILE="$(mktemp "${TEMP_DIR}/ckc-destroy-lab-ssm.XXXXXX.json")"
 cat > "${COMMANDS_FILE}" <<EOF
 {
   "commands": [

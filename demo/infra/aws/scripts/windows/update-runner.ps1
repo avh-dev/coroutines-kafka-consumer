@@ -27,6 +27,7 @@ if ($PSVersionTable.PSEdition -ne "Core") {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
 $terraformDir = Join-Path $repoRoot "demo\infra\aws\terraform\runner"
+$tempDir = Join-Path $repoRoot ".demo-infra\tmp"
 $bundleTarget = "$RunnerAssetsDir/runner-assets.tar.gz"
 $repoTarget = "$RunnerAssetsDir/repo"
 
@@ -38,8 +39,9 @@ if (-not $InstanceId) {
     $InstanceId = & terraform "-chdir=$terraformDir" output -raw instance_id
 }
 
-$bundleFile = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".tar.gz")
-$commandsFile = [System.IO.Path]::GetTempFileName()
+New-Item -ItemType Directory -Force $tempDir | Out-Null
+$bundleFile = Join-Path $tempDir ("ckc-runner-assets.{0}.tar.gz" -f [System.IO.Path]::GetRandomFileName())
+$commandsFile = Join-Path $tempDir ("ckc-runner-update.{0}.json" -f [System.IO.Path]::GetRandomFileName())
 
 try {
     Push-Location $repoRoot

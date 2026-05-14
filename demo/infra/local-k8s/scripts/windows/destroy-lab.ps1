@@ -1,6 +1,6 @@
 param(
     [string]$Environment = "local",
-    [string]$RunnerHome = ".ckc-runner/local-k8s"
+    [string]$RunnerHome = ".demo-infra/runner/local-k8s"
 )
 
 $ErrorActionPreference = "Stop"

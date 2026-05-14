@@ -4,13 +4,14 @@ set -eu
 
 ENVIRONMENT="${1:-local}"
 MINIKUBE_PROFILE="${2:-minikube}"
-RUNNER_HOME="${3:-.ckc-runner/local-k8s}"
+RUNNER_HOME="${3:-.demo-infra/runner/local-k8s}"
 SKIP_BUILD="${4:-false}"
 TEST_DEFINITION_PATH="${5:-demo/infra/shared/test-definitions/ckc-baseline-local.yaml}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 RUNNER_HOME_PATH="${REPO_ROOT}/${RUNNER_HOME}"
 CONFIG_DIR="${RUNNER_HOME_PATH}/config"
+TEMP_DIR="${REPO_ROOT}/.demo-infra/tmp"
 CONTEXT_PATH="${CONFIG_DIR}/load-lab-${ENVIRONMENT}.json"
 LOCAL_K8S_DIR="${REPO_ROOT}/demo/infra/local-k8s"
 MANIFEST_DIR="${LOCAL_K8S_DIR}/manifests"
@@ -22,6 +23,8 @@ ensure_namespace() {
 }
 
 cd "${REPO_ROOT}"
+mkdir -p "${TEMP_DIR}"
+export CKC_DEMO_INFRA_TMP_DIR="${TEMP_DIR}"
 
 if ! minikube -p "${MINIKUBE_PROFILE}" status >/dev/null 2>&1; then
   minikube start -p "${MINIKUBE_PROFILE}"
