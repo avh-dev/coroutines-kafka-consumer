@@ -55,6 +55,7 @@
 | [INFRA-19](#infra-19) | Centralize temporary files created by demo infrastructure scripts under the root `.demo-infra` directory.                                  | DONE |
 | [INFRA-20](#infra-20) | Remove the unsupported local Kubernetes lab and keep local development focused on the local-dev environment.                                | DONE |
 | [INFRA-21](#infra-21) | Add a standalone Wake-on-LAN helper for the internal lab host.                                                                              | DONE |
+| [INFRA-22](#infra-22) | Update Grafana dashboards to compare consumers by Spring profile and add Confluent Parallel Consumer metric panels.                         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -552,6 +553,15 @@ Add a standalone Python Wake-on-LAN helper for the internal lab host.
 Support direct MAC/IP arguments and optional local `.demo-infra/internal-lab/lab.env` defaults.
 Document how to wake the host and optionally wait for SSH readiness without depending on platform-specific tools.
 Keep the user-facing entrypoint in `scripts/`, place helper implementation under `scripts/helpers/`, and refresh repo working notes for the current `demo/infra` layout.
+
+<a id="infra-22"></a>
+### INFRA-22 - Add Confluent Parallel Consumer dashboard metrics
+
+_Date: 2026-05-16_
+
+Update Grafana dashboards to use Spring profile identity without repeating consumer implementation labels.
+Add Confluent Parallel Consumer metric panels for overlapping throughput and processing-time comparisons.
+Add a Confluent-specific section for native Parallel Consumer runtime signals.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
