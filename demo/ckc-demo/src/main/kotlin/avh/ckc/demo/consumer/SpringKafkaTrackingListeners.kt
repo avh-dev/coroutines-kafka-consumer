@@ -2,7 +2,7 @@ package avh.ckc.demo.consumer
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.service.SpringKafkaRecordContext
+import avh.ckc.demo.service.DemoConsumerRecordContext
 import avh.ckc.demo.service.SpringKafkaTrackingService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Profile
@@ -31,7 +31,7 @@ class SpringKafkaTrackingListeners(
         event: OrderLifecycleEvent
     ) {
         trackingService.processOrderLifecycle(
-            SpringKafkaRecordContext(key, topic, partition, offset, timestamp),
+            DemoConsumerRecordContext(key, topic, partition, offset, timestamp),
             event
         )
     }
@@ -50,7 +50,7 @@ class SpringKafkaTrackingListeners(
         event: CauldronTelemetryEvent
     ) {
         trackingService.processCauldronTelemetry(
-            SpringKafkaRecordContext(key, topic, partition, offset, timestamp),
+            DemoConsumerRecordContext(key, topic, partition, offset, timestamp),
             event
         )
     }

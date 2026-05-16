@@ -33,6 +33,7 @@
 | [DEMO-13](#demo-13) | Split demo business services into explicit blocking and suspend paths, and keep consumer handlers as thin service adapters.                                                                            | DONE |
 | [DEMO-14](#demo-14) | Add comparable Spring Kafka record metrics with a consumer implementation tag shared with CKC metrics.                                                                                                  | DONE |
 | [DEMO-15](#demo-15) | Move demo consumer implementation identity from every record metric into a dedicated static profile info metric.                                                                                        | DONE |
+| [DEMO-16](#demo-16) | Add a blocking Confluent Parallel Consumer demo implementation with native Parallel Consumer metrics.                                                                                                    | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -474,6 +475,16 @@ _Date: 2026-05-11_
 Move demo consumer implementation identity out of high-volume record metric tags.
 Add a static profile info metric that identifies the active demo consumer implementation and Spring profile for timeline-style observability.
 Keep record metrics focused on consumer, topic, and event labels so dashboard comparisons do not multiply all record series by implementation.
+
+<a id="demo-16"></a>
+### DEMO-16 - Add blocking Confluent Parallel Consumer demo implementation
+
+_Date: 2026-05-15_
+
+Added a third demo consumer implementation backed by Confluent Parallel Consumer.
+The implementation reuses the existing blocking demo business services so it can be compared with the Spring Kafka blocking path.
+Native Parallel Consumer Micrometer metrics are registered for the Confluent path instead of the CKC-style record metrics.
+The first implementation stays focused on the demo application; infrastructure dashboards can follow separately if needed.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

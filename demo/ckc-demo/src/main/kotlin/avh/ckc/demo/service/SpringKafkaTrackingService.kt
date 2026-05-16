@@ -16,7 +16,7 @@ class SpringKafkaTrackingService(
     private val properties: DemoApplicationProperties,
     private val brewingLifecycleService: SyncBrewingLifecycleService,
     private val etaRecalculationService: SyncEtaRecalculationService,
-    private val recordMetrics: SpringKafkaRecordMetrics,
+    private val recordMetrics: DemoRecordMetrics,
     @Qualifier("springKafkaLifecycleConsumerMetrics")
     private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     @Qualifier("springKafkaConsumerMetrics")
@@ -25,7 +25,7 @@ class SpringKafkaTrackingService(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun processOrderLifecycle(
-        context: SpringKafkaRecordContext,
+        context: DemoConsumerRecordContext,
         event: OrderLifecycleEvent
     ) {
         val startedAt = System.nanoTime()
@@ -41,7 +41,7 @@ class SpringKafkaTrackingService(
     }
 
     fun processCauldronTelemetry(
-        context: SpringKafkaRecordContext,
+        context: DemoConsumerRecordContext,
         event: CauldronTelemetryEvent
     ) {
         val startedAt = System.nanoTime()

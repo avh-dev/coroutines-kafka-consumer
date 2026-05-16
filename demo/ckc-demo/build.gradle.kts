@@ -23,6 +23,7 @@ java {
 }
 
 val coroutinesVersion = "1.9.0"
+val parallelConsumerVersion = "0.5.3.3"
 val serializationVersion = "1.7.1"
 val springBootVersion = "3.3.5"
 
@@ -42,6 +43,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("io.confluent.parallelconsumer:parallel-consumer-core:$parallelConsumerVersion")
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.springframework:spring-web")
 

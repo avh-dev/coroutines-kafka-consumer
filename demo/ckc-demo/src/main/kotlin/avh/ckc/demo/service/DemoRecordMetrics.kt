@@ -7,10 +7,10 @@ import org.springframework.stereotype.Service
 
 @Service
 @Profile("spring-kafka")
-class SpringKafkaRecordMetrics {
+class DemoRecordMetrics {
     fun <V> onProcessed(
         metrics: ConsumerMetrics<String, V>,
-        context: SpringKafkaRecordContext,
+        context: DemoConsumerRecordContext,
         value: V,
         startedAtNanos: Long
     ) {
@@ -25,7 +25,7 @@ class SpringKafkaRecordMetrics {
 
     fun <V> onFailed(
         metrics: ConsumerMetrics<String, V>,
-        context: SpringKafkaRecordContext,
+        context: DemoConsumerRecordContext,
         value: V,
         startedAtNanos: Long,
         error: Throwable
@@ -41,7 +41,7 @@ class SpringKafkaRecordMetrics {
     }
 }
 
-data class SpringKafkaRecordContext(
+data class DemoConsumerRecordContext(
     val key: String?,
     val topic: String,
     val partition: Int,
