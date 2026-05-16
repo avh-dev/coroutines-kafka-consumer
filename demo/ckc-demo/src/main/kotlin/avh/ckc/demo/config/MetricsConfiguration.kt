@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Profile
 import org.springframework.core.env.Environment
 import org.springframework.core.env.Profiles
 
@@ -20,6 +21,7 @@ class MetricsConfiguration {
     private val eventTypeTag = recordMetricTag("event_type")
 
     @Bean
+    @Profile("ckc")
     fun micrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
@@ -27,6 +29,7 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("spring-kafka")
     fun springKafkaMicrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
@@ -47,6 +50,7 @@ class MetricsConfiguration {
     }
 
     @Bean
+    @Profile("ckc")
     fun consumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
@@ -56,6 +60,7 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("ckc")
     fun lifecycleConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
@@ -65,6 +70,7 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("spring-kafka")
     fun springKafkaConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
@@ -74,6 +80,7 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("spring-kafka")
     fun springKafkaLifecycleConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =

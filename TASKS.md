@@ -34,6 +34,7 @@
 | [DEMO-14](#demo-14) | Add comparable Spring Kafka record metrics with a consumer implementation tag shared with CKC metrics.                                                                                                  | DONE |
 | [DEMO-15](#demo-15) | Move demo consumer implementation identity from every record metric into a dedicated static profile info metric.                                                                                        | DONE |
 | [DEMO-16](#demo-16) | Add a blocking Confluent Parallel Consumer demo implementation with native Parallel Consumer metrics.                                                                                                    | DONE |
+| [DEMO-17](#demo-17) | Keep the Confluent Parallel Consumer profile metric visible without registering CKC-style record metric beans.                                                                                            | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -486,6 +487,15 @@ Added a third demo consumer implementation backed by Confluent Parallel Consumer
 The implementation reuses the existing blocking demo business services so it can be compared with the Spring Kafka blocking path.
 Native Parallel Consumer Micrometer metrics are registered for the Confluent path instead of the CKC-style record metrics.
 The first implementation stays focused on the demo application; infrastructure dashboards can follow separately if needed.
+
+<a id="demo-17"></a>
+### DEMO-17 - Keep Confluent profile metric without CKC record metrics
+
+_Date: 2026-05-16_
+
+Keep the dedicated demo consumer profile gauge available for every consumer implementation.
+Scope CKC and Spring Kafka record metric beans to their own profiles so Confluent Parallel Consumer only exports the profile gauge plus native PC metrics.
+This keeps Grafana profile visibility without pulling CKC-style record metrics into the Confluent profile.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

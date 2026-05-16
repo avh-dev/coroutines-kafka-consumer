@@ -1,6 +1,7 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.service.DemoRecordMetrics
+import avh.ckc.micrometer.MicrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -39,5 +40,6 @@ class ConfluentParallelProfileContextTest(
     @Test
     fun `confluent parallel profile does not publish CKC record metrics`() {
         assertFalse(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
     }
 }
