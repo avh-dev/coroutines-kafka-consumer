@@ -48,112 +48,6 @@
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 0,
-        "y": 1
-      },
-      "id": 42,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "name"
-      },
-      "targets": [
-        {
-          "expr": "sum by (spring_profile) (ckc_demo_consumer_profile_info)",
-          "legendFormat": "{{spring_profile}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Current Consumer Profile",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 1
-      },
-      "id": 43,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "expr": "sum by (spring_profile) (ckc_demo_consumer_profile_info)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "{{spring_profile}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Profile Samples",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "fillOpacity": 70,
             "lineWidth": 0,
@@ -174,8 +68,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 24,
+        "x": 0,
         "y": 1
       },
       "id": 44,
@@ -218,198 +112,8 @@
       },
       "id": 1,
       "panels": [],
-      "title": "Lifecycle Records",
+      "title": "Order Events",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 0,
-        "y": 10
-      },
-      "id": 2,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[30s]))",
-          "refId": "A",
-          "legendFormat": "value"
-        },
-        {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[2m]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc"
-        }
-      ],
-      "title": "Lifecycle Processed Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 10
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum by (error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[30s]))",
-          "refId": "A",
-          "legendFormat": "{{error}}"
-        }
-      ],
-      "title": "Lifecycle Failed Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 10
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[1m])))",
-          "legendFormat": "${duration_percentile:text}",
-          "refId": "A"
-        },
-        {
-          "expr": "1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[2m])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[2m])), 1e-9)",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc avg"
-        }
-      ],
-      "title": "Lifecycle Processing Time",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 10
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "avg"
-        }
-      ],
-      "title": "Lifecycle Average Age",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -429,7 +133,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 15
+        "y": 10
       },
       "id": 6,
       "options": {
@@ -446,12 +150,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[1m]))",
+          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{event_type}}"
+        },
+        {
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "confluent-parallel pc"
         }
       ],
-      "title": "Lifecycle Throughput by Event Type",
+      "title": "Order Events Throughput",
       "type": "timeseries"
     },
     {
@@ -472,7 +181,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 15
+        "y": 10
       },
       "id": 7,
       "options": {
@@ -489,12 +198,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[1m]))",
+          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{event_type}} / {{error}}"
+        },
+        {
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "confluent-parallel pc failed"
         }
       ],
-      "title": "Lifecycle Failure Throughput by Event Type",
+      "title": "Order Events Failure Throughput",
       "type": "timeseries"
     },
     {
@@ -513,9 +227,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
-        "y": 23
+        "y": 18
       },
       "id": 8,
       "options": {
@@ -532,22 +246,42 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[1m])))",
-          "legendFormat": "{{event_type}} / ${duration_percentile:text}",
+          "expr": "(1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_lifecycle\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_lifecycle\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "legendFormat": "{{event_type}} avg",
           "refId": "A"
         },
         {
-          "expr": "1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_lifecycle\"}[30s])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_lifecycle\"}[30s])), 1e-9)",
-          "legendFormat": "{{event_type}} avg",
+          "expr": "(1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_lifecycle\"})) and on() (vector(${duration_percentile}) == -2)",
+          "legendFormat": "{{event_type}} max",
           "refId": "B"
         },
         {
-          "expr": "1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_lifecycle\"})",
-          "legendFormat": "{{event_type}} max",
+          "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+          "legendFormat": "{{event_type}} p50",
           "refId": "C"
+        },
+        {
+          "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+          "legendFormat": "{{event_type}} p95",
+          "refId": "D"
+        },
+        {
+          "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+          "legendFormat": "{{event_type}} p99",
+          "refId": "E"
+        },
+        {
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "legendFormat": "confluent-parallel pc avg",
+          "refId": "F"
+        },
+        {
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "legendFormat": "confluent-parallel pc max",
+          "refId": "G"
         }
       ],
-      "title": "Lifecycle Processing Duration by Event Type",
+      "title": "Order Events Processing Duration",
       "type": "timeseries"
     },
     {
@@ -566,9 +300,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 31
+        "w": 12,
+        "x": 12,
+        "y": 18
       },
       "id": 9,
       "options": {
@@ -585,7 +319,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{event_type}} avg"
         },
@@ -595,7 +329,7 @@
           "legendFormat": "{{event_type}} max"
         }
       ],
-      "title": "Lifecycle Successful Record Age by Event Type",
+      "title": "Order Events Successful Record Age",
       "type": "timeseries"
     },
     {
@@ -608,202 +342,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 26
       },
       "id": 10,
       "panels": [],
-      "title": "Telemetry Records",
+      "title": "Cauldron Events",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 0,
-        "y": 40
-      },
-      "id": 11,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[30s]))",
-          "refId": "A",
-          "legendFormat": "value"
-        },
-        {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[2m]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc"
-        }
-      ],
-      "title": "Telemetry Processed Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 40
-      },
-      "id": 12,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum by (error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[30s]))",
-          "refId": "A",
-          "legendFormat": "{{error}}"
-        }
-      ],
-      "title": "Telemetry Failed Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 40
-      },
-      "id": 13,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[1m])))",
-          "legendFormat": "${duration_percentile:text}",
-          "refId": "A"
-        },
-        {
-          "expr": "1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[2m])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[2m])), 1e-9)",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc avg"
-        }
-      ],
-      "title": "Telemetry Processing Time",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 40
-      },
-      "id": 14,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "avg"
-        }
-      ],
-      "title": "Telemetry Average Age",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -823,7 +367,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 27
       },
       "id": 15,
       "options": {
@@ -840,12 +384,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{topic}}"
+        },
+        {
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "confluent-parallel pc"
         }
       ],
-      "title": "Telemetry Throughput",
+      "title": "Cauldron Events Throughput",
       "type": "timeseries"
     },
     {
@@ -866,7 +415,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 27
       },
       "id": 16,
       "options": {
@@ -883,12 +432,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[1m]))",
+          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{topic}} / {{error}}"
+        },
+        {
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "confluent-parallel pc failed"
         }
       ],
-      "title": "Telemetry Failure Throughput",
+      "title": "Cauldron Events Failure Throughput",
       "type": "timeseries"
     },
     {
@@ -907,9 +461,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
-        "y": 53
+        "y": 35
       },
       "id": 17,
       "options": {
@@ -926,22 +480,42 @@
       },
       "targets": [
         {
-          "expr": "1000 * histogram_quantile(${duration_percentile}, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[1m])))",
-          "legendFormat": "{{topic}} / ${duration_percentile:text}",
+          "expr": "(1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "legendFormat": "{{topic}} avg",
           "refId": "A"
         },
         {
-          "expr": "1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_telemetry\"}[30s])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_telemetry\"}[30s])), 1e-9)",
-          "legendFormat": "{{topic}} avg",
+          "expr": "(1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_telemetry\"})) and on() (vector(${duration_percentile}) == -2)",
+          "legendFormat": "{{topic}} max",
           "refId": "B"
         },
         {
-          "expr": "1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_telemetry\"})",
-          "legendFormat": "{{topic}} max",
+          "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+          "legendFormat": "{{topic}} p50",
           "refId": "C"
+        },
+        {
+          "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+          "legendFormat": "{{topic}} p95",
+          "refId": "D"
+        },
+        {
+          "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+          "legendFormat": "{{topic}} p99",
+          "refId": "E"
+        },
+        {
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "legendFormat": "confluent-parallel pc avg",
+          "refId": "F"
+        },
+        {
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "legendFormat": "confluent-parallel pc max",
+          "refId": "G"
         }
       ],
-      "title": "Telemetry Processing Duration",
+      "title": "Cauldron Events Processing Duration",
       "type": "timeseries"
     },
     {
@@ -960,9 +534,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 61
+        "w": 12,
+        "x": 12,
+        "y": 35
       },
       "id": 18,
       "options": {
@@ -979,7 +553,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[30s])), 1e-9)",
+          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{topic}} avg"
         },
@@ -989,7 +563,7 @@
           "legendFormat": "{{topic}} max"
         }
       ],
-      "title": "Telemetry Successful Record Age",
+      "title": "Cauldron Events Successful Record Age",
       "type": "timeseries"
     },
     {
@@ -1002,242 +576,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 43
       },
       "id": 19,
       "panels": [],
       "title": "CKC Runtime",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percentunit",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 0,
-        "y": 70
-      },
-      "id": 20,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum(ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
-          "refId": "A",
-          "legendFormat": "busy / workers"
-        }
-      ],
-      "title": "CKC Worker Utilization",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percentunit",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 70
-      },
-      "id": 21,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum(ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}) / clamp_min(sum(ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}), 1)",
-          "refId": "A",
-          "legendFormat": "queue"
-        }
-      ],
-      "title": "CKC Queue Saturation",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 70
-      },
-      "id": 22,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id, error) (increase(ckc_failure_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[15m]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / {{error}}"
-        }
-      ],
-      "title": "CKC Consumer Failures (15m)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 70
-      },
-      "id": 23,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
-          "refId": "A",
-          "legendFormat": "retries"
-        }
-      ],
-      "title": "CKC Retry Rate",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -1255,9 +599,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
-        "y": 75
+        "y": 44
       },
       "id": 24,
       "options": {
@@ -1276,7 +620,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} busy avg"
         },
@@ -1305,9 +649,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 75
+        "w": 12,
+        "x": 12,
+        "y": 44
       },
       "id": 25,
       "options": {
@@ -1360,9 +704,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 75
+        "w": 12,
+        "x": 0,
+        "y": 52
       },
       "id": 26,
       "options": {
@@ -1379,7 +723,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}"
         }
@@ -1404,8 +748,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 83
+        "x": 12,
+        "y": 52
       },
       "id": 27,
       "options": {
@@ -1422,7 +766,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} avg"
         }
@@ -1447,8 +791,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 83
+        "x": 0,
+        "y": 60
       },
       "id": 28,
       "options": {
@@ -1465,7 +809,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -1490,8 +834,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 91
+        "x": 12,
+        "y": 60
       },
       "id": 29,
       "options": {
@@ -1508,7 +852,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[30s]))",
+          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / success={{success}}"
         }
@@ -1526,7 +870,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 99
+        "y": 68
       },
       "id": 45,
       "panels": [],
@@ -1548,25 +892,25 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 100
+        "y": 69
       },
       "id": 46,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
@@ -1576,7 +920,7 @@
         }
       ],
       "title": "PC Inflight Records",
-      "type": "stat"
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1593,25 +937,25 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 100
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 69
       },
       "id": 47,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
@@ -1621,7 +965,7 @@
         }
       ],
       "title": "PC Waiting Records",
-      "type": "stat"
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1631,50 +975,33 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "unit": "percentunit",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
+          "mappings": []
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 100
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 77
       },
       "id": 48,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
@@ -1684,7 +1011,7 @@
         }
       ],
       "title": "PC Dynamic Load Factor",
-      "type": "stat"
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1701,25 +1028,25 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 100
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 77
       },
       "id": 49,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
@@ -1729,106 +1056,6 @@
         }
       ],
       "title": "PC Status",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 105
-      },
-      "id": 50,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (rate(pc_processed_records_total{spring_profile=\"confluent-parallel\"}[2m]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} processed"
-        },
-        {
-          "expr": "sum by (consumer_id) (rate(pc_failed_records_total{spring_profile=\"confluent-parallel\"}[2m]))",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} failed"
-        },
-        {
-          "expr": "sum by (consumer_id) (rate(pc_slow_records_total{spring_profile=\"confluent-parallel\"}[2m]))",
-          "refId": "C",
-          "legendFormat": "{{consumer_id}} slow"
-        }
-      ],
-      "title": "PC Processed and Failed Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 105
-      },
-      "id": 51,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (consumer_id) (rate(pc_user_function_processing_time_seconds_sum{spring_profile=\"confluent-parallel\"}[2m])) / clamp_min(sum by (consumer_id) (rate(pc_user_function_processing_time_seconds_count{spring_profile=\"confluent-parallel\"}[2m])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} avg"
-        }
-      ],
-      "title": "PC User Function Processing Time",
       "type": "timeseries"
     },
     {
@@ -1847,9 +1074,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 105
+        "w": 12,
+        "x": 0,
+        "y": 85
       },
       "id": 52,
       "options": {
@@ -1898,8 +1125,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 113
+        "x": 12,
+        "y": 85
       },
       "id": 53,
       "options": {
@@ -1951,10 +1178,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
+        "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 113
+        "x": 0,
+        "y": 93
       },
       "id": 54,
       "options": {
@@ -2001,10 +1228,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
+        "h": 8,
         "w": 12,
         "x": 12,
-        "y": 117
+        "y": 93
       },
       "id": 59,
       "options": {
@@ -2054,7 +1281,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 121
+        "y": 101
       },
       "id": 55,
       "options": {
@@ -2073,7 +1300,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=\"confluent-parallel\"}[2m])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=\"confluent-parallel\"}[2m])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} avg"
         }
@@ -2099,7 +1326,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 121
+        "y": 101
       },
       "id": 56,
       "options": {
@@ -2118,7 +1345,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=\"confluent-parallel\"}[2m]))",
+          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / {{encoding}}"
         }
@@ -2144,7 +1371,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 129
+        "y": 109
       },
       "id": 57,
       "options": {
@@ -2189,7 +1416,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 129
+        "y": 109
       },
       "id": 58,
       "options": {
@@ -2226,75 +1453,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 137
+        "y": 117
       },
       "id": 30,
       "panels": [],
       "title": "Kafka Lag",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 100
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 0,
-        "y": 138
-      },
-      "id": 31,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "targets": [
-        {
-          "expr": "sum(kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
-          "refId": "A",
-          "legendFormat": "total lag"
-        }
-      ],
-      "title": "Kafka Total Consumer Lag",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -2312,9 +1476,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 18,
-        "x": 6,
-        "y": 138
+        "w": 12,
+        "x": 0,
+        "y": 118
       },
       "id": 32,
       "options": {
@@ -2351,56 +1515,6 @@
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 146
-      },
-      "id": 33,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_group}} / {{topic}}"
-        },
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "B",
-          "legendFormat": "sum {{consumer_group}} / {{topic}}"
-        }
-      ],
-      "title": "MSK CloudWatch Offset Lag",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "unit": "s"
         },
         "overrides": []
@@ -2408,8 +1522,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 146
+        "x": 0,
+        "y": 126
       },
       "id": 34,
       "options": {
@@ -2442,6 +1556,56 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 126
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "refId": "A",
+          "legendFormat": "{{consumer_group}} / {{topic}}"
+        },
+        {
+          "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+          "refId": "B",
+          "legendFormat": "sum {{consumer_group}} / {{topic}}"
+        }
+      ],
+      "title": "MSK CloudWatch Offset Lag",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "datasource": {
         "type": "prometheus",
@@ -2451,7 +1615,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 154
+        "y": 134
       },
       "id": 35,
       "panels": [],
@@ -2466,50 +1630,33 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "unit": "percentunit",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
+          "mappings": []
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 8,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 155
+        "y": 135
       },
       "id": 36,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
@@ -2524,7 +1671,52 @@
         }
       ],
       "title": "CPU Usage",
-      "type": "stat"
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 135
+      },
+      "id": 39,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_sum[$__rate_interval])) / clamp_min(sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[$__rate_interval])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{job}} / {{gc}}"
+        }
+      ],
+      "title": "Average GC Pause",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -2541,10 +1733,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 8,
-        "y": 155
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 143
       },
       "id": 37,
       "options": {
@@ -2586,15 +1778,60 @@
           "color": {
             "mode": "palette-classic"
           },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 143
+      },
+      "id": 40,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{job}} / {{gc}}"
+        }
+      ],
+      "title": "GC Pause Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
           "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 16,
-        "y": 155
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 151
       },
       "id": 38,
       "options": {
@@ -2625,96 +1862,6 @@
       ],
       "title": "JVM Threads",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 161
-      },
-      "id": 39,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_sum[30s])) / clamp_min(sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{gc}}"
-        }
-      ],
-      "title": "Average GC Pause",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 161
-      },
-      "id": 40,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[30s]))",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{gc}}"
-        }
-      ],
-      "title": "GC Pause Rate",
-      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -2729,23 +1876,33 @@
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": "p95",
-          "value": "0.95"
+          "selected": true,
+          "text": "avg",
+          "value": "-1"
         },
         "hide": 0,
         "includeAll": false,
-        "label": "Processing percentile",
+        "label": "Processing duration",
         "multi": false,
         "name": "duration_percentile",
         "options": [
+          {
+            "selected": true,
+            "text": "avg",
+            "value": "-1"
+          },
+          {
+            "selected": false,
+            "text": "max",
+            "value": "-2"
+          },
           {
             "selected": false,
             "text": "p50",
             "value": "0.50"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "p95",
             "value": "0.95"
           },
@@ -2755,7 +1912,7 @@
             "value": "0.99"
           }
         ],
-        "query": "p50 : 0.50,p95 : 0.95,p99 : 0.99",
+        "query": "avg : -1,max : -2,p50 : 0.50,p95 : 0.95,p99 : 0.99",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
@@ -2770,6 +1927,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 10,
+  "version": 18,
   "weekStart": ""
 }

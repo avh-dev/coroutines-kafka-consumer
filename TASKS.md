@@ -58,6 +58,7 @@
 | [INFRA-21](#infra-21) | Add a standalone Wake-on-LAN helper for the internal lab host.                                                                              | DONE |
 | [INFRA-22](#infra-22) | Update Grafana dashboards to compare consumers by Spring profile and add Confluent Parallel Consumer metric panels.                         | DONE |
 | [INFRA-23](#infra-23) | Add Confluent Parallel Consumer offset encoder metrics and clearer shard/partition panels to the Grafana dashboard.                          | DONE |
+| [INFRA-24](#infra-24) | Clean up the Grafana dashboard for load-test result analysis with consistent time-series panels.                                             | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -583,6 +584,24 @@ Extend the Confluent Parallel Consumer dashboard section with offset encoder met
 Add panels for offset encoding time, offset encoding usage, metadata space used, and payload ratio used.
 Split the Confluent shard and partition counts into separate panels so the dashboard legends stay readable.
 Keep `demo/infra/shared/grafana` as the single dashboard source and have the internal lab copy shared dashboard assets during installation.
+
+<a id="infra-24"></a>
+### INFRA-24 - Clean up Grafana load-test dashboard panels
+
+_Date: 2026-05-18_
+
+Rework the shared Grafana dashboard for load-test result analysis rather than live monitoring.
+Keep Consumer Profile as a single full-width timeline panel and remove redundant profile summary panels.
+Replace small stat panels with consistent half-width time-series panels, dropping duplicate signal views where they add noise.
+Rename the record sections and panels around domain event streams: Order Events and Cauldron Events.
+Add Confluent Parallel Consumer series to the Order Events throughput and processing panels, and move JVM Threads to the end of runtime panels.
+Add matching Confluent Parallel Consumer series to the Cauldron Events throughput and processing panels.
+Keep the MSK CloudWatch lag panels on the same dashboard row for easier load-test comparison.
+Order the Java Runtime panels as CPU, GC pause, memory, GC rate, and threads.
+Place MSK CloudWatch Time Lag before Offset Lag in the Kafka Lag section.
+Remove duplicated Confluent Parallel Consumer throughput and processing-time panels now covered by domain event panels.
+Extend the processing duration selector with default avg and max options alongside p50, p95, and p99.
+Use Grafana's adaptive `$__rate_interval` for Prometheus rate windows so short load tests are not smoothed by fixed two-minute windows.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
