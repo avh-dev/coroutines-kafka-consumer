@@ -12,6 +12,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
+SHARED_GRAFANA_DIR="${REPO_ROOT}/demo/infra/shared/grafana"
 LAB_ROOT="/opt/ckc-internal-lab"
 SSH_TARGET="root@${LAB_HOST_IP}"
 KUBECONFIG_PATH="${STATE_DIR}/kubeconfig.yaml"
@@ -24,8 +25,9 @@ SSH_TARGET=${SSH_TARGET}
 KUBECONFIG=${KUBECONFIG_PATH}
 EOF
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_TARGET}" "mkdir -p '${LAB_ROOT}' && rm -rf '${LAB_ROOT}/assets'"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_TARGET}" "mkdir -p '${LAB_ROOT}/shared' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana'"
 scp -r "${ASSETS_DIR}" "${SSH_TARGET}:${LAB_ROOT}/"
+scp -r "${SHARED_GRAFANA_DIR}" "${SSH_TARGET}:${LAB_ROOT}/shared/"
 ssh "${SSH_TARGET}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh && LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/install-server.sh'"
 ssh "${SSH_TARGET}" "LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
 

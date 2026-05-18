@@ -1951,7 +1951,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 12,
         "x": 12,
         "y": 113
@@ -1981,19 +1981,239 @@
           "expr": "sum by (consumer_id) (pc_shards_size{spring_profile=\"confluent-parallel\"})",
           "refId": "B",
           "legendFormat": "{{consumer_id}} shard size"
+        }
+      ],
+      "title": "PC Shards",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
         },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 117
+      },
+      "id": 59,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
         {
           "expr": "sum by (consumer_id) (pc_partitions_number{spring_profile=\"confluent-parallel\"})",
-          "refId": "C",
+          "refId": "A",
           "legendFormat": "{{consumer_id}} partitions"
         },
         {
           "expr": "sum by (consumer_id) (pc_partitions_paused{spring_profile=\"confluent-parallel\"})",
-          "refId": "D",
+          "refId": "B",
           "legendFormat": "{{consumer_id}} paused"
         }
       ],
-      "title": "PC Shards and Partitions",
+      "title": "PC Partitions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 121
+      },
+      "id": 55,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=\"confluent-parallel\"}[2m])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=\"confluent-parallel\"}[2m])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} avg"
+        }
+      ],
+      "title": "PC Offset Encoding Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 121
+      },
+      "id": 56,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=\"confluent-parallel\"}[2m]))",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} / {{encoding}}"
+        }
+      ],
+      "title": "PC Offset Encoding Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 129
+      },
+      "id": 57,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg by (consumer_id) (pc_metadata_space_used{spring_profile=\"confluent-parallel\"})",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}}"
+        }
+      ],
+      "title": "PC Offset Metadata Space Used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 129
+      },
+      "id": 58,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg by (consumer_id) (pc_payload_ratio_used{spring_profile=\"confluent-parallel\"})",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}}"
+        }
+      ],
+      "title": "PC Offset Payload Ratio Used",
       "type": "timeseries"
     },
     {
@@ -2006,7 +2226,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 137
       },
       "id": 30,
       "panels": [],
@@ -2049,7 +2269,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 122
+        "y": 138
       },
       "id": 31,
       "options": {
@@ -2094,7 +2314,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 122
+        "y": 138
       },
       "id": 32,
       "options": {
@@ -2139,7 +2359,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 130
+        "y": 146
       },
       "id": 33,
       "options": {
@@ -2189,7 +2409,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 130
+        "y": 146
       },
       "id": 34,
       "options": {
@@ -2231,7 +2451,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 138
+        "y": 154
       },
       "id": 35,
       "panels": [],
@@ -2274,7 +2494,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 139
+        "y": 155
       },
       "id": 36,
       "options": {
@@ -2324,7 +2544,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 139
+        "y": 155
       },
       "id": 37,
       "options": {
@@ -2374,7 +2594,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 139
+        "y": 155
       },
       "id": 38,
       "options": {
@@ -2424,7 +2644,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 145
+        "y": 161
       },
       "id": 39,
       "options": {
@@ -2469,7 +2689,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 145
+        "y": 161
       },
       "id": 40,
       "options": {
@@ -2550,6 +2770,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 7,
+  "version": 10,
   "weekStart": ""
 }

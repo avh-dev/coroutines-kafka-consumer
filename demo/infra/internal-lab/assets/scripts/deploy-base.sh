@@ -9,6 +9,7 @@ fi
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
 ASSETS_DIR="${ASSETS_DIR:-${LAB_ROOT}/assets}"
+SHARED_GRAFANA_DIR="${SHARED_GRAFANA_DIR:-${LAB_ROOT}/shared/grafana}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 mkdir -p "${LAB_ROOT}/generated"
@@ -31,8 +32,8 @@ mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/pro
 sed "s/__LAB_HOST_IP__/${LAB_HOST_IP}/g" \
   "${ASSETS_DIR}/grafana/provisioning/datasources/prometheus.yml" \
   > "${LAB_ROOT}/grafana/provisioning/datasources/prometheus.yml"
-cp "${ASSETS_DIR}/grafana/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
-cp "${ASSETS_DIR}/grafana/dashboards/ckc-overview.json" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
+cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
+cp "${SHARED_GRAFANA_DIR}/dashboards/ckc-overview.json" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
 cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
 
 for container in ckc-perf-kafka ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter; do
