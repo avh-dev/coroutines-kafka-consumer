@@ -22,6 +22,8 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testFixturesImplementation(kotlin("test-junit5"))
+    testFixturesImplementation("com.github.luben:zstd-jni:1.5.6-9")
+    testFixturesImplementation("org.lz4:lz4-java:1.8.0")
 
     testImplementation(testFixtures(project(":ckc-core")))
 
@@ -30,6 +32,8 @@ dependencies {
     jmhAnnotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:$jmhVersion")
 
     jmhImplementation(sourceSets.testFixtures.get().output)
+    jmhImplementation("com.github.luben:zstd-jni:1.5.6-9")
+    jmhImplementation("org.lz4:lz4-java:1.8.0")
 }
 
 tasks.test {
