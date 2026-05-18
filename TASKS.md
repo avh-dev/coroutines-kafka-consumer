@@ -18,6 +18,7 @@
 | [CORE-13](#core-13) | Add per-partition OffsetTracker capacity gauge.                                                                                                                                                        | DONE |
 | [CORE-14](#core-14) | Expand offset metrics with committed offset advancement measurements.                                                                                                                                   | DONE |
 | [CORE-15](#core-15) | Align the default CKC manual commit interval with Kafka's default auto-commit interval.                                                                                                                  | DONE |
+| [CORE-16](#core-16) | Prototype OffsetTracker metadata payload compression candidates in experiments and benchmark them before moving a winner into core.                                                                      | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -300,6 +301,15 @@ _Date: 2026-05-14_
 Reduce the default CKC backpressure commit interval from 60 seconds to 5 seconds.
 Keep the default aligned with Kafka's `auto.commit.interval.ms` default while preserving explicit CKC manual commit configuration.
 Update test helpers so core tests inherit the same default interval as the public builder.
+
+<a id="core-16"></a>
+### CORE-16 - Prototype OffsetTracker metadata compression
+
+_Date: 2026-05-18_
+
+Prototype compact encodings for processed-but-not-committed offset bitsets in the experiments module.
+Compare raw bitset storage with custom RLE variants before selecting a metadata payload format for core.
+Document the experiment intent and JMH workflow so compression candidates can be evaluated reproducibly.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics
