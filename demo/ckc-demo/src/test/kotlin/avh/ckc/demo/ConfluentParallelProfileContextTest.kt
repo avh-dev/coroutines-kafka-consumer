@@ -3,6 +3,7 @@ package avh.ckc.demo
 import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.ApplicationContext
@@ -20,7 +21,8 @@ import kotlin.test.assertNotNull
 @ActiveProfiles("confluent-parallel")
 class ConfluentParallelProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
-    @Autowired private val meterRegistry: MeterRegistry
+    @Autowired private val meterRegistry: MeterRegistry,
+    @Autowired private val metricsProperties: MetricsProperties
 ) {
     @Test
     fun contextLoads() {
@@ -41,5 +43,13 @@ class ConfluentParallelProfileContextTest(
     fun `confluent parallel profile does not publish CKC record metrics`() {
         assertFalse(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
+    }
+
+    @Test
+    fun `confluent parallel processing timer publishes percentile histogram buckets`() {
+        assertEquals(
+            true,
+            metricsProperties.distribution.percentilesHistogram["pc.user.function.processing.time"]
+        )
     }
 }

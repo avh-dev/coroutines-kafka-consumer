@@ -46,3 +46,4 @@ management:
     distribution:
       percentiles-histogram:
         ckc.record.process.duration: true
+        pc.user.function.processing.time: true

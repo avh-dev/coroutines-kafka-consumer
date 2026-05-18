@@ -35,6 +35,7 @@
 | [DEMO-15](#demo-15) | Move demo consumer implementation identity from every record metric into a dedicated static profile info metric.                                                                                        | DONE |
 | [DEMO-16](#demo-16) | Add a blocking Confluent Parallel Consumer demo implementation with native Parallel Consumer metrics.                                                                                                    | DONE |
 | [DEMO-17](#demo-17) | Keep the Confluent Parallel Consumer profile metric visible without registering CKC-style record metric beans.                                                                                            | DONE |
+| [DEMO-18](#demo-18) | Enable percentile histogram buckets for Confluent Parallel Consumer processing-time metrics in the demo app.                                 | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -498,6 +499,15 @@ _Date: 2026-05-16_
 Keep the dedicated demo consumer profile gauge available for every consumer implementation.
 Scope CKC and Spring Kafka record metric beans to their own profiles so Confluent Parallel Consumer only exports the profile gauge plus native PC metrics.
 This keeps Grafana profile visibility without pulling CKC-style record metrics into the Confluent profile.
+
+<a id="demo-18"></a>
+### DEMO-18 - Enable Confluent PC processing-time histograms
+
+_Date: 2026-05-18_
+
+Enable percentile histogram buckets for the native Confluent Parallel Consumer user-function processing timer.
+Keep the setting in demo application metrics configuration so Grafana can query PC processing-time percentiles later.
+Add coverage around the Confluent profile context to guard the demo metrics distribution setting.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
