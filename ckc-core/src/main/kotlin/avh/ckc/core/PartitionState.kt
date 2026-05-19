@@ -1,11 +1,13 @@
 package avh.ckc.core
 
 import avh.ckc.core.offset.OffsetTracker
+import avh.ckc.core.offset.OffsetTrackerSnapshot
 import org.apache.kafka.common.TopicPartition
 
 internal data class CommitOffsetProgress(
     val offset: Long,
-    val offsetsCount: Long
+    val offsetsCount: Long,
+    val snapshot: OffsetTrackerSnapshot
 )
 
 /**
@@ -42,6 +44,15 @@ internal class PartitionState(
     }
 
     /**
+     * Restores the tracker from committed Kafka offset plus CKC offset metadata.
+     *
+     * Kafka stores the next offset to consume, while [OffsetTracker] stores the last committed offset.
+     */
+    fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot) {
+        offsetTracker = OffsetTracker(lastCommitedOffset = committedOffset - 1, snapshot = snapshot)
+    }
+
+    /**
      * Advances the committable offset if processed offsets allow it.
      */
     fun advanceCommitOffset() = offsetTracker.advanceCommitOffset()
@@ -49,7 +60,11 @@ internal class PartitionState(
     fun advanceCommitOffsetProgress(): CommitOffsetProgress? {
         val previousOffset = offsetTracker.lastCommitedOffset
         val offset = offsetTracker.advanceCommitOffset() ?: return null
-        return CommitOffsetProgress(offset = offset, offsetsCount = offset - previousOffset)
+        return CommitOffsetProgress(
+            offset = offset,
+            offsetsCount = offset - previousOffset,
+            snapshot = offsetTracker.snapshot()
+        )
     }
 
     /**
@@ -58,6 +73,9 @@ internal class PartitionState(
     fun markProcessed(offset: Long) {
         offsetTracker.markProcessed(offset)
     }
+
+    fun isProcessed(offset: Long): Boolean =
+        offsetTracker.isProcessed(offset)
 
     @VisibleForTesting
     internal fun trackerRefForTest() = offsetTracker
