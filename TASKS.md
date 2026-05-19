@@ -19,6 +19,7 @@
 | [CORE-14](#core-14) | Expand offset metrics with committed offset advancement measurements.                                                                                                                                   | DONE |
 | [CORE-15](#core-15) | Align the default CKC manual commit interval with Kafka's default auto-commit interval.                                                                                                                  | DONE |
 | [CORE-16](#core-16) | Prototype OffsetTracker metadata payload compression candidates in experiments and benchmark them before moving a winner into core.                                                                      | DONE |
+| [CORE-17](#core-17) | Add OffsetTracker snapshots and zstd-backed metadata encoding for restoring processed-but-not-committed offsets.                                                                                         | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -310,6 +311,16 @@ _Date: 2026-05-18_
 Prototype compact encodings for processed-but-not-committed offset bitsets in the experiments module.
 Compare raw bitset storage with custom RLE variants before selecting a metadata payload format for core.
 Document the experiment intent and JMH workflow so compression candidates can be evaluated reproducibly.
+
+<a id="core-17"></a>
+### CORE-17 - Add OffsetTracker snapshot metadata encoding
+
+_Date: 2026-05-18_
+
+Add an internal OffsetTracker snapshot representation for the tracker ring state.
+Introduce a focused offset tracker snapshot serializer using raw storage for small payloads and zstd for larger snapshots.
+Restore OffsetTracker state from decoded snapshots while keeping compression outside the tracker lock.
+Move direct offset tracking, snapshot serialization, and offset contract tests into `avh.ckc.core.offset`.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics

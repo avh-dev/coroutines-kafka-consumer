@@ -37,6 +37,7 @@ dependencies {
     api("org.apache.kafka:kafka-clients")
     api("org.slf4j:slf4j-api")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    implementation("com.github.luben:zstd-jni:1.5.6-9")
 
     testFixturesImplementation(kotlin("test-junit5"))
     testFixturesImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
