@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.offset.OffsetTracker
 import org.apache.kafka.common.TopicPartition
 
 internal data class CommitOffsetProgress(

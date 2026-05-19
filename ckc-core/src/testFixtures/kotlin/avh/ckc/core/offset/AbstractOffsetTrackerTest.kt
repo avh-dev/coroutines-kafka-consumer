@@ -1,4 +1,4 @@
-package avh.ckc.core.avh.ckc.core
+package avh.ckc.core.offset
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,11 +11,6 @@ import kotlin.test.assertTrue
  * Each implementation must extend this class and provide [createOffsetTracker].
  */
 abstract class AbstractOffsetTrackerTest {
-
-    interface AbstractOffsetTracker {
-        fun markProcessed(offset: Long)
-        fun advanceCommitOffset(): Long?
-    }
 
     /**
      * Factory method to create a new tracker with given baseOffset.
@@ -179,4 +174,9 @@ abstract class AbstractOffsetTrackerTest {
 
         assertEquals(129L, secondCommit)
     }
+}
+
+interface AbstractOffsetTracker {
+    fun markProcessed(offset: Long)
+    fun advanceCommitOffset(): Long?
 }
