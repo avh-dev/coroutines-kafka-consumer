@@ -72,6 +72,23 @@ class PartitionStateTest {
     }
 
     @Test
+    fun `when initialized from snapshot with same committed offset then current tracker is preserved`() {
+        val staleSnapshotSource = OffsetTracker(lastCommitedOffset = 9L)
+        staleSnapshotSource.markProcessed(12L)
+
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        ps.markProcessed(13L)
+        val trackerBefore = ps.trackerRefForTest()
+
+        ps.init(committedOffset = 10L, snapshot = staleSnapshotSource.snapshot())
+
+        assertSame(trackerBefore, ps.trackerRefForTest())
+        assertTrue(ps.isProcessed(13L))
+        assertFalse(ps.isProcessed(12L))
+    }
+
+    @Test
     fun `advance progress includes snapshot after offset advancement`() {
         val ps = PartitionState(TopicPartition("t", 0))
         ps.init(10L)

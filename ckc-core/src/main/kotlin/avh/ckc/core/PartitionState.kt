@@ -47,9 +47,13 @@ internal class PartitionState(
      * Restores the tracker from committed Kafka offset plus CKC offset metadata.
      *
      * Kafka stores the next offset to consume, while [OffsetTracker] stores the last committed offset.
+     * If the in-memory tracker already matches Kafka's committed offset, keep it: workers may have marked
+     * additional offsets processed while the rebalance was in progress.
      */
     fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot) {
-        offsetTracker = OffsetTracker(lastCommitedOffset = committedOffset - 1, snapshot = snapshot)
+        if ((committedOffset - offsetTracker.lastCommitedOffset) != 1L) {
+            offsetTracker = OffsetTracker(lastCommitedOffset = committedOffset - 1, snapshot = snapshot)
+        }
     }
 
     /**
