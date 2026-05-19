@@ -1,5 +1,7 @@
 package avh.ckc.core
 
+import avh.ckc.core.offset.OffsetTracker
+import avh.ckc.core.offset.OffsetTrackerMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,6 +18,7 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.never
@@ -246,6 +249,33 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when partitions assigned with offset metadata then tracker is restored from committed metadata`() = runBlocking {
+            val restoredTracker = OffsetTracker(lastCommitedOffset = 41L)
+            restoredTracker.markProcessed(43L)
+            val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
+            val fixture = PollLoopFixture(
+                deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                workChannelCapacity = 4,
+                committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L, metadata)),
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+
+            val state = fixture.awaitAssignedState()
+
+            assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
+            assertFalse(state.isProcessed(42L))
+            assertTrue(state.isProcessed(43L))
+            verify(fixture.consumer, never()).position(fixture.topicPartition)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when prepare for shutdown called then wakeup is invoked`() = runBlocking {
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
@@ -358,7 +388,7 @@ class ConsumerPollLoopTest {
 
             verify(fixture.consumer, timeout(2_000).times(2)).commitSync(
                 argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                    get(fixture.topicPartition)?.offset() in listOf(300L, 301L)
+                    get(fixture.topicPartition)?.offset() in listOf(301L, 302L)
                 }
             )
 
@@ -417,6 +447,7 @@ private class PollLoopFixture(
     metrics: ConsumerMetrics<Any?, Any?> = ConsumerMetrics.NOOP as ConsumerMetrics<Any?, Any?>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
+    private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
     commitIntervalMs: Long = 5_000L,
     initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
     private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
@@ -459,6 +490,7 @@ private class PollLoopFixture(
             }
 
         whenever(consumer.position(topicPartition)).thenReturn(assignmentPosition)
+        whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
         whenever(consumer.assignment()).thenReturn(setOf(topicPartition))
         whenever(consumer.close()).then { }
 
@@ -489,7 +521,8 @@ private class PollLoopFixture(
     fun awaitCommit(offset: Long) {
         verify(consumer, timeout(2_000)).commitSync(
             argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                get(topicPartition)?.offset() == offset
+                val committed = get(topicPartition)
+                committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
             }
         )
     }
