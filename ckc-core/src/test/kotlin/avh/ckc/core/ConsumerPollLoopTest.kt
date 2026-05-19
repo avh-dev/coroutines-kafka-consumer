@@ -276,6 +276,42 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when polled record is already processed from metadata then it is not sent to work channel`() = runBlocking {
+            val restoredTracker = OffsetTracker(lastCommitedOffset = 41L)
+            restoredTracker.markProcessed(43L)
+            val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+                workChannelCapacity = 4,
+                committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L, metadata)),
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(
+                            topicPartition,
+                            record(offset = 42L),
+                            record(offset = 43L)
+                        )
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+
+            val delivered = withTimeout(2_000) { fixture.workChannel.receive() }
+            assertEquals(42L, delivered.offset())
+            delay(100)
+            assertTrue(fixture.workChannel.tryReceive().isFailure)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when prepare for shutdown called then wakeup is invoked`() = runBlocking {
             val fixture = PollLoopFixture(
                 deliveryStrategy = DeliveryStrategy.BACKPRESSURE,

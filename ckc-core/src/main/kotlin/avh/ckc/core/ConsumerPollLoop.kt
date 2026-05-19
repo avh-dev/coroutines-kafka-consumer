@@ -360,6 +360,9 @@ internal class ConsumerPollLoop<K, V>(
             if (state == State.ACTIVE) {
                 while (iterator.hasNext()) {
                     val record = iterator.next()
+                    if (isAlreadyProcessed(record)) {
+                        continue
+                    }
 
                     // IMPORTANT: must not suspend poll thread.
                     val result = channel.trySend(record)
@@ -376,7 +379,10 @@ internal class ConsumerPollLoop<K, V>(
 
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
-                stash.addLast(iterator.next())
+                val record = iterator.next()
+                if (!isAlreadyProcessed(record)) {
+                    stash.addLast(record)
+                }
             }
 
             /**
@@ -429,6 +435,10 @@ internal class ConsumerPollLoop<K, V>(
         val channel = workChannel
         while (stash.isNotEmpty()) {
             val record = stash.first()
+            if (isAlreadyProcessed(record)) {
+                stash.removeFirst()
+                continue
+            }
             val result = channel.trySend(record)
             if (!result.isSuccess) {
                 return false
@@ -436,6 +446,11 @@ internal class ConsumerPollLoop<K, V>(
             stash.removeFirst()
         }
         return true
+    }
+
+    private fun isAlreadyProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
+        val partitionState = partitionStateRegistry.partitionStateFor(record) ?: return false
+        return partitionState.isProcessed(record.offset())
     }
 
     /** Pause all assigned partitions (best-effort). */
