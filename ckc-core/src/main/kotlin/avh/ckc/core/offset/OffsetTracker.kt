@@ -91,6 +91,23 @@ internal class OffsetTracker(
     }
 
     /**
+     * Returns whether [offset] is already known as processed.
+     *
+     * Offsets at or below [lastCommitedOffset] are considered processed by definition. Offsets beyond the
+     * current ring capacity are not tracked yet and therefore are not considered processed.
+     */
+    fun isProcessed(offset: Long): Boolean =
+        synchronized(this) {
+            if (offset <= lastCommitedOffset) return true
+
+            val bitIndex = (offset - headWordOffset).toInt()
+            if (bitIndex < 0 || bitIndex >= capacityBits) return false
+
+            val wordIndex = ((bitIndex ushr 6) + headWordIndex) and wordMask
+            (words[wordIndex] and (1L shl bitIndex)) != 0L
+        }
+
+    /**
      * Advances and returns the highest contiguous offset eligible for commit,
      * or null if no progress can be made.
      * Thread-safe and designed for a hot path with minimal overhead.

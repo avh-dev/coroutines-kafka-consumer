@@ -2,7 +2,9 @@ package avh.ckc.core.offset
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     override fun createOffsetTracker(baseOffset: Long): AbstractOffsetTracker = object : AbstractOffsetTracker {
@@ -63,6 +65,26 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         )
 
         assertEquals(tracker.bitCapacity, restored.bitCapacity)
+    }
+
+    @Test
+    fun `isProcessed returns true for committed and marked offsets`() {
+        val tracker = OffsetTracker(lastCommitedOffset = 9L)
+
+        tracker.markProcessed(10L)
+        tracker.markProcessed(12L)
+
+        assertTrue(tracker.isProcessed(9L))
+        assertTrue(tracker.isProcessed(10L))
+        assertFalse(tracker.isProcessed(11L))
+        assertTrue(tracker.isProcessed(12L))
+    }
+
+    @Test
+    fun `isProcessed returns false for offsets outside current ring`() {
+        val tracker = OffsetTracker(lastCommitedOffset = 9L, initialCapacity = 128)
+
+        assertFalse(tracker.isProcessed(10_000L))
     }
 
     private fun OffsetTracker.snapshotRoundTrip(): OffsetTrackerSnapshot =
