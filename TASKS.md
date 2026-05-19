@@ -20,6 +20,7 @@
 | [CORE-15](#core-15) | Align the default CKC manual commit interval with Kafka's default auto-commit interval.                                                                                                                  | DONE |
 | [CORE-16](#core-16) | Prototype OffsetTracker metadata payload compression candidates in experiments and benchmark them before moving a winner into core.                                                                      | DONE |
 | [CORE-17](#core-17) | Add OffsetTracker snapshots and zstd-backed metadata encoding for restoring processed-but-not-committed offsets.                                                                                         | DONE |
+| [CORE-18](#core-18) | Use OffsetTracker snapshot metadata during commits and assignment restore, and skip records already restored as processed.                                                                                | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -321,6 +322,16 @@ Add an internal OffsetTracker snapshot representation for the tracker ring state
 Introduce a focused offset tracker snapshot serializer using raw storage for small payloads and zstd for larger snapshots.
 Restore OffsetTracker state from decoded snapshots while keeping compression outside the tracker lock.
 Move direct offset tracking, snapshot serialization, and offset contract tests into `avh.ckc.core.offset`.
+
+<a id="core-18"></a>
+### CORE-18 - Use OffsetTracker commit metadata
+
+_Date: 2026-05-19_
+
+Commit OffsetTracker snapshots in Kafka offset metadata for backpressure consumers.
+Restore partition trackers from committed metadata during assignment when metadata is available.
+Skip records that were already processed according to restored tracker state.
+Cover the behavior with unit and Kafka integration tests.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics
