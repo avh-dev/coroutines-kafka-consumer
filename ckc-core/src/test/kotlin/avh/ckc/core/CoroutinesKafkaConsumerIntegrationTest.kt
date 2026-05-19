@@ -1,5 +1,7 @@
 package avh.ckc.core
 
+import avh.ckc.core.offset.OffsetTracker
+import avh.ckc.core.offset.OffsetTrackerMetadata
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -8,9 +10,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.NewTopic
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.LongDeserializer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
@@ -308,6 +313,88 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
+    fun `when backpressure commits offset then offset metadata is stored in kafka`() = runBlocking {
+        val topic = "metadata-commit-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+
+        val processed = CompletableDeferred<Long>()
+        val consumer = coroutinesKafkaConsumer<String, String>(
+            consumerProperties = consumerProperties(groupId)
+        ) {
+            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            commitIntervalMs = 100L
+            topics(topic)
+            handle { _, _, rawRecord ->
+                processed.complete(rawRecord.offset())
+            }
+        }
+
+        try {
+            consumer.start()
+            produce(topic, "metadata-key", "metadata-payload")
+
+            assertEquals(0L, withTimeout(15_000) { processed.await() })
+            val committed = awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf {
+                    it.offset() == 1L && it.metadata().isNotEmpty()
+                }
+            }
+
+            OffsetTrackerMetadata.decode(committed.metadata())
+            Unit
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when committed offset metadata contains processed offset then restored consumer skips it`() = runBlocking {
+        val topic = "metadata-restore-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+
+        produce(topic, "key-0", "0")
+        produce(topic, "key-1", "1")
+        produce(topic, "key-2", "2")
+
+        val tracker = OffsetTracker(lastCommitedOffset = 0L)
+        tracker.markProcessed(1L)
+        commitOffset(
+            groupId = groupId,
+            topic = topic,
+            offset = 1L,
+            metadata = OffsetTrackerMetadata.encode(tracker.snapshot())!!
+        )
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = coroutinesKafkaConsumer<String, String>(
+            consumerProperties = consumerProperties(groupId)
+        ) {
+            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            commitIntervalMs = 100L
+            topics(topic)
+            handle { _, _, rawRecord ->
+                processed += rawRecord.offset()
+            }
+        }
+
+        try {
+            consumer.start()
+
+            awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
+                processed.takeIf { it.contains(2L) }
+            }
+            delay(500)
+
+            assertFalse(processed.contains(1L))
+            assertEquals(listOf(2L), processed.toList())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `when deserialization fails permanently then consumer reports failure`() = runBlocking {
         val topic = "deser-failure-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
@@ -527,6 +614,27 @@ class CoroutinesKafkaConsumerIntegrationTest {
     private fun createTopic(topic: String, partitions: Int = 1) {
         AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
             admin.createTopics(listOf(NewTopic(topic, partitions, 1))).all().get()
+        }
+    }
+
+    private fun committedOffset(groupId: String, topic: String, partition: Int = 0): OffsetAndMetadata? {
+        val topicPartition = TopicPartition(topic, partition)
+        KafkaConsumer<String, String>(consumerProperties(groupId)).use { consumer ->
+            return consumer.committed(setOf(topicPartition))[topicPartition]
+        }
+    }
+
+    private fun commitOffset(
+        groupId: String,
+        topic: String,
+        partition: Int = 0,
+        offset: Long,
+        metadata: String
+    ) {
+        val topicPartition = TopicPartition(topic, partition)
+        KafkaConsumer<String, String>(consumerProperties(groupId)).use { consumer ->
+            consumer.assign(listOf(topicPartition))
+            consumer.commitSync(mapOf(topicPartition to OffsetAndMetadata(offset, metadata)))
         }
     }
 
