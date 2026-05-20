@@ -1,7 +1,7 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.CoroutinesKafkaConsumer
-import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.DemoConsumers
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent

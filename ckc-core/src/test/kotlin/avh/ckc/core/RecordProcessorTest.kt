@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking

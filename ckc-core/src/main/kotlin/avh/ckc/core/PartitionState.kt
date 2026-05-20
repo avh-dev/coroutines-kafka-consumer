@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.offset.OffsetTracker
 import avh.ckc.core.offset.OffsetTrackerSnapshot
 import org.apache.kafka.common.TopicPartition

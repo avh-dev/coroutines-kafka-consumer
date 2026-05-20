@@ -1,5 +1,7 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -125,7 +127,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         processingFailureHandler = processingFailureHandler,
         partitionRegistry = partitionRegistry
     )
-    private val runtimeStats = DefaultConsumerRuntimeStats(
+    private val runtimeStats = ConsumerRuntimeStatsTracker(
         workerCount = workerConcurrency,
         workQueueCapacity = workChannelCapacity
     )
@@ -319,7 +321,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 @OptIn(DelicateCoroutinesApi::class)
 private class TrackingSendChannel<E>(
     private val delegate: Channel<E>,
-    private val runtimeStats: DefaultConsumerRuntimeStats
+    private val runtimeStats: ConsumerRuntimeStatsTracker
 ) : SendChannel<E> {
     override val isClosedForSend: Boolean
         get() = delegate.isClosedForSend

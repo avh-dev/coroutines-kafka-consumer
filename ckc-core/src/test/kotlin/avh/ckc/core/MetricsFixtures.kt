@@ -1,5 +1,8 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerPartitionStats
+import avh.ckc.core.metrics.ConsumerRuntimeStats
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
 

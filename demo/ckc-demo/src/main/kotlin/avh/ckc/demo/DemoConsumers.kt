@@ -1,7 +1,7 @@
 package avh.ckc.demo
 
 import avh.ckc.core.CoroutinesKafkaConsumer
-import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.config.DemoApplicationProperties

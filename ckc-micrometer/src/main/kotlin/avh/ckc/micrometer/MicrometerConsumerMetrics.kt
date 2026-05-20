@@ -1,8 +1,8 @@
 package avh.ckc.micrometer
 
-import avh.ckc.core.ConsumerMetrics
-import avh.ckc.core.ConsumerPartitionStats
-import avh.ckc.core.ConsumerRuntimeStats
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerPartitionStats
+import avh.ckc.core.metrics.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge

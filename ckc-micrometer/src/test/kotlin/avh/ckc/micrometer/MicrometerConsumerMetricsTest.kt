@@ -1,7 +1,7 @@
 package avh.ckc.micrometer
 
-import avh.ckc.core.ConsumerPartitionStats
-import avh.ckc.core.ConsumerRuntimeStats
+import avh.ckc.core.metrics.ConsumerPartitionStats
+import avh.ckc.core.metrics.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig

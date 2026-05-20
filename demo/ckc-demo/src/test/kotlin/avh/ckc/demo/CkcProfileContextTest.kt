@@ -1,6 +1,6 @@
 package avh.ckc.demo
 
-import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord

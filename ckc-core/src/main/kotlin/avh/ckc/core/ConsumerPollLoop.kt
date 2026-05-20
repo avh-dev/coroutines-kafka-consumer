@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
