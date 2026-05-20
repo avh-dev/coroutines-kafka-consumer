@@ -1,5 +1,6 @@
-package avh.ckc.core
+package avh.ckc.core.partition
 
+import avh.ckc.core.VisibleForTesting
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import kotlin.arrayOfNulls

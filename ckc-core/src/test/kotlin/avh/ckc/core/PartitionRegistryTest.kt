@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.partition.PartitionRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.*

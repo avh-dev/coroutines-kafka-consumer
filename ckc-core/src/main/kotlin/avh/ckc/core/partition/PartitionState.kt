@@ -1,15 +1,10 @@
-package avh.ckc.core
+package avh.ckc.core.partition
 
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.offset.OffsetTracker
 import avh.ckc.core.offset.OffsetTrackerSnapshot
+import avh.ckc.core.VisibleForTesting
 import org.apache.kafka.common.TopicPartition
-
-internal data class CommitOffsetProgress(
-    val offset: Long,
-    val offsetsCount: Long,
-    val snapshot: OffsetTrackerSnapshot
-)
 
 /**
  * Per-partition state used by the backpressure pipeline.
@@ -62,13 +57,13 @@ internal class PartitionState(
      */
     fun advanceCommitOffset() = offsetTracker.advanceCommitOffset()
 
-    fun advanceCommitOffsetProgress(): CommitOffsetProgress? {
+    fun advanceAndGetCommitData(): OffsetCommitData? {
         val previousOffset = offsetTracker.lastCommitedOffset
         val offset = offsetTracker.advanceCommitOffset() ?: return null
-        return CommitOffsetProgress(
+        return OffsetCommitData(
             offset = offset,
-            offsetsCount = offset - previousOffset,
-            snapshot = offsetTracker.snapshot()
+            advancedOffsetsCount = offset - previousOffset,
+            offsetTrackerSnapshot = offsetTracker.snapshot()
         )
     }
 

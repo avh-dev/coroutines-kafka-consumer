@@ -2,6 +2,8 @@ package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
+import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.partition.PartitionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
 import org.apache.kafka.clients.consumer.*
@@ -271,16 +273,16 @@ internal class ConsumerPollLoop<K, V>(
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
         var offsetsCount = 0L
         for (partitionState in partitionStates) {
-            val progress = partitionState.advanceCommitOffsetProgress()
-            if (progress != null) {
-                val metadata = OffsetTrackerMetadata.encode(progress.snapshot)
-                val kafkaOffset = progress.offset + 1
+            val commitData = partitionState.advanceAndGetCommitData()
+            if (commitData != null) {
+                val metadata = OffsetTrackerMetadata.encode(commitData.offsetTrackerSnapshot)
+                val kafkaOffset = commitData.offset + 1
                 offsets[partitionState.topicPartition] = if (metadata == null) {
                     OffsetAndMetadata(kafkaOffset)
                 } else {
                     OffsetAndMetadata(kafkaOffset, metadata)
                 }
-                offsetsCount += progress.offsetsCount
+                offsetsCount += commitData.advancedOffsetsCount
             }
         }
         if (!offsets.isEmpty()) {

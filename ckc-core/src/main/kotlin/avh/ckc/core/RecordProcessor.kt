@@ -1,6 +1,7 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.partition.PartitionRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
