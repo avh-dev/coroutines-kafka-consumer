@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.offset.OffsetTracker
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -53,5 +54,54 @@ class PartitionStateTest {
         assertEquals("t", ps.topic)
         assertEquals(3, ps.partition)
         assertEquals(512, ps.offsetTrackerBitCapacity)
+    }
+
+    @Test
+    fun `when initialized from snapshot then processed offsets are restored`() {
+        val original = OffsetTracker(lastCommitedOffset = 9L)
+        original.markProcessed(10L)
+        original.markProcessed(12L)
+        assertEquals(10L, original.advanceCommitOffset())
+
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(committedOffset = original.lastCommitedOffset + 1, snapshot = original.snapshot())
+
+        assertTrue(ps.isProcessed(10L))
+        assertFalse(ps.isProcessed(11L))
+        assertTrue(ps.isProcessed(12L))
+    }
+
+    @Test
+    fun `when initialized from snapshot with same committed offset then current tracker is preserved`() {
+        val staleSnapshotSource = OffsetTracker(lastCommitedOffset = 9L)
+        staleSnapshotSource.markProcessed(12L)
+
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        ps.markProcessed(13L)
+        val trackerBefore = ps.trackerRefForTest()
+
+        ps.init(committedOffset = 10L, snapshot = staleSnapshotSource.snapshot())
+
+        assertSame(trackerBefore, ps.trackerRefForTest())
+        assertTrue(ps.isProcessed(13L))
+        assertFalse(ps.isProcessed(12L))
+    }
+
+    @Test
+    fun `advance progress includes snapshot after offset advancement`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        ps.markProcessed(10L)
+        ps.markProcessed(12L)
+
+        val progress = ps.advanceCommitOffsetProgress()
+        assertNotNull(progress)
+
+        assertEquals(10L, progress!!.offset)
+        assertEquals(1L, progress.offsetsCount)
+
+        val restored = OffsetTracker(lastCommitedOffset = progress.offset, snapshot = progress.snapshot)
+        assertTrue(restored.isProcessed(12L))
     }
 }

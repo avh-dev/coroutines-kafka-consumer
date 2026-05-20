@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.offset.OffsetTrackerMetadata
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
 import org.apache.kafka.clients.consumer.*
@@ -196,18 +197,48 @@ internal class ConsumerPollLoop<K, V>(
      *
      * Responsibilities:
      * - Register assigned partitions in [PartitionRegistry].
-     * - Initialize each partition's offset tracker based on `consumer.position(tp)`.
+     * - Initialize each partition's offset tracker from committed metadata when available.
+     * - Fall back to the committed/assigned Kafka position when CKC metadata is absent or invalid.
      */
     private fun handlePartitionsAssigned(
         consumer: KafkaConsumer<ByteArray, ByteArray>,
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        val committedOffsets = consumer.committed(partitions.toSet())
         assignedPartitionStates.forEach {
-            it.init(consumer.position(it.topicPartition))
+            val committed = committedOffsets[it.topicPartition]
+            if (committed == null) {
+                it.init(consumer.position(it.topicPartition))
+            } else {
+                initPartitionState(it, committed)
+            }
             metrics.bindPartitionMetrics(it)
         }
         assignedPartitions += assignedPartitionStates
+    }
+
+    private fun initPartitionState(
+        partitionState: PartitionState,
+        committed: OffsetAndMetadata
+    ) {
+        val metadata = committed.metadata()
+        if (metadata.isNullOrEmpty()) {
+            partitionState.init(committed.offset())
+            return
+        }
+        try {
+            partitionState.init(
+                committedOffset = committed.offset(),
+                snapshot = OffsetTrackerMetadata.decode(metadata)
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "Kafka consumer #$id: failed to restore offset metadata for ${partitionState.topicPartition}",
+                e
+            )
+            partitionState.init(committed.offset())
+        }
     }
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
@@ -241,7 +272,13 @@ internal class ConsumerPollLoop<K, V>(
         for (partitionState in partitionStates) {
             val progress = partitionState.advanceCommitOffsetProgress()
             if (progress != null) {
-                offsets[partitionState.topicPartition] = OffsetAndMetadata(progress.offset)
+                val metadata = OffsetTrackerMetadata.encode(progress.snapshot)
+                val kafkaOffset = progress.offset + 1
+                offsets[partitionState.topicPartition] = if (metadata == null) {
+                    OffsetAndMetadata(kafkaOffset)
+                } else {
+                    OffsetAndMetadata(kafkaOffset, metadata)
+                }
                 offsetsCount += progress.offsetsCount
             }
         }
@@ -323,6 +360,9 @@ internal class ConsumerPollLoop<K, V>(
             if (state == State.ACTIVE) {
                 while (iterator.hasNext()) {
                     val record = iterator.next()
+                    if (isAlreadyProcessed(record)) {
+                        continue
+                    }
 
                     // IMPORTANT: must not suspend poll thread.
                     val result = channel.trySend(record)
@@ -339,7 +379,10 @@ internal class ConsumerPollLoop<K, V>(
 
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
-                stash.addLast(iterator.next())
+                val record = iterator.next()
+                if (!isAlreadyProcessed(record)) {
+                    stash.addLast(record)
+                }
             }
 
             /**
@@ -392,6 +435,10 @@ internal class ConsumerPollLoop<K, V>(
         val channel = workChannel
         while (stash.isNotEmpty()) {
             val record = stash.first()
+            if (isAlreadyProcessed(record)) {
+                stash.removeFirst()
+                continue
+            }
             val result = channel.trySend(record)
             if (!result.isSuccess) {
                 return false
@@ -399,6 +446,11 @@ internal class ConsumerPollLoop<K, V>(
             stash.removeFirst()
         }
         return true
+    }
+
+    private fun isAlreadyProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
+        val partitionState = partitionStateRegistry.partitionStateFor(record) ?: return false
+        return partitionState.isProcessed(record.offset())
     }
 
     /** Pause all assigned partitions (best-effort). */
