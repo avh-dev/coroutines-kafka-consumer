@@ -163,7 +163,7 @@ class RecordProcessorTest {
     }
 
     @Test
-    fun `when processing succeeds in backpressure mode then partition is marked processed`() = runBlocking {
+    fun `when processing succeeds in AT_LEAST_ONCE_UNORDERED mode then partition is marked processed`() = runBlocking {
         val record = testRecord(offset = 25L)
         var processedRecordOffset: Long? = null
         val processor = RecordProcessor(
@@ -185,7 +185,7 @@ class RecordProcessorTest {
         @Suppress("UNCHECKED_CAST")
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
-        runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
+        runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED),
         onRecordProcessed: (ConsumerRecord<ByteArray, ByteArray>) -> Unit = {}
     ): RecordProcessor<K, V> = RecordProcessor(
         handler = handler,

@@ -10,14 +10,14 @@ import kotlin.coroutines.CoroutineContext
 /**
  * Builder for the public Kotlin DSL used to create [CoroutinesKafkaConsumer] instances.
  *
- * Aggregates consumer runtime settings, topic subscription mode, failure handling
- * strategy and the main record handler into a single user-facing definition.
+ * Aggregates consumer runtime settings, topic subscription mode, processing semantics,
+ * failure handling, and the main record handler into a single user-facing definition.
  */
 class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
-     * Strategy used when workers cannot keep up with incoming records.
+     * Processing semantics used by the consumer runtime.
      */
-    var deliveryStrategy: DeliveryStrategy = DeliveryStrategy.BACKPRESSURE
+    var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
 
     /**
      * Number of worker coroutines processing records from the internal work channel.
@@ -30,7 +30,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var consumerPollLoopConcurrency: Int = 1
 
     /**
-     * Interval for periodic best-effort offset commits in backpressure mode.
+     * Interval for periodic best-effort offset commits in tracked at-least-once modes.
      *
      * The default matches Kafka's `auto.commit.interval.ms` default.
      */
@@ -125,7 +125,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
         return CoroutinesKafkaConsumer(
             consumerProperties = consumerProperties,
-            deliveryStrategy = deliveryStrategy,
+            processingMode = processingMode,
             workerConcurrency = workerConcurrency,
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,

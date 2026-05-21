@@ -108,7 +108,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 21L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = DeliveryStrategy.BACKPRESSURE,
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                     deserializationDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->
@@ -140,7 +140,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 22L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = DeliveryStrategy.BACKPRESSURE,
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                     processingDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->
@@ -198,7 +198,7 @@ class CoroutinesKafkaConsumerTest {
         val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
             workerConcurrency = 1,
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,
@@ -213,7 +213,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected

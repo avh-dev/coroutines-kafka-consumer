@@ -49,7 +49,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
             handle { key, value, rawRecord ->
                 processed.complete(Triple(key, value, rawRecord.offset()))
@@ -70,8 +70,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when delivery strategy is lossy with auto commit then consumer processes produced record`() = runBlocking {
-        val topic = "lossy-${UUID.randomUUID()}"
+    fun `when processing mode is FRESHNESS_FIRST with auto commit then consumer processes produced record`() = runBlocking {
+        val topic = "FRESHNESS_FIRST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -81,7 +81,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "enable.auto.commit" to "true"
             )
         ) {
-            deliveryStrategy = DeliveryStrategy.LOSSY
+            processingMode = ProcessingMode.FRESHNESS_FIRST
             topics(topic)
             handle { _, value, _ ->
                 processed.complete(value)
@@ -90,17 +90,17 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
         try {
             consumer.start()
-            produce(topic, "lossy-key", "lossy-payload")
+            produce(topic, "FRESHNESS_FIRST-key", "FRESHNESS_FIRST-payload")
 
-            assertEquals("lossy-payload", withTimeout(15_000) { processed.await() })
+            assertEquals("FRESHNESS_FIRST-payload", withTimeout(15_000) { processed.await() })
         } finally {
             consumer.stop()
         }
     }
 
     @Test
-    fun `when lossy consumer receives burst then it stays live and processes recent records`() = runBlocking {
-        val topic = "lossy-burst-${UUID.randomUUID()}"
+    fun `when FRESHNESS_FIRST consumer receives burst then it stays live and processes recent records`() = runBlocking {
+        val topic = "FRESHNESS_FIRST-burst-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -111,7 +111,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "enable.auto.commit" to "true"
             )
         ) {
-            deliveryStrategy = DeliveryStrategy.LOSSY
+            processingMode = ProcessingMode.FRESHNESS_FIRST
             workerConcurrency = 1
             workChannelCapacity = 1
             this.metrics = metrics
@@ -125,7 +125,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         try {
             consumer.start()
             repeat(20) { index ->
-                produce(topic, "lossy-key-$index", "lossy-value-$index")
+                produce(topic, "FRESHNESS_FIRST-key-$index", "FRESHNESS_FIRST-value-$index")
             }
 
             awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
@@ -150,7 +150,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topicsPattern(Pattern.compile("orders-.*"))
             handle { key, value, _ ->
                 processed.complete(key to value)
@@ -182,7 +182,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topicsPattern(Pattern.compile("orders-.*"))
             handle { _, value, _ ->
                 processed += value!!
@@ -216,7 +216,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
             onProcessingFailure { key, value, _, error ->
                 recovered.complete("$key:${error.message}" to value)
@@ -250,7 +250,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             this.metrics = metrics
             topics(topic)
             onProcessingFailure { _, _, _, _ ->
@@ -275,8 +275,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when handler is slow in backpressure mode then all produced records are eventually processed`() = runBlocking {
-        val topic = "backpressure-${UUID.randomUUID()}"
+    fun `when handler is slow in AT_LEAST_ONCE_UNORDERED mode then all produced records are eventually processed`() = runBlocking {
+        val topic = "AT_LEAST_ONCE_UNORDERED-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -286,7 +286,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "max.poll.records" to "5"
             )
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             workerConcurrency = 1
             workChannelCapacity = 1
             topics(topic)
@@ -313,7 +313,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when backpressure commits offset then offset metadata is stored in kafka`() = runBlocking {
+    fun `when AT_LEAST_ONCE_UNORDERED commits offset then offset metadata is stored in kafka`() = runBlocking {
         val topic = "metadata-commit-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
@@ -322,7 +322,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             commitIntervalMs = 100L
             topics(topic)
             handle { _, _, rawRecord ->
@@ -371,7 +371,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             commitIntervalMs = 100L
             topics(topic)
             handle { _, _, rawRecord ->
@@ -411,7 +411,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "value.deserializer" to LongDeserializer::class.java
             )
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             this.metrics = metrics
             topics(topic)
             handle { _, _, _ -> }
@@ -454,7 +454,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             retryPolicy = retryPolicy {
                 retry<IOException> {
                     maxRetries = 2
@@ -504,7 +504,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val firstConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             parentContext = firstConsumerJob
             topics(topic)
             handle { _, _, _ ->
@@ -523,7 +523,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val secondConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
             handle { _, value, _ ->
                 redelivered.complete(value)
@@ -549,7 +549,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val firstConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             workerConcurrency = 1
             topics(topic)
             handle { _, value, _ ->
@@ -561,7 +561,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val secondConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             workerConcurrency = 1
             topics(topic)
             handle { _, value, _ ->

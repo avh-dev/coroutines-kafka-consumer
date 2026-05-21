@@ -21,13 +21,13 @@ internal fun <K, V> createTestConsumer(
     metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
-    runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
+    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED),
     recordDeserializerFactory: RecordDeserializerFactory<K, V> =
         defaultRecordDeserializerFactory(consumerProperties, runtime.deserializationDispatcher)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,
-        deliveryStrategy = runtime.deliveryStrategy,
+        processingMode = runtime.processingMode,
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
         commitIntervalMs = runtime.commitIntervalMs,

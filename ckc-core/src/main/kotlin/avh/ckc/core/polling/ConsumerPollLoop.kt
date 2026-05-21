@@ -1,7 +1,7 @@
 package avh.ckc.core.polling
 
 import avh.ckc.core.config.ConsumerConfigAdapter
-import avh.ckc.core.DeliveryStrategy
+import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import avh.ckc.core.partition.PartitionRegistry
@@ -31,13 +31,13 @@ import kotlin.time.toKotlinDuration
  *   Actual business deserialization is performed in worker coroutines for better parallelism
  *   and to keep the poll loop lightweight.
  *
- * Overflow strategies:
- * - BACKPRESSURE: non-blocking dispatch via `trySend` + `pause/resume`
+ * Processing modes:
+ * - AT_LEAST_ONCE_UNORDERED: non-blocking dispatch via `trySend` + `pause/resume`
  *   with bounded local stash and explicit contiguous commits.
- * - LOSSY: suspending `send`, intended for setups relying on
+ * - FRESHNESS_FIRST: suspending `send`, intended for setups relying on
  *   channel-level dropping and auto-commit.
  *
- * Invariants (BACKPRESSURE):
+ * Invariants (AT_LEAST_ONCE_UNORDERED):
  * - Poll loop never suspends on dispatch.
  * - Pause/resume applies to all assigned partitions.
  * - Offsets are committed only when contiguous-ready (via [PartitionState]).
@@ -45,7 +45,7 @@ import kotlin.time.toKotlinDuration
 internal class ConsumerPollLoop<K, V>(
     val id: Int,
     parentContext: CoroutineContext,
-    private val deliveryStrategy: DeliveryStrategy,
+    private val processingMode: ProcessingMode,
     private val commitIntervalMs: Long,
     private val metrics: ConsumerMetrics<K, V>,
     private val consumerProperties: Map<String, Any?>,
@@ -92,7 +92,7 @@ internal class ConsumerPollLoop<K, V>(
     @Volatile
     private var consumerRef: Consumer<ByteArray, ByteArray>? = null
 
-    /** Completed when BACKPRESSURE shutdown tail is drained (caller should cancel job afterwards). */
+    /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
 
     override fun start(): Job {
@@ -129,24 +129,24 @@ internal class ConsumerPollLoop<K, V>(
 
     private fun subscribe(consumer: KafkaConsumer<ByteArray, ByteArray>) {
         if (topicsPattern != null) {
-            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, deliveryStrategy))
+            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
         } else {
-            consumer.subscribe(topics, createRebalanceListener(consumer, deliveryStrategy))
+            consumer.subscribe(topics, createRebalanceListener(consumer, processingMode))
         }
     }
 
     /**
      * Rebalance listener selection.
      *
-     * - BACKPRESSURE: requires rebalance hooks for partition state tracking + commit on revoke.
-     * - LOSSY: does not maintain commit tracking; no-op listener is sufficient.
+     * - AT_LEAST_ONCE_UNORDERED: requires rebalance hooks for partition state tracking + commit on revoke.
+     * - FRESHNESS_FIRST: does not maintain commit tracking; no-op listener is sufficient.
      */
     private fun createRebalanceListener(
         consumer: KafkaConsumer<ByteArray, ByteArray>,
-        deliveryStrategy: DeliveryStrategy
+        processingMode: ProcessingMode
     ): ConsumerRebalanceListener =
-        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE)
-            backpressureRebalanceListener(consumer)
+        if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+            atLeastOnceRebalanceListener(consumer)
         else
             noOpRebalanceListener()
 
@@ -157,7 +157,7 @@ internal class ConsumerPollLoop<K, V>(
             override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) = Unit
         }
 
-    private fun backpressureRebalanceListener(consumer: KafkaConsumer<ByteArray, ByteArray>): ConsumerRebalanceListener =
+    private fun atLeastOnceRebalanceListener(consumer: KafkaConsumer<ByteArray, ByteArray>): ConsumerRebalanceListener =
         object : ConsumerRebalanceListener {
             override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) =
                 handlePartitionsRevoked(consumer, partitions)
@@ -247,9 +247,9 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
-        when (deliveryStrategy) {
-            DeliveryStrategy.BACKPRESSURE -> consumerLoopBackpressure(consumer)
-            DeliveryStrategy.LOSSY -> consumerLoopLOSSY(consumer)
+        when (processingMode) {
+            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> consumerLoopAtLeastOnceUnordered(consumer)
+            ProcessingMode.FRESHNESS_FIRST -> consumerLoopFreshnessFirst(consumer)
         }
     } catch (_: CancellationException) {
         log.info("Kafka consumer loop #$id cancelled")
@@ -257,7 +257,7 @@ internal class ConsumerPollLoop<K, V>(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE) {
+        if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED) {
             // Final best-effort commit on shutdown.
             commitReadyOffsets(consumer, assignedPartitions)
             assignedPartitions.forEach {
@@ -300,7 +300,7 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /**
-     * BACKPRESSURE mode loop.
+     * AT_LEAST_ONCE_UNORDERED mode loop.
      *
      * Key properties:
      * - Dispatch to workers via `trySend()` (never suspends poll thread).
@@ -320,7 +320,7 @@ internal class ConsumerPollLoop<K, V>(
      * DRAINING_TAIL
      *   └─(stash drained AND poll returns empty)→ TAIL_DRAINED
      */
-    private suspend fun consumerLoopBackpressure(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private suspend fun consumerLoopAtLeastOnceUnordered(consumer: KafkaConsumer<ByteArray, ByteArray>) {
 
         val maxPollRecords = consumerConfigAdapter.getInt(MAX_POLL_RECORDS_CONFIG)!!
 
@@ -463,11 +463,11 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /**
-     * LOSSY strategy:
-     * - Minimal mode; uses suspending send().
+     * FRESHNESS_FIRST mode:
+     * - Minimal mode; uses best-effort dispatch into a dropping queue.
      * - Intended to be paired with a channel that drops and with client internal auto-commit.
      */
-    private suspend fun consumerLoopLOSSY(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<ByteArray, ByteArray>) {
         while (currentCoroutineContext().isActive) {
             if (shutdownRequested) {
                 readyForShutdownSignal.complete(Unit)
@@ -483,7 +483,7 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /**
-     * Poll loop states for BACKPRESSURE strategy.
+     * Poll loop states for tracked at-least-once processing.
      *
      * - ACTIVE: normal poll and dispatch.
      * - PAUSED: downstream saturated; Kafka paused; draining stash.
