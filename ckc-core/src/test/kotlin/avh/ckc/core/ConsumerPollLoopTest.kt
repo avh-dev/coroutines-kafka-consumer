@@ -1,7 +1,13 @@
 package avh.ckc.core
 
+import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTracker
 import avh.ckc.core.offset.OffsetTrackerMetadata
+import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.polling.ConsumerPollLoop
+import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -235,7 +241,7 @@ class ConsumerPollLoopTest {
 
             verify(fixture.consumer, timeout(2_000)).position(fixture.topicPartition)
 
-            val state = fixture.awaitAssignedState()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
 
             assertEquals(fixture.topicPartition, state.topicPartition)
             assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
@@ -262,7 +268,7 @@ class ConsumerPollLoopTest {
 
             val job = fixture.start()
 
-            val state = fixture.awaitAssignedState()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
 
             assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
             assertFalse(state.isProcessed(42L))
@@ -352,7 +358,7 @@ class ConsumerPollLoopTest {
 
             val job = fixture.start()
 
-            val state = fixture.awaitAssignedState()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 100L)
             state.trackerRefForTest().markProcessed(101L)
             listenerRef.get()!!.onPartitionsRevoked(listOf(fixture.topicPartition))
 
@@ -383,7 +389,7 @@ class ConsumerPollLoopTest {
 
             val job = fixture.start()
 
-            val state = fixture.awaitAssignedState()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 200L)
             state.trackerRefForTest().markProcessed(201L)
             state.trackerRefForTest().markProcessed(202L)
             state.trackerRefForTest().markProcessed(203L)
@@ -414,7 +420,7 @@ class ConsumerPollLoopTest {
                 .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
 
             val job = fixture.start()
-            val state = fixture.awaitAssignedState()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 299L)
 
             state.trackerRefForTest().markProcessed(300L)
             fixture.awaitCommitAttempts(1)
@@ -497,6 +503,16 @@ private class PollLoopFixture(
             DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
         }
     )
+    private val recordSink = object : PolledRecordSink {
+        override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
+            if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE &&
+                registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
+            ) {
+                return true
+            }
+            return workChannel.trySend(record).isSuccess
+        }
+    }
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
     private val consumerProperties = testConsumerProperties()
@@ -510,7 +526,7 @@ private class PollLoopFixture(
         consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),
         topicsPattern = null,
-        workChannel = workChannel,
+        recordSink = recordSink,
         partitionStateRegistry = registry,
         kafkaConsumerFactory = { consumer }
     )
@@ -543,8 +559,15 @@ private class PollLoopFixture(
 
     fun start(): Job = loop.start()
 
-    suspend fun awaitAssignedState(): PartitionState =
-        awaitFor(2_000L, 10L) { registry.partitionStateFor(topicPartition) }
+    suspend fun awaitAssignedState(lastCommittedOffset: Long? = null): PartitionState =
+        awaitFor(2_000L, 10L) {
+            val state = registry.partitionStateFor(topicPartition) ?: return@awaitFor null
+            if (lastCommittedOffset == null || state.trackerRefForTest().lastCommitedOffset == lastCommittedOffset) {
+                state
+            } else {
+                null
+            }
+        }
 
     fun awaitPause() {
         verify(consumer, timeout(2_000)).pause(eq(setOf(topicPartition)))

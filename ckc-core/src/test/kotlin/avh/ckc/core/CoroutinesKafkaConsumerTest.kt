@@ -1,5 +1,10 @@
 package avh.ckc.core
 
+import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -69,16 +74,16 @@ class CoroutinesKafkaConsumerTest {
 
     @Test
     fun `when consumer starts then each worker gets its own deserializer instances`() = runBlocking {
-        val workerDeserializers = CopyOnWriteArrayList<Pair<TrackingLongDeserializer, TrackingLongDeserializer>>()
+        val recordDeserializers = CopyOnWriteArrayList<Pair<TrackingLongDeserializer, TrackingLongDeserializer>>()
         val consumer = createTestConsumer(
             records = emptyList(),
             workerConcurrency = 2,
             consumerProperties = longSerdeProperties(),
-            workerDeserializerFactory = { _ ->
+            recordDeserializerFactory = { _ ->
                 val key = TrackingLongDeserializer()
                 val value = TrackingLongDeserializer()
-                workerDeserializers += key to value
-                WorkerDeserializers(key, value)
+                recordDeserializers += key to value
+                TestRecordDeserializer(key, value)
             },
             handler = KafkaRecordHandler<Long, Long> { _, _, _ -> }
         )
@@ -86,9 +91,9 @@ class CoroutinesKafkaConsumerTest {
         consumer.start()
         consumer.stop()
 
-        assertEquals(2, workerDeserializers.size)
-        assertNotSame(workerDeserializers[0].first, workerDeserializers[1].first)
-        assertNotSame(workerDeserializers[0].second, workerDeserializers[1].second)
+        assertEquals(2, recordDeserializers.size)
+        assertNotSame(recordDeserializers[0].first, recordDeserializers[1].first)
+        assertNotSame(recordDeserializers[0].second, recordDeserializers[1].second)
     }
 
     @Test
@@ -208,7 +213,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: kotlinx.coroutines.channels.SendChannel<org.apache.kafka.clients.consumer.ConsumerRecord<ByteArray, ByteArray>>, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected
@@ -217,7 +222,8 @@ class CoroutinesKafkaConsumerTest {
                     override fun prepareForShutdown() = CompletableDeferred(Unit)
                 }
             },
-            workerDeserializerFactory = defaultWorkerDeserializerFactoryForTests(stringSerdeProperties())
+            processingRuntimeFactory = ::defaultProcessingRuntime,
+            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties())
         )
 
         consumer.start()

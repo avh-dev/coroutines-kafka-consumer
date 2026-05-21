@@ -1,6 +1,6 @@
 package avh.ckc.demo.service
 
-import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service

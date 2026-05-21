@@ -1,10 +1,12 @@
 package avh.ckc.core
 
+import avh.ckc.core.deserialization.DeserializedRecord
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
@@ -44,7 +46,7 @@ class RecordProcessorTest {
 
         processor.process(
             testRecord(offset = 10L, value = "payload"),
-            defaultWorkerDeserializerFactoryForTests<String, String>(stringSerdeProperties())(0)
+            DeserializedRecord(key = "key", value = "payload")
         )
 
         assertEquals("payload", withTimeout(2_000) { processed.await() })
@@ -72,7 +74,7 @@ class RecordProcessorTest {
 
         processor.process(
             testRecord(offset = 12L),
-            defaultWorkerDeserializerFactoryForTests<Long, Long>(longSerdeProperties())(0)
+            DeserializedRecord(key = 0L, value = 0L)
         )
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
@@ -103,7 +105,7 @@ class RecordProcessorTest {
 
         processor.process(
             testRecord(offset = 13L, value = "13"),
-            defaultWorkerDeserializerFactoryForTests<Long, Long>(longSerdeProperties())(0)
+            DeserializedRecord(key = 0L, value = 13L)
         )
 
         assertEquals(13L, withTimeout(2_000) { processed.await() })
@@ -130,7 +132,7 @@ class RecordProcessorTest {
 
         processor.process(
             testRecord(offset = 14L, value = "14"),
-            defaultWorkerDeserializerFactoryForTests<Long, Long>(longSerdeProperties())(0)
+            DeserializedRecord(key = 0L, value = 14L)
         )
 
         assertEquals(14L, withTimeout(2_000) { processed.await() })
@@ -152,7 +154,7 @@ class RecordProcessorTest {
             runBlocking {
                 processor.process(
                     testRecord(offset = 22L),
-                    defaultWorkerDeserializerFactoryForTests<Long, Long>(longSerdeProperties())(0)
+                    DeserializedRecord(key = 0L, value = 0L)
                 )
             }
         }
@@ -161,74 +163,20 @@ class RecordProcessorTest {
     }
 
     @Test
-    fun `when deserializer fails with transient error then it is retried internally`() = runBlocking {
-        val processed = CompletableDeferred<Long?>()
-        val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, value, _ ->
-                processed.complete(value)
-            }
-        )
-
-        processor.process(
-            testRecord(offset = 23L, value = "23"),
-            WorkerDeserializers(
-                keyDeserializer = TrackingLongDeserializer(),
-                valueDeserializer = FlakyLongDeserializer(failuresBeforeSuccess = 2, failure = IOException("registry down"))
-            )
-        )
-
-        assertEquals(23L, withTimeout(2_000) { processed.await() })
-    }
-
-    @Test
-    fun `when deserializer fails with non transient error then processing fails`() = runBlocking {
-        val metrics = RecordingMetrics<Long, Long>()
-        val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, _, _ -> },
-            metrics = metrics
-        )
-
-        val error = assertThrows(IllegalStateException::class.java) {
-            runBlocking {
-                processor.process(
-                    testRecord(offset = 24L, value = "24"),
-                    WorkerDeserializers(
-                        keyDeserializer = TrackingLongDeserializer(),
-                        valueDeserializer = FlakyLongDeserializer(
-                            failuresBeforeSuccess = Int.MAX_VALUE,
-                            failure = IllegalStateException("broken payload")
-                        )
-                    )
-                )
-            }
-        }
-
-        assertEquals("broken payload", error.message)
-        assertEquals(1, metrics.failed.size)
-        assertEquals("broken payload", metrics.failed.single().error.message)
-        assertEquals(null, metrics.failed.single().value)
-        kotlin.test.assertTrue(metrics.failed.single().recordAgeMillis >= 0)
-    }
-
-    @Test
     fun `when processing succeeds in backpressure mode then partition is marked processed`() = runBlocking {
-        val registry = PartitionRegistry()
         val record = testRecord(offset = 25L)
-        val state = registry.onPartitionsAssigned(listOf(TopicPartition(record.topic(), record.partition()))).single()
-        state.init(25L)
+        var processedRecordOffset: Long? = null
         val processor = RecordProcessor(
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
-            deserializationDispatcher = Dispatchers.IO,
             handler = KafkaRecordHandler<Long, Long> { _, _, _ -> },
             retryPolicy = RetryPolicy.none(),
             metrics = noopConsumerMetrics(),
             processingFailureHandler = ProcessingFailureHandler.skip<Long, Long>(),
-            partitionRegistry = registry
+            onRecordProcessed = { processedRecordOffset = it.offset() }
         )
 
-        processor.process(record, defaultWorkerDeserializerFactoryForTests<Long, Long>(longSerdeProperties())(0))
+        processor.process(record, DeserializedRecord(key = 0L, value = 0L))
 
-        assertEquals(25L, state.advanceCommitOffset())
+        assertEquals(25L, processedRecordOffset)
     }
 
     private fun <K, V> createRecordProcessor(
@@ -238,15 +186,13 @@ class RecordProcessorTest {
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
-        partitionRegistry: PartitionRegistry = PartitionRegistry()
+        onRecordProcessed: (ConsumerRecord<ByteArray, ByteArray>) -> Unit = {}
     ): RecordProcessor<K, V> = RecordProcessor(
-        deliveryStrategy = runtime.deliveryStrategy,
-        deserializationDispatcher = runtime.deserializationDispatcher,
         handler = handler,
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
-        partitionRegistry = partitionRegistry
+        onRecordProcessed = onRecordProcessed
     )
 }
 

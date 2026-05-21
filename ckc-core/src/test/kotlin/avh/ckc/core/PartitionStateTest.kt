@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.partition.PartitionState
 import avh.ckc.core.offset.OffsetTracker
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.*
@@ -89,19 +90,19 @@ class PartitionStateTest {
     }
 
     @Test
-    fun `advance progress includes snapshot after offset advancement`() {
+    fun `commit data includes snapshot after offset advancement`() {
         val ps = PartitionState(TopicPartition("t", 0))
         ps.init(10L)
         ps.markProcessed(10L)
         ps.markProcessed(12L)
 
-        val progress = ps.advanceCommitOffsetProgress()
-        assertNotNull(progress)
+        val commitData = ps.advanceAndGetCommitData()
+        assertNotNull(commitData)
 
-        assertEquals(10L, progress!!.offset)
-        assertEquals(1L, progress.offsetsCount)
+        assertEquals(10L, commitData!!.offset)
+        assertEquals(1L, commitData.advancedOffsetsCount)
 
-        val restored = OffsetTracker(lastCommitedOffset = progress.offset, snapshot = progress.snapshot)
+        val restored = OffsetTracker(lastCommitedOffset = commitData.offset, snapshot = commitData.offsetTrackerSnapshot)
         assertTrue(restored.isProcessed(12L))
     }
 }

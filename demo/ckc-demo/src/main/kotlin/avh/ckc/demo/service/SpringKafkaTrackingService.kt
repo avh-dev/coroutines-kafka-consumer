@@ -1,7 +1,7 @@
 package avh.ckc.demo.service
 
 import avh.ckc.demo.AuditLog
-import avh.ckc.core.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent

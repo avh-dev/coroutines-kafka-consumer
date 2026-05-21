@@ -1,5 +1,11 @@
 package avh.ckc.core
 
+import avh.ckc.core.deserialization.DeserializedRecord
+import avh.ckc.core.deserialization.RecordDeserializer
+import avh.ckc.core.deserialization.RecordDeserializerFactory
+import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
+import kotlinx.coroutines.Dispatchers
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.serialization.Deserializer
@@ -22,21 +28,25 @@ internal fun longSerdeProperties(): Map<String, Any?> = mapOf(
     ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to TrackingLongDeserializer::class.java
 )
 
-internal fun <K, V> defaultWorkerDeserializerFactoryForTests(
+internal fun <K, V> defaultRecordDeserializerFactoryForTests(
     consumerProperties: Map<String, Any?>
-): WorkerDeserializerFactory<K, V> = { _ ->
-    WorkerDeserializers(
-        keyDeserializer = instantiateAndConfigureDeserializerForTests(
-            consumerProperties,
-            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-            isKey = true
-        ),
-        valueDeserializer = instantiateAndConfigureDeserializerForTests(
-            consumerProperties,
-            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-            isKey = false
+): RecordDeserializerFactory<K, V> =
+    defaultRecordDeserializerFactory(consumerProperties, Dispatchers.Unconfined)
+
+internal class TestRecordDeserializer<K, V>(
+    private val keyDeserializer: Deserializer<K>,
+    private val valueDeserializer: Deserializer<V>
+) : RecordDeserializer<K, V> {
+    override suspend fun deserialize(record: ConsumerRecord<ByteArray, ByteArray>): DeserializedRecord<K, V> =
+        DeserializedRecord(
+            key = keyDeserializer.deserialize(record.topic(), record.headers(), record.key()),
+            value = valueDeserializer.deserialize(record.topic(), record.headers(), record.value())
         )
-    )
+
+    override fun close() {
+        keyDeserializer.close()
+        valueDeserializer.close()
+    }
 }
 
 internal fun <T> instantiateAndConfigureDeserializerForTests(
@@ -122,6 +132,8 @@ internal class FlakyLongDeserializer(
     private val failuresBeforeSuccess: Int,
     private val failure: Throwable
 ) : Deserializer<Long> {
+    constructor() : this(nextFailuresBeforeSuccess, nextFailure)
+
     private val attempts = AtomicInteger()
 
     override fun configure(configs: MutableMap<String, *>?, isKey: Boolean) = Unit
@@ -137,4 +149,17 @@ internal class FlakyLongDeserializer(
     }
 
     override fun close() = Unit
+
+    companion object {
+        @Volatile
+        private var nextFailuresBeforeSuccess: Int = 0
+
+        @Volatile
+        private var nextFailure: Throwable = RuntimeException("configured failure")
+
+        fun configureNext(failuresBeforeSuccess: Int, failure: Throwable) {
+            nextFailuresBeforeSuccess = failuresBeforeSuccess
+            nextFailure = failure
+        }
+    }
 }

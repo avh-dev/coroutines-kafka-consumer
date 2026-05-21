@@ -1,10 +1,14 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.deserialization.RecordDeserializerFactory
+import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
+import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
@@ -18,7 +22,8 @@ internal fun <K, V> createTestConsumer(
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
     runtime: TestConsumerRuntime = testRuntime(strategy = DeliveryStrategy.BACKPRESSURE),
-    workerDeserializerFactory: WorkerDeserializerFactory<K, V> = defaultWorkerDeserializerFactoryForTests(consumerProperties)
+    recordDeserializerFactory: RecordDeserializerFactory<K, V> =
+        defaultRecordDeserializerFactory(consumerProperties, runtime.deserializationDispatcher)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,
@@ -36,15 +41,16 @@ internal fun <K, V> createTestConsumer(
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,
-        pollLoopFactory = { _, context, _, _, _, _, _, _, _, channel, _ ->
-            FakePollLoopControl(context, channel, records)
+        pollLoopFactory = { _, context, _, _, _, _, _, _, _, recordSink, _ ->
+            FakePollLoopControl(context, recordSink, records)
         },
-        workerDeserializerFactory = workerDeserializerFactory
+        processingRuntimeFactory = ::defaultProcessingRuntime,
+        recordDeserializerFactory = recordDeserializerFactory
     )
 
 internal class FakePollLoopControl(
     coroutineContext: kotlin.coroutines.CoroutineContext,
-    private val workChannel: SendChannel<ConsumerRecord<ByteArray, ByteArray>>,
+    private val recordSink: PolledRecordSink,
     private val records: List<ConsumerRecord<ByteArray, ByteArray>>
 ) : ConsumerPollLoopControl {
     private val scope = CoroutineScope(coroutineContext)
@@ -52,7 +58,7 @@ internal class FakePollLoopControl(
 
     override fun start(): Job = scope.launch {
         for (record in records) {
-            workChannel.send(record)
+            recordSink.tryEmit(record)
         }
         stopSignal.await()
     }
