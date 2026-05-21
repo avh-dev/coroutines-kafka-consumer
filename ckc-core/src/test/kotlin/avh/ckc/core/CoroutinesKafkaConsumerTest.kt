@@ -4,9 +4,12 @@ import avh.ckc.core.config.ConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -14,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -30,6 +34,20 @@ class CoroutinesKafkaConsumerTest {
     fun resetTrackingDeserializers() {
         TrackingStringDeserializer.reset()
         TrackingLongDeserializer.reset()
+    }
+
+    @Test
+    fun `when processing mode is AT_LEAST_ONCE_UNORDERED then default factory creates at least once runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+
+        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when processing mode is FRESHNESS_FIRST then default factory creates freshness first runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST)
+
+        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
@@ -241,4 +259,20 @@ class CoroutinesKafkaConsumerTest {
         assertEquals(expected.message, thrown.message)
         assertEquals(listOf(expected), metrics.consumerFailures)
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun createDefaultProcessingRuntime(processingMode: ProcessingMode) =
+        defaultProcessingRuntime(
+            parentScope = CoroutineScope(EmptyCoroutineContext),
+            processingMode = processingMode,
+            workerConcurrency = 1,
+            workChannelCapacity = 16,
+            processingDispatcher = Dispatchers.Default,
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties()),
+            handler = KafkaRecordHandler { _, _, _ -> },
+            retryPolicy = RetryPolicy.none(),
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            processedRecordTracker = NoopProcessedRecordTracker
+        )
 }

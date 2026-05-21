@@ -7,13 +7,13 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
-import avh.ckc.core.processing.DefaultRecordProcessingRuntime
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
+import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
@@ -24,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
@@ -321,8 +322,7 @@ internal fun <K, V> defaultProcessingRuntime(
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
-    DefaultRecordProcessingRuntime(
-        processingMode = processingMode,
+    UnorderedRecordProcessingRuntime(
         workerConcurrency = workerConcurrency,
         workChannelCapacity = workChannelCapacity,
         processingDispatcher = processingDispatcher,
@@ -332,5 +332,9 @@ internal fun <K, V> defaultProcessingRuntime(
         handler = handler,
         retryPolicy = retryPolicy,
         processingFailureHandler = processingFailureHandler,
-        processedRecordTracker = processedRecordTracker
+        processedRecordTracker = processedRecordTracker,
+        bufferOverflow = when (processingMode) {
+            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> BufferOverflow.SUSPEND
+            ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
+        }
     )
