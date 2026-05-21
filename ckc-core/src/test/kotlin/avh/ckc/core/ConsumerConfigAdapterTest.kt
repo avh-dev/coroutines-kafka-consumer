@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.config.ConsumerConfigAdapter
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull

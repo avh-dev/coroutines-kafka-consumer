@@ -1,4 +1,4 @@
-package avh.ckc.core
+package avh.ckc.core.config
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG

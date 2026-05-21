@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.config.ConsumerConfigAdapter
 import avh.ckc.core.deserialization.RecordDeserializerFactory
 import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics

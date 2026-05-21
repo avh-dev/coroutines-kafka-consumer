@@ -1,6 +1,6 @@
 package avh.ckc.core.polling
 
-import avh.ckc.core.ConsumerConfigAdapter
+import avh.ckc.core.config.ConsumerConfigAdapter
 import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
