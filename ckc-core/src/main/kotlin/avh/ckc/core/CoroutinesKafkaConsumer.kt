@@ -1,11 +1,18 @@
 package avh.ckc.core
 
+import avh.ckc.core.deserialization.RecordDeserializerFactory
+import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.processing.DefaultRecordProcessingRuntime
+import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.processing.PartitionProcessedRecordTracker
+import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.RecordProcessingLifecycle
+import avh.ckc.core.processing.RecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -14,19 +21,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ChannelResult
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerRecord
-import org.apache.kafka.common.serialization.Deserializer
 import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
@@ -63,11 +63,6 @@ private class ConsumerPollLoopControlAdapter<K, V>(
     override fun prepareForShutdown(): Deferred<Unit> = delegate.prepareForShutdown()
 }
 
-internal data class WorkerDeserializers<K, V>(
-    val keyDeserializer: Deserializer<K>,
-    val valueDeserializer: Deserializer<V>
-)
-
 private typealias PollLoopFactory<K, V> = (
     id: Int,
     parentContext: CoroutineContext,
@@ -78,11 +73,23 @@ private typealias PollLoopFactory<K, V> = (
     consumerConfigAdapter: ConsumerConfigAdapter,
     topics: List<String>?,
     topicsPattern: Pattern?,
-    workChannel: SendChannel<ConsumerRecord<ByteArray, ByteArray>>,
+    recordSink: PolledRecordSink,
     partitionRegistry: PartitionRegistry
 ) -> ConsumerPollLoopControl
 
-internal typealias WorkerDeserializerFactory<K, V> = (workerIndex: Int) -> WorkerDeserializers<K, V>
+private typealias ProcessingRuntimeFactory<K, V> = (
+    parentScope: CoroutineScope,
+    deliveryStrategy: DeliveryStrategy,
+    workerConcurrency: Int,
+    workChannelCapacity: Int,
+    processingDispatcher: CoroutineDispatcher,
+    metrics: ConsumerMetrics<K, V>,
+    recordDeserializerFactory: RecordDeserializerFactory<K, V>,
+    handler: KafkaRecordHandler<K, V>,
+    retryPolicy: RetryPolicy,
+    processingFailureHandler: ProcessingFailureHandler<K, V>,
+    processedRecordTracker: ProcessedRecordTracker
+) -> RecordProcessingRuntime<K, V>
 
 /**
  * Coroutine-based Kafka consumer orchestration layer.
@@ -113,41 +120,36 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
-    private val workerDeserializerFactory: WorkerDeserializerFactory<K, V>
+    private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>,
+    private val recordDeserializerFactory: RecordDeserializerFactory<K, V>
 ) {
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
     private val consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
-    private val recordProcessor = RecordProcessor(
-        deliveryStrategy = deliveryStrategy,
-        deserializationDispatcher = deserializationDispatcher,
-        handler = handler,
-        retryPolicy = retryPolicy,
-        metrics = metrics,
-        processingFailureHandler = processingFailureHandler,
-        partitionRegistry = partitionRegistry
-    )
-    private val runtimeStats = ConsumerRuntimeStatsTracker(
-        workerCount = workerConcurrency,
-        workQueueCapacity = workChannelCapacity
-    )
-    private val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
-        capacity = workChannelCapacity,
-        onBufferOverflow = when (deliveryStrategy) {
-            DeliveryStrategy.BACKPRESSURE -> BufferOverflow.SUSPEND
-            DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
-        },
-        onUndeliveredElement = {
-            runtimeStats.onWorkDequeued()
-        }
-    )
-    private val trackedWorkChannel = TrackingSendChannel(workChannel, runtimeStats)
+    private val processedRecordTracker: ProcessedRecordTracker = when (deliveryStrategy) {
+        DeliveryStrategy.BACKPRESSURE -> PartitionProcessedRecordTracker(partitionRegistry)
+        DeliveryStrategy.LOSSY -> NoopProcessedRecordTracker
+    }
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
                 parentContext.minusKey(Job) +
                 CoroutineName("CoroutinesKafkaConsumer")
     )
+    private val processingRuntime: RecordProcessingRuntime<K, V> = processingRuntimeFactory(
+        scope,
+        deliveryStrategy,
+        workerConcurrency,
+        workChannelCapacity,
+        processingDispatcher,
+        metrics,
+        recordDeserializerFactory,
+        handler,
+        retryPolicy,
+        processingFailureHandler,
+        processedRecordTracker
+    )
+    private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
         pollLoopFactory(
             index,
@@ -159,7 +161,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             consumerConfigAdapter,
             topics,
             topicsPattern,
-            trackedWorkChannel,
+            processingRuntime,
             partitionRegistry
         )
     }
@@ -171,8 +173,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private var stopped = false
 
     private var pollLoopJobs: List<Job> = emptyList()
-    private var workerJobs: List<Job> = emptyList()
-    private var workerDeserializers: List<WorkerDeserializers<K, V>> = emptyList()
     private var stopDeferred: Deferred<Unit>? = null
 
     init {
@@ -230,39 +230,18 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics = topics,
         topicsPattern = topicsPattern,
         pollLoopFactory = defaultPollLoopFactory(),
-        workerDeserializerFactory = defaultWorkerDeserializerFactory<K, V>(consumerProperties)
+        processingRuntimeFactory = ::defaultProcessingRuntime,
+        recordDeserializerFactory = defaultRecordDeserializerFactory<K, V>(
+            consumerProperties = consumerProperties,
+            dispatcher = deserializationDispatcher
+        )
     )
 
     fun start() {
         check(!started) { "Consumer already started" }
         started = true
 
-        workerDeserializers = try {
-            List(workerConcurrency) { workerIndex ->
-                workerDeserializerFactory(workerIndex)
-            }
-        } catch (error: Throwable) {
-            workerDeserializers.closeAll()
-            throw error
-        }
-
-        workerJobs = List(workerConcurrency) { workerIndex ->
-            val deserializers = workerDeserializers[workerIndex]
-            scope.launch(processingDispatcher + CoroutineName("KafkaWorker-$workerIndex")) {
-                while (true) {
-                    val record = workChannel.receiveCatching().getOrNull() ?: break
-                    runtimeStats.onWorkDequeued()
-                    runtimeStats.onWorkerStarted()
-                    try {
-                        recordProcessor.process(record, deserializers)
-                    } finally {
-                        runtimeStats.onWorkerFinished()
-                    }
-                }
-            }.also { observeFailure(it) }
-        }
-
-        metrics.bindRuntimeMetrics(runtimeStats)
+        processingLifecycle.start { handleFailure(it) }
 
         pollLoopJobs = pollLoops.map { loop ->
             loop.start().also { observeFailure(it) }
@@ -282,12 +261,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private fun observeFailure(job: Job) {
         job.invokeOnCompletion { cause ->
             if (cause != null && !cause.isCancellation()) {
-                if (failure.compareAndSet(null, cause)) {
-                    metrics.onConsumerFailure(cause)
-                }
-                workChannel.close(cause)
+                handleFailure(cause)
             }
         }
+    }
+
+    private fun handleFailure(cause: Throwable) {
+        if (failure.compareAndSet(null, cause)) {
+            metrics.onConsumerFailure(cause)
+        }
+        processingLifecycle.close(cause)
     }
 
     private fun CoroutineScope.launchStopSequence(): Deferred<Unit> = async {
@@ -309,51 +292,17 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                     }
                 }
 
-                workChannel.close()
-                workerJobs.joinAll()
+                processingLifecycle.stop()
             } finally {
-                metrics.unbindRuntimeMetrics()
-                workerDeserializers.closeAll()
             }
         }
-    }
-}
-
-@OptIn(DelicateCoroutinesApi::class)
-private class TrackingSendChannel<E>(
-    private val delegate: Channel<E>,
-    private val runtimeStats: ConsumerRuntimeStatsTracker
-) : SendChannel<E> {
-    override val isClosedForSend: Boolean
-        get() = delegate.isClosedForSend
-
-    override val onSend
-        get() = delegate.onSend
-
-    override suspend fun send(element: E) {
-        delegate.send(element)
-        runtimeStats.onWorkEnqueued()
-    }
-
-    override fun trySend(element: E): ChannelResult<Unit> {
-        val result = delegate.trySend(element)
-        if (result.isSuccess) {
-            runtimeStats.onWorkEnqueued()
-        }
-        return result
-    }
-
-    override fun close(cause: Throwable?): Boolean = delegate.close(cause)
-
-    override fun invokeOnClose(handler: (cause: Throwable?) -> Unit) {
-        delegate.invokeOnClose(handler)
     }
 }
 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, deliveryStrategy, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, channel, registry ->
+    { id, context, deliveryStrategy, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
         ConsumerPollLoopControlAdapter(
             ConsumerPollLoop<K, V>(
                 id = id,
@@ -365,8 +314,35 @@ private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
                 consumerConfigAdapter = consumerConfigAdapter,
                 topics = loopTopics,
                 topicsPattern = loopTopicsPattern,
-                workChannel = channel,
+                recordSink = recordSink,
                 partitionStateRegistry = registry
             )
         )
     }
+
+internal fun <K, V> defaultProcessingRuntime(
+    parentScope: CoroutineScope,
+    deliveryStrategy: DeliveryStrategy,
+    workerConcurrency: Int,
+    workChannelCapacity: Int,
+    processingDispatcher: CoroutineDispatcher,
+    metrics: ConsumerMetrics<K, V>,
+    recordDeserializerFactory: RecordDeserializerFactory<K, V>,
+    handler: KafkaRecordHandler<K, V>,
+    retryPolicy: RetryPolicy,
+    processingFailureHandler: ProcessingFailureHandler<K, V>,
+    processedRecordTracker: ProcessedRecordTracker
+): RecordProcessingRuntime<K, V> =
+    DefaultRecordProcessingRuntime(
+        deliveryStrategy = deliveryStrategy,
+        workerConcurrency = workerConcurrency,
+        workChannelCapacity = workChannelCapacity,
+        processingDispatcher = processingDispatcher,
+        scope = parentScope,
+        metrics = metrics,
+        recordDeserializerFactory = recordDeserializerFactory,
+        handler = handler,
+        retryPolicy = retryPolicy,
+        processingFailureHandler = processingFailureHandler,
+        processedRecordTracker = processedRecordTracker
+    )

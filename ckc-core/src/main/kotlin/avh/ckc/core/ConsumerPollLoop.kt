@@ -4,8 +4,8 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.SendChannel
 import org.apache.kafka.clients.consumer.*
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
 import org.apache.kafka.common.TopicPartition
@@ -21,7 +21,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.toKotlinDuration
 
 /**
- * Single-thread Kafka poll loop + dispatch into [workChannel].
+ * Single-thread Kafka poll loop + dispatch into [recordSink].
  *
  * Design notes:
  * - KafkaConsumer is confined to a dedicated single thread (not thread-safe).
@@ -50,7 +50,7 @@ internal class ConsumerPollLoop<K, V>(
     private val consumerConfigAdapter: ConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
-    private val workChannel: SendChannel<ConsumerRecord<ByteArray, ByteArray>>,
+    private val recordSink: PolledRecordSink,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
         (consumerProperties: Map<String, Any?>) -> KafkaConsumer<ByteArray, ByteArray> = {
@@ -328,8 +328,6 @@ internal class ConsumerPollLoop<K, V>(
         // Do not commit on every loop iteration.
         var lastCommitAt = System.currentTimeMillis()
 
-        val channel = workChannel
-
         var state = State.ACTIVE
 
         while (currentCoroutineContext().isActive) {
@@ -363,15 +361,10 @@ internal class ConsumerPollLoop<K, V>(
             if (state == State.ACTIVE) {
                 while (iterator.hasNext()) {
                     val record = iterator.next()
-                    if (isAlreadyProcessed(record)) {
-                        continue
-                    }
+                    val accepted = recordSink.tryEmit(record)
 
-                    // IMPORTANT: must not suspend poll thread.
-                    val result = channel.trySend(record)
-
-                    if (!result.isSuccess) {
-                        // Channel full -> pause Kafka and stash the rest of this poll batch.
+                    if (!accepted) {
+                        // Processing runtime saturated -> pause Kafka and stash the rest of this poll batch.
                         state = State.PAUSED
                         stash.addLast(record)
                         pause(consumer)
@@ -383,9 +376,7 @@ internal class ConsumerPollLoop<K, V>(
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
                 val record = iterator.next()
-                if (!isAlreadyProcessed(record)) {
-                    stash.addLast(record)
-                }
+                stash.addLast(record)
             }
 
             /**
@@ -433,27 +424,16 @@ internal class ConsumerPollLoop<K, V>(
         }
     }
 
-    /** Drain stash to channel; returns true if fully drained. */
+    /** Drain stash to processing runtime; returns true if fully drained. */
     private fun drainStash(stash: ArrayDeque<ConsumerRecord<ByteArray, ByteArray>>): Boolean {
-        val channel = workChannel
         while (stash.isNotEmpty()) {
             val record = stash.first()
-            if (isAlreadyProcessed(record)) {
-                stash.removeFirst()
-                continue
-            }
-            val result = channel.trySend(record)
-            if (!result.isSuccess) {
+            if (!recordSink.tryEmit(record)) {
                 return false
             }
             stash.removeFirst()
         }
         return true
-    }
-
-    private fun isAlreadyProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
-        val partitionState = partitionStateRegistry.partitionStateFor(record) ?: return false
-        return partitionState.isProcessed(record.offset())
     }
 
     /** Pause all assigned partitions (best-effort). */
@@ -486,7 +466,6 @@ internal class ConsumerPollLoop<K, V>(
      * - Intended to be paired with a channel that drops and with client internal auto-commit.
      */
     private suspend fun consumerLoopLOSSY(consumer: KafkaConsumer<ByteArray, ByteArray>) {
-        val channel = workChannel
         while (currentCoroutineContext().isActive) {
             if (shutdownRequested) {
                 readyForShutdownSignal.complete(Unit)
@@ -496,7 +475,7 @@ internal class ConsumerPollLoop<K, V>(
             val records = pollRecords(consumer, State.ACTIVE)
 
             for (record in records) {
-                channel.send(record)
+                recordSink.tryEmit(record)
             }
         }
     }
@@ -505,7 +484,7 @@ internal class ConsumerPollLoop<K, V>(
      * Poll loop states for BACKPRESSURE strategy.
      *
      * - ACTIVE: normal poll and dispatch.
-     * - PAUSED: downstream saturated -> [workChannel] is full; Kafka paused; draining stash.
+     * - PAUSED: downstream saturated; Kafka paused; draining stash.
      * - DRAINING_TAIL: shutdown requested; Kafka paused; draining stash; no new intake.
      * - TAIL_DRAINED: tail drained and ready signal emitted.
      */

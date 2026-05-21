@@ -5,6 +5,7 @@ import avh.ckc.core.offset.OffsetTracker
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -500,6 +501,16 @@ private class PollLoopFixture(
             DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
         }
     )
+    private val recordSink = object : PolledRecordSink {
+        override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
+            if (deliveryStrategy == DeliveryStrategy.BACKPRESSURE &&
+                registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
+            ) {
+                return true
+            }
+            return workChannel.trySend(record).isSuccess
+        }
+    }
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
     private val consumerProperties = testConsumerProperties()
@@ -513,7 +524,7 @@ private class PollLoopFixture(
         consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),
         topicsPattern = null,
-        workChannel = workChannel,
+        recordSink = recordSink,
         partitionStateRegistry = registry,
         kafkaConsumerFactory = { consumer }
     )
