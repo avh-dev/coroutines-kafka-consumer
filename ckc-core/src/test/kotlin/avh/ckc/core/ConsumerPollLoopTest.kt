@@ -5,6 +5,7 @@ import avh.ckc.core.offset.OffsetTracker
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

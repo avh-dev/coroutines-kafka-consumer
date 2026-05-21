@@ -1,5 +1,7 @@
-package avh.ckc.core
+package avh.ckc.core.polling
 
+import avh.ckc.core.ConsumerConfigAdapter
+import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.offset.OffsetTrackerMetadata
 import avh.ckc.core.partition.PartitionRegistry
@@ -56,7 +58,7 @@ internal class ConsumerPollLoop<K, V>(
         (consumerProperties: Map<String, Any?>) -> KafkaConsumer<ByteArray, ByteArray> = {
             KafkaConsumer(it, ByteArrayDeserializer(), ByteArrayDeserializer())
         },
-) {
+) : ConsumerPollLoopControl {
     /** Dedicated poll thread (KafkaConsumer thread-safety). */
     private val dispatcher = Executors
         .newSingleThreadExecutor { r -> Thread(r, "kafka-poll-$id").apply { isDaemon = true } }
@@ -93,7 +95,7 @@ internal class ConsumerPollLoop<K, V>(
     /** Completed when BACKPRESSURE shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
 
-    fun start(): Job {
+    override fun start(): Job {
         check(job == null)
         job = scope.launch { runLoop() }
         return job!!
@@ -103,7 +105,7 @@ internal class ConsumerPollLoop<K, V>(
      * Phase 1 shutdown: request draining and pause poll().
      * Phase 2: loop completes [readyForShutdownSignal] once stash drained and poll returns empty.
      */
-    fun prepareForShutdown(): Deferred<Unit> {
+    override fun prepareForShutdown(): Deferred<Unit> {
         shutdownRequested = true
         consumerRef?.wakeup()
         return readyForShutdownSignal

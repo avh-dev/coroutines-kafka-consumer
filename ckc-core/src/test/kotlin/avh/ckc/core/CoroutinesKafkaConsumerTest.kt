@@ -2,6 +2,7 @@ package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope

@@ -4,6 +4,8 @@ import avh.ckc.core.deserialization.RecordDeserializerFactory
 import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.polling.ConsumerPollLoop
+import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.DefaultRecordProcessingRuntime
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
@@ -48,19 +50,6 @@ fun interface ProcessingFailureHandler<K, V> {
     companion object {
         fun <K, V> skip(): ProcessingFailureHandler<K, V> = ProcessingFailureHandler { _, _, _, _ -> }
     }
-}
-
-internal interface ConsumerPollLoopControl {
-    fun start(): Job
-    fun prepareForShutdown(): Deferred<Unit>
-}
-
-private class ConsumerPollLoopControlAdapter<K, V>(
-    private val delegate: ConsumerPollLoop<K, V>
-) : ConsumerPollLoopControl {
-    override fun start(): Job = delegate.start()
-
-    override fun prepareForShutdown(): Deferred<Unit> = delegate.prepareForShutdown()
 }
 
 private typealias PollLoopFactory<K, V> = (
@@ -303,20 +292,18 @@ private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
     { id, context, deliveryStrategy, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
-        ConsumerPollLoopControlAdapter(
-            ConsumerPollLoop<K, V>(
-                id = id,
-                parentContext = context,
-                deliveryStrategy = deliveryStrategy,
-                commitIntervalMs = commitIntervalMs,
-                metrics = metrics,
-                consumerProperties = consumerProperties,
-                consumerConfigAdapter = consumerConfigAdapter,
-                topics = loopTopics,
-                topicsPattern = loopTopicsPattern,
-                recordSink = recordSink,
-                partitionStateRegistry = registry
-            )
+        ConsumerPollLoop<K, V>(
+            id = id,
+            parentContext = context,
+            deliveryStrategy = deliveryStrategy,
+            commitIntervalMs = commitIntervalMs,
+            metrics = metrics,
+            consumerProperties = consumerProperties,
+            consumerConfigAdapter = consumerConfigAdapter,
+            topics = loopTopics,
+            topicsPattern = loopTopicsPattern,
+            recordSink = recordSink,
+            partitionStateRegistry = registry
         )
     }
 
