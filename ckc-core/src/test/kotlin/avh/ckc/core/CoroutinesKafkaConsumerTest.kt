@@ -6,6 +6,7 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
@@ -42,6 +43,20 @@ class CoroutinesKafkaConsumerTest {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_UNORDERED)
 
         assertInstanceOf(AtLeastOnceUnorderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when processing mode is AT_LEAST_ONCE_ORDERED_BY_KEY then default factory creates ordered runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY)
+
+        assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when processing mode is AT_LEAST_ONCE_ORDERED_BY_PARTITION then default factory creates ordered runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION)
+
+        assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test

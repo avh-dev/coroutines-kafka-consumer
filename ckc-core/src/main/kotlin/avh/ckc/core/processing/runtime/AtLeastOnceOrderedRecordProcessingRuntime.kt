@@ -69,12 +69,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         )
     }
     private val workerChannel by lazy {
-        Channel<WorkItem>(
-            capacity = Channel.RENDEZVOUS,
-            onUndeliveredElement = {
-                admissionBudget.release()
-            }
-        )
+        Channel<WorkItem>(capacity = Channel.RENDEZVOUS)
     }
 
     private var schedulerJob: Job? = null
