@@ -3,7 +3,7 @@ package avh.ckc.core.processing
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
-import avh.ckc.core.deserialization.DeserializedRecord
+import avh.ckc.core.processing.deserialization.DeserializedRecord
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay

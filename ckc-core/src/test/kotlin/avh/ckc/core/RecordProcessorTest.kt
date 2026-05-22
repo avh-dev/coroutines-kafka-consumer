@@ -1,6 +1,6 @@
 package avh.ckc.core
 
-import avh.ckc.core.deserialization.DeserializedRecord
+import avh.ckc.core.processing.deserialization.DeserializedRecord
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CompletableDeferred

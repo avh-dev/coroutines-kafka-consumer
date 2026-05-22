@@ -1,4 +1,4 @@
-package avh.ckc.core.deserialization
+package avh.ckc.core.processing.deserialization
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher

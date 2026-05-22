@@ -1,4 +1,4 @@
-package avh.ckc.core.deserialization
+package avh.ckc.core.processing.deserialization
 
 import org.apache.kafka.clients.consumer.ConsumerRecord
 

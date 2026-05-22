@@ -1,9 +1,9 @@
 package avh.ckc.core
 
-import avh.ckc.core.deserialization.DeserializedRecord
-import avh.ckc.core.deserialization.RecordDeserializer
-import avh.ckc.core.deserialization.RecordDeserializerFactory
-import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.DeserializedRecord
+import avh.ckc.core.processing.deserialization.RecordDeserializer
+import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerConfig
