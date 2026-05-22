@@ -1,10 +1,10 @@
 package avh.ckc.core
 
-import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
 import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
@@ -61,7 +61,7 @@ private typealias PollLoopFactory<K, V> = (
     commitIntervalMs: Long,
     metrics: ConsumerMetrics<K, V>,
     consumerProperties: Map<String, Any?>,
-    consumerConfigAdapter: ConsumerConfigAdapter,
+    consumerConfigAdapter: KafkaConsumerConfigAdapter,
     topics: List<String>?,
     topicsPattern: Pattern?,
     recordSink: PolledRecordSink,
@@ -116,7 +116,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 ) {
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
-    private val consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties)
+    private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
     private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
         ProcessingMode.AT_LEAST_ONCE_UNORDERED -> PartitionProcessedRecordTracker(partitionRegistry)

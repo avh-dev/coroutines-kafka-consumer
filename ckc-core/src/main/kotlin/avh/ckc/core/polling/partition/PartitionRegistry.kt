@@ -1,4 +1,4 @@
-package avh.ckc.core.partition
+package avh.ckc.core.polling.partition
 
 import avh.ckc.core.VisibleForTesting
 import org.apache.kafka.clients.consumer.ConsumerRecord

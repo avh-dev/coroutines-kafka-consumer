@@ -1,4 +1,4 @@
-package avh.ckc.core.offset
+package avh.ckc.core.polling.partition.offset
 
 import com.github.luben.zstd.Zstd
 import java.nio.ByteBuffer

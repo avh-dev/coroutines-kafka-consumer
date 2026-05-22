@@ -1,4 +1,4 @@
-package avh.ckc.core.offset
+package avh.ckc.core.polling.partition.offset
 
 import java.util.Base64
 

@@ -25,6 +25,7 @@
 | [CORE-20](#core-20) | Rename processing mode semantics and split the current unordered record processing runtime wiring so existing modes can diverge cleanly later.                                                           | DONE |
 | [CORE-21](#core-21) | Add drop metrics for freshness-first processing so intentionally discarded records are observable.                                                                                                      | DONE |
 | [CORE-22](#core-22) | Move deserialization under the processing package so package layout reflects the raw-polling and typed-processing boundary.                                                                              | DONE |
+| [CORE-23](#core-23) | Reorganize polling state packages and rename the Kafka consumer config adapter for clearer package boundaries.                                                                                         | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -375,6 +376,15 @@ Moved deserialization support into the processing package hierarchy.
 The package layout now reflects the runtime model: poll loops fetch raw Kafka records, while processing workers deserialize keys and values before invoking handlers.
 Updated imports across core runtime, processor, fixtures, and tests.
 Also documented the pre-release API stance in `AGENTS.md` so package and class names can be reshaped while the library has no published release.
+
+<a id="core-23"></a>
+### CORE-23 - Reorganize polling state packages
+
+_Date: 2026-05-22_
+
+Moved partition and offset-tracking internals under the polling package hierarchy.
+Renamed the raw Kafka consumer config adapter to `KafkaConsumerConfigAdapter` and moved it to the Kafka package so it is not confused with CKC library configuration.
+Updated core runtime, polling, processing, test fixtures, and focused tests without changing behavior.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics

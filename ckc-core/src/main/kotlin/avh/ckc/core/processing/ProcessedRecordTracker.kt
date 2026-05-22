@@ -1,6 +1,6 @@
 package avh.ckc.core.processing
 
-import avh.ckc.core.partition.PartitionRegistry
+import avh.ckc.core.polling.partition.PartitionRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 internal interface ProcessedRecordTracker {

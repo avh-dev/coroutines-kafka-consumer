@@ -1,8 +1,8 @@
-package avh.ckc.core.partition
+package avh.ckc.core.polling.partition
 
 import avh.ckc.core.metrics.ConsumerPartitionStats
-import avh.ckc.core.offset.OffsetTracker
-import avh.ckc.core.offset.OffsetTrackerSnapshot
+import avh.ckc.core.polling.partition.offset.OffsetTracker
+import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
 import avh.ckc.core.VisibleForTesting
 import org.apache.kafka.common.TopicPartition
 

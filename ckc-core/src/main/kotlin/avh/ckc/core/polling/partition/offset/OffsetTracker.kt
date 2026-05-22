@@ -1,4 +1,4 @@
-package avh.ckc.core.offset
+package avh.ckc.core.polling.partition.offset
 
 import java.lang.System.arraycopy
 import kotlin.math.max
