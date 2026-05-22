@@ -1,4 +1,4 @@
-package avh.ckc.core.processing
+package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
@@ -8,28 +8,29 @@ import avh.ckc.core.deserialization.RecordDeserializerFactory
 import avh.ckc.core.deserialization.closeAll
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
+import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.RecordProcessingRuntime
+import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
-internal class UnorderedRecordProcessingRuntime<K, V>(
+internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,
     private val workChannelCapacity: Int,
     private val processingDispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
-    private val metrics: ConsumerMetrics<K, V>,
+    protected val metrics: ConsumerMetrics<K, V>,
     private val recordDeserializerFactory: RecordDeserializerFactory<K, V>,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val processedRecordTracker: ProcessedRecordTracker,
-    bufferOverflow: BufferOverflow
+    private val processedRecordTracker: ProcessedRecordTracker
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -42,16 +43,17 @@ internal class UnorderedRecordProcessingRuntime<K, V>(
         workerCount = workerConcurrency,
         workQueueCapacity = workChannelCapacity
     )
-    private val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
-        capacity = workChannelCapacity,
-        onBufferOverflow = bufferOverflow,
-        onUndeliveredElement = {
-            runtimeStats.onWorkDequeued()
-        }
-    )
+    private val workChannel by lazy {
+        createChannel(workChannelCapacity, runtimeStats)
+    }
 
     private var workerJobs: List<Job> = emptyList()
     private var recordDeserializers: List<RecordDeserializer<K, V>> = emptyList()
+
+    protected abstract fun createChannel(
+        capacity: Int,
+        runtimeStats: ConsumerRuntimeStatsTracker
+    ): Channel<ConsumerRecord<ByteArray, ByteArray>>
 
     override fun start(onFailure: (Throwable) -> Unit) {
         recordDeserializers = try {
