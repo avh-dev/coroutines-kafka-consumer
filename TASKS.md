@@ -22,6 +22,7 @@
 | [CORE-17](#core-17) | Add OffsetTracker snapshots and zstd-backed metadata encoding for restoring processed-but-not-committed offsets.                                                                                         | DONE |
 | [CORE-18](#core-18) | Use OffsetTracker snapshot metadata during commits and assignment restore, and skip records already restored as processed.                                                                                | DONE |
 | [CORE-19](#core-19) | Refactor core package layout around public API, metrics, partition, processing, Kafka, and poll-loop responsibilities.                                                                                   | DONE |
+| [CORE-20](#core-20) | Rename processing mode semantics and split the current unordered record processing runtime wiring so existing modes can diverge cleanly later.                                                           | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -342,6 +343,16 @@ _Date: 2026-05-20_
 Split the core module package layout by responsibility while keeping the root package focused on the primary consumer API.
 Move metrics, partition state, processing, Kafka plumbing, and poll-loop internals in small reviewable steps.
 Keep each migration step isolated so imports, tests, and public package choices can be reviewed before committing.
+
+<a id="core-20"></a>
+### CORE-20 - Split current processing runtimes
+
+_Date: 2026-05-21_
+
+Renamed the public processing enum from delivery-oriented terminology to `ProcessingMode`.
+The existing backpressure and lossy modes became `AT_LEAST_ONCE_UNORDERED` and `FRESHNESS_FIRST`.
+The current channel-backed implementation was renamed to `UnorderedRecordProcessingRuntime`, with mode-specific overflow behavior selected at runtime creation.
+Future ordered and keyed freshness modes will be added with their dedicated runtime implementations in follow-up tasks.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics

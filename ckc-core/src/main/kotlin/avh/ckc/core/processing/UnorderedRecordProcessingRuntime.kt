@@ -1,6 +1,5 @@
 package avh.ckc.core.processing
 
-import avh.ckc.core.DeliveryStrategy
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
@@ -19,8 +18,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
-internal class DefaultRecordProcessingRuntime<K, V>(
-    private val deliveryStrategy: DeliveryStrategy,
+internal class UnorderedRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,
     private val workChannelCapacity: Int,
     private val processingDispatcher: CoroutineDispatcher,
@@ -30,7 +28,8 @@ internal class DefaultRecordProcessingRuntime<K, V>(
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    bufferOverflow: BufferOverflow
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -45,10 +44,7 @@ internal class DefaultRecordProcessingRuntime<K, V>(
     )
     private val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
         capacity = workChannelCapacity,
-        onBufferOverflow = when (deliveryStrategy) {
-            DeliveryStrategy.BACKPRESSURE -> BufferOverflow.SUSPEND
-            DeliveryStrategy.LOSSY -> BufferOverflow.DROP_OLDEST
-        },
+        onBufferOverflow = bufferOverflow,
         onUndeliveredElement = {
             runtimeStats.onWorkDequeued()
         }

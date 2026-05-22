@@ -7,13 +7,13 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
-import avh.ckc.core.processing.DefaultRecordProcessingRuntime
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
+import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
@@ -24,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
@@ -56,7 +57,7 @@ fun interface ProcessingFailureHandler<K, V> {
 private typealias PollLoopFactory<K, V> = (
     id: Int,
     parentContext: CoroutineContext,
-    deliveryStrategy: DeliveryStrategy,
+    processingMode: ProcessingMode,
     commitIntervalMs: Long,
     metrics: ConsumerMetrics<K, V>,
     consumerProperties: Map<String, Any?>,
@@ -69,7 +70,7 @@ private typealias PollLoopFactory<K, V> = (
 
 private typealias ProcessingRuntimeFactory<K, V> = (
     parentScope: CoroutineScope,
-    deliveryStrategy: DeliveryStrategy,
+    processingMode: ProcessingMode,
     workerConcurrency: Int,
     workChannelCapacity: Int,
     processingDispatcher: CoroutineDispatcher,
@@ -94,7 +95,7 @@ private typealias ProcessingRuntimeFactory<K, V> = (
  * This class keeps the low-level constructor for internal wiring and tests.
  */
 class CoroutinesKafkaConsumer<K, V> internal constructor(
-    private val deliveryStrategy: DeliveryStrategy,
+    private val processingMode: ProcessingMode,
     private val workerConcurrency: Int,
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
@@ -117,9 +118,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val failure = AtomicReference<Throwable?>(null)
     private val consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
-    private val processedRecordTracker: ProcessedRecordTracker = when (deliveryStrategy) {
-        DeliveryStrategy.BACKPRESSURE -> PartitionProcessedRecordTracker(partitionRegistry)
-        DeliveryStrategy.LOSSY -> NoopProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
+        ProcessingMode.AT_LEAST_ONCE_UNORDERED -> PartitionProcessedRecordTracker(partitionRegistry)
+        ProcessingMode.FRESHNESS_FIRST -> NoopProcessedRecordTracker
     }
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
@@ -128,7 +129,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     )
     private val processingRuntime: RecordProcessingRuntime<K, V> = processingRuntimeFactory(
         scope,
-        deliveryStrategy,
+        processingMode,
         workerConcurrency,
         workChannelCapacity,
         processingDispatcher,
@@ -144,7 +145,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         pollLoopFactory(
             index,
             scope.coroutineContext,
-            deliveryStrategy,
+            processingMode,
             commitIntervalMs,
             metrics,
             consumerProperties,
@@ -179,16 +180,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerProperties.containsKey(VALUE_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$VALUE_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
-        if (deliveryStrategy == DeliveryStrategy.LOSSY) {
+        if (processingMode == ProcessingMode.FRESHNESS_FIRST) {
             require(consumerConfigAdapter.getBoolean(ENABLE_AUTO_COMMIT_CONFIG) == true) {
-                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when deliveryStrategy=LOSSY"
+                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when processingMode=FRESHNESS_FIRST"
             }
         }
     }
 
     internal constructor(
         consumerProperties: Map<String, Any?>,
-        deliveryStrategy: DeliveryStrategy,
+        processingMode: ProcessingMode,
         workerConcurrency: Int,
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
@@ -204,7 +205,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topicsPattern: Pattern? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
-        deliveryStrategy = deliveryStrategy,
+        processingMode = processingMode,
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
@@ -292,11 +293,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, deliveryStrategy, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
+    { id, context, processingMode, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
         ConsumerPollLoop<K, V>(
             id = id,
             parentContext = context,
-            deliveryStrategy = deliveryStrategy,
+            processingMode = processingMode,
             commitIntervalMs = commitIntervalMs,
             metrics = metrics,
             consumerProperties = consumerProperties,
@@ -310,7 +311,7 @@ private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
 
 internal fun <K, V> defaultProcessingRuntime(
     parentScope: CoroutineScope,
-    deliveryStrategy: DeliveryStrategy,
+    processingMode: ProcessingMode,
     workerConcurrency: Int,
     workChannelCapacity: Int,
     processingDispatcher: CoroutineDispatcher,
@@ -321,8 +322,7 @@ internal fun <K, V> defaultProcessingRuntime(
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
-    DefaultRecordProcessingRuntime(
-        deliveryStrategy = deliveryStrategy,
+    UnorderedRecordProcessingRuntime(
         workerConcurrency = workerConcurrency,
         workChannelCapacity = workChannelCapacity,
         processingDispatcher = processingDispatcher,
@@ -332,5 +332,9 @@ internal fun <K, V> defaultProcessingRuntime(
         handler = handler,
         retryPolicy = retryPolicy,
         processingFailureHandler = processingFailureHandler,
-        processedRecordTracker = processedRecordTracker
+        processedRecordTracker = processedRecordTracker,
+        bufferOverflow = when (processingMode) {
+            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> BufferOverflow.SUSPEND
+            ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
+        }
     )

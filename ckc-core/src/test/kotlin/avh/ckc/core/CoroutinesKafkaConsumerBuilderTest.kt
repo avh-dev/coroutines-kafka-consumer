@@ -40,33 +40,33 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
-    fun `when delivery strategy is lossy and auto commit disabled then build fails`() {
+    fun `when processing mode is FRESHNESS_FIRST and auto commit disabled then build fails`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             coroutinesKafkaConsumer<String, String>(
                 stringSerdeProperties() + mapOf(
                     ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "false"
                 )
             ) {
-                deliveryStrategy = DeliveryStrategy.LOSSY
+                processingMode = ProcessingMode.FRESHNESS_FIRST
                 topics("topic-a")
                 handle { _, _, _ -> }
             }
         }
 
         assertEquals(
-            "Kafka property '${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}' must be true when deliveryStrategy=LOSSY",
+            "Kafka property '${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}' must be true when processingMode=FRESHNESS_FIRST",
             error.message
         )
     }
 
     @Test
-    fun `when delivery strategy is lossy and auto commit enabled then consumer is created`() {
+    fun `when processing mode is FRESHNESS_FIRST and auto commit enabled then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(
             stringSerdeProperties() + mapOf(
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
             )
         ) {
-            deliveryStrategy = DeliveryStrategy.LOSSY
+            processingMode = ProcessingMode.FRESHNESS_FIRST
             topics("topic-a")
             handle { _, _, _ -> }
         }

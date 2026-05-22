@@ -4,9 +4,12 @@ import avh.ckc.core.config.ConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -14,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -30,6 +34,20 @@ class CoroutinesKafkaConsumerTest {
     fun resetTrackingDeserializers() {
         TrackingStringDeserializer.reset()
         TrackingLongDeserializer.reset()
+    }
+
+    @Test
+    fun `when processing mode is AT_LEAST_ONCE_UNORDERED then default factory creates at least once runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+
+        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when processing mode is FRESHNESS_FIRST then default factory creates freshness first runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST)
+
+        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
@@ -108,7 +126,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 21L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = DeliveryStrategy.BACKPRESSURE,
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                     deserializationDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->
@@ -140,7 +158,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(testRecord(offset = 22L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    strategy = DeliveryStrategy.BACKPRESSURE,
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                     processingDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> { _, _, _ ->
@@ -198,7 +216,7 @@ class CoroutinesKafkaConsumerTest {
         val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
-            deliveryStrategy = DeliveryStrategy.BACKPRESSURE,
+            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
             workerConcurrency = 1,
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,
@@ -213,7 +231,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: DeliveryStrategy, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: ConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected
@@ -241,4 +259,20 @@ class CoroutinesKafkaConsumerTest {
         assertEquals(expected.message, thrown.message)
         assertEquals(listOf(expected), metrics.consumerFailures)
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun createDefaultProcessingRuntime(processingMode: ProcessingMode) =
+        defaultProcessingRuntime(
+            parentScope = CoroutineScope(EmptyCoroutineContext),
+            processingMode = processingMode,
+            workerConcurrency = 1,
+            workChannelCapacity = 16,
+            processingDispatcher = Dispatchers.Default,
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties()),
+            handler = KafkaRecordHandler { _, _, _ -> },
+            retryPolicy = RetryPolicy.none(),
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            processedRecordTracker = NoopProcessedRecordTracker
+        )
 }
