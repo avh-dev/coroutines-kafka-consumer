@@ -37,12 +37,16 @@ spec:
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
+            - name: LIFECYCLE_PROCESSING_MODE
+              value: {{ .Values.env.lifecycleProcessingMode | quote }}
             - name: LIFECYCLE_WORKER_CONCURRENCY
               value: {{ .Values.env.lifecycleWorkerConcurrency | quote }}
             - name: LIFECYCLE_POLL_LOOP_CONCURRENCY
               value: {{ .Values.env.lifecyclePollLoopConcurrency | quote }}
             - name: LIFECYCLE_WORK_CHANNEL_CAPACITY
               value: {{ .Values.env.lifecycleWorkChannelCapacity | quote }}
+            - name: TELEMETRY_PROCESSING_MODE
+              value: {{ .Values.env.telemetryProcessingMode | quote }}
             - name: TELEMETRY_WORKER_CONCURRENCY
               value: {{ .Values.env.telemetryWorkerConcurrency | quote }}
             - name: TELEMETRY_POLL_LOOP_CONCURRENCY

@@ -620,17 +620,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_record_process_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "ckc_workers_active{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "A",
-          "legendFormat": "{{consumer_id}} busy avg"
+          "legendFormat": "{{consumer_id}} active"
         },
         {
           "expr": "ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
           "refId": "B",
-          "legendFormat": "{{consumer_id}} total"
+          "legendFormat": "{{consumer_id}} configured"
         }
       ],
-      "title": "CKC Busy Workers",
+      "title": "CKC Active Workers",
       "type": "timeseries"
     },
     {
@@ -698,7 +698,7 @@
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "ops"
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -707,6 +707,96 @@
         "w": 12,
         "x": 0,
         "y": 52
+      },
+      "id": 61,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ckc_workers_active{consumer_id=~\"order_lifecycle|cauldron_telemetry\"} / clamp_min(ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}, 1)",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}}"
+        }
+      ],
+      "title": "CKC Worker Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 62,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"} / clamp_min(ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}, 1)",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} current"
+        }
+      ],
+      "title": "CKC Work Queue Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
       },
       "id": 26,
       "options": {
@@ -749,7 +839,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 60
       },
       "id": 27,
       "options": {
@@ -792,7 +882,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 68
       },
       "id": 28,
       "options": {
@@ -835,7 +925,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 68
       },
       "id": 29,
       "options": {
@@ -870,7 +960,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 76
       },
       "id": 45,
       "panels": [],
@@ -895,7 +985,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "id": 46,
       "options": {
@@ -940,7 +1030,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 69
+        "y": 77
       },
       "id": 47,
       "options": {
@@ -986,7 +1076,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 77
+        "y": 85
       },
       "id": 48,
       "options": {
@@ -1031,7 +1121,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 77
+        "y": 85
       },
       "id": 49,
       "options": {
@@ -1076,7 +1166,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 93
       },
       "id": 52,
       "options": {
@@ -1126,7 +1216,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 93
       },
       "id": 53,
       "options": {
@@ -1181,7 +1271,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 93
+        "y": 101
       },
       "id": 54,
       "options": {
@@ -1231,7 +1321,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 93
+        "y": 101
       },
       "id": 59,
       "options": {
@@ -1281,7 +1371,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 101
+        "y": 109
       },
       "id": 55,
       "options": {
@@ -1326,7 +1416,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 101
+        "y": 109
       },
       "id": 56,
       "options": {
@@ -1371,7 +1461,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 109
+        "y": 117
       },
       "id": 57,
       "options": {
@@ -1416,7 +1506,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 109
+        "y": 117
       },
       "id": 58,
       "options": {
@@ -1453,7 +1543,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 117
+        "y": 125
       },
       "id": 30,
       "panels": [],
@@ -1478,7 +1568,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 118
+        "y": 126
       },
       "id": 32,
       "options": {
@@ -1523,7 +1613,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 126
+        "y": 134
       },
       "id": 34,
       "options": {
@@ -1573,7 +1663,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 126
+        "y": 134
       },
       "id": 33,
       "options": {
@@ -1615,7 +1705,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 134
+        "y": 142
       },
       "id": 35,
       "panels": [],
@@ -1641,7 +1731,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 135
+        "y": 143
       },
       "id": 36,
       "options": {
@@ -1691,7 +1781,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 135
+        "y": 143
       },
       "id": 39,
       "options": {
@@ -1736,7 +1826,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 143
+        "y": 151
       },
       "id": 37,
       "options": {
@@ -1786,7 +1876,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 143
+        "y": 151
       },
       "id": 40,
       "options": {
@@ -1831,7 +1921,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 151
+        "y": 159
       },
       "id": 38,
       "options": {
@@ -1927,6 +2017,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 18,
+  "version": 19,
   "weekStart": ""
 }

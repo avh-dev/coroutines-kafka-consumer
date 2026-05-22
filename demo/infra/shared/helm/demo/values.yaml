@@ -19,9 +19,11 @@ env:
   redisPort: 6379
   modelBaseUrl: ""
   auditLogEnabled: true
+  lifecycleProcessingMode: AT_LEAST_ONCE_UNORDERED
   lifecycleWorkerConcurrency: 2
   lifecyclePollLoopConcurrency: 1
   lifecycleWorkChannelCapacity: 1024
+  telemetryProcessingMode: FRESHNESS_FIRST
   telemetryWorkerConcurrency: 4
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 256

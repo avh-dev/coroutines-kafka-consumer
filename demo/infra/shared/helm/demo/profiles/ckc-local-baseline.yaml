@@ -2,6 +2,8 @@ replicaCount: 2
 
 env:
   springProfilesActive: ckc
+  lifecycleProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  telemetryProcessingMode: FRESHNESS_FIRST
   lifecycleWorkerConcurrency: 20
   lifecyclePollLoopConcurrency: 1
   lifecycleWorkChannelCapacity: 1024
