@@ -185,6 +185,10 @@ open class MicrometerConsumerMetrics(
             counter("record.failed", tags).increment()
         }
 
+        override fun onRecordDropped(record: ConsumerRecord<ByteArray, ByteArray>) {
+            counter("record.dropped", tags("topic" to record.topic())).increment()
+        }
+
         override fun onRetry(
             key: K?,
             value: V?,

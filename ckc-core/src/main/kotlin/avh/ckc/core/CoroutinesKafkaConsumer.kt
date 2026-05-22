@@ -13,7 +13,8 @@ import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
-import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
@@ -24,7 +25,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
@@ -322,19 +322,30 @@ internal fun <K, V> defaultProcessingRuntime(
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
-    UnorderedRecordProcessingRuntime(
-        workerConcurrency = workerConcurrency,
-        workChannelCapacity = workChannelCapacity,
-        processingDispatcher = processingDispatcher,
-        scope = parentScope,
-        metrics = metrics,
-        recordDeserializerFactory = recordDeserializerFactory,
-        handler = handler,
-        retryPolicy = retryPolicy,
-        processingFailureHandler = processingFailureHandler,
-        processedRecordTracker = processedRecordTracker,
-        bufferOverflow = when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> BufferOverflow.SUSPEND
-            ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
-        }
-    )
+    when (processingMode) {
+        ProcessingMode.AT_LEAST_ONCE_UNORDERED -> AtLeastOnceUnorderedRecordProcessingRuntime(
+            workerConcurrency = workerConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            processingDispatcher = processingDispatcher,
+            scope = parentScope,
+            metrics = metrics,
+            recordDeserializerFactory = recordDeserializerFactory,
+            handler = handler,
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
+            processedRecordTracker = processedRecordTracker
+        )
+
+        ProcessingMode.FRESHNESS_FIRST -> FreshnessFirstUnorderedRecordProcessingRuntime(
+            workerConcurrency = workerConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            processingDispatcher = processingDispatcher,
+            scope = parentScope,
+            metrics = metrics,
+            recordDeserializerFactory = recordDeserializerFactory,
+            handler = handler,
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
+            processedRecordTracker = processedRecordTracker
+        )
+    }

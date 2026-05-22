@@ -6,7 +6,8 @@ import avh.ckc.core.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
-import avh.ckc.core.processing.UnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,14 +41,86 @@ class CoroutinesKafkaConsumerTest {
     fun `when processing mode is AT_LEAST_ONCE_UNORDERED then default factory creates at least once runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_UNORDERED)
 
-        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(AtLeastOnceUnorderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
     fun `when processing mode is FRESHNESS_FIRST then default factory creates freshness first runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST)
 
-        assertInstanceOf(UnorderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(FreshnessFirstUnorderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when freshness-first queue overflows then dropped record is reported to metrics`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val firstRecordStarted = CompletableDeferred<Unit>()
+        val releaseFirstRecord = CompletableDeferred<Unit>()
+        val consumer = createTestConsumer(
+            records = listOf(
+                testRecord(offset = 1L, key = "key-1", value = "value-1"),
+                testRecord(offset = 2L, key = "key-2", value = "value-2"),
+                testRecord(offset = 3L, key = "key-3", value = "value-3")
+            ),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            runtime = testRuntime(
+                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                workChannelCapacity = 1
+            ),
+            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
+                if (rawRecord.offset() == 1L) {
+                    firstRecordStarted.complete(Unit)
+                    releaseFirstRecord.await()
+                }
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) { firstRecordStarted.await() }
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            metrics.dropped.singleOrNull()
+        }
+
+        releaseFirstRecord.complete(Unit)
+        consumer.stop()
+
+        assertEquals(listOf(2L), metrics.dropped.map { it.record.offset() })
+    }
+
+    @Test
+    fun `when freshness-first consumer stops then queued records are not reported as dropped`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val firstRecordStarted = CompletableDeferred<Unit>()
+        val releaseFirstRecord = CompletableDeferred<Unit>()
+        val consumer = createTestConsumer(
+            records = listOf(
+                testRecord(offset = 1L, key = "key-1", value = "value-1"),
+                testRecord(offset = 2L, key = "key-2", value = "value-2")
+            ),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            runtime = testRuntime(
+                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                workChannelCapacity = 2
+            ),
+            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
+                if (rawRecord.offset() == 1L) {
+                    firstRecordStarted.complete(Unit)
+                    releaseFirstRecord.await()
+                }
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) { firstRecordStarted.await() }
+
+        val stopJob = async { consumer.stop() }
+        assertFalse(stopJob.isCompleted)
+        releaseFirstRecord.complete(Unit)
+        withTimeout(2_000) { stopJob.await() }
+
+        assertEquals(emptyList<Long>(), metrics.dropped.map { it.record.offset() })
     }
 
     @Test

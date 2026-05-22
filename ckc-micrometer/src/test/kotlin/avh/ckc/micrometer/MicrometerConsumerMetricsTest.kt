@@ -100,6 +100,27 @@ class MicrometerConsumerMetricsTest {
     }
 
     @Test
+    fun `when record is dropped then dropped counter is recorded`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = MicrometerConsumerMetrics(
+            meterRegistry = registry,
+            commonTags = listOf(Tag.of("app", "test"))
+        ).forConsumer<String, TestLifecycleEvent>(consumerId = "telemetry")
+
+        metrics.onRecordDropped(testRecord(topic = "cauldrons", partition = 1))
+
+        assertEquals(
+            1.0,
+            registry.get("ckc.record.dropped")
+                .tag("topic", "cauldrons")
+                .tag("app", "test")
+                .tag("consumer_id", "telemetry")
+                .counter()
+                .count()
+        )
+    }
+
+    @Test
     fun `when retry commit poll and consumer failure happen then corresponding meters are recorded`() {
         val registry = SimpleMeterRegistry()
         val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()

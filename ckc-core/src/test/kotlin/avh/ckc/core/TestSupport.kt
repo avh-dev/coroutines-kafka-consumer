@@ -26,6 +26,7 @@ suspend fun <T : Any> awaitFor(
 fun testRuntime(
     processingMode: ProcessingMode,
     commitIntervalMs: Long = 5_000L,
+    workChannelCapacity: Int = 1024,
     deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 ): TestConsumerRuntime =
@@ -34,7 +35,7 @@ fun testRuntime(
         workerConcurrency = 1,
         consumerPollLoopConcurrency = 1,
         commitIntervalMs = commitIntervalMs,
-        workChannelCapacity = 1024,
+        workChannelCapacity = workChannelCapacity,
         deserializationDispatcher = deserializationDispatcher,
         processingDispatcher = processingDispatcher
     )

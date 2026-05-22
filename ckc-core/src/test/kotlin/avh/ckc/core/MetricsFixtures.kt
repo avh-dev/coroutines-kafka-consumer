@@ -23,6 +23,10 @@ data class RecordFailedCall<K, V>(
     val durationNanos: Long
 )
 
+data class RecordDroppedCall(
+    val record: ConsumerRecord<ByteArray, ByteArray>
+)
+
 data class RetryCall<K, V>(
     val key: K?,
     val value: V?,
@@ -47,6 +51,7 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val polls = CopyOnWriteArrayList<Pair<Int, Long>>()
     val processed = CopyOnWriteArrayList<RecordProcessedCall<K, V>>()
     val failed = CopyOnWriteArrayList<RecordFailedCall<K, V>>()
+    val dropped = CopyOnWriteArrayList<RecordDroppedCall>()
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
     val consumerFailures = CopyOnWriteArrayList<Throwable>()
@@ -94,6 +99,10 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         durationNanos: Long
     ) {
         failed += RecordFailedCall(key, value, record, recordAgeMillis, error, durationNanos)
+    }
+
+    override fun onRecordDropped(record: ConsumerRecord<ByteArray, ByteArray>) {
+        dropped += RecordDroppedCall(record)
     }
 
     override fun onRetry(key: K?, value: V?, record: ConsumerRecord<ByteArray, ByteArray>, attempt: Int, error: Throwable) {

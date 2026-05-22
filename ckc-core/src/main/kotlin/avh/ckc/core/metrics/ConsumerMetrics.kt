@@ -74,6 +74,13 @@ interface ConsumerMetrics<K, V> {
     ) = Unit
 
     /**
+     * Records a polled record intentionally discarded by the selected processing mode.
+     *
+     * This callback is not used for shutdown or cancellation cleanup.
+     */
+    fun onRecordDropped(record: ConsumerRecord<ByteArray, ByteArray>) = Unit
+
+    /**
      * Records a retry of the user handler.
      *
      * [attempt] is one-based: the first retry after the initial failed attempt is reported as `1`.
