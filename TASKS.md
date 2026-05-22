@@ -70,6 +70,7 @@
 | [INFRA-22](#infra-22) | Update Grafana dashboards to compare consumers by Spring profile and add Confluent Parallel Consumer metric panels.                         | DONE |
 | [INFRA-23](#infra-23) | Add Confluent Parallel Consumer offset encoder metrics and clearer shard/partition panels to the Grafana dashboard.                          | DONE |
 | [INFRA-24](#infra-24) | Clean up the Grafana dashboard for load-test result analysis with consistent time-series panels.                                             | DONE |
+| [INFRA-25](#infra-25) | Wire lifecycle processing mode through demo Helm values and add ordered-runtime-oriented CKC dashboard panels.                                | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -719,6 +720,15 @@ Place MSK CloudWatch Time Lag before Offset Lag in the Kafka Lag section.
 Remove duplicated Confluent Parallel Consumer throughput and processing-time panels now covered by domain event panels.
 Extend the processing duration selector with default avg and max options alongside p50, p95, and p99.
 Use Grafana's adaptive `$__rate_interval` for Prometheus rate windows so short load tests are not smoothed by fixed two-minute windows.
+
+<a id="infra-25"></a>
+### INFRA-25 - Add ordered lifecycle runtime observability
+
+_Date: 2026-05-22_
+
+Expose lifecycle and telemetry processing modes through the shared demo Helm chart.
+Set CKC demo deployment profiles to key-ordered lifecycle processing while leaving telemetry freshness-first.
+Update the CKC runtime dashboard section with active-worker and bounded-queue utilization panels for ordered runtime analysis.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
