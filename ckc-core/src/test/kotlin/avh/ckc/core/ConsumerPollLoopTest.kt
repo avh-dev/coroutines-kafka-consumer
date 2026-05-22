@@ -499,13 +499,15 @@ private class PollLoopFixture(
     val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
         capacity = workChannelCapacity,
         onBufferOverflow = when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> BufferOverflow.SUSPEND
+            ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
+            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> BufferOverflow.SUSPEND
             ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
         }
     )
     private val recordSink = object : PolledRecordSink {
         override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
-            if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED &&
+            if (processingMode.tracksProcessedOffsets() &&
                 registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
             ) {
                 return true
@@ -548,7 +550,7 @@ private class PollLoopFixture(
 
         whenever(consumer.poll(any<Duration>()))
             .thenAnswer {
-                if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED &&
+                if (processingMode.tracksProcessedOffsets() &&
                     assignedOnce.compareAndSet(false, true)
                 ) {
                     listenerRef.get()?.onPartitionsAssigned(listOf(topicPartition))

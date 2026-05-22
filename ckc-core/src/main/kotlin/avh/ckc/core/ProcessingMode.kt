@@ -13,6 +13,21 @@ enum class ProcessingMode {
     AT_LEAST_ONCE_UNORDERED,
 
     /**
+     * At-least-once processing with ordering preserved for records that have the same raw Kafka key.
+     *
+     * Records with different keys may be processed concurrently. Records with a null Kafka key share a
+     * single ordering lane and are therefore processed sequentially relative to each other.
+     */
+    AT_LEAST_ONCE_ORDERED_BY_KEY,
+
+    /**
+     * At-least-once processing with ordering preserved within each Kafka topic partition.
+     *
+     * Records from different partitions may be processed concurrently.
+     */
+    AT_LEAST_ONCE_ORDERED_BY_PARTITION,
+
+    /**
      * Freshness-first processing backed by a bounded queue that drops the oldest buffered records.
      *
      * Dropped records are not processed by this consumer instance. They may be redelivered only
@@ -22,3 +37,11 @@ enum class ProcessingMode {
      */
     FRESHNESS_FIRST
 }
+
+internal fun ProcessingMode.tracksProcessedOffsets(): Boolean =
+    when (this) {
+        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> true
+        ProcessingMode.FRESHNESS_FIRST -> false
+    }

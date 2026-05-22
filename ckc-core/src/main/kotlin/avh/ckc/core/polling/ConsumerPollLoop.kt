@@ -2,6 +2,7 @@ package avh.ckc.core.polling
 
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.ProcessingMode
+import avh.ckc.core.tracksProcessedOffsets
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.PartitionRegistry
@@ -145,7 +146,7 @@ internal class ConsumerPollLoop<K, V>(
         consumer: KafkaConsumer<ByteArray, ByteArray>,
         processingMode: ProcessingMode
     ): ConsumerRebalanceListener =
-        if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+        if (processingMode.tracksProcessedOffsets())
             atLeastOnceRebalanceListener(consumer)
         else
             noOpRebalanceListener()
@@ -248,7 +249,9 @@ internal class ConsumerPollLoop<K, V>(
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
         when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED -> consumerLoopAtLeastOnceUnordered(consumer)
+            ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
+            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> consumerLoopAtLeastOnceUnordered(consumer)
             ProcessingMode.FRESHNESS_FIRST -> consumerLoopFreshnessFirst(consumer)
         }
     } catch (_: CancellationException) {
@@ -257,7 +260,7 @@ internal class ConsumerPollLoop<K, V>(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (processingMode == ProcessingMode.AT_LEAST_ONCE_UNORDERED) {
+        if (processingMode.tracksProcessedOffsets()) {
             // Final best-effort commit on shutdown.
             commitReadyOffsets(consumer, assignedPartitions)
             assignedPartitions.forEach {
@@ -300,7 +303,7 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /**
-     * AT_LEAST_ONCE_UNORDERED mode loop.
+     * Tracked at-least-once mode loop.
      *
      * Key properties:
      * - Dispatch to workers via `trySend()` (never suspends poll thread).

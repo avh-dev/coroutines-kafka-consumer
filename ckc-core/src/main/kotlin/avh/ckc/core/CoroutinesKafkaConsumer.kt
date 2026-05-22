@@ -13,6 +13,7 @@ import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
@@ -119,7 +120,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
     private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED -> PartitionProcessedRecordTracker(partitionRegistry)
+        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> PartitionProcessedRecordTracker(partitionRegistry)
         ProcessingMode.FRESHNESS_FIRST -> NoopProcessedRecordTracker
     }
     private val scope = CoroutineScope(
@@ -326,6 +329,34 @@ internal fun <K, V> defaultProcessingRuntime(
         ProcessingMode.AT_LEAST_ONCE_UNORDERED -> AtLeastOnceUnorderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
+            processingDispatcher = processingDispatcher,
+            scope = parentScope,
+            metrics = metrics,
+            recordDeserializerFactory = recordDeserializerFactory,
+            handler = handler,
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
+            processedRecordTracker = processedRecordTracker
+        )
+
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY -> AtLeastOnceOrderedRecordProcessingRuntime(
+            workerConcurrency = workerConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            processingDispatcher = processingDispatcher,
+            scope = parentScope,
+            metrics = metrics,
+            recordDeserializerFactory = recordDeserializerFactory,
+            handler = handler,
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
+            processedRecordTracker = processedRecordTracker
+        )
+
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> AtLeastOnceOrderedRecordProcessingRuntime(
+            workerConcurrency = workerConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_PARTITION,
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
