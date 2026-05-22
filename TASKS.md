@@ -26,6 +26,7 @@
 | [CORE-21](#core-21) | Add drop metrics for freshness-first processing so intentionally discarded records are observable.                                                                                                      | DONE |
 | [CORE-22](#core-22) | Move deserialization under the processing package so package layout reflects the raw-polling and typed-processing boundary.                                                                              | DONE |
 | [CORE-23](#core-23) | Reorganize polling state packages and rename the Kafka consumer config adapter for clearer package boundaries.                                                                                         | DONE |
+| [CORE-24](#core-24) | Add bounded at-least-once ordered processing modes for key and partition ordering.                                                                                                                       | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -385,6 +386,15 @@ _Date: 2026-05-22_
 Moved partition and offset-tracking internals under the polling package hierarchy.
 Renamed the raw Kafka consumer config adapter to `KafkaConsumerConfigAdapter` and moved it to the Kafka package so it is not confused with CKC library configuration.
 Updated core runtime, polling, processing, test fixtures, and focused tests without changing behavior.
+
+<a id="core-24"></a>
+### CORE-24 - Add bounded ordered processing modes
+
+_Date: 2026-05-22_
+
+Implement at-least-once ordered processing modes backed by a shared bounded runtime.
+Support ordering by raw Kafka key and by Kafka topic partition while preserving parallelism across independent ordering keys.
+Keep all accepted records under one bounded admission budget so backpressure reaches the poll loop without hidden per-key unbounded queues.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics
