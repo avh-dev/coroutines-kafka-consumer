@@ -2,7 +2,6 @@ package avh.ckc.demo
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.ProcessingMode
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -31,7 +30,7 @@ object DemoConsumers {
 
         return coroutinesKafkaConsumer(properties) {
             topics(DemoTopics.ORDER_LIFECYCLE)
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
@@ -65,7 +64,7 @@ object DemoConsumers {
 
         return coroutinesKafkaConsumer(properties) {
             topics(DemoTopics.CAULDRON_TELEMETRY)
-            processingMode = ProcessingMode.FRESHNESS_FIRST
+            processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity

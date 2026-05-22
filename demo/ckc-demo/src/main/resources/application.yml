@@ -29,10 +29,12 @@ demo:
       custom-thread-pool-size: ${DEMO_CONSUMER_DESERIALIZATION_THREADS:8}
       custom-thread-name-prefix: ${DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX:ckc-demo-deserializer}
     lifecycle:
+      processing-mode: ${LIFECYCLE_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${LIFECYCLE_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${LIFECYCLE_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${LIFECYCLE_WORK_CHANNEL_CAPACITY:1024}
     telemetry:
+      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}

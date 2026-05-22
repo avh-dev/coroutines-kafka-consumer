@@ -1,5 +1,6 @@
 package avh.ckc.demo.config
 
+import avh.ckc.core.ProcessingMode
 import avh.ckc.demo.DemoTopics
 import org.springframework.boot.context.properties.ConfigurationProperties
 
@@ -35,7 +36,11 @@ data class DemoApplicationProperties(
         var processingEnabled: Boolean = true,
         var deserializationDispatcher: DeserializationDispatcher = DeserializationDispatcher(),
         var lifecycle: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
-        var telemetry: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 4, workChannelCapacity = 256)
+        var telemetry: ConsumerRuntime = ConsumerRuntime(
+            workerConcurrency = 4,
+            workChannelCapacity = 256,
+            processingMode = ProcessingMode.FRESHNESS_FIRST
+        )
     )
 
     data class DeserializationDispatcher(
@@ -53,6 +58,7 @@ data class DemoApplicationProperties(
     data class ConsumerRuntime(
         var workerConcurrency: Int = 1,
         var pollLoopConcurrency: Int = 1,
-        var workChannelCapacity: Int = 1024
+        var workChannelCapacity: Int = 1024,
+        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
     )
 }
