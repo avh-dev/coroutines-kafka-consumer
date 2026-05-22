@@ -1,11 +1,11 @@
 package avh.ckc.core.polling
 
-import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.offset.OffsetTrackerMetadata
-import avh.ckc.core.partition.PartitionRegistry
-import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.*
 import org.apache.kafka.clients.consumer.*
@@ -49,7 +49,7 @@ internal class ConsumerPollLoop<K, V>(
     private val commitIntervalMs: Long,
     private val metrics: ConsumerMetrics<K, V>,
     private val consumerProperties: Map<String, Any?>,
-    private val consumerConfigAdapter: ConsumerConfigAdapter,
+    private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
     private val recordSink: PolledRecordSink,

@@ -1,11 +1,11 @@
 package avh.ckc.core
 
-import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.offset.OffsetTracker
-import avh.ckc.core.offset.OffsetTrackerMetadata
-import avh.ckc.core.partition.PartitionRegistry
-import avh.ckc.core.partition.PartitionState
+import avh.ckc.core.polling.partition.offset.OffsetTracker
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.Dispatchers
@@ -523,7 +523,7 @@ private class PollLoopFixture(
         commitIntervalMs = commitIntervalMs,
         metrics = metrics,
         consumerProperties = consumerProperties,
-        consumerConfigAdapter = ConsumerConfigAdapter(consumerProperties),
+        consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties),
         topics = listOf(topicPartition.topic()),
         topicsPattern = null,
         recordSink = recordSink,

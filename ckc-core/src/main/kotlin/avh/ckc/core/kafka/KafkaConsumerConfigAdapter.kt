@@ -1,4 +1,4 @@
-package avh.ckc.core.config
+package avh.ckc.core.kafka
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
@@ -12,7 +12,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer
  * so internal code can read Kafka defaults and typed values without reparsing
  * the configuration on each access.
  */
-internal class ConsumerConfigAdapter(
+internal class KafkaConsumerConfigAdapter(
     consumerProperties: Map<String, Any?>
 ) {
     private val consumerConfig: ConsumerConfig by lazy {

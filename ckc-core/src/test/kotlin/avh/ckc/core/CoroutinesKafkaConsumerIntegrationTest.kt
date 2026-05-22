@@ -1,7 +1,7 @@
 package avh.ckc.core
 
-import avh.ckc.core.offset.OffsetTracker
-import avh.ckc.core.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.offset.OffsetTracker
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob

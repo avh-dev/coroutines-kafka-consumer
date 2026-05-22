@@ -1,6 +1,6 @@
-package avh.ckc.core.partition
+package avh.ckc.core.polling.partition
 
-import avh.ckc.core.offset.OffsetTrackerSnapshot
+import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
 
 /**
  * Immutable data needed to build a Kafka offset commit for a single partition.

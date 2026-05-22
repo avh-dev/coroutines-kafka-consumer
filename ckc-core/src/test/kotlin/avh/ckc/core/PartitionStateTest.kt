@@ -1,7 +1,7 @@
 package avh.ckc.core
 
-import avh.ckc.core.partition.PartitionState
-import avh.ckc.core.offset.OffsetTracker
+import avh.ckc.core.polling.partition.PartitionState
+import avh.ckc.core.polling.partition.offset.OffsetTracker
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test

@@ -1,17 +1,17 @@
 package avh.ckc.core
 
-import avh.ckc.core.config.ConsumerConfigAdapter
+import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-class ConsumerConfigAdapterTest {
+class KafkaConsumerConfigAdapterTest {
 
     @Test
     fun `when kafka int property is configured then parsed value is returned`() {
-        val adapter = ConsumerConfigAdapter(
+        val adapter = KafkaConsumerConfigAdapter(
             testConsumerProperties(
                 ConsumerConfig.MAX_POLL_RECORDS_CONFIG to "42"
             )
@@ -22,7 +22,7 @@ class ConsumerConfigAdapterTest {
 
     @Test
     fun `when kafka int property is missing then kafka default is returned`() {
-        val adapter = ConsumerConfigAdapter(
+        val adapter = KafkaConsumerConfigAdapter(
             testConsumerProperties()
                 .filterKeys { it != ConsumerConfig.MAX_POLL_RECORDS_CONFIG }
         )
@@ -32,7 +32,7 @@ class ConsumerConfigAdapterTest {
 
     @Test
     fun `when kafka int property is not a number then null is returned`() {
-        val adapter = ConsumerConfigAdapter(
+        val adapter = KafkaConsumerConfigAdapter(
             testConsumerProperties(
                 ConsumerConfig.MAX_POLL_RECORDS_CONFIG to "not-a-number"
             )
@@ -43,7 +43,7 @@ class ConsumerConfigAdapterTest {
 
     @Test
     fun `when kafka boolean property is configured then parsed value is returned`() {
-        val adapter = ConsumerConfigAdapter(
+        val adapter = KafkaConsumerConfigAdapter(
             testConsumerProperties(
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
             )
