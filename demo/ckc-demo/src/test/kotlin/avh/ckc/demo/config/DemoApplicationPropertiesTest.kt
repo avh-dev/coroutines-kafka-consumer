@@ -1,5 +1,6 @@
 package avh.ckc.demo.config
 
+import avh.ckc.core.ProcessingMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import org.springframework.boot.context.properties.bind.Binder
@@ -20,9 +21,11 @@ class DemoApplicationPropertiesTest {
         assertEquals(2, properties.consumers.lifecycle.workerConcurrency)
         assertEquals(1, properties.consumers.lifecycle.pollLoopConcurrency)
         assertEquals(1024, properties.consumers.lifecycle.workChannelCapacity)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, properties.consumers.lifecycle.processingMode)
         assertEquals(4, properties.consumers.telemetry.workerConcurrency)
         assertEquals(1, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(256, properties.consumers.telemetry.workChannelCapacity)
+        assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
     }
 
     @Test
@@ -36,9 +39,11 @@ class DemoApplicationPropertiesTest {
                 "demo.consumers.lifecycle.worker-concurrency" to "12",
                 "demo.consumers.lifecycle.poll-loop-concurrency" to "3",
                 "demo.consumers.lifecycle.work-channel-capacity" to "2048",
+                "demo.consumers.lifecycle.processing-mode" to "at-least-once-ordered-by-key",
                 "demo.consumers.telemetry.worker-concurrency" to "8",
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
-                "demo.consumers.telemetry.work-channel-capacity" to "512"
+                "demo.consumers.telemetry.work-channel-capacity" to "512",
+                "demo.consumers.telemetry.processing-mode" to "freshness-first"
             )
         )
 
@@ -52,9 +57,11 @@ class DemoApplicationPropertiesTest {
         assertEquals(12, properties.consumers.lifecycle.workerConcurrency)
         assertEquals(3, properties.consumers.lifecycle.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.lifecycle.workChannelCapacity)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY, properties.consumers.lifecycle.processingMode)
         assertEquals(8, properties.consumers.telemetry.workerConcurrency)
         assertEquals(2, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)
+        assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =
