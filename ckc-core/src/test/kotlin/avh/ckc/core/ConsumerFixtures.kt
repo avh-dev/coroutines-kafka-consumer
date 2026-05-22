@@ -1,8 +1,8 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.deserialization.RecordDeserializerFactory
-import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred

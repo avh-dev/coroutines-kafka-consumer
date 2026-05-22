@@ -1,7 +1,7 @@
 package avh.ckc.core
 
-import avh.ckc.core.deserialization.closeAll
-import avh.ckc.core.deserialization.defaultRecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.closeAll
+import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig

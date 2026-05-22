@@ -3,7 +3,7 @@ package avh.ckc.core.processing.runtime
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
-import avh.ckc.core.deserialization.RecordDeserializerFactory
+import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
