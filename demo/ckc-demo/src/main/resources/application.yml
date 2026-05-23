@@ -13,11 +13,13 @@ demo:
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     bootstrap-servers: localhost:9092
-    lifecycle-group-id: potion-tracking-lifecycle
-    telemetry-group-id: potion-tracking-telemetry
+    order-group-id: potion-tracking-orders
+    batch-group-id: potion-tracking-batches
+    cauldron-group-id: potion-tracking-cauldrons
   topics:
-    order-lifecycle: potion.orders.lifecycle.v1
-    cauldron-telemetry: potion.cauldrons.telemetry.v1
+    order-events: order.events.v1
+    batch-events: batch.events.v1
+    cauldron-events: cauldron.events.v1
   model:
     base-url: ${MODEL_BASE_URL:http://127.0.0.1:18080}
   audit:
@@ -33,6 +35,11 @@ demo:
       worker-concurrency: ${LIFECYCLE_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${LIFECYCLE_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${LIFECYCLE_WORK_CHANNEL_CAPACITY:1024}
+    batch:
+      processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}
+      poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
+      work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
     telemetry:
       processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}

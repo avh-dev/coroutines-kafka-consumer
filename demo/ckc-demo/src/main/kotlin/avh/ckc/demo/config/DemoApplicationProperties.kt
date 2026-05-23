@@ -15,13 +15,15 @@ data class DemoApplicationProperties(
     data class Kafka(
         var enabled: Boolean = false,
         var bootstrapServers: String = "localhost:9092",
-        var lifecycleGroupId: String = "potion-tracking-lifecycle",
-        var telemetryGroupId: String = "potion-tracking-telemetry"
+        var orderGroupId: String = "potion-tracking-orders",
+        var batchGroupId: String = "potion-tracking-batches",
+        var cauldronGroupId: String = "potion-tracking-cauldrons"
     )
 
     data class Topics(
-        var orderLifecycle: String = DemoTopics.ORDER_LIFECYCLE,
-        var cauldronTelemetry: String = DemoTopics.CAULDRON_TELEMETRY
+        var orderEvents: String = DemoTopics.ORDER_EVENTS,
+        var batchEvents: String = DemoTopics.BATCH_EVENTS,
+        var cauldronEvents: String = DemoTopics.CAULDRON_EVENTS
     )
 
     data class Model(
@@ -36,6 +38,7 @@ data class DemoApplicationProperties(
         var processingEnabled: Boolean = true,
         var deserializationDispatcher: DeserializationDispatcher = DeserializationDispatcher(),
         var lifecycle: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
+        var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
             workerConcurrency = 4,
             workChannelCapacity = 256,

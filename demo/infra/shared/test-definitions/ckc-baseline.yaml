@@ -4,9 +4,11 @@ deployment:
   app_profile: ckc-hpa
   stubs_profile: baseline
   kafka_topics:
-    - name: potion.orders.lifecycle.v1
+    - name: order.events.v1
       partitions: 12
-    - name: potion.cauldrons.telemetry.v1
+    - name: batch.events.v1
+      partitions: 12
+    - name: cauldron.events.v1
       partitions: 12
 
 load_test:

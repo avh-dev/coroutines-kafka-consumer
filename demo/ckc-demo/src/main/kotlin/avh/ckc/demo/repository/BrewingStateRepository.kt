@@ -18,6 +18,10 @@ interface SyncBrewingStateRepository {
     fun findModelContext(batchId: String): ModelContextState?
 
     fun saveModelContext(context: ModelContextState)
+
+    fun findOrderFlavour(orderId: String): OrderFlavourState?
+
+    fun saveOrderFlavour(state: OrderFlavourState)
 }
 
 interface SuspendBrewingStateRepository {
@@ -38,4 +42,8 @@ interface SuspendBrewingStateRepository {
     suspend fun findModelContext(batchId: String): ModelContextState?
 
     suspend fun saveModelContext(context: ModelContextState)
+
+    suspend fun findOrderFlavour(orderId: String): OrderFlavourState?
+
+    suspend fun saveOrderFlavour(state: OrderFlavourState)
 }

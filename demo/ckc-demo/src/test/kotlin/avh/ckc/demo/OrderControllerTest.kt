@@ -36,8 +36,7 @@ class OrderControllerTest {
                 potionId = "healing-elixir",
                 recipeId = "healing-elixir-v2",
                 customerId = "guild-17",
-                cauldronId = "cauldron-3",
-                status = "BREWING_STARTED",
+                status = "BATCH_ASSIGNED",
                 updatedAt = "2026-03-26T09:10:11Z"
             )
         )
@@ -47,7 +46,7 @@ class OrderControllerTest {
                 recipeId = "healing-elixir-v2",
                 potionId = "healing-elixir",
                 cauldronId = "cauldron-3",
-                status = "BREWING_STARTED",
+                status = "BREWING",
                 orderIds = listOf("ord-7421", "ord-7422"),
                 updatedAt = "2026-03-26T09:10:11Z"
             )
@@ -56,7 +55,7 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/orders/ord-7421"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.order.orderId").value("ord-7421"))
-            .andExpect(jsonPath("$.order.status").value("BREWING_STARTED"))
+            .andExpect(jsonPath("$.order.status").value("BATCH_ASSIGNED"))
             .andExpect(jsonPath("$.batch.batchId").value("batch-11"))
             .andExpect(jsonPath("$.batch.orderIds[1]").value("ord-7422"))
     }

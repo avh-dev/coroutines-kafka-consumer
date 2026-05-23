@@ -1,10 +1,10 @@
 package avh.ckc.demo.service
 
-import avh.ckc.demo.model.ArcaneEtaNormalizer
-import avh.ckc.demo.model.ArcaneEtaRequest
-import avh.ckc.demo.model.NormalizedEtaEstimate
-import avh.ckc.demo.model.SuspendArcaneEtaModelClient
-import avh.ckc.demo.model.SyncArcaneEtaModelClient
+import avh.ckc.demo.modelclient.eta.ArcaneEtaNormalizer
+import avh.ckc.demo.modelclient.eta.ArcaneEtaRequest
+import avh.ckc.demo.modelclient.eta.NormalizedEtaEstimate
+import avh.ckc.demo.modelclient.eta.SuspendArcaneEtaModelClient
+import avh.ckc.demo.modelclient.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.repository.BatchState
 import avh.ckc.demo.repository.ModelContextState
@@ -129,7 +129,7 @@ private fun modelRequest(
 private fun modelContext(
     batchState: BatchState,
     telemetryEvent: CauldronTelemetryEvent,
-    modelResponse: avh.ckc.demo.model.ArcaneEtaResponse
+    modelResponse: avh.ckc.demo.modelclient.eta.ArcaneEtaResponse
 ): ModelContextState =
     ModelContextState(
         batchId = batchState.batchId,

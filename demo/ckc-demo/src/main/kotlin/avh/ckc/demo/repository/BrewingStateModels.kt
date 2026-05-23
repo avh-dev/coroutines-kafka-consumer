@@ -9,7 +9,6 @@ data class OrderState(
     val potionId: String,
     val recipeId: String?,
     val customerId: String,
-    val cauldronId: String?,
     val status: String,
     val updatedAt: String
 )
@@ -33,5 +32,16 @@ data class ModelContextState(
     val previousBubbleRateHz: Double? = null,
     val previousMagicalEtaUnits: Double? = null,
     val previousModelRequestId: String? = null,
+    val updatedAt: String
+)
+
+@Serializable
+data class OrderFlavourState(
+    val orderId: String,
+    val flavourProfileId: String,
+    val palette: String,
+    val etaCorrectionFactor: Double,
+    val moonPhase: String,
+    val modelRequestId: String,
     val updatedAt: String
 )

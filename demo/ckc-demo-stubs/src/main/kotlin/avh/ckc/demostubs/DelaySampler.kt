@@ -3,16 +3,15 @@ package avh.ckc.demostubs
 import kotlin.random.Random
 
 class DelaySampler(
-    private val config: DemoStubsConfig,
     private val random: Random
 ) {
-    fun sampleDelayMillis(): Long {
+    fun sampleDelayMillis(settings: ModelLatencySettings): Long {
         val percentile = random.nextInt(100)
         return when {
-            percentile < 90 -> config.delayP90Ms
-            percentile < 95 -> config.delayP95Ms
-            percentile < 99 -> config.delayP99Ms
-            else -> config.delayP100Ms
+            percentile < 90 -> settings.delayP90Ms
+            percentile < 95 -> settings.delayP95Ms
+            percentile < 99 -> settings.delayP99Ms
+            else -> settings.delayP100Ms
         }
     }
 }

@@ -7,8 +7,9 @@ KAFKA_TOPICS_BIN="${KAFKA_TOPICS_BIN:-/opt/kafka/bin/kafka-topics.sh}"
 BOOTSTRAP_SERVER="${BOOTSTRAP_SERVER:-localhost:9092}"
 DEFAULT_PARTITIONS=6
 
-LIFECYCLE_PARTITIONS=""
-CAULDRONS_PARTITIONS=""
+ORDER_PARTITIONS=""
+BATCH_PARTITIONS=""
+CAULDRON_PARTITIONS=""
 HAD_ARGS=0
 
 topic_command() {
@@ -17,15 +18,16 @@ topic_command() {
 
 usage() {
   cat <<EOF
-Usage: $0 [--lifecycle N] [--cualdrons M]
+Usage: $0 [--orders N] [--batches M] [--cauldrons K]
 
 Creates local demo Kafka topics through docker exec against ${KAFKA_CONTAINER}.
 When no parameters are provided, the script prompts for both partition counts.
 
 Options:
-  --lifecycle N   Partitions for potion.orders.lifecycle.v1. Default: ${DEFAULT_PARTITIONS}
-  --cualdrons M   Partitions for potion.cauldrons.telemetry.v1. Default: ${DEFAULT_PARTITIONS}
-  --cauldrons M   Alias for --cualdrons.
+  --orders N      Partitions for order.events.v1. Default: ${DEFAULT_PARTITIONS}
+  --batches M     Partitions for batch.events.v1. Default: ${DEFAULT_PARTITIONS}
+  --cauldrons K   Partitions for cauldron.events.v1. Default: ${DEFAULT_PARTITIONS}
+  --lifecycle N   Deprecated alias for --orders.
   -h, --help      Show this help.
 EOF
 }
@@ -119,14 +121,19 @@ recreate_topic() {
 while [[ $# -gt 0 ]]; do
   HAD_ARGS=1
   case "$1" in
-    --lifecycle)
-      [[ $# -ge 2 ]] || { echo "--lifecycle requires a value." >&2; exit 1; }
-      LIFECYCLE_PARTITIONS="$2"
+    --orders|--lifecycle)
+      [[ $# -ge 2 ]] || { echo "$1 requires a value." >&2; exit 1; }
+      ORDER_PARTITIONS="$2"
       shift 2
       ;;
-    --cualdrons|--cauldrons)
+    --batches)
+      [[ $# -ge 2 ]] || { echo "--batches requires a value." >&2; exit 1; }
+      BATCH_PARTITIONS="$2"
+      shift 2
+      ;;
+    --cauldrons)
       [[ $# -ge 2 ]] || { echo "$1 requires a value." >&2; exit 1; }
-      CAULDRONS_PARTITIONS="$2"
+      CAULDRON_PARTITIONS="$2"
       shift 2
       ;;
     -h|--help)
@@ -142,20 +149,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${HAD_ARGS}" -eq 0 ]]; then
-  LIFECYCLE_PARTITIONS="$(prompt_partitions "potion.orders.lifecycle.v1")"
-  CAULDRONS_PARTITIONS="$(prompt_partitions "potion.cauldrons.telemetry.v1")"
+  ORDER_PARTITIONS="$(prompt_partitions "order.events.v1")"
+  BATCH_PARTITIONS="$(prompt_partitions "batch.events.v1")"
+  CAULDRON_PARTITIONS="$(prompt_partitions "cauldron.events.v1")"
 else
-  LIFECYCLE_PARTITIONS="${LIFECYCLE_PARTITIONS:-${DEFAULT_PARTITIONS}}"
-  CAULDRONS_PARTITIONS="${CAULDRONS_PARTITIONS:-${DEFAULT_PARTITIONS}}"
+  ORDER_PARTITIONS="${ORDER_PARTITIONS:-${DEFAULT_PARTITIONS}}"
+  BATCH_PARTITIONS="${BATCH_PARTITIONS:-${DEFAULT_PARTITIONS}}"
+  CAULDRON_PARTITIONS="${CAULDRON_PARTITIONS:-${DEFAULT_PARTITIONS}}"
 fi
 
-LIFECYCLE_PARTITIONS="${LIFECYCLE_PARTITIONS//$'\r'/}"
-CAULDRONS_PARTITIONS="${CAULDRONS_PARTITIONS//$'\r'/}"
+ORDER_PARTITIONS="${ORDER_PARTITIONS//$'\r'/}"
+BATCH_PARTITIONS="${BATCH_PARTITIONS//$'\r'/}"
+CAULDRON_PARTITIONS="${CAULDRON_PARTITIONS//$'\r'/}"
 
-require_positive_int "--lifecycle" "${LIFECYCLE_PARTITIONS}"
-require_positive_int "--cualdrons" "${CAULDRONS_PARTITIONS}"
+require_positive_int "--orders" "${ORDER_PARTITIONS}"
+require_positive_int "--batches" "${BATCH_PARTITIONS}"
+require_positive_int "--cauldrons" "${CAULDRON_PARTITIONS}"
 
-recreate_topic "potion.orders.lifecycle.v1" "${LIFECYCLE_PARTITIONS}"
-recreate_topic "potion.cauldrons.telemetry.v1" "${CAULDRONS_PARTITIONS}"
+recreate_topic "order.events.v1" "${ORDER_PARTITIONS}"
+recreate_topic "batch.events.v1" "${BATCH_PARTITIONS}"
+recreate_topic "cauldron.events.v1" "${CAULDRON_PARTITIONS}"
 
 echo "Local Kafka topics are ready."

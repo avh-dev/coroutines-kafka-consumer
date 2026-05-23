@@ -1,4 +1,4 @@
-package avh.ckc.demo.model
+package avh.ckc.demo.modelclient.eta
 
 import kotlinx.coroutines.future.await
 import kotlinx.serialization.SerialName

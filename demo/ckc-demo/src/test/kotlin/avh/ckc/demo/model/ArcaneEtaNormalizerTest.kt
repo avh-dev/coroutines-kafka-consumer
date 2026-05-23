@@ -1,10 +1,7 @@
-package avh.ckc.demo.model
+package avh.ckc.demo.modelclient.eta
 
-import avh.ckc.demo.proto.BrewingStartedPayload
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.EventMetadata
-import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.repository.BatchState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,7 +18,7 @@ class ArcaneEtaNormalizerTest {
                 recipeId = "healing-elixir-v2",
                 potionId = "healing-elixir",
                 cauldronId = "cauldron-3",
-                status = OrderLifecycleEventType.BREWING_STARTED.name,
+                status = "BREWING",
                 orderIds = listOf("ord-7421", "ord-7422"),
                 updatedAt = "2026-03-25T10:15:28Z"
             ),

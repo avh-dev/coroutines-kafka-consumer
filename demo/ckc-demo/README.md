@@ -4,9 +4,11 @@ This module contains a Spring Boot demo application for `coroutines-kafka-consum
 
 The demo uses a potion workshop domain:
 
-- business-critical `order lifecycle` events must be processed without loss;
-- high-frequency `cauldron telemetry` may be processed in a lossy/latest-wins mode;
-- telemetry triggers an external REST call to an arcane ETA model and a small CPU-bound normalization step.
+- business-critical order events track customer-facing order state;
+- batch events track reagent preparation, cauldron assignment, brewing steps, and bottling;
+- high-frequency cauldron events carry telemetry only for active brewing batches;
+- cauldron telemetry triggers an external REST call to an arcane ETA model and a small CPU-bound normalization step;
+- order creation triggers an order flavour model whose result is stored separately in Redis.
 
 The application is intended for functional checks and for comparing consumer implementations under the same workload:
 
@@ -18,7 +20,7 @@ The application is intended for functional checks and for comparing consumer imp
 
 - protobuf payloads in Kafka via `:ckc-demo-contracts`
 - Redis-backed order and batch state
-- external ETA model stub via `:ckc-demo-stubs`
+- external ETA and order flavour model stubs via `:ckc-demo-stubs`
 - Prometheus metrics endpoint at `/actuator/prometheus`
 - read API for current order state at `/api/orders/{orderId}`
 
@@ -62,7 +64,7 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 
 The `ckc` profile exposes demo-only switches for consumer experiments:
 
-- `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but skips the demo business handler and processed audit log.
+- `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
 - `DEMO_CONSUMER_DESERIALIZATION_DISPATCHER=DEFAULT|IO|CUSTOM_THREAD_POOL` selects the coroutine dispatcher used for Kafka deserializers.
 - `DEMO_CONSUMER_DESERIALIZATION_THREADS=8` sets the custom thread pool size when `CUSTOM_THREAD_POOL` is selected.
 - `DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX=ckc-demo-deserializer` sets custom deserializer thread names.
@@ -96,8 +98,9 @@ Kafka client metrics are also bound for the underlying Kafka consumers.
 
 ## Topics
 
-- `potion.orders.lifecycle.v1`
-- `potion.cauldrons.telemetry.v1`
+- `order.events.v1`
+- `batch.events.v1`
+- `cauldron.events.v1`
 
 ## Tests
 

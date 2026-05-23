@@ -1,9 +1,9 @@
-package avh.ckc.demo.consumer
+package avh.ckc.demo.consumer.springkafka
 
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.DemoConsumerRecordContext
-import avh.ckc.demo.service.SpringKafkaTrackingService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.annotation.KafkaListener
@@ -19,7 +19,7 @@ class SpringKafkaTrackingListeners(
 ) {
     @KafkaListener(
         id = "spring-kafka-order-lifecycle",
-        topics = ["\${demo.topics.order-lifecycle}"],
+        topics = ["\${demo.topics.order-events}"],
         containerFactory = "orderLifecycleListenerContainerFactory"
     )
     fun onOrderLifecycle(
@@ -37,8 +37,27 @@ class SpringKafkaTrackingListeners(
     }
 
     @KafkaListener(
+        id = "spring-kafka-batch-lifecycle",
+        topics = ["\${demo.topics.batch-events}"],
+        containerFactory = "batchLifecycleListenerContainerFactory"
+    )
+    fun onBatchLifecycle(
+        @Header(KafkaHeaders.RECEIVED_KEY, required = false) key: String?,
+        @Header(KafkaHeaders.RECEIVED_TOPIC) topic: String,
+        @Header(KafkaHeaders.RECEIVED_PARTITION) partition: Int,
+        @Header(KafkaHeaders.OFFSET) offset: Long,
+        @Header(KafkaHeaders.RECEIVED_TIMESTAMP) timestamp: Long,
+        event: BatchLifecycleEvent
+    ) {
+        trackingService.processBatchLifecycle(
+            DemoConsumerRecordContext(key, topic, partition, offset, timestamp),
+            event
+        )
+    }
+
+    @KafkaListener(
         id = "spring-kafka-cauldron-telemetry",
-        topics = ["\${demo.topics.cauldron-telemetry}"],
+        topics = ["\${demo.topics.cauldron-events}"],
         containerFactory = "cauldronTelemetryListenerContainerFactory"
     )
     fun onCauldronTelemetry(

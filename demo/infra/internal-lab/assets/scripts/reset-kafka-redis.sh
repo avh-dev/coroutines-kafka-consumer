@@ -8,8 +8,8 @@ if [ -z "${LAB_HOST_IP:-}" ]; then
 fi
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
-TOPIC_SPECS="${TOPIC_SPECS:-potion.orders.lifecycle.v1:4,potion.cauldrons.telemetry.v1:4}"
-CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-lifecycle,potion-tracking-telemetry}"
+TOPIC_SPECS="${TOPIC_SPECS:-order.events.v1:4,batch.events.v1:4,cauldron.events.v1:4}"
+CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons}"
 
 LAB_HOST_IP="${LAB_HOST_IP}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait kafka redis
 docker exec ckc-perf-redis redis-cli FLUSHALL

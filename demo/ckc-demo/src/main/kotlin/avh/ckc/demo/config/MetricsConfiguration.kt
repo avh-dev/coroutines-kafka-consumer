@@ -1,6 +1,7 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.micrometer.MicrometerConsumerMetrics
@@ -55,7 +56,7 @@ class MetricsConfiguration {
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics.forConsumer(
-            consumerId = "cauldron_telemetry",
+            consumerId = "cauldron_events",
             cauldronTelemetryTagValueProvider()
         )
 
@@ -65,8 +66,18 @@ class MetricsConfiguration {
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics.forConsumer(
-            consumerId = "order_lifecycle",
+            consumerId = "order_events",
             orderLifecycleTagValueProvider()
+        )
+
+    @Bean
+    @Profile("ckc")
+    fun batchConsumerMetrics(
+        @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, BatchLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "batch_events",
+            batchLifecycleTagValueProvider()
         )
 
     @Bean
@@ -75,7 +86,7 @@ class MetricsConfiguration {
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics.forConsumer(
-            consumerId = "cauldron_telemetry",
+            consumerId = "cauldron_events",
             cauldronTelemetryTagValueProvider()
         )
 
@@ -85,8 +96,18 @@ class MetricsConfiguration {
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics.forConsumer(
-            consumerId = "order_lifecycle",
+            consumerId = "order_events",
             orderLifecycleTagValueProvider()
+        )
+
+    @Bean
+    @Profile("spring-kafka")
+    fun springKafkaBatchConsumerMetrics(
+        @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, BatchLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "batch_events",
+            batchLifecycleTagValueProvider()
         )
 
     private fun cauldronTelemetryTagValueProvider() =
@@ -96,6 +117,11 @@ class MetricsConfiguration {
 
     private fun orderLifecycleTagValueProvider() =
         consumerRecordTagValueProvider<String, OrderLifecycleEvent> { _, event, _ ->
+            set(eventTypeTag, event?.eventType?.name ?: "UNKNOWN")
+        }
+
+    private fun batchLifecycleTagValueProvider() =
+        consumerRecordTagValueProvider<String, BatchLifecycleEvent> { _, event, _ ->
             set(eventTypeTag, event?.eventType?.name ?: "UNKNOWN")
         }
 

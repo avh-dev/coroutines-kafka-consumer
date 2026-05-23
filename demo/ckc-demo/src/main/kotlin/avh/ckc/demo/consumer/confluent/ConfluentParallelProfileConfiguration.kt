@@ -1,10 +1,12 @@
-package avh.ckc.demo.config
+package avh.ckc.demo.consumer.confluent
 
+import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
-import avh.ckc.demo.service.ConfluentParallelTrackingService
 import io.confluent.parallelconsumer.ParallelConsumerOptions
 import io.confluent.parallelconsumer.ParallelStreamProcessor
 import io.micrometer.core.instrument.MeterRegistry
@@ -45,7 +47,7 @@ private class ConfluentParallelConsumerRuntime(
     private var running = false
 
     override fun start() {
-        processors = lifecycleProcessors() + telemetryProcessors()
+        processors = lifecycleProcessors() + batchProcessors() + telemetryProcessors()
 
         running = true
         processors.forEach { it.thread.start() }
@@ -79,23 +81,36 @@ private class ConfluentParallelConsumerRuntime(
     private fun lifecycleProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "order-lifecycle",
-            consumerId = "order_lifecycle",
-            topic = properties.topics.orderLifecycle,
+            consumerId = "order_events",
+            topic = properties.topics.orderEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             ),
             runtime = properties.consumers.lifecycle,
             handler = trackingService::processOrderLifecycle
         )
 
+    private fun batchProcessors(): List<ManagedProcessor> =
+        newManagedProcessors(
+            name = "batch-lifecycle",
+            consumerId = "batch_events",
+            topic = properties.topics.batchEvents,
+            consumerProperties = commonConsumerProperties() + mapOf(
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
+            ),
+            runtime = properties.consumers.batch,
+            handler = trackingService::processBatchLifecycle
+        )
+
     private fun telemetryProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "cauldron-telemetry",
-            consumerId = "cauldron_telemetry",
-            topic = properties.topics.cauldronTelemetry,
+            consumerId = "cauldron_events",
+            topic = properties.topics.cauldronEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
             ),
             runtime = properties.consumers.telemetry,

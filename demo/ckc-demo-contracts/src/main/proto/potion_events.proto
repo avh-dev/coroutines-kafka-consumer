@@ -15,41 +15,49 @@ message EventMetadata {
 enum OrderLifecycleEventType {
   ORDER_LIFECYCLE_EVENT_TYPE_UNSPECIFIED = 0;
   ORDER_CREATED = 1;
-  INGREDIENTS_PREPARED = 2;
-  CAULDRON_ASSIGNED = 3;
-  BREWING_STARTED = 4;
-  BREWING_COMPLETED = 5;
-  ORDER_DELIVERED = 6;
-  ORDER_CANCELLED = 7;
+  ORDER_FLAVOUR_ANALYSED = 2;
+  ORDER_BATCH_ASSIGNED = 3;
+  ORDER_WAITING_FOR_BOTTLING = 4;
+  ORDER_COMPLETED = 5;
+  ORDER_CANCELLED = 6;
+  ORDER_FAILED = 7;
 }
 
 message OrderCreatedPayload {
   string recipe_id = 1;
-  uint32 batch_size_ml = 2;
+  string potion_id = 2;
+  uint32 bottle_size_ml = 3;
+  string requested_at = 4;
 }
 
-message IngredientsPreparedPayload {
-  repeated string ingredient_codes = 1;
+message OrderFlavourAnalysedPayload {
+  string flavour_profile_id = 1;
+  string palette = 2;
+  double eta_correction_factor = 3;
+  string moon_phase = 4;
 }
 
-message CauldronAssignedPayload {
-  string cauldron_id = 1;
-  string queue_name = 2;
+message OrderBatchAssignedPayload {
+  string batch_id = 1;
+  string assigned_at = 2;
 }
 
-message BrewingStartedPayload {
-  string started_at = 1;
+message OrderWaitingForBottlingPayload {
+  string batch_id = 1;
+  string brewing_completed_at = 2;
 }
 
-message BrewingCompletedPayload {
-  string completed_at = 1;
-}
-
-message OrderDeliveredPayload {
-  string delivered_at = 1;
+message OrderCompletedPayload {
+  string batch_id = 1;
+  string bottle_id = 2;
+  string bottled_at = 3;
 }
 
 message OrderCancelledPayload {
+  string reason = 1;
+}
+
+message OrderFailedPayload {
   string reason = 1;
 }
 
@@ -60,17 +68,112 @@ message OrderLifecycleEvent {
   string potion_id = 4;
   string recipe_id = 5;
   string customer_id = 6;
-  string cauldron_id = 7;
-  OrderLifecycleEventType event_type = 8;
+  OrderLifecycleEventType event_type = 7;
 
   oneof payload {
     OrderCreatedPayload order_created = 10;
-    IngredientsPreparedPayload ingredients_prepared = 11;
-    CauldronAssignedPayload cauldron_assigned = 12;
-    BrewingStartedPayload brewing_started = 13;
-    BrewingCompletedPayload brewing_completed = 14;
-    OrderDeliveredPayload order_delivered = 15;
-    OrderCancelledPayload order_cancelled = 16;
+    OrderFlavourAnalysedPayload order_flavour_analysed = 11;
+    OrderBatchAssignedPayload order_batch_assigned = 12;
+    OrderWaitingForBottlingPayload order_waiting_for_bottling = 13;
+    OrderCompletedPayload order_completed = 14;
+    OrderCancelledPayload order_cancelled = 15;
+    OrderFailedPayload order_failed = 16;
+  }
+}
+
+enum BatchLifecycleEventType {
+  BATCH_LIFECYCLE_EVENT_TYPE_UNSPECIFIED = 0;
+  BATCH_CREATED = 1;
+  BATCH_REAGENTS_PREPARATION_STARTED = 2;
+  BATCH_REAGENTS_PREPARED = 3;
+  BATCH_CAULDRON_REQUESTED = 4;
+  BATCH_CAULDRON_ASSIGNED = 5;
+  BATCH_BREWING_STARTED = 6;
+  BATCH_BREWING_STEP_COMPLETED = 7;
+  BATCH_BREWING_COMPLETED = 8;
+  BATCH_BOTTLING_STARTED = 9;
+  BATCH_BOTTLING_COMPLETED = 10;
+  BATCH_FAILED = 11;
+  BATCH_CANCELLED = 12;
+}
+
+message BatchCreatedPayload {
+  repeated string order_ids = 1;
+}
+
+message BatchReagentsPreparationStartedPayload {
+  repeated string reagent_codes = 1;
+}
+
+message BatchReagentsPreparedPayload {
+  repeated string reagent_codes = 1;
+  string prepared_at = 2;
+}
+
+message BatchCauldronRequestedPayload {
+  string queue_name = 1;
+  string requested_at = 2;
+}
+
+message BatchCauldronAssignedPayload {
+  string cauldron_id = 1;
+  string assigned_at = 2;
+}
+
+message BatchBrewingStartedPayload {
+  string started_at = 1;
+}
+
+message BatchBrewingStepCompletedPayload {
+  uint32 step_number = 1;
+  string step_code = 2;
+  string instruction = 3;
+  string completed_at = 4;
+}
+
+message BatchBrewingCompletedPayload {
+  string completed_at = 1;
+}
+
+message BatchBottlingStartedPayload {
+  string started_at = 1;
+}
+
+message BatchBottlingCompletedPayload {
+  string completed_at = 1;
+  uint32 bottles_completed = 2;
+}
+
+message BatchFailedPayload {
+  string reason = 1;
+}
+
+message BatchCancelledPayload {
+  string reason = 1;
+}
+
+message BatchLifecycleEvent {
+  EventMetadata metadata = 1;
+  string batch_id = 2;
+  string potion_id = 3;
+  string recipe_id = 4;
+  string cauldron_id = 5;
+  repeated string order_ids = 6;
+  BatchLifecycleEventType event_type = 7;
+
+  oneof payload {
+    BatchCreatedPayload batch_created = 10;
+    BatchReagentsPreparationStartedPayload batch_reagents_preparation_started = 11;
+    BatchReagentsPreparedPayload batch_reagents_prepared = 12;
+    BatchCauldronRequestedPayload batch_cauldron_requested = 13;
+    BatchCauldronAssignedPayload batch_cauldron_assigned = 14;
+    BatchBrewingStartedPayload batch_brewing_started = 15;
+    BatchBrewingStepCompletedPayload batch_brewing_step_completed = 16;
+    BatchBrewingCompletedPayload batch_brewing_completed = 17;
+    BatchBottlingStartedPayload batch_bottling_started = 18;
+    BatchBottlingCompletedPayload batch_bottling_completed = 19;
+    BatchFailedPayload batch_failed = 20;
+    BatchCancelledPayload batch_cancelled = 21;
   }
 }
 

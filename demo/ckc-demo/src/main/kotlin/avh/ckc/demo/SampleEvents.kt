@@ -1,30 +1,29 @@
 package avh.ckc.demo
 
-import avh.ckc.demo.proto.BrewingStartedPayload
+import avh.ckc.demo.proto.BatchBrewingStartedPayload
+import avh.ckc.demo.proto.BatchLifecycleEvent
+import avh.ckc.demo.proto.BatchLifecycleEventType
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.EventMetadata
-import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.proto.OrderLifecycleEventType
 import com.google.protobuf.ByteString
 
-fun sampleBrewingStartedEvent(): OrderLifecycleEvent =
-    OrderLifecycleEvent.newBuilder()
+fun sampleBrewingStartedEvent(): BatchLifecycleEvent =
+    BatchLifecycleEvent.newBuilder()
         .setMetadata(
             EventMetadata.newBuilder()
-                .setEventId("evt-order-7421-brewing-started")
+                .setEventId("evt-batch-healing-001-brewing-started")
                 .setOccurredAt("2026-03-25T10:15:28Z")
                 .setEventVersion(1)
                 .build()
         )
-        .setOrderId("ord-7421")
         .setBatchId("batch-healing-001")
         .setPotionId("healing-elixir")
         .setRecipeId("healing-elixir-v2")
-        .setCustomerId("guild-17")
         .setCauldronId("cauldron-3")
-        .setEventType(OrderLifecycleEventType.BREWING_STARTED)
-        .setBrewingStarted(
-            BrewingStartedPayload.newBuilder()
+        .addOrderIds("ord-7421")
+        .setEventType(BatchLifecycleEventType.BATCH_BREWING_STARTED)
+        .setBatchBrewingStarted(
+            BatchBrewingStartedPayload.newBuilder()
                 .setStartedAt("2026-03-25T10:15:28Z")
                 .build()
         )
