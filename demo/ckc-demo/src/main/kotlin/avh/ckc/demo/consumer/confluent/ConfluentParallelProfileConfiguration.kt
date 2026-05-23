@@ -47,7 +47,7 @@ private class ConfluentParallelConsumerRuntime(
     private var running = false
 
     override fun start() {
-        processors = lifecycleProcessors() + batchProcessors() + telemetryProcessors()
+        processors = orderProcessors() + batchProcessors() + telemetryProcessors()
 
         running = true
         processors.forEach { it.thread.start() }
@@ -78,7 +78,7 @@ private class ConfluentParallelConsumerRuntime(
         ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false
     )
 
-    private fun lifecycleProcessors(): List<ManagedProcessor> =
+    private fun orderProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "order-lifecycle",
             consumerId = "order_events",
@@ -87,7 +87,7 @@ private class ConfluentParallelConsumerRuntime(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             ),
-            runtime = properties.consumers.lifecycle,
+            runtime = properties.consumers.order,
             handler = trackingService::processOrderLifecycle
         )
 

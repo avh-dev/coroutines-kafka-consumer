@@ -37,7 +37,7 @@ data class DemoApplicationProperties(
     data class Consumers(
         var processingEnabled: Boolean = true,
         var deserializationDispatcher: DeserializationDispatcher = DeserializationDispatcher(),
-        var lifecycle: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
+        var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
             workerConcurrency = 4,

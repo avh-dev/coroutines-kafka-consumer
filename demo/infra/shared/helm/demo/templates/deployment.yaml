@@ -37,14 +37,14 @@ spec:
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
-            - name: LIFECYCLE_PROCESSING_MODE
-              value: {{ .Values.env.lifecycleProcessingMode | quote }}
-            - name: LIFECYCLE_WORKER_CONCURRENCY
-              value: {{ .Values.env.lifecycleWorkerConcurrency | quote }}
-            - name: LIFECYCLE_POLL_LOOP_CONCURRENCY
-              value: {{ .Values.env.lifecyclePollLoopConcurrency | quote }}
-            - name: LIFECYCLE_WORK_CHANNEL_CAPACITY
-              value: {{ .Values.env.lifecycleWorkChannelCapacity | quote }}
+            - name: ORDER_PROCESSING_MODE
+              value: {{ .Values.env.orderProcessingMode | quote }}
+            - name: ORDER_WORKER_CONCURRENCY
+              value: {{ .Values.env.orderWorkerConcurrency | quote }}
+            - name: ORDER_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.orderPollLoopConcurrency | quote }}
+            - name: ORDER_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.orderWorkChannelCapacity | quote }}
             - name: BATCH_PROCESSING_MODE
               value: {{ .Values.env.batchProcessingMode | quote }}
             - name: BATCH_WORKER_CONCURRENCY

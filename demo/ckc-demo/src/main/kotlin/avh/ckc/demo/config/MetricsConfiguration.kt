@@ -62,7 +62,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("ckc")
-    fun lifecycleConsumerMetrics(
+    fun orderConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics.forConsumer(
@@ -92,7 +92,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("spring-kafka")
-    fun springKafkaLifecycleConsumerMetrics(
+    fun springKafkaOrderConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics.forConsumer(

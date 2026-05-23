@@ -35,7 +35,7 @@ class CkcProfileConfiguration {
         batchLifecycleService: SuspendBatchLifecycleService,
         cauldronTelemetryService: SuspendCauldronTelemetryService,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-        @Qualifier("lifecycleConsumerMetrics") lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+        @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
     ): SmartLifecycle =
         CkcConsumerRuntime(
@@ -44,7 +44,7 @@ class CkcProfileConfiguration {
             batchLifecycleService,
             cauldronTelemetryService,
             consumerMetrics,
-            lifecycleConsumerMetrics,
+            orderConsumerMetrics,
             batchConsumerMetrics
         )
 }
@@ -55,10 +55,10 @@ private class CkcConsumerRuntime(
     private val batchLifecycleService: SuspendBatchLifecycleService,
     private val cauldronTelemetryService: SuspendCauldronTelemetryService,
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-    private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+    private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
 ) : SmartLifecycle {
-    private lateinit var lifecycleConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
+    private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
     private lateinit var deserializationDispatcher: DemoDeserializationDispatcher
@@ -72,11 +72,11 @@ private class CkcConsumerRuntime(
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
         )
 
-        lifecycleConsumer = DemoConsumers.lifecycleConsumer(
+        orderConsumer = DemoConsumers.orderConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId),
-            lifecycleConsumerMetrics,
+            orderConsumerMetrics,
             properties.audit.enabled,
-            properties.consumers.lifecycle,
+            properties.consumers.order,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
         ) { _, event ->
@@ -105,7 +105,7 @@ private class CkcConsumerRuntime(
             cauldronTelemetryService.recalculate(telemetry)
         }
 
-        lifecycleConsumer.start()
+        orderConsumer.start()
         batchConsumer.start()
         telemetryConsumer.start()
         running = true
@@ -119,7 +119,7 @@ private class CkcConsumerRuntime(
             runBlocking {
                 telemetryConsumer.stop()
                 batchConsumer.stop()
-                lifecycleConsumer.stop()
+                orderConsumer.stop()
             }
         } finally {
             deserializationDispatcher.close()
