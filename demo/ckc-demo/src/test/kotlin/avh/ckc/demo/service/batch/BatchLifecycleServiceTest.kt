@@ -1,4 +1,4 @@
-package avh.ckc.demo.service
+package avh.ckc.demo.service.batch
 
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.BatchLifecycleEventType
