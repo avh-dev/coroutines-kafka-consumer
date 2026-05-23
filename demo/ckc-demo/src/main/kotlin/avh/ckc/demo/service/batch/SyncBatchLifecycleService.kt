@@ -14,7 +14,7 @@ class SyncBatchLifecycleService(
     fun apply(event: BatchLifecycleEvent) {
         try {
             val existingBatch = brewingStateRepository.findBatch(event.batchId)
-            brewingStateRepository.saveBatch(mergeBatchState(event, existingBatch))
+            brewingStateRepository.saveBatch(mergeBatch(event, existingBatch))
             updateActiveBatch(event, brewingStateRepository)
         } catch (error: Throwable) {
             logger.error(

@@ -17,11 +17,11 @@ class SuspendOrderLifecycleService(
     suspend fun apply(event: OrderLifecycleEvent) {
         try {
             val existingOrder = brewingStateRepository.findOrder(event.orderId)
-            brewingStateRepository.saveOrder(mergeOrderState(event, existingOrder))
+            brewingStateRepository.saveOrder(mergeOrder(event, existingOrder))
 
             if (event.eventType == OrderLifecycleEventType.ORDER_CREATED) {
                 val flavour = flavourModelClient.analyse(flavourRequest(event))
-                brewingStateRepository.saveOrderFlavour(flavourState(event, flavour))
+                brewingStateRepository.saveOrderFlavour(orderFlavour(event, flavour))
             }
         } catch (error: Throwable) {
             logger.error(

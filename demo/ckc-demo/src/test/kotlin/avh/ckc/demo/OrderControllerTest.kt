@@ -1,7 +1,7 @@
 package avh.ckc.demo
 
-import avh.ckc.demo.model.BatchState
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given
@@ -30,7 +30,7 @@ class OrderControllerTest {
     @Test
     fun `returns order with batch details`() {
         given(brewingStateRepository.findOrder("ord-7421")).willReturn(
-            OrderState(
+            Order(
                 orderId = "ord-7421",
                 batchId = "batch-11",
                 potionId = "healing-elixir",
@@ -41,7 +41,7 @@ class OrderControllerTest {
             )
         )
         given(brewingStateRepository.findBatch("batch-11")).willReturn(
-            BatchState(
+            Batch(
                 batchId = "batch-11",
                 recipeId = "healing-elixir-v2",
                 potionId = "healing-elixir",

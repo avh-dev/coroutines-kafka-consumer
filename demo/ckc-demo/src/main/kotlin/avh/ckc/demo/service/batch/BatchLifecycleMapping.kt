@@ -2,12 +2,12 @@ package avh.ckc.demo.service.batch
 
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.BatchLifecycleEventType
-import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.Batch
 import avh.ckc.demo.repository.SuspendBrewingStateRepository
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 
-internal fun mergeBatchState(event: BatchLifecycleEvent, existing: BatchState?): BatchState =
-    BatchState(
+internal fun mergeBatch(event: BatchLifecycleEvent, existing: Batch?): Batch =
+    Batch(
         batchId = event.batchId,
         recipeId = event.recipeId.ifBlank { existing?.recipeId },
         potionId = event.potionId.ifBlank { existing?.potionId },

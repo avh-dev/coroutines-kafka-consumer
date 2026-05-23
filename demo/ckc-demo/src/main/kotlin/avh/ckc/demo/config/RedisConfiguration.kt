@@ -20,7 +20,7 @@ class RedisConfiguration {
     fun redisJson(): Json = Json { ignoreUnknownKeys = true }
 
     @Bean
-    fun orderStateRedisTemplate(connectionFactory: ReactiveRedisConnectionFactory): ReactiveRedisTemplate<String, ByteArray> {
+    fun orderRedisTemplate(connectionFactory: ReactiveRedisConnectionFactory): ReactiveRedisTemplate<String, ByteArray> {
         val serializationContext = RedisSerializationContext
             .newSerializationContext<String, ByteArray>(StringRedisSerializer())
             .value(RedisSerializer.byteArray())
@@ -31,9 +31,9 @@ class RedisConfiguration {
 
     @Bean
     fun redisBrewingStateStore(
-        orderStateRedisTemplate: ReactiveRedisTemplate<String, ByteArray>,
+        orderRedisTemplate: ReactiveRedisTemplate<String, ByteArray>,
         redisJson: Json
-    ): RedisBrewingStateStore = RedisBrewingStateStore(orderStateRedisTemplate, redisJson)
+    ): RedisBrewingStateStore = RedisBrewingStateStore(orderRedisTemplate, redisJson)
 
     @Bean
     fun syncBrewingStateRepository(store: RedisBrewingStateStore): SyncBrewingStateRepository =

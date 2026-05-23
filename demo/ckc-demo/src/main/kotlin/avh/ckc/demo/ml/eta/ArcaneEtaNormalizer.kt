@@ -1,7 +1,7 @@
 package avh.ckc.demo.ml.eta
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.Batch
 import org.springframework.stereotype.Component
 import kotlin.math.abs
 import kotlin.math.cos
@@ -24,7 +24,7 @@ class ArcaneEtaNormalizer(
     private val normalizationProfile: String = "lunar-calibration-v1"
 ) {
     fun normalize(
-        batchState: BatchState,
+        batch: Batch,
         telemetryEvent: CauldronTelemetryEvent,
         modelResponse: ArcaneEtaResponse
     ): NormalizedEtaEstimate {
@@ -37,7 +37,7 @@ class ArcaneEtaNormalizer(
         )
 
         return NormalizedEtaEstimate(
-            batchId = batchState.batchId,
+            batchId = batch.batchId,
             cauldronId = telemetryEvent.cauldronId,
             etaSeconds = etaSeconds,
             magicalEtaUnits = modelResponse.magicalEtaUnits,
