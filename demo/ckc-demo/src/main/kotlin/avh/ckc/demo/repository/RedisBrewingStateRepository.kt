@@ -41,6 +41,13 @@ class RedisSyncBrewingStateRepository(
     override fun saveModelContext(context: ModelContextState) {
         store.saveModelContext(context).toCompletableFuture().join()
     }
+
+    override fun findOrderFlavour(orderId: String): OrderFlavourState? =
+        store.findOrderFlavour(orderId).toCompletableFuture().join()
+
+    override fun saveOrderFlavour(state: OrderFlavourState) {
+        store.saveOrderFlavour(state).toCompletableFuture().join()
+    }
 }
 
 class RedisSuspendBrewingStateRepository(
@@ -77,6 +84,13 @@ class RedisSuspendBrewingStateRepository(
     override suspend fun saveModelContext(context: ModelContextState) {
         store.saveModelContext(context).await()
     }
+
+    override suspend fun findOrderFlavour(orderId: String): OrderFlavourState? =
+        store.findOrderFlavour(orderId).await()
+
+    override suspend fun saveOrderFlavour(state: OrderFlavourState) {
+        store.saveOrderFlavour(state).await()
+    }
 }
 
 class RedisBrewingStateStore(
@@ -110,6 +124,12 @@ class RedisBrewingStateStore(
     fun saveModelContext(context: ModelContextState): CompletionStage<Void> =
         saveJson(modelContextKey(context.batchId), ModelContextState.serializer(), context)
 
+    fun findOrderFlavour(orderId: String): CompletionStage<OrderFlavourState?> =
+        loadJson(orderFlavourKey(orderId), OrderFlavourState.serializer())
+
+    fun saveOrderFlavour(state: OrderFlavourState): CompletionStage<Void> =
+        saveJson(orderFlavourKey(state.orderId), OrderFlavourState.serializer(), state)
+
     private fun <T> loadJson(key: String, serializer: KSerializer<T>): CompletionStage<T?> =
         load(key).thenApply { bytes -> bytes?.let { json.decodeFromString(serializer, it.decodeToString()) } }
 
@@ -134,4 +154,6 @@ class RedisBrewingStateStore(
     private fun activeBatchKey(cauldronId: String): String = "cauldron-active-batch:$cauldronId"
 
     private fun modelContextKey(batchId: String): String = "model-context:$batchId"
+
+    private fun orderFlavourKey(orderId: String): String = "order-flavour:$orderId"
 }

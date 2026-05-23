@@ -1,4 +1,4 @@
-package avh.ckc.demo.model
+package avh.ckc.demo.modelclient.eta
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.repository.BatchState

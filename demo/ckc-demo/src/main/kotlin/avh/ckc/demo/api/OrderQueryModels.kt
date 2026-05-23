@@ -2,7 +2,8 @@ package avh.ckc.demo.api
 
 data class OrderTrackingResponse(
     val order: OrderView,
-    val batch: BatchView?
+    val batch: BatchView?,
+    val flavour: OrderFlavourView?
 )
 
 data class OrderView(
@@ -11,7 +12,6 @@ data class OrderView(
     val potionId: String,
     val recipeId: String?,
     val customerId: String,
-    val cauldronId: String?,
     val status: String,
     val updatedAt: String
 )
@@ -23,5 +23,14 @@ data class BatchView(
     val cauldronId: String?,
     val status: String,
     val orderIds: List<String>,
+    val updatedAt: String
+)
+
+data class OrderFlavourView(
+    val flavourProfileId: String,
+    val palette: String,
+    val etaCorrectionFactor: Double,
+    val moonPhase: String,
+    val modelRequestId: String,
     val updatedAt: String
 )

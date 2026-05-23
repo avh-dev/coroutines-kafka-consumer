@@ -2,6 +2,7 @@ package avh.ckc.demo.api
 
 import avh.ckc.demo.repository.OrderState
 import avh.ckc.demo.repository.SyncBrewingStateRepository
+import avh.ckc.demo.repository.OrderFlavourState
 import org.springframework.stereotype.Service
 
 @Service
@@ -23,7 +24,8 @@ class OrderQueryService(
                     orderIds = it.orderIds,
                     updatedAt = it.updatedAt
                 )
-            }
+            },
+            flavour = brewingStateRepository.findOrderFlavour(orderId)?.toView()
         )
     }
 
@@ -37,8 +39,17 @@ class OrderQueryService(
             potionId = potionId,
             recipeId = recipeId,
             customerId = customerId,
-            cauldronId = cauldronId,
             status = status,
+            updatedAt = updatedAt
+        )
+
+    private fun OrderFlavourState.toView(): OrderFlavourView =
+        OrderFlavourView(
+            flavourProfileId = flavourProfileId,
+            palette = palette,
+            etaCorrectionFactor = etaCorrectionFactor,
+            moonPhase = moonPhase,
+            modelRequestId = modelRequestId,
             updatedAt = updatedAt
         )
 }

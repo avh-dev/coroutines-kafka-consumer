@@ -1,5 +1,6 @@
 package avh.ckc.loadtest.domain
 
+import avh.ckc.demo.proto.BatchLifecycleEventType
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.loadtest.runtime.ShardContext
 import kotlin.test.Test
@@ -20,9 +21,13 @@ class OrderLifecycleStateMachineTest {
 
         assertEquals("batch-shard-002-000004", batch.batchId)
         assertEquals(listOf("ord-shard-002-00000010", "ord-shard-002-00000011"), batch.orderIds)
-        assertEquals(10, batch.lifecycleEvents.size)
-        assertEquals(OrderLifecycleEventType.ORDER_CREATED, batch.lifecycleEvents.first().eventType)
-        assertEquals(OrderLifecycleEventType.BREWING_COMPLETED, batch.lifecycleEvents.last().eventType)
-        assertTrue(batch.lifecycleEvents.all { it.batchId == batch.batchId })
+        assertEquals(8, batch.orderEvents.size)
+        assertEquals(12, batch.batchEvents.size)
+        assertEquals(OrderLifecycleEventType.ORDER_CREATED, batch.orderEvents.first().eventType)
+        assertEquals(OrderLifecycleEventType.ORDER_COMPLETED, batch.orderEvents.last().eventType)
+        assertEquals(BatchLifecycleEventType.BATCH_CREATED, batch.batchEvents.first().eventType)
+        assertEquals(BatchLifecycleEventType.BATCH_BOTTLING_COMPLETED, batch.batchEvents.last().eventType)
+        assertTrue(batch.orderEvents.filter { it.batchId.isNotBlank() }.all { it.batchId == batch.batchId })
+        assertTrue(batch.batchEvents.all { it.batchId == batch.batchId })
     }
 }

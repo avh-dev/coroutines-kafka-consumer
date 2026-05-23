@@ -23,6 +23,10 @@ env:
   lifecycleWorkerConcurrency: 2
   lifecyclePollLoopConcurrency: 1
   lifecycleWorkChannelCapacity: 1024
+  batchProcessingMode: AT_LEAST_ONCE_UNORDERED
+  batchWorkerConcurrency: 2
+  batchPollLoopConcurrency: 1
+  batchWorkChannelCapacity: 1024
   telemetryProcessingMode: FRESHNESS_FIRST
   telemetryWorkerConcurrency: 4
   telemetryPollLoopConcurrency: 1

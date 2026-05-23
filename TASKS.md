@@ -46,6 +46,7 @@
 | [DEMO-17](#demo-17) | Keep the Confluent Parallel Consumer profile metric visible without registering CKC-style record metric beans.                                                                                            | DONE |
 | [DEMO-18](#demo-18) | Enable percentile histogram buckets for Confluent Parallel Consumer processing-time metrics in the demo app.                                 | DONE |
 | [DEMO-19](#demo-19) | Make the CKC order lifecycle processing mode configurable while preserving the unordered default.                                                                           | DONE |
+| [DEMO-20](#demo-20) | Reorganize the demo domain around orders, batches, cauldrons, brewing steps, model clients, and latency-only consumer handling.             | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -71,6 +72,7 @@
 | [INFRA-23](#infra-23) | Add Confluent Parallel Consumer offset encoder metrics and clearer shard/partition panels to the Grafana dashboard.                          | DONE |
 | [INFRA-24](#infra-24) | Clean up the Grafana dashboard for load-test result analysis with consistent time-series panels.                                             | DONE |
 | [INFRA-25](#infra-25) | Wire lifecycle processing mode through demo Helm values and add ordered-runtime-oriented CKC dashboard panels.                                | DONE |
+| [INFRA-26](#infra-26) | Update demo infrastructure topics, Helm wiring, scripts, and dashboards for order, batch, and cauldron aggregate event streams.              | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -617,6 +619,16 @@ Keep the default as `AT_LEAST_ONCE_UNORDERED` so existing demo behavior remains 
 Allow load tests and local runs to opt into key-ordered lifecycle processing through configuration.
 Preserve telemetry's freshness-first default through the same runtime settings shape.
 
+<a id="demo-20"></a>
+### DEMO-20 - Reorganize demo domain around batches and cauldrons
+
+_Date: 2026-05-23_
+
+Redesign the demo lifecycle so orders are grouped into batches before cauldron brewing starts.
+Split order, batch, and cauldron aggregate events across aggregate topics and add brewing-step and bottling events.
+Add an order flavour model result stored separately in Redis, keep ETA recalculation driven by cauldron telemetry, and expose runtime model latency controls in stubs.
+Reorganize demo handlers, consumer wiring, and model-client packages so business logic stays separate from consumer implementation details.
+
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
 
@@ -729,6 +741,16 @@ _Date: 2026-05-22_
 Expose lifecycle and telemetry processing modes through the shared demo Helm chart.
 Set CKC demo deployment profiles to key-ordered lifecycle processing while leaving telemetry freshness-first.
 Update the CKC runtime dashboard section with active-worker and bounded-queue utilization panels for ordered runtime analysis.
+
+<a id="infra-26"></a>
+### INFRA-26 - Update demo infrastructure for aggregate event streams
+
+_Date: 2026-05-23_
+
+Update Kafka topic creation and test orchestration defaults for `order.events.v1`, `batch.events.v1`, and `cauldron.events.v1`.
+Wire batch consumer runtime settings through Helm alongside order and cauldron settings.
+Refresh local-dev and internal-lab topic/group reset scripts so repeated runs start from a clean aggregate-stream state.
+Update Grafana metric selectors so runtime panels include the new batch consumer stream.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

@@ -15,23 +15,24 @@ demo/infra/local-dev/scripts/start.sh
 
 Recreate topics after Kafka starts:
 ```sh
-demo/infra/local-dev/scripts/create-topics.sh --lifecycle 6 --cualdrons 6
+demo/infra/local-dev/scripts/create-topics.sh --orders 6 --batches 6 --cauldrons 6
 ```
 
-If no topic parameters are provided, the script prompts for both partition counts and uses `6` as the default:
+If no topic parameters are provided, the script prompts for all partition counts and uses `6` as the default:
 
 ```sh
 demo/infra/local-dev/scripts/create-topics.sh
 ```
 
 The topic script uses `docker exec ckc-local-kafka ...`, prints partition changes, deletes existing topics, and recreates:
-- `potion.orders.lifecycle.v1`
-- `potion.cauldrons.telemetry.v1`
+- `order.events.v1`
+- `batch.events.v1`
+- `cauldron.events.v1`
 
 To recreate topics with different partition counts:
 
 ```sh
-demo/infra/local-dev/scripts/create-topics.sh --lifecycle 4 --cualdrons 4
+demo/infra/local-dev/scripts/create-topics.sh --orders 4 --batches 4 --cauldrons 4
 ```
 
 Start with the LT demo-stubs profile:
@@ -46,6 +47,9 @@ demo/infra/local-dev/scripts/stop.sh
 
 Demo stubs exposes:
 - `POST /eta`
+- `POST /flavour`
+- `GET /latency`
+- `POST /latency`
 - `GET /health`
 
 LT demo-stubs notes:

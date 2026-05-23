@@ -1,12 +1,14 @@
-package avh.ckc.demo.config
+package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.demo.DemoConsumers
+import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.handler.batch.SuspendBatchEventHandler
+import avh.ckc.demo.handler.cauldron.SuspendCauldronEventHandler
+import avh.ckc.demo.handler.order.SuspendOrderEventHandler
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.service.SuspendBrewingLifecycleService
-import avh.ckc.demo.service.SuspendEtaRecalculationService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -29,28 +31,35 @@ class CkcProfileConfiguration {
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
     fun ckcConsumerRuntime(
         properties: DemoApplicationProperties,
-        brewingLifecycleService: SuspendBrewingLifecycleService,
-        etaRecalculationService: SuspendEtaRecalculationService,
+        orderEventHandler: SuspendOrderEventHandler,
+        batchEventHandler: SuspendBatchEventHandler,
+        cauldronEventHandler: SuspendCauldronEventHandler,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-        @Qualifier("lifecycleConsumerMetrics") lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
+        @Qualifier("lifecycleConsumerMetrics") lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+        @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
-            brewingLifecycleService,
-            etaRecalculationService,
+            orderEventHandler,
+            batchEventHandler,
+            cauldronEventHandler,
             consumerMetrics,
-            lifecycleConsumerMetrics
+            lifecycleConsumerMetrics,
+            batchConsumerMetrics
         )
 }
 
 private class CkcConsumerRuntime(
     private val properties: DemoApplicationProperties,
-    private val brewingLifecycleService: SuspendBrewingLifecycleService,
-    private val etaRecalculationService: SuspendEtaRecalculationService,
+    private val orderEventHandler: SuspendOrderEventHandler,
+    private val batchEventHandler: SuspendBatchEventHandler,
+    private val cauldronEventHandler: SuspendCauldronEventHandler,
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-    private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>
+    private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+    private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
 ) : SmartLifecycle {
     private lateinit var lifecycleConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
+    private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
     private lateinit var deserializationDispatcher: DemoDeserializationDispatcher
     @Volatile
@@ -64,28 +73,40 @@ private class CkcConsumerRuntime(
         )
 
         lifecycleConsumer = DemoConsumers.lifecycleConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId),
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId),
             lifecycleConsumerMetrics,
             properties.audit.enabled,
             properties.consumers.lifecycle,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
         ) { _, event ->
-            brewingLifecycleService.applyLifecycleEvent(event)
+            orderEventHandler.handle(event)
+        }
+
+        batchConsumer = DemoConsumers.batchConsumer(
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId),
+            batchConsumerMetrics,
+            properties.audit.enabled,
+            properties.consumers.batch,
+            deserializationDispatcher.dispatcher,
+            properties.consumers.processingEnabled
+        ) { _, event ->
+            batchEventHandler.handle(event)
         }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId),
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId),
             consumerMetrics,
             properties.audit.enabled,
             properties.consumers.telemetry,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
         ) { _, telemetry ->
-            etaRecalculationService.recalculate(telemetry)
+            cauldronEventHandler.handle(telemetry)
         }
 
         lifecycleConsumer.start()
+        batchConsumer.start()
         telemetryConsumer.start()
         running = true
     }
@@ -97,6 +118,7 @@ private class CkcConsumerRuntime(
         try {
             runBlocking {
                 telemetryConsumer.stop()
+                batchConsumer.stop()
                 lifecycleConsumer.stop()
             }
         } finally {

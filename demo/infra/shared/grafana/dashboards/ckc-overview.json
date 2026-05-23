@@ -150,12 +150,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_lifecycle\"}[$__rate_interval]))",
+          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{event_type}}"
         },
         {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc"
         }
@@ -198,12 +198,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_lifecycle\"}[$__rate_interval]))",
+          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{event_type}} / {{error}}"
         },
         {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc failed"
         }
@@ -246,37 +246,37 @@
       },
       "targets": [
         {
-          "expr": "(1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_lifecycle\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_lifecycle\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "{{event_type}} avg",
           "refId": "A"
         },
         {
-          "expr": "(1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_lifecycle\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "{{event_type}} max",
           "refId": "B"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+          "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
           "legendFormat": "{{event_type}} p50",
           "refId": "C"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+          "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
           "legendFormat": "{{event_type}} p95",
           "refId": "D"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_lifecycle\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+          "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
           "legendFormat": "{{event_type}} p99",
           "refId": "E"
         },
         {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "confluent-parallel pc avg",
           "refId": "F"
         },
         {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_lifecycle\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "confluent-parallel pc max",
           "refId": "G"
         }
@@ -319,12 +319,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_lifecycle\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_lifecycle\", error=\"none\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{event_type}} avg"
         },
         {
-          "expr": "max by (event_type) (ckc_record_age_max{consumer_id=\"order_lifecycle\", error=\"none\"})",
+          "expr": "max by (event_type) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})",
           "refId": "C",
           "legendFormat": "{{event_type}} max"
         }
@@ -384,12 +384,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{topic}}"
         },
         {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc"
         }
@@ -432,12 +432,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{topic}} / {{error}}"
         },
         {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc failed"
         }
@@ -480,37 +480,37 @@
       },
       "targets": [
         {
-          "expr": "(1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "{{topic}} avg",
           "refId": "A"
         },
         {
-          "expr": "(1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_telemetry\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "{{topic}} max",
           "refId": "B"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+          "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
           "legendFormat": "{{topic}} p50",
           "refId": "C"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+          "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
           "legendFormat": "{{topic}} p95",
           "refId": "D"
         },
         {
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_telemetry\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+          "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
           "legendFormat": "{{topic}} p99",
           "refId": "E"
         },
         {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "confluent-parallel pc avg",
           "refId": "F"
         },
         {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_telemetry\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "confluent-parallel pc max",
           "refId": "G"
         }
@@ -553,12 +553,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_telemetry\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_telemetry\", error=\"none\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{topic}} avg"
         },
         {
-          "expr": "max by (topic) (ckc_record_age_max{consumer_id=\"cauldron_telemetry\", error=\"none\"})",
+          "expr": "max by (topic) (ckc_record_age_max{consumer_id=\"cauldron_events\", error=\"none\"})",
           "refId": "C",
           "legendFormat": "{{topic}} max"
         }
@@ -620,12 +620,12 @@
       },
       "targets": [
         {
-          "expr": "ckc_workers_active{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
           "refId": "A",
           "legendFormat": "{{consumer_id}} active"
         },
         {
-          "expr": "ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
           "refId": "B",
           "legendFormat": "{{consumer_id}} configured"
         }
@@ -670,17 +670,17 @@
       },
       "targets": [
         {
-          "expr": "ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
           "refId": "A",
           "legendFormat": "{{consumer_id}} size"
         },
         {
-          "expr": "ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
           "refId": "B",
           "legendFormat": "{{consumer_id}} capacity"
         },
         {
-          "expr": "ckc_work_queue_max{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}",
+          "expr": "ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
           "refId": "C",
           "legendFormat": "{{consumer_id}} max observed"
         }
@@ -725,7 +725,7 @@
       },
       "targets": [
         {
-          "expr": "ckc_workers_active{consumer_id=~\"order_lifecycle|cauldron_telemetry\"} / clamp_min(ckc_workers{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}, 1)",
+          "expr": "ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"} / clamp_min(ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}, 1)",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -770,7 +770,7 @@
       },
       "targets": [
         {
-          "expr": "ckc_work_queue_size{consumer_id=~\"order_lifecycle|cauldron_telemetry\"} / clamp_min(ckc_work_queue_capacity{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}, 1)",
+          "expr": "ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"} / clamp_min(ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}, 1)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} current"
         }
@@ -813,7 +813,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}"
         }
@@ -856,7 +856,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} avg"
         }
@@ -899,7 +899,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -942,7 +942,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_lifecycle|cauldron_telemetry\"}[$__rate_interval]))",
+          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / success={{success}}"
         }

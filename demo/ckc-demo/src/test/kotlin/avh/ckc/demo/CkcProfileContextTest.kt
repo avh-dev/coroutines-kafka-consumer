@@ -45,14 +45,14 @@ class CkcProfileContextTest(
         consumerMetrics.onRecordProcessed(
             key = "key",
             value = sampleTelemetryEvent(),
-            record = ConsumerRecord("potion.cauldrons.telemetry.v1", 0, 0L, "key".toByteArray(), ByteArray(0)),
+            record = ConsumerRecord("cauldron.events.v1", 0, 0L, "key".toByteArray(), ByteArray(0)),
             recordAgeMillis = 10,
             durationNanos = 1_000_000
         )
 
         val counter = meterRegistry.find("ckc.record.processed")
-            .tag("consumer_id", "cauldron_telemetry")
-            .tag("topic", "potion.cauldrons.telemetry.v1")
+            .tag("consumer_id", "cauldron_events")
+            .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
             .counter()
 

@@ -55,7 +55,7 @@ if kubectl -n ckc-perf get deployment ckc-demo >/dev/null 2>&1; then
 fi
 
 ssh "${SSH_TARGET}" \
-  "LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' TOPIC_SPECS='${TOPIC_SPECS}' CONSUMER_GROUPS='potion-tracking-lifecycle,potion-tracking-telemetry' '${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh'"
+  "LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' TOPIC_SPECS='${TOPIC_SPECS}' CONSUMER_GROUPS='potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons' '${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh'"
 
 helm upgrade --install ckc-demo-stubs "${REPO_ROOT}/demo/infra/shared/helm/demo-stubs" \
   --namespace ckc-perf \

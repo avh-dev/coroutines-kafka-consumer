@@ -7,24 +7,21 @@ import kotlin.random.Random
 class DelaySamplerTest {
     @Test
     fun `sampler uses configured buckets`() {
-        val config = DemoStubsConfig(
-            port = 8080,
-            workers = 8,
+        val settings = ModelLatencySettings(
             delayP90Ms = 10,
             delayP95Ms = 50,
             delayP99Ms = 150,
-            delayP100Ms = 300,
-            errorRatePercent = 0
+            delayP100Ms = 300
         )
-        val sampler = DelaySampler(config, SequenceRandom(0, 89, 90, 94, 95, 98, 99))
+        val sampler = DelaySampler(SequenceRandom(0, 89, 90, 94, 95, 98, 99))
 
-        assertEquals(10, sampler.sampleDelayMillis())
-        assertEquals(10, sampler.sampleDelayMillis())
-        assertEquals(50, sampler.sampleDelayMillis())
-        assertEquals(50, sampler.sampleDelayMillis())
-        assertEquals(150, sampler.sampleDelayMillis())
-        assertEquals(150, sampler.sampleDelayMillis())
-        assertEquals(300, sampler.sampleDelayMillis())
+        assertEquals(10, sampler.sampleDelayMillis(settings))
+        assertEquals(10, sampler.sampleDelayMillis(settings))
+        assertEquals(50, sampler.sampleDelayMillis(settings))
+        assertEquals(50, sampler.sampleDelayMillis(settings))
+        assertEquals(150, sampler.sampleDelayMillis(settings))
+        assertEquals(150, sampler.sampleDelayMillis(settings))
+        assertEquals(300, sampler.sampleDelayMillis(settings))
     }
 }
 

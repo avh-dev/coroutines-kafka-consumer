@@ -45,6 +45,14 @@ spec:
               value: {{ .Values.env.lifecyclePollLoopConcurrency | quote }}
             - name: LIFECYCLE_WORK_CHANNEL_CAPACITY
               value: {{ .Values.env.lifecycleWorkChannelCapacity | quote }}
+            - name: BATCH_PROCESSING_MODE
+              value: {{ .Values.env.batchProcessingMode | quote }}
+            - name: BATCH_WORKER_CONCURRENCY
+              value: {{ .Values.env.batchWorkerConcurrency | quote }}
+            - name: BATCH_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.batchPollLoopConcurrency | quote }}
+            - name: BATCH_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.batchWorkChannelCapacity | quote }}
             - name: TELEMETRY_PROCESSING_MODE
               value: {{ .Values.env.telemetryProcessingMode | quote }}
             - name: TELEMETRY_WORKER_CONCURRENCY

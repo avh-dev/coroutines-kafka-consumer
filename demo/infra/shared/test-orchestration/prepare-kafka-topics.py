@@ -13,8 +13,9 @@ from typing import Any
 
 
 DEFAULT_TOPICS = [
-    {"name": "potion.orders.lifecycle.v1", "partitions": 12},
-    {"name": "potion.cauldrons.telemetry.v1", "partitions": 12},
+    {"name": "order.events.v1", "partitions": 12},
+    {"name": "batch.events.v1", "partitions": 12},
+    {"name": "cauldron.events.v1", "partitions": 12},
 ]
 
 

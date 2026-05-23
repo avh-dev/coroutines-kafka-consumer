@@ -1,7 +1,10 @@
-package avh.ckc.demo.config
+package avh.ckc.demo.consumer.springkafka
 
+import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -22,7 +25,7 @@ class SpringKafkaProfileConfiguration {
     fun orderLifecycleConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, OrderLifecycleEvent> =
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties) + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.lifecycleGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             )
         )
@@ -38,10 +41,29 @@ class SpringKafkaProfileConfiguration {
         }
 
     @Bean
+    fun batchLifecycleConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, BatchLifecycleEvent> =
+        DefaultKafkaConsumerFactory(
+            commonConsumerProperties(properties) + mapOf(
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
+            )
+        )
+
+    @Bean
+    fun batchLifecycleListenerContainerFactory(
+        consumerFactory: ConsumerFactory<String, BatchLifecycleEvent>,
+        properties: DemoApplicationProperties
+    ): ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent> =
+        ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent>().apply {
+            this.consumerFactory = consumerFactory
+            setConcurrency(properties.consumers.batch.pollLoopConcurrency)
+        }
+
+    @Bean
     fun cauldronTelemetryConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, CauldronTelemetryEvent> =
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties) + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.telemetryGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to true,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
             )

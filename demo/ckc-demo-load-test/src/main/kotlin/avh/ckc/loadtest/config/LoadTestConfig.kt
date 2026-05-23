@@ -4,8 +4,9 @@ import java.time.Duration
 
 data class LoadTestConfig(
     val bootstrapServers: String,
-    val orderLifecycleTopic: String,
-    val cauldronTelemetryTopic: String,
+    val orderEventsTopic: String,
+    val batchEventsTopic: String,
+    val cauldronEventsTopic: String,
     val lifecycleBaseRate: Int,
     val telemetryBaseRate: Int,
     val loadProfile: String,
@@ -28,8 +29,9 @@ data class LoadTestConfig(
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): LoadTestConfig =
             LoadTestConfig(
                 bootstrapServers = environment["BOOTSTRAP_SERVERS"] ?: "localhost:9092",
-                orderLifecycleTopic = environment["ORDER_LIFECYCLE_TOPIC"] ?: "potion.orders.lifecycle.v1",
-                cauldronTelemetryTopic = environment["CAULDRON_TELEMETRY_TOPIC"] ?: "potion.cauldrons.telemetry.v1",
+                orderEventsTopic = environment["ORDER_EVENTS_TOPIC"] ?: "order.events.v1",
+                batchEventsTopic = environment["BATCH_EVENTS_TOPIC"] ?: "batch.events.v1",
+                cauldronEventsTopic = environment["CAULDRON_EVENTS_TOPIC"] ?: "cauldron.events.v1",
                 lifecycleBaseRate = environment["LIFECYCLE_BASE_RATE"]?.toIntOrNull() ?: 1000,
                 telemetryBaseRate = environment["TELEMETRY_BASE_RATE"]?.toIntOrNull() ?: 10_000,
                 loadProfile = environment["LOAD_PROFILE"]

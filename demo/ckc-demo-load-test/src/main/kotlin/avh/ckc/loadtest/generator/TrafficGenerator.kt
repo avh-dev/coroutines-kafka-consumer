@@ -1,9 +1,11 @@
 package avh.ckc.loadtest.generator
 
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.domain.ActiveBatch
 import avh.ckc.loadtest.domain.CauldronTelemetryFactory
+import avh.ckc.loadtest.domain.GeneratedBatch
 import avh.ckc.loadtest.domain.OrderLifecycleStateMachine
 import avh.ckc.loadtest.domain.PendingOrder
 import avh.ckc.loadtest.domain.PotionRecipe
@@ -31,7 +33,8 @@ class TrafficGenerator(
     )
     private val stateMachine = OrderLifecycleStateMachine(shardContext)
     private val telemetryFactory = CauldronTelemetryFactory(config.diagnosticsBlobSize)
-    private val lifecycleBacklog = ArrayDeque<OrderLifecycleEvent>()
+    private val orderBacklog = ArrayDeque<OrderLifecycleEvent>()
+    private val batchBacklog = ArrayDeque<BatchLifecycleEvent>()
     private val telemetryCauldrons = ArrayDeque<TelemetryCauldron>()
     private val orderSequence = AtomicLong(0)
     private val batchSequence = AtomicLong(0)
@@ -39,6 +42,7 @@ class TrafficGenerator(
     private var orderAccumulator = 0.0
     private var telemetryAccumulator = 0.0
     private var lastHeartbeatAt = Instant.EPOCH
+    private var emitBatchNext = false
 
     suspend fun run() {
         val startedAt = shardContext.testRunStartedAt ?: Instant.now()
@@ -80,33 +84,46 @@ class TrafficGenerator(
         }
         lastHeartbeatAt = now
         producers.logSnapshot(
-            "heartbeat phase=$phaseName lifecycleBacklog=${lifecycleBacklog.size} activeCauldrons=${telemetryCauldrons.size} " +
+            "heartbeat phase=$phaseName orderBacklog=${orderBacklog.size} batchBacklog=${batchBacklog.size} activeCauldrons=${telemetryCauldrons.size} " +
                 "generatedOrders=${orderSequence.get()} generatedBatches=${batchSequence.get()}"
         )
     }
 
     private fun emitLifecycle(now: Instant) {
-        if (lifecycleBacklog.isEmpty()) {
-            lifecycleBacklog.addAll(createLifecycleBatch(now))
+        if (orderBacklog.isEmpty() && batchBacklog.isEmpty()) {
+            val batch = createLifecycleBatch(now)
+            orderBacklog.addAll(batch.orderEvents)
+            batchBacklog.addAll(batch.batchEvents)
         }
 
-        val event = lifecycleBacklog.removeFirst()
-        producers.sendLifecycle(event.orderId, event)
+        if (batchBacklog.isNotEmpty() && (emitBatchNext || orderBacklog.isEmpty())) {
+            emitBatchNext = false
+            val event = batchBacklog.removeFirst()
+            producers.sendBatch(event.batchId, event)
+        } else if (orderBacklog.isNotEmpty()) {
+            emitBatchNext = batchBacklog.isNotEmpty()
+            val event = orderBacklog.removeFirst()
+            producers.sendOrder(event.orderId, event)
+        }
     }
 
-    private fun createLifecycleBatch(now: Instant): List<OrderLifecycleEvent> {
+    private fun createLifecycleBatch(now: Instant): GeneratedBatch {
         val firstOrderIndex = orderSequence.getAndAdd(config.lifecycleOrdersPerBatch.toLong()).toInt() + 1
         val batchSlot = batchSequence.incrementAndGet().toInt()
         val recipe = recipes[(batchSlot + shardContext.shardIndex) % recipes.size]
 
-        return stateMachine.createOrderBatch(
+        val generated = stateMachine.createOrderBatch(
             orderIndex = firstOrderIndex,
             batchSlot = batchSlot,
             ordersPerBatch = config.lifecycleOrdersPerBatch,
             potionId = recipe.potionId,
             recipeId = recipe.recipeId
-        ).lifecycleEvents
-            .map { it.toBuilder().setMetadata(it.metadata.toBuilder().setOccurredAt(now.toString())).build() }
+        )
+
+        return generated.copy(
+            orderEvents = generated.orderEvents.map { it.toBuilder().setMetadata(it.metadata.toBuilder().setOccurredAt(now.toString())).build() },
+            batchEvents = generated.batchEvents.map { it.toBuilder().setMetadata(it.metadata.toBuilder().setOccurredAt(now.toString())).build() }
+        )
     }
 
     private fun emitTelemetry(now: Instant) {
