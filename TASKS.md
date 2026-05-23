@@ -47,6 +47,7 @@
 | [DEMO-18](#demo-18) | Enable percentile histogram buckets for Confluent Parallel Consumer processing-time metrics in the demo app.                                 | DONE |
 | [DEMO-19](#demo-19) | Make the CKC order lifecycle processing mode configurable while preserving the unordered default.                                                                           | DONE |
 | [DEMO-20](#demo-20) | Reorganize the demo domain around orders, batches, cauldrons, brewing steps, model clients, and latency-only consumer handling.             | DONE |
+| [DEMO-21](#demo-21) | Remove the redundant demo handler layer and place order, batch, and cauldron business services into aggregate-specific packages.            | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -628,6 +629,16 @@ Redesign the demo lifecycle so orders are grouped into batches before cauldron b
 Split order, batch, and cauldron aggregate events across aggregate topics and add brewing-step and bottling events.
 Add an order flavour model result stored separately in Redis, keep ETA recalculation driven by cauldron telemetry, and expose runtime model latency controls in stubs.
 Reorganize demo handlers, consumer wiring, and model-client packages so business logic stays separate from consumer implementation details.
+
+<a id="demo-21"></a>
+### DEMO-21 - Clean up demo service package layout
+
+_Date: 2026-05-23_
+
+Remove the redundant event handler adapter layer added during the demo domain reorganization.
+Place order, batch, and cauldron business logic in aggregate-specific service packages.
+Keep the latency-only processing switch in consumer wiring so business services remain direct and focused.
+Preserve behavior while making the demo business core easier to navigate.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

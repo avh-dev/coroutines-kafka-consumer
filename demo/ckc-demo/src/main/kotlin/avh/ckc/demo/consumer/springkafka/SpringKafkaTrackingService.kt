@@ -3,14 +3,14 @@ package avh.ckc.demo.consumer.springkafka
 import avh.ckc.demo.AuditLog
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
-import avh.ckc.demo.handler.batch.BatchEventHandler
-import avh.ckc.demo.handler.cauldron.CauldronEventHandler
-import avh.ckc.demo.handler.order.OrderEventHandler
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.DemoConsumerRecordContext
 import avh.ckc.demo.service.DemoRecordMetrics
+import avh.ckc.demo.service.batch.SyncBatchLifecycleService
+import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
+import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Profile
@@ -20,9 +20,9 @@ import org.springframework.stereotype.Service
 @Profile("spring-kafka")
 class SpringKafkaTrackingService(
     private val properties: DemoApplicationProperties,
-    private val orderEventHandler: OrderEventHandler,
-    private val batchEventHandler: BatchEventHandler,
-    private val cauldronEventHandler: CauldronEventHandler,
+    private val orderLifecycleService: SyncOrderLifecycleService,
+    private val batchLifecycleService: SyncBatchLifecycleService,
+    private val cauldronTelemetryService: SyncCauldronTelemetryService,
     private val recordMetrics: DemoRecordMetrics,
     @Qualifier("springKafkaLifecycleConsumerMetrics")
     private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
@@ -40,7 +40,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (properties.consumers.processingEnabled) {
-                orderEventHandler.handle(event)
+                orderLifecycleService.apply(event)
             } else {
                 latencyOnlySleep()
             }
@@ -60,7 +60,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (properties.consumers.processingEnabled) {
-                batchEventHandler.handle(event)
+                batchLifecycleService.apply(event)
             } else {
                 latencyOnlySleep()
             }
@@ -80,7 +80,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (properties.consumers.processingEnabled) {
-                cauldronEventHandler.handle(event)
+                cauldronTelemetryService.recalculate(event)
             } else {
                 latencyOnlySleep()
             }
