@@ -1,18 +1,18 @@
 package avh.ckc.demo.repository
 
-import avh.ckc.demo.model.BatchState
-import avh.ckc.demo.model.ModelContextState
-import avh.ckc.demo.model.OrderFlavourState
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.EtaContext
+import avh.ckc.demo.model.OrderFlavour
+import avh.ckc.demo.model.Order
 
 interface SyncBrewingStateRepository {
-    fun findOrder(orderId: String): OrderState?
+    fun findOrder(orderId: String): Order?
 
-    fun saveOrder(orderState: OrderState)
+    fun saveOrder(order: Order)
 
-    fun findBatch(batchId: String): BatchState?
+    fun findBatch(batchId: String): Batch?
 
-    fun saveBatch(batchState: BatchState)
+    fun saveBatch(batch: Batch)
 
     fun findActiveBatchId(cauldronId: String): String?
 
@@ -20,23 +20,23 @@ interface SyncBrewingStateRepository {
 
     fun deleteActiveBatchId(cauldronId: String)
 
-    fun findModelContext(batchId: String): ModelContextState?
+    fun findEtaContext(batchId: String): EtaContext?
 
-    fun saveModelContext(context: ModelContextState)
+    fun saveEtaContext(context: EtaContext)
 
-    fun findOrderFlavour(orderId: String): OrderFlavourState?
+    fun findOrderFlavour(orderId: String): OrderFlavour?
 
-    fun saveOrderFlavour(state: OrderFlavourState)
+    fun saveOrderFlavour(state: OrderFlavour)
 }
 
 interface SuspendBrewingStateRepository {
-    suspend fun findOrder(orderId: String): OrderState?
+    suspend fun findOrder(orderId: String): Order?
 
-    suspend fun saveOrder(orderState: OrderState)
+    suspend fun saveOrder(order: Order)
 
-    suspend fun findBatch(batchId: String): BatchState?
+    suspend fun findBatch(batchId: String): Batch?
 
-    suspend fun saveBatch(batchState: BatchState)
+    suspend fun saveBatch(batch: Batch)
 
     suspend fun findActiveBatchId(cauldronId: String): String?
 
@@ -44,11 +44,11 @@ interface SuspendBrewingStateRepository {
 
     suspend fun deleteActiveBatchId(cauldronId: String)
 
-    suspend fun findModelContext(batchId: String): ModelContextState?
+    suspend fun findEtaContext(batchId: String): EtaContext?
 
-    suspend fun saveModelContext(context: ModelContextState)
+    suspend fun saveEtaContext(context: EtaContext)
 
-    suspend fun findOrderFlavour(orderId: String): OrderFlavourState?
+    suspend fun findOrderFlavour(orderId: String): OrderFlavour?
 
-    suspend fun saveOrderFlavour(state: OrderFlavourState)
+    suspend fun saveOrderFlavour(state: OrderFlavour)
 }

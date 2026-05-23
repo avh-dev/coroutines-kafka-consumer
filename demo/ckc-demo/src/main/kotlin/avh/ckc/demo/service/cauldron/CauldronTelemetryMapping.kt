@@ -3,17 +3,17 @@ package avh.ckc.demo.service.cauldron
 import avh.ckc.demo.ml.eta.ArcaneEtaRequest
 import avh.ckc.demo.ml.eta.ArcaneEtaResponse
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.model.BatchState
-import avh.ckc.demo.model.ModelContextState
+import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.EtaContext
 
 internal fun modelRequest(
-    batchState: BatchState,
+    batch: Batch,
     telemetryEvent: CauldronTelemetryEvent,
-    previous: ModelContextState?
+    previous: EtaContext?
 ): ArcaneEtaRequest =
     ArcaneEtaRequest(
-        batchId = batchState.batchId,
-        recipeId = batchState.recipeId,
+        batchId = batch.batchId,
+        recipeId = batch.recipeId,
         cauldronId = telemetryEvent.cauldronId,
         temperatureC = telemetryEvent.temperatureC,
         densitySg = telemetryEvent.densitySg,
@@ -23,13 +23,13 @@ internal fun modelRequest(
         previousMagicalEtaUnits = previous?.previousMagicalEtaUnits
     )
 
-internal fun modelContext(
-    batchState: BatchState,
+internal fun etaContext(
+    batch: Batch,
     telemetryEvent: CauldronTelemetryEvent,
     modelResponse: ArcaneEtaResponse
-): ModelContextState =
-    ModelContextState(
-        batchId = batchState.batchId,
+): EtaContext =
+    EtaContext(
+        batchId = batch.batchId,
         previousTemperatureC = telemetryEvent.temperatureC,
         previousDensitySg = telemetryEvent.densitySg,
         previousBubbleRateHz = telemetryEvent.bubbleRateHz,

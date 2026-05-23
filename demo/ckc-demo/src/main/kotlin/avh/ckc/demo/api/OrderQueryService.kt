@@ -1,6 +1,6 @@
 package avh.ckc.demo.api
 
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.springframework.stereotype.Service
 
@@ -9,15 +9,15 @@ class OrderQueryService(
     private val brewingStateRepository: SyncBrewingStateRepository
 ) {
     fun findOrder(orderId: String): OrderTrackingResponse? {
-        val orderState = brewingStateRepository.findOrder(orderId) ?: return null
-        val batchState = loadBatch(orderState)
+        val order = brewingStateRepository.findOrder(orderId) ?: return null
+        val batch = loadBatch(order)
         return OrderTrackingResponse(
-            order = orderState,
-            batch = batchState,
+            order = order,
+            batch = batch,
             flavour = brewingStateRepository.findOrderFlavour(orderId)
         )
     }
 
-    private fun loadBatch(orderState: OrderState) =
-        orderState.batchId?.let(brewingStateRepository::findBatch)
+    private fun loadBatch(order: Order) =
+        order.batchId?.let(brewingStateRepository::findBatch)
 }

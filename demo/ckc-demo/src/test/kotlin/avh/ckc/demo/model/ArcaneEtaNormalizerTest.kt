@@ -2,7 +2,7 @@ package avh.ckc.demo.ml.eta
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.EventMetadata
-import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.Batch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -13,7 +13,7 @@ class ArcaneEtaNormalizerTest {
     @Test
     fun `normalizer produces normalized eta estimate with propagated model metadata`() {
         val estimate = normalizer.normalize(
-            batchState = BatchState(
+            batch = Batch(
                 batchId = "batch-healing-001",
                 recipeId = "healing-elixir-v2",
                 potionId = "healing-elixir",

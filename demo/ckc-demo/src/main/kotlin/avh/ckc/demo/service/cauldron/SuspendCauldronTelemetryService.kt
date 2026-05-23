@@ -4,7 +4,7 @@ import avh.ckc.demo.ml.eta.ArcaneEtaNormalizer
 import avh.ckc.demo.ml.eta.NormalizedEtaEstimate
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.Batch
 import avh.ckc.demo.repository.SuspendBrewingStateRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -19,13 +19,13 @@ class SuspendCauldronTelemetryService(
 
     suspend fun recalculate(telemetryEvent: CauldronTelemetryEvent): NormalizedEtaEstimate? {
         try {
-            val batchState = findBatchState(telemetryEvent) ?: return null
-            val previous = brewingStateRepository.findModelContext(batchState.batchId)
-            val modelResponse = modelClient.estimate(modelRequest(batchState, telemetryEvent, previous))
+            val batch = findBatch(telemetryEvent) ?: return null
+            val previous = brewingStateRepository.findEtaContext(batch.batchId)
+            val modelResponse = modelClient.estimate(modelRequest(batch, telemetryEvent, previous))
 
-            brewingStateRepository.saveModelContext(modelContext(batchState, telemetryEvent, modelResponse))
+            brewingStateRepository.saveEtaContext(etaContext(batch, telemetryEvent, modelResponse))
 
-            val estimate = normalizer.normalize(batchState, telemetryEvent, modelResponse)
+            val estimate = normalizer.normalize(batch, telemetryEvent, modelResponse)
             logger.info(
                 "CKC ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
                 estimate.batchId,
@@ -45,7 +45,7 @@ class SuspendCauldronTelemetryService(
         }
     }
 
-    private suspend fun findBatchState(telemetryEvent: CauldronTelemetryEvent): BatchState? {
+    private suspend fun findBatch(telemetryEvent: CauldronTelemetryEvent): Batch? {
         val batchId = telemetryEvent.batchId.ifBlank {
             brewingStateRepository.findActiveBatchId(telemetryEvent.cauldronId) ?: ""
         }

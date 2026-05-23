@@ -4,7 +4,7 @@ import avh.ckc.demo.ml.eta.ArcaneEtaNormalizer
 import avh.ckc.demo.ml.eta.NormalizedEtaEstimate
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.Batch
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -19,13 +19,13 @@ class SyncCauldronTelemetryService(
 
     fun recalculate(telemetryEvent: CauldronTelemetryEvent): NormalizedEtaEstimate? {
         try {
-            val batchState = findBatchState(telemetryEvent) ?: return null
-            val previous = brewingStateRepository.findModelContext(batchState.batchId)
-            val modelResponse = modelClient.estimate(modelRequest(batchState, telemetryEvent, previous))
+            val batch = findBatch(telemetryEvent) ?: return null
+            val previous = brewingStateRepository.findEtaContext(batch.batchId)
+            val modelResponse = modelClient.estimate(modelRequest(batch, telemetryEvent, previous))
 
-            brewingStateRepository.saveModelContext(modelContext(batchState, telemetryEvent, modelResponse))
+            brewingStateRepository.saveEtaContext(etaContext(batch, telemetryEvent, modelResponse))
 
-            val estimate = normalizer.normalize(batchState, telemetryEvent, modelResponse)
+            val estimate = normalizer.normalize(batch, telemetryEvent, modelResponse)
             logger.info(
                 "Spring Kafka ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
                 estimate.batchId,
@@ -45,7 +45,7 @@ class SyncCauldronTelemetryService(
         }
     }
 
-    private fun findBatchState(telemetryEvent: CauldronTelemetryEvent): BatchState? {
+    private fun findBatch(telemetryEvent: CauldronTelemetryEvent): Batch? {
         val batchId = telemetryEvent.batchId.ifBlank {
             brewingStateRepository.findActiveBatchId(telemetryEvent.cauldronId) ?: ""
         }

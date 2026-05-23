@@ -4,11 +4,11 @@ import avh.ckc.demo.ml.flavour.OrderFlavourRequest
 import avh.ckc.demo.ml.flavour.OrderFlavourResponse
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
-import avh.ckc.demo.model.OrderFlavourState
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.OrderFlavour
+import avh.ckc.demo.model.Order
 
-internal fun mergeOrderState(event: OrderLifecycleEvent, existing: OrderState?): OrderState =
-    OrderState(
+internal fun mergeOrder(event: OrderLifecycleEvent, existing: Order?): Order =
+    Order(
         orderId = event.orderId,
         batchId = event.batchId.ifBlank { existing?.batchId },
         potionId = event.potionId.ifBlank { existing?.potionId ?: "" },
@@ -39,8 +39,8 @@ internal fun flavourRequest(event: OrderLifecycleEvent): OrderFlavourRequest =
         orderedAt = event.metadata.occurredAt
     )
 
-internal fun flavourState(event: OrderLifecycleEvent, response: OrderFlavourResponse): OrderFlavourState =
-    OrderFlavourState(
+internal fun orderFlavour(event: OrderLifecycleEvent, response: OrderFlavourResponse): OrderFlavour =
+    OrderFlavour(
         orderId = event.orderId,
         flavourProfileId = response.flavourProfileId,
         palette = response.palette,

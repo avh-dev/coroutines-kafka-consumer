@@ -3,10 +3,10 @@ package avh.ckc.demo.service.batch
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.BatchLifecycleEventType
 import avh.ckc.demo.proto.EventMetadata
-import avh.ckc.demo.model.BatchState
-import avh.ckc.demo.model.ModelContextState
-import avh.ckc.demo.model.OrderFlavourState
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.EtaContext
+import avh.ckc.demo.model.OrderFlavour
+import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -17,7 +17,7 @@ class BatchLifecycleServiceTest {
     fun `applies batch event by merging and persisting state`() {
         val repository = FakeBrewingStateRepository(
             batches = mutableMapOf(
-                "batch-11" to BatchState(
+                "batch-11" to Batch(
                     batchId = "batch-11",
                     recipeId = "healing-v1",
                     potionId = "healing-elixir",
@@ -106,22 +106,22 @@ class BatchLifecycleServiceTest {
 }
 
 private class FakeBrewingStateRepository(
-    val orders: MutableMap<String, OrderState> = mutableMapOf(),
-    val batches: MutableMap<String, BatchState> = mutableMapOf(),
+    val orders: MutableMap<String, Order> = mutableMapOf(),
+    val batches: MutableMap<String, Batch> = mutableMapOf(),
     val activeBatchIds: MutableMap<String, String> = mutableMapOf(),
-    val modelContexts: MutableMap<String, ModelContextState> = mutableMapOf(),
-    val flavours: MutableMap<String, OrderFlavourState> = mutableMapOf()
+    val etaContexts: MutableMap<String, EtaContext> = mutableMapOf(),
+    val flavours: MutableMap<String, OrderFlavour> = mutableMapOf()
 ) : SyncBrewingStateRepository {
-    override fun findOrder(orderId: String): OrderState? = orders[orderId]
+    override fun findOrder(orderId: String): Order? = orders[orderId]
 
-    override fun saveOrder(orderState: OrderState) {
-        orders[orderState.orderId] = orderState
+    override fun saveOrder(order: Order) {
+        orders[order.orderId] = order
     }
 
-    override fun findBatch(batchId: String): BatchState? = batches[batchId]
+    override fun findBatch(batchId: String): Batch? = batches[batchId]
 
-    override fun saveBatch(batchState: BatchState) {
-        batches[batchState.batchId] = batchState
+    override fun saveBatch(batch: Batch) {
+        batches[batch.batchId] = batch
     }
 
     override fun findActiveBatchId(cauldronId: String): String? = activeBatchIds[cauldronId]
@@ -134,15 +134,15 @@ private class FakeBrewingStateRepository(
         activeBatchIds.remove(cauldronId)
     }
 
-    override fun findModelContext(batchId: String): ModelContextState? = modelContexts[batchId]
+    override fun findEtaContext(batchId: String): EtaContext? = etaContexts[batchId]
 
-    override fun saveModelContext(context: ModelContextState) {
-        modelContexts[context.batchId] = context
+    override fun saveEtaContext(context: EtaContext) {
+        etaContexts[context.batchId] = context
     }
 
-    override fun findOrderFlavour(orderId: String): OrderFlavourState? = flavours[orderId]
+    override fun findOrderFlavour(orderId: String): OrderFlavour? = flavours[orderId]
 
-    override fun saveOrderFlavour(state: OrderFlavourState) {
+    override fun saveOrderFlavour(state: OrderFlavour) {
         flavours[state.orderId] = state
     }
 }

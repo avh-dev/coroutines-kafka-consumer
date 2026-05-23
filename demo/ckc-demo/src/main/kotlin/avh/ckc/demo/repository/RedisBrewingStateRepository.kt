@@ -1,9 +1,9 @@
 package avh.ckc.demo.repository
 
-import avh.ckc.demo.model.BatchState
-import avh.ckc.demo.model.ModelContextState
-import avh.ckc.demo.model.OrderFlavourState
-import avh.ckc.demo.model.OrderState
+import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.EtaContext
+import avh.ckc.demo.model.OrderFlavour
+import avh.ckc.demo.model.Order
 import kotlinx.coroutines.future.await
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -14,18 +14,18 @@ import java.util.concurrent.CompletionStage
 class RedisSyncBrewingStateRepository(
     private val store: RedisBrewingStateStore
 ) : SyncBrewingStateRepository {
-    override fun findOrder(orderId: String): OrderState? =
+    override fun findOrder(orderId: String): Order? =
         store.findOrder(orderId).toCompletableFuture().join()
 
-    override fun saveOrder(orderState: OrderState) {
-        store.saveOrder(orderState).toCompletableFuture().join()
+    override fun saveOrder(order: Order) {
+        store.saveOrder(order).toCompletableFuture().join()
     }
 
-    override fun findBatch(batchId: String): BatchState? =
+    override fun findBatch(batchId: String): Batch? =
         store.findBatch(batchId).toCompletableFuture().join()
 
-    override fun saveBatch(batchState: BatchState) {
-        store.saveBatch(batchState).toCompletableFuture().join()
+    override fun saveBatch(batch: Batch) {
+        store.saveBatch(batch).toCompletableFuture().join()
     }
 
     override fun findActiveBatchId(cauldronId: String): String? =
@@ -39,17 +39,17 @@ class RedisSyncBrewingStateRepository(
         store.deleteActiveBatchId(cauldronId).toCompletableFuture().join()
     }
 
-    override fun findModelContext(batchId: String): ModelContextState? =
-        store.findModelContext(batchId).toCompletableFuture().join()
+    override fun findEtaContext(batchId: String): EtaContext? =
+        store.findEtaContext(batchId).toCompletableFuture().join()
 
-    override fun saveModelContext(context: ModelContextState) {
-        store.saveModelContext(context).toCompletableFuture().join()
+    override fun saveEtaContext(context: EtaContext) {
+        store.saveEtaContext(context).toCompletableFuture().join()
     }
 
-    override fun findOrderFlavour(orderId: String): OrderFlavourState? =
+    override fun findOrderFlavour(orderId: String): OrderFlavour? =
         store.findOrderFlavour(orderId).toCompletableFuture().join()
 
-    override fun saveOrderFlavour(state: OrderFlavourState) {
+    override fun saveOrderFlavour(state: OrderFlavour) {
         store.saveOrderFlavour(state).toCompletableFuture().join()
     }
 }
@@ -57,18 +57,18 @@ class RedisSyncBrewingStateRepository(
 class RedisSuspendBrewingStateRepository(
     private val store: RedisBrewingStateStore
 ) : SuspendBrewingStateRepository {
-    override suspend fun findOrder(orderId: String): OrderState? =
+    override suspend fun findOrder(orderId: String): Order? =
         store.findOrder(orderId).await()
 
-    override suspend fun saveOrder(orderState: OrderState) {
-        store.saveOrder(orderState).await()
+    override suspend fun saveOrder(order: Order) {
+        store.saveOrder(order).await()
     }
 
-    override suspend fun findBatch(batchId: String): BatchState? =
+    override suspend fun findBatch(batchId: String): Batch? =
         store.findBatch(batchId).await()
 
-    override suspend fun saveBatch(batchState: BatchState) {
-        store.saveBatch(batchState).await()
+    override suspend fun saveBatch(batch: Batch) {
+        store.saveBatch(batch).await()
     }
 
     override suspend fun findActiveBatchId(cauldronId: String): String? =
@@ -82,36 +82,36 @@ class RedisSuspendBrewingStateRepository(
         store.deleteActiveBatchId(cauldronId).await()
     }
 
-    override suspend fun findModelContext(batchId: String): ModelContextState? =
-        store.findModelContext(batchId).await()
+    override suspend fun findEtaContext(batchId: String): EtaContext? =
+        store.findEtaContext(batchId).await()
 
-    override suspend fun saveModelContext(context: ModelContextState) {
-        store.saveModelContext(context).await()
+    override suspend fun saveEtaContext(context: EtaContext) {
+        store.saveEtaContext(context).await()
     }
 
-    override suspend fun findOrderFlavour(orderId: String): OrderFlavourState? =
+    override suspend fun findOrderFlavour(orderId: String): OrderFlavour? =
         store.findOrderFlavour(orderId).await()
 
-    override suspend fun saveOrderFlavour(state: OrderFlavourState) {
+    override suspend fun saveOrderFlavour(state: OrderFlavour) {
         store.saveOrderFlavour(state).await()
     }
 }
 
 class RedisBrewingStateStore(
-    private val orderStateRedisTemplate: ReactiveRedisTemplate<String, ByteArray>,
+    private val orderRedisTemplate: ReactiveRedisTemplate<String, ByteArray>,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
-    fun findOrder(orderId: String): CompletionStage<OrderState?> =
-        loadJson(orderKey(orderId), OrderState.serializer())
+    fun findOrder(orderId: String): CompletionStage<Order?> =
+        loadJson(orderKey(orderId), Order.serializer())
 
-    fun saveOrder(orderState: OrderState): CompletionStage<Void> =
-        saveJson(orderKey(orderState.orderId), OrderState.serializer(), orderState)
+    fun saveOrder(order: Order): CompletionStage<Void> =
+        saveJson(orderKey(order.orderId), Order.serializer(), order)
 
-    fun findBatch(batchId: String): CompletionStage<BatchState?> =
-        loadJson(batchKey(batchId), BatchState.serializer())
+    fun findBatch(batchId: String): CompletionStage<Batch?> =
+        loadJson(batchKey(batchId), Batch.serializer())
 
-    fun saveBatch(batchState: BatchState): CompletionStage<Void> =
-        saveJson(batchKey(batchState.batchId), BatchState.serializer(), batchState)
+    fun saveBatch(batch: Batch): CompletionStage<Void> =
+        saveJson(batchKey(batch.batchId), Batch.serializer(), batch)
 
     fun findActiveBatchId(cauldronId: String): CompletionStage<String?> =
         load(activeBatchKey(cauldronId)).thenApply { bytes -> bytes?.decodeToString() }
@@ -122,17 +122,17 @@ class RedisBrewingStateStore(
     fun deleteActiveBatchId(cauldronId: String): CompletionStage<Void> =
         delete(activeBatchKey(cauldronId))
 
-    fun findModelContext(batchId: String): CompletionStage<ModelContextState?> =
-        loadJson(modelContextKey(batchId), ModelContextState.serializer())
+    fun findEtaContext(batchId: String): CompletionStage<EtaContext?> =
+        loadJson(etaContextKey(batchId), EtaContext.serializer())
 
-    fun saveModelContext(context: ModelContextState): CompletionStage<Void> =
-        saveJson(modelContextKey(context.batchId), ModelContextState.serializer(), context)
+    fun saveEtaContext(context: EtaContext): CompletionStage<Void> =
+        saveJson(etaContextKey(context.batchId), EtaContext.serializer(), context)
 
-    fun findOrderFlavour(orderId: String): CompletionStage<OrderFlavourState?> =
-        loadJson(orderFlavourKey(orderId), OrderFlavourState.serializer())
+    fun findOrderFlavour(orderId: String): CompletionStage<OrderFlavour?> =
+        loadJson(orderFlavourKey(orderId), OrderFlavour.serializer())
 
-    fun saveOrderFlavour(state: OrderFlavourState): CompletionStage<Void> =
-        saveJson(orderFlavourKey(state.orderId), OrderFlavourState.serializer(), state)
+    fun saveOrderFlavour(state: OrderFlavour): CompletionStage<Void> =
+        saveJson(orderFlavourKey(state.orderId), OrderFlavour.serializer(), state)
 
     private fun <T> loadJson(key: String, serializer: KSerializer<T>): CompletionStage<T?> =
         load(key).thenApply { bytes -> bytes?.let { json.decodeFromString(serializer, it.decodeToString()) } }
@@ -141,13 +141,13 @@ class RedisBrewingStateStore(
         save(key, json.encodeToString(serializer, value).encodeToByteArray())
 
     private fun save(key: String, value: ByteArray): CompletionStage<Void> =
-        orderStateRedisTemplate.opsForValue().set(key, value).toFuture().thenAccept { }
+        orderRedisTemplate.opsForValue().set(key, value).toFuture().thenAccept { }
 
     private fun delete(key: String): CompletionStage<Void> =
-        orderStateRedisTemplate.delete(key).toFuture().thenAccept { }
+        orderRedisTemplate.delete(key).toFuture().thenAccept { }
 
     private fun load(key: String): CompletionStage<ByteArray?> =
-        orderStateRedisTemplate.opsForValue().get(key)
+        orderRedisTemplate.opsForValue().get(key)
             .switchIfEmpty(Mono.empty())
             .toFuture()
 
@@ -157,7 +157,7 @@ class RedisBrewingStateStore(
 
     private fun activeBatchKey(cauldronId: String): String = "cauldron-active-batch:$cauldronId"
 
-    private fun modelContextKey(batchId: String): String = "model-context:$batchId"
+    private fun etaContextKey(batchId: String): String = "eta-context:$batchId"
 
     private fun orderFlavourKey(orderId: String): String = "order-flavour:$orderId"
 }

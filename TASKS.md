@@ -50,6 +50,7 @@
 | [DEMO-21](#demo-21) | Remove the redundant demo handler layer and place order, batch, and cauldron business services into aggregate-specific packages.            | DONE |
 | [DEMO-22](#demo-22) | Move demo sample event builders out of main sources and keep only test fixtures that are actually used.                                      | DONE |
 | [DEMO-23](#demo-23) | Unify demo domain model classes for API and Redis state, and rename external ML clients to the `ml` package.                               | DONE |
+| [DEMO-24](#demo-24) | Split demo domain model into top-level aggregate files and use direct domain class names instead of state aliases.                          | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -659,6 +660,15 @@ _Date: 2026-05-23_
 Move order, batch, flavour, and ETA context state classes into a dedicated demo domain model package.
 Use the same domain model types for Redis persistence and API responses where the shapes are identical.
 Rename external ML client packages to `ml` so domain `model` remains unambiguous.
+
+<a id="demo-24"></a>
+### DEMO-24 - Flatten demo domain model files
+
+_Date: 2026-05-23_
+
+Split the demo domain model into top-level files named after the domain classes.
+Replace the temporary `*State` class names and aliases with direct `Order`, `Batch`, `EtaContext`, and `OrderFlavour` classes.
+Keep repository persistence and API responses on the same domain model types.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
