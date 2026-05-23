@@ -1,7 +1,7 @@
 package avh.ckc.demo
 
-import avh.ckc.demo.repository.BatchState
-import avh.ckc.demo.repository.OrderState
+import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.OrderState
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given

@@ -1,11 +1,11 @@
 package avh.ckc.demo.service.order
 
-import avh.ckc.demo.modelclient.flavour.OrderFlavourRequest
-import avh.ckc.demo.modelclient.flavour.OrderFlavourResponse
+import avh.ckc.demo.ml.flavour.OrderFlavourRequest
+import avh.ckc.demo.ml.flavour.OrderFlavourResponse
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
-import avh.ckc.demo.repository.OrderFlavourState
-import avh.ckc.demo.repository.OrderState
+import avh.ckc.demo.model.OrderFlavourState
+import avh.ckc.demo.model.OrderState
 
 internal fun mergeOrderState(event: OrderLifecycleEvent, existing: OrderState?): OrderState =
     OrderState(

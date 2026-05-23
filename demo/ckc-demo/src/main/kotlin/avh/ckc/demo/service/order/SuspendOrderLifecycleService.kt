@@ -1,6 +1,6 @@
 package avh.ckc.demo.service.order
 
-import avh.ckc.demo.modelclient.flavour.SuspendOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.repository.SuspendBrewingStateRepository

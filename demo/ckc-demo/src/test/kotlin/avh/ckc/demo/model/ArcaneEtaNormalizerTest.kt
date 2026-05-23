@@ -1,8 +1,8 @@
-package avh.ckc.demo.modelclient.eta
+package avh.ckc.demo.ml.eta
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.EventMetadata
-import avh.ckc.demo.repository.BatchState
+import avh.ckc.demo.model.BatchState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

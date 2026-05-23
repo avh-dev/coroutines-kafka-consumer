@@ -1,4 +1,4 @@
-package avh.ckc.demo.modelclient.flavour
+package avh.ckc.demo.ml.flavour
 
 import kotlinx.coroutines.future.await
 import kotlinx.serialization.SerialName
