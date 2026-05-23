@@ -19,10 +19,10 @@ env:
   redisPort: 6379
   modelBaseUrl: ""
   auditLogEnabled: true
-  lifecycleProcessingMode: AT_LEAST_ONCE_UNORDERED
-  lifecycleWorkerConcurrency: 2
-  lifecyclePollLoopConcurrency: 1
-  lifecycleWorkChannelCapacity: 1024
+  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
+  orderWorkerConcurrency: 2
+  orderPollLoopConcurrency: 1
+  orderWorkChannelCapacity: 1024
   batchProcessingMode: AT_LEAST_ONCE_UNORDERED
   batchWorkerConcurrency: 2
   batchPollLoopConcurrency: 1

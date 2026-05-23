@@ -19,9 +19,9 @@ env:
   redisPort: 6379
   modelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
   auditLogEnabled: true
-  lifecycleWorkerConcurrency: 50
-  lifecyclePollLoopConcurrency: 1
-  lifecycleWorkChannelCapacity: 512
+  orderWorkerConcurrency: 50
+  orderPollLoopConcurrency: 1
+  orderWorkChannelCapacity: 512
   telemetryWorkerConcurrency: 50
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 1

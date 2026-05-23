@@ -18,10 +18,10 @@ class DemoApplicationPropertiesTest {
         )
         assertEquals(8, properties.consumers.deserializationDispatcher.customThreadPoolSize)
         assertEquals("ckc-demo-deserializer", properties.consumers.deserializationDispatcher.customThreadNamePrefix)
-        assertEquals(2, properties.consumers.lifecycle.workerConcurrency)
-        assertEquals(1, properties.consumers.lifecycle.pollLoopConcurrency)
-        assertEquals(1024, properties.consumers.lifecycle.workChannelCapacity)
-        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, properties.consumers.lifecycle.processingMode)
+        assertEquals(2, properties.consumers.order.workerConcurrency)
+        assertEquals(1, properties.consumers.order.pollLoopConcurrency)
+        assertEquals(1024, properties.consumers.order.workChannelCapacity)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, properties.consumers.order.processingMode)
         assertEquals(4, properties.consumers.telemetry.workerConcurrency)
         assertEquals(1, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(256, properties.consumers.telemetry.workChannelCapacity)
@@ -36,10 +36,10 @@ class DemoApplicationPropertiesTest {
                 "demo.consumers.deserialization-dispatcher.mode" to "custom-thread-pool",
                 "demo.consumers.deserialization-dispatcher.custom-thread-pool-size" to "16",
                 "demo.consumers.deserialization-dispatcher.custom-thread-name-prefix" to "experiment-deserializer",
-                "demo.consumers.lifecycle.worker-concurrency" to "12",
-                "demo.consumers.lifecycle.poll-loop-concurrency" to "3",
-                "demo.consumers.lifecycle.work-channel-capacity" to "2048",
-                "demo.consumers.lifecycle.processing-mode" to "at-least-once-ordered-by-key",
+                "demo.consumers.order.worker-concurrency" to "12",
+                "demo.consumers.order.poll-loop-concurrency" to "3",
+                "demo.consumers.order.work-channel-capacity" to "2048",
+                "demo.consumers.order.processing-mode" to "at-least-once-ordered-by-key",
                 "demo.consumers.telemetry.worker-concurrency" to "8",
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
                 "demo.consumers.telemetry.work-channel-capacity" to "512",
@@ -54,10 +54,10 @@ class DemoApplicationPropertiesTest {
         )
         assertEquals(16, properties.consumers.deserializationDispatcher.customThreadPoolSize)
         assertEquals("experiment-deserializer", properties.consumers.deserializationDispatcher.customThreadNamePrefix)
-        assertEquals(12, properties.consumers.lifecycle.workerConcurrency)
-        assertEquals(3, properties.consumers.lifecycle.pollLoopConcurrency)
-        assertEquals(2048, properties.consumers.lifecycle.workChannelCapacity)
-        assertEquals(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY, properties.consumers.lifecycle.processingMode)
+        assertEquals(12, properties.consumers.order.workerConcurrency)
+        assertEquals(3, properties.consumers.order.pollLoopConcurrency)
+        assertEquals(2048, properties.consumers.order.workChannelCapacity)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY, properties.consumers.order.processingMode)
         assertEquals(8, properties.consumers.telemetry.workerConcurrency)
         assertEquals(2, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)

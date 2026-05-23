@@ -30,11 +30,11 @@ demo:
       mode: ${DEMO_CONSUMER_DESERIALIZATION_DISPATCHER:DEFAULT}
       custom-thread-pool-size: ${DEMO_CONSUMER_DESERIALIZATION_THREADS:8}
       custom-thread-name-prefix: ${DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX:ckc-demo-deserializer}
-    lifecycle:
-      processing-mode: ${LIFECYCLE_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
-      worker-concurrency: ${LIFECYCLE_WORKER_CONCURRENCY:2}
-      poll-loop-concurrency: ${LIFECYCLE_POLL_LOOP_CONCURRENCY:1}
-      work-channel-capacity: ${LIFECYCLE_WORK_CHANNEL_CAPACITY:1024}
+    order:
+      processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
+      poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
+      work-channel-capacity: ${ORDER_WORK_CHANNEL_CAPACITY:1024}
     batch:
       processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}

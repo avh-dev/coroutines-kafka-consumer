@@ -18,7 +18,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 
 object DemoConsumers {
-    fun lifecycleConsumer(
+    fun orderConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         auditLogEnabled: Boolean,

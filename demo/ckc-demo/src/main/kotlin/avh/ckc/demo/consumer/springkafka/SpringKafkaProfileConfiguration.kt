@@ -22,7 +22,7 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
 class SpringKafkaProfileConfiguration {
     @Bean
-    fun orderLifecycleConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, OrderLifecycleEvent> =
+    fun orderOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, OrderLifecycleEvent> =
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
@@ -37,11 +37,11 @@ class SpringKafkaProfileConfiguration {
     ): ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent> =
         ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
-            setConcurrency(properties.consumers.lifecycle.pollLoopConcurrency)
+            setConcurrency(properties.consumers.order.pollLoopConcurrency)
         }
 
     @Bean
-    fun batchLifecycleConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, BatchLifecycleEvent> =
+    fun batchOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, BatchLifecycleEvent> =
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,

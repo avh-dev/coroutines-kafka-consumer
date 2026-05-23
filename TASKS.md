@@ -51,6 +51,7 @@
 | [DEMO-22](#demo-22) | Move demo sample event builders out of main sources and keep only test fixtures that are actually used.                                      | DONE |
 | [DEMO-23](#demo-23) | Unify demo domain model classes for API and Redis state, and rename external ML clients to the `ml` package.                               | DONE |
 | [DEMO-24](#demo-24) | Split demo domain model into top-level aggregate files and use direct domain class names instead of state aliases.                          | DONE |
+| [DEMO-25](#demo-25) | Rename the order event consumer configuration and beans from lifecycle to order to avoid ambiguity with batch lifecycle events.              | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -669,6 +670,15 @@ _Date: 2026-05-23_
 Split the demo domain model into top-level files named after the domain classes.
 Replace the temporary `*State` class names and aliases with direct `Order`, `Batch`, `EtaContext`, and `OrderFlavour` classes.
 Keep repository persistence and API responses on the same domain model types.
+
+<a id="demo-25"></a>
+### DEMO-25 - Rename order consumer configuration
+
+_Date: 2026-05-23_
+
+Rename order-event consumer beans, variables, and runtime settings from lifecycle-oriented names to order-oriented names.
+Keep lifecycle terminology only where it describes event contracts or load-test lifecycle traffic rather than a specific consumer.
+Update demo Helm values and environment wiring so order consumer tuning uses order-prefixed names.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

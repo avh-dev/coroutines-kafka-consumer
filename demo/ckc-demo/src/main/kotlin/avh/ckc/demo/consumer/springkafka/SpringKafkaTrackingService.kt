@@ -24,8 +24,8 @@ class SpringKafkaTrackingService(
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
     private val recordMetrics: DemoRecordMetrics,
-    @Qualifier("springKafkaLifecycleConsumerMetrics")
-    private val lifecycleConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+    @Qualifier("springKafkaOrderConsumerMetrics")
+    private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     @Qualifier("springKafkaBatchConsumerMetrics")
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
     @Qualifier("springKafkaConsumerMetrics")
@@ -44,11 +44,11 @@ class SpringKafkaTrackingService(
             } else {
                 latencyOnlySleep()
             }
-            recordMetrics.onProcessed(lifecycleConsumerMetrics, context, event, startedAt)
+            recordMetrics.onProcessed(orderConsumerMetrics, context, event, startedAt)
             auditProcessed(context.topic, context.partition, context.offset)
-            logger.debug("Spring Kafka lifecycle event received for key={}, order={}", context.key, event.orderId)
+            logger.debug("Spring Kafka order event received for key={}, order={}", context.key, event.orderId)
         } catch (error: Throwable) {
-            recordMetrics.onFailed(lifecycleConsumerMetrics, context, event, startedAt, error)
+            recordMetrics.onFailed(orderConsumerMetrics, context, event, startedAt, error)
             throw error
         }
     }
