@@ -2,7 +2,7 @@ package avh.ckc.demo.service.batch
 
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.BatchLifecycleEventType
-import avh.ckc.demo.repository.BatchState
+import avh.ckc.demo.model.BatchState
 import avh.ckc.demo.repository.SuspendBrewingStateRepository
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 

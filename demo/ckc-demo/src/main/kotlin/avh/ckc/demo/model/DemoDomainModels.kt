@@ -1,4 +1,4 @@
-package avh.ckc.demo.repository
+package avh.ckc.demo.model
 
 import kotlinx.serialization.Serializable
 
@@ -13,6 +13,8 @@ data class OrderState(
     val updatedAt: String
 )
 
+typealias Order = OrderState
+
 @Serializable
 data class BatchState(
     val batchId: String,
@@ -23,6 +25,8 @@ data class BatchState(
     val orderIds: List<String>,
     val updatedAt: String
 )
+
+typealias Batch = BatchState
 
 @Serializable
 data class ModelContextState(
@@ -35,6 +39,8 @@ data class ModelContextState(
     val updatedAt: String
 )
 
+typealias EtaContext = ModelContextState
+
 @Serializable
 data class OrderFlavourState(
     val orderId: String,
@@ -45,3 +51,5 @@ data class OrderFlavourState(
     val modelRequestId: String,
     val updatedAt: String
 )
+
+typealias OrderFlavour = OrderFlavourState

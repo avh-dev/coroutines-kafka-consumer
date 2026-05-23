@@ -1,10 +1,10 @@
 package avh.ckc.demo.service.cauldron
 
-import avh.ckc.demo.modelclient.eta.ArcaneEtaNormalizer
-import avh.ckc.demo.modelclient.eta.NormalizedEtaEstimate
-import avh.ckc.demo.modelclient.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.ArcaneEtaNormalizer
+import avh.ckc.demo.ml.eta.NormalizedEtaEstimate
+import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.repository.BatchState
+import avh.ckc.demo.model.BatchState
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service

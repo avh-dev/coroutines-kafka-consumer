@@ -1,13 +1,13 @@
 package avh.ckc.demo.config
 
-import avh.ckc.demo.modelclient.eta.JdkSuspendArcaneEtaModelClient
-import avh.ckc.demo.modelclient.eta.JdkSyncArcaneEtaModelClient
-import avh.ckc.demo.modelclient.eta.SuspendArcaneEtaModelClient
-import avh.ckc.demo.modelclient.eta.SyncArcaneEtaModelClient
-import avh.ckc.demo.modelclient.flavour.JdkSuspendOrderFlavourModelClient
-import avh.ckc.demo.modelclient.flavour.JdkSyncOrderFlavourModelClient
-import avh.ckc.demo.modelclient.flavour.SuspendOrderFlavourModelClient
-import avh.ckc.demo.modelclient.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.ml.eta.JdkSuspendArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.JdkSyncArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.flavour.JdkSuspendOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.JdkSyncOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.net.URI

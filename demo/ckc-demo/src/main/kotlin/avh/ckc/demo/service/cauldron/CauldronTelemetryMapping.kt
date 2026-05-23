@@ -1,10 +1,10 @@
 package avh.ckc.demo.service.cauldron
 
-import avh.ckc.demo.modelclient.eta.ArcaneEtaRequest
-import avh.ckc.demo.modelclient.eta.ArcaneEtaResponse
+import avh.ckc.demo.ml.eta.ArcaneEtaRequest
+import avh.ckc.demo.ml.eta.ArcaneEtaResponse
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.repository.BatchState
-import avh.ckc.demo.repository.ModelContextState
+import avh.ckc.demo.model.BatchState
+import avh.ckc.demo.model.ModelContextState
 
 internal fun modelRequest(
     batchState: BatchState,

@@ -1,7 +1,7 @@
-package avh.ckc.demo.modelclient.eta
+package avh.ckc.demo.ml.eta
 
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.demo.repository.BatchState
+import avh.ckc.demo.model.BatchState
 import org.springframework.stereotype.Component
 import kotlin.math.abs
 import kotlin.math.cos
