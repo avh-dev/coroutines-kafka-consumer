@@ -53,42 +53,63 @@ class LoadTestProducers(
 
     override fun sendOrder(key: String, event: OrderLifecycleEvent) {
         val sent = lifecycleSent.incrementAndGet()
+        val eventType = event.eventType.name
         if (!config.publishEnabled) {
-            recordDryRun(config.orderEventsTopic, key, lifecycleAcked)
+            recordDryRun(config.orderEventsTopic, key, eventType, lifecycleAcked)
             maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
             return
         }
         lifecycleProducer.send(
             ProducerRecord(config.orderEventsTopic, key, event),
-            callback(stream = "order", key = key, sentCounter = lifecycleAcked, failureCounter = lifecycleFailed)
+            callback(
+                stream = "order",
+                key = key,
+                eventType = eventType,
+                sentCounter = lifecycleAcked,
+                failureCounter = lifecycleFailed
+            )
         )
         maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
     }
 
     override fun sendBatch(key: String, event: BatchLifecycleEvent) {
         val sent = batchSent.incrementAndGet()
+        val eventType = event.eventType.name
         if (!config.publishEnabled) {
-            recordDryRun(config.batchEventsTopic, key, batchAcked)
+            recordDryRun(config.batchEventsTopic, key, eventType, batchAcked)
             maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
             return
         }
         batchProducer.send(
             ProducerRecord(config.batchEventsTopic, key, event),
-            callback(stream = "batch", key = key, sentCounter = batchAcked, failureCounter = batchFailed)
+            callback(
+                stream = "batch",
+                key = key,
+                eventType = eventType,
+                sentCounter = batchAcked,
+                failureCounter = batchFailed
+            )
         )
         maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
     }
 
     override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
         val sent = telemetrySent.incrementAndGet()
+        val eventType = "CAULDRON_TELEMETRY"
         if (!config.publishEnabled) {
-            recordDryRun(config.cauldronEventsTopic, key, telemetryAcked)
+            recordDryRun(config.cauldronEventsTopic, key, eventType, telemetryAcked)
             maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
             return
         }
         telemetryProducer.send(
             ProducerRecord(config.cauldronEventsTopic, key, event),
-            callback(stream = "telemetry", key = key, sentCounter = telemetryAcked, failureCounter = telemetryFailed)
+            callback(
+                stream = "telemetry",
+                key = key,
+                eventType = eventType,
+                sentCounter = telemetryAcked,
+                failureCounter = telemetryFailed
+            )
         )
         maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
     }
@@ -124,10 +145,10 @@ class LoadTestProducers(
         }
     }
 
-    private fun recordDryRun(topic: String, key: String, ackedCounter: AtomicLong) {
+    private fun recordDryRun(topic: String, key: String, eventType: String, ackedCounter: AtomicLong) {
         ackedCounter.incrementAndGet()
         if (config.auditLogEnabled) {
-            LoadTestAuditLog.generated(topic, key)
+            LoadTestAuditLog.generated(topic, key, eventType)
         }
     }
 
@@ -145,6 +166,7 @@ class LoadTestProducers(
     private fun callback(
         stream: String,
         key: String,
+        eventType: String,
         sentCounter: AtomicLong,
         failureCounter: AtomicLong
     ): Callback =
@@ -160,7 +182,7 @@ class LoadTestProducers(
             val acked = sentCounter.incrementAndGet()
             val recordMetadata = metadata!!
             if (config.auditLogEnabled) {
-                LoadTestAuditLog.published(recordMetadata, key)
+                LoadTestAuditLog.published(recordMetadata, key, eventType)
             }
             if (acked <= 5 || acked % 500 == 0L) {
                 println(
