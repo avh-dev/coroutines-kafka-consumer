@@ -73,6 +73,7 @@ require_not_running "demo-stubs" "${PID_FILE}"
 
 ENV_FILE="$(resolve_config_file "${CONFIG_DIR}" "${1:-}")"
 source_env_file "${ENV_FILE}"
+printf '%s\n' "${ENV_FILE}" > "${PID_DIR}/stubs.env"
 
 cd "${REPO_ROOT}"
 ./gradlew :ckc-demo-stubs:fatJar

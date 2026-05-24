@@ -1,5 +1,8 @@
 Local environment for `ckc-demo` and future demo support services.
 
+On Windows, run these scripts from Git Bash.
+They are Bash scripts and are adapted for Git Bash path behavior.
+
 Services:
 - Redpanda Kafka API on `localhost:9092`
 - Redpanda Admin API on `http://localhost:9644`
@@ -12,6 +15,19 @@ Start:
 ```sh
 demo/infra/local-dev/scripts/start.sh
 ```
+
+Run a full local test flow:
+```sh
+demo/infra/local-dev/scripts/run-test.sh
+```
+
+The full flow:
+- recreates local Docker Compose services if they are not already running
+- prompts for a demo-stubs env profile and starts stubs
+- prompts for topic partition counts and recreates local topics
+- prompts for a load-test env profile and starts the load-test generator
+- waits until the load test finishes, or stops it early when Enter is pressed
+- stops demo stubs before exiting
 
 Recreate topics after Kafka starts:
 ```sh
@@ -68,7 +84,7 @@ demo/infra/local-dev/scripts/stop-test.sh
 ```
 
 If no profile name is passed to `stubs.sh` or `test.sh`, the script prompts for an env file.
-The first run creates editable local env files under:
+The first run creates three editable local env files for each process under:
 - `.demo-infra/local-dev/stubs-env/`
 - `.demo-infra/local-dev/load-test-env/`
 

@@ -12,6 +12,11 @@
 - `aws/runner-internal/`: scripts executed inside the AWS runner
 - `aws/scripts/`: local operator scripts split into `linux` and `windows`
 
+## Shell Notes
+
+On Windows, run local infrastructure shell scripts from Git Bash.
+The local scripts are written and tested as Bash scripts and assume Git Bash path behavior when used on Windows.
+
 ## AWS Model
 
 The AWS flow is split into two parts:

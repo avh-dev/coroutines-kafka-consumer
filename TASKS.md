@@ -831,6 +831,7 @@ _Date: 2026-05-24_
 
 Add local-dev helpers for running and stopping the load-test generator as a local process.
 Add matching helpers for running and stopping the demo stubs service with selectable env profiles.
+Add a single interactive `run-test.sh` orchestration entrypoint for compose startup, stubs, topics, load-test execution, and cleanup.
 Store local run configuration, pid files, and logs under `.demo-infra/local-dev` so repo-root temporary state stays centralized.
 
 <a id="doc-1"></a>
