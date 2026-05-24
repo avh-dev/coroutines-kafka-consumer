@@ -134,7 +134,7 @@ class LoadTestProducers(
             val acked = sentCounter.incrementAndGet()
             val recordMetadata = metadata!!
             if (config.auditLogEnabled) {
-                LoadTestAuditLog.published(recordMetadata)
+                LoadTestAuditLog.published(recordMetadata, key)
             }
             if (acked <= 5 || acked % 500 == 0L) {
                 println(
