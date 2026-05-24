@@ -1,4 +1,4 @@
-package avh.ckc.loadtest.generator
+ package avh.ckc.loadtest.generator
 
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.domain.LoadTestEventFactory
@@ -6,7 +6,6 @@ import avh.ckc.loadtest.domain.SimulatedBatch
 import avh.ckc.loadtest.domain.SimulationState
 import avh.ckc.loadtest.kafka.LoadTestPublisher
 import java.time.Instant
-import kotlin.math.roundToInt
 
 interface EventGenerator {
     val name: String

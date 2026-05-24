@@ -20,6 +20,7 @@ class RateControlledGeneratorRunner(
 ) {
     suspend fun run() {
         var lastLoopAt = clock()
+        var lastRate = 0.0
         var permits = 0.0
 
         while (true) {
@@ -27,8 +28,9 @@ class RateControlledGeneratorRunner(
             val phase = scenario.phaseAt(now, startedAt, ScenarioEvaluationContext(config.baseTps)) ?: return
             val rate = generatorRate(phase.currentRate())
             val elapsedSeconds = elapsedSeconds(lastLoopAt, now)
-            permits += rate * elapsedSeconds
+            permits += ((lastRate + rate) / 2.0) * elapsedSeconds
             lastLoopAt = now
+            lastRate = rate
 
             val emitCount = floor(permits).toInt().coerceAtMost(config.maxBurst)
             if (emitCount > 0) {
@@ -60,9 +62,15 @@ class RateControlledGeneratorRunner(
             return 100L
         }
         val missing = (1.0 - permits).coerceAtLeast(0.0)
-        return ceil(missing / rate * 1000.0).toLong().coerceAtLeast(1L)
+        return ceil(missing / rate * 1000.0).toLong()
+            .coerceAtLeast(1L)
+            .coerceAtMost(MAX_RATE_RECHECK_DELAY_MILLIS)
     }
 
     private fun elapsedSeconds(previous: Instant, current: Instant): Double =
         Duration.between(previous, current).toNanos().coerceAtLeast(0L).toDouble() / 1_000_000_000.0
+
+    private companion object {
+        private const val MAX_RATE_RECHECK_DELAY_MILLIS = 100L
+    }
 }
