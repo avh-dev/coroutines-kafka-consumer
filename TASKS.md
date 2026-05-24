@@ -79,6 +79,7 @@
 | [INFRA-24](#infra-24) | Clean up the Grafana dashboard for load-test result analysis with consistent time-series panels.                                             | DONE |
 | [INFRA-25](#infra-25) | Wire lifecycle processing mode through demo Helm values and add ordered-runtime-oriented CKC dashboard panels.                                | DONE |
 | [INFRA-26](#infra-26) | Update demo infrastructure topics, Helm wiring, scripts, and dashboards for order, batch, and cauldron aggregate event streams.              | DONE |
+| [INFRA-27](#infra-27) | Switch the local-dev Kafka broker to Redpanda while preserving the existing local Kafka endpoint and topic helper workflow.                   | DONE |
 | [INFRA-28](#infra-28) | Add local-dev scripts and env profiles for running and stopping load-test and demo-stubs processes from `.demo-infra`.                       | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
@@ -813,6 +814,15 @@ Update Kafka topic creation and test orchestration defaults for `order.events.v1
 Wire batch consumer runtime settings through Helm alongside order and cauldron settings.
 Refresh local-dev and internal-lab topic/group reset scripts so repeated runs start from a clean aggregate-stream state.
 Update Grafana metric selectors so runtime panels include the new batch consumer stream.
+
+<a id="infra-27"></a>
+### INFRA-27 - Switch local-dev Kafka to Redpanda
+
+_Date: 2026-05-24_
+
+Replace the local-dev Kafka container with Redpanda while keeping the external bootstrap endpoint on `localhost:9092`.
+Adjust local helper scripts and documentation so topic management continues to work against the local broker.
+Keep the change scoped to the local development Docker Compose environment.
 
 <a id="infra-28"></a>
 ### INFRA-28 - Add local-dev process scripts

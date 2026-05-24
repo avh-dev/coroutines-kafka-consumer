@@ -1,7 +1,8 @@
 Local environment for `ckc-demo` and future demo support services.
 
 Services:
-- Kafka on `localhost:9092`
+- Redpanda Kafka API on `localhost:9092`
+- Redpanda Admin API on `http://localhost:9644`
 - Redis on `localhost:6379`
 - Prometheus on `http://localhost:9090`
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
@@ -23,7 +24,7 @@ If no topic parameters are provided, the script prompts for all partition counts
 demo/infra/local-dev/scripts/create-topics.sh
 ```
 
-The topic script uses `docker exec ckc-local-kafka ...`, prints partition changes, deletes existing topics, and recreates:
+The topic script uses `docker exec ckc-local-redpanda rpk ...`, prints partition changes, deletes existing topics, and recreates:
 - `order.events.v1`
 - `batch.events.v1`
 - `cauldron.events.v1`
