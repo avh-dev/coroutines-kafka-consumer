@@ -383,18 +383,32 @@ spec:
           env:
             - name: BOOTSTRAP_SERVERS
               value: {yaml_string(kafka_bootstrap)}
-            - name: LIFECYCLE_BASE_RATE
-              value: "{as_int(load_test.get("lifecycle_base_rate"), 1000)}"
-            - name: TELEMETRY_BASE_RATE
-              value: "{as_int(load_test.get("telemetry_base_rate"), 10000)}"
+            - name: BASE_TPS
+              value: "{as_int(load_test.get("base_tps"), 10000)}"
+            - name: ORDER_EVENT_PERCENT
+              value: "{as_int(load_test.get("order_event_percent"), 40)}"
+            - name: BATCH_EVENT_PERCENT
+              value: "{as_int(load_test.get("batch_event_percent"), 20)}"
+            - name: CAULDRON_TELEMETRY_PERCENT
+              value: "{as_int(load_test.get("cauldron_telemetry_percent"), 40)}"
             - name: LOAD_PROFILE
               value: {yaml_string(as_str(load_test.get("load_profile"), "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0"))}
-            - name: LIFECYCLE_ORDERS_PER_BATCH
-              value: "{as_int(load_test.get("lifecycle_orders_per_batch"), 3)}"
-            - name: TELEMETRY_INTERVAL_SECONDS
-              value: "{as_int(load_test.get("telemetry_interval_seconds"), 10)}"
-            - name: TICK_INTERVAL_MILLIS
-              value: "{as_int(load_test.get("tick_interval_millis"), 200)}"
+            - name: CAULDRON_COUNT
+              value: "{as_int(load_test.get("cauldron_count"), 32)}"
+            - name: MIN_ORDERS_PER_BATCH
+              value: "{as_int(load_test.get("min_orders_per_batch"), 3)}"
+            - name: MAX_ORDERS_PER_BATCH
+              value: "{as_int(load_test.get("max_orders_per_batch"), 8)}"
+            - name: MIN_BREWING_STEPS
+              value: "{as_int(load_test.get("min_brewing_steps"), 5)}"
+            - name: MAX_BREWING_STEPS
+              value: "{as_int(load_test.get("max_brewing_steps"), 10)}"
+            - name: MAX_BURST
+              value: "{as_int(load_test.get("max_burst"), 1000)}"
+            - name: FAKE_ENTITY_PREFIX
+              value: {yaml_string(as_str(load_test.get("fake_entity_prefix"), "fake"))}
+            - name: STATS_LOG_INTERVAL_SECONDS
+              value: "{as_int(load_test.get("stats_log_interval_seconds"), 30)}"
             - name: DIAGNOSTICS_BLOB_SIZE
               value: "{as_int(load_test.get("diagnostics_blob_size"), 512)}"
             - name: AUDIT_LOG_ENABLED
