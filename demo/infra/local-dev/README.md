@@ -26,7 +26,7 @@ The full flow:
 - prompts for a demo-stubs env profile and starts stubs
 - prompts for topic partition counts and recreates local topics
 - prompts for a load-test env profile and starts the load-test generator
-- waits until the load test finishes, or stops it early when Enter is pressed
+- waits until the load test finishes, or stops it early when `q` is pressed
 - stops demo stubs before exiting
 
 Recreate topics after Kafka starts:

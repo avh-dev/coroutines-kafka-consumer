@@ -101,10 +101,25 @@ show_run_summary() {
   echo "  load_test_log=${test_log}"
   echo
   if [[ -t 0 ]]; then
-    echo "Press ENTER to stop the test early. Otherwise this script exits when the load-test process finishes."
+    echo "Press q to stop the test early. Otherwise this script exits when the load-test process finishes."
   else
     echo "No interactive input is attached; waiting until the load-test process finishes."
   fi
+}
+
+stop_requested() {
+  local key=""
+
+  if [[ ! -t 0 ]]; then
+    return 1
+  fi
+
+  if IFS= read -r -s -n 1 -t 1 key < /dev/tty; then
+    [[ "${key}" == "q" || "${key}" == "Q" ]]
+    return
+  fi
+
+  return 1
 }
 
 stop_started_processes() {
@@ -119,7 +134,6 @@ main() {
   local test_log=""
   local load_pid=""
   local stubs_pid=""
-  local enter_pid=""
 
   ensure_dir "${PID_DIR}"
   ensure_compose
@@ -147,28 +161,18 @@ main() {
 
   show_run_summary "${stubs_config}" "${test_config}" "${load_pid}" "${stubs_pid}" "${stubs_log}" "${test_log}"
 
-  if [[ -t 0 ]]; then
-    (read -r) &
-    enter_pid="$!"
-  fi
-
   while true; do
     if ! is_pid_running "${load_pid}"; then
-      if [[ -n "${enter_pid}" ]]; then
-        kill "${enter_pid}" >/dev/null 2>&1 || true
-      fi
       rm -f "${LOAD_TEST_PID_FILE}"
       echo "Load test finished."
       break
     fi
 
-    if [[ -n "${enter_pid}" ]] && ! is_pid_running "${enter_pid}"; then
+    if stop_requested; then
       echo "Stopping load test by user request."
       stop_process "load-test" "${LOAD_TEST_PID_FILE}" 10
       break
     fi
-
-    sleep 1
   done
 
   stop_process "demo-stubs" "${STUBS_PID_FILE}" 10
