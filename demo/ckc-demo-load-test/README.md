@@ -8,7 +8,7 @@ Current scope:
 
 - load scenario phases over time
 - shard identity for local runs and Kubernetes indexed jobs
-- rate-driven order, batch, and cauldron publishers that keep demo-domain event shapes coherent
+- event-generator driven order, batch, and cauldron publishers over one base TPS
 
 It is intended to grow into the main load-test entry point for:
 
@@ -27,10 +27,12 @@ Example:
 
 Rules:
 
-- the profile starts with an integer percentage of each stream base rate
+- the profile starts with an integer percentage of `BASE_TPS`
 - then alternates between `(duration, optional label)` and the next integer target percentage
 - labels are kept for logging and diagnostics
 - durations use compact units: `s`, `m`, `h`
-- `LIFECYCLE_BASE_RATE` defines order/batch lifecycle messages per second for `100`
-- `TELEMETRY_BASE_RATE` defines telemetry messages per second for `100`
+- `BASE_TPS` defines total generated messages per second at profile `100`
+- `ORDER_EVENT_PERCENT`, `BATCH_EVENT_PERCENT`, and `CAULDRON_TELEMETRY_PERCENT` split that total event budget across topics
+- event generators use state queues when a suitable simulated entity exists and `fake-*` fallback entities while the state is warming up
+- `PUBLISH_ENABLED=false` keeps generation and audit output enabled but skips Kafka sends for local debugging
 - the load-test process flushes producers and exits when the profile schedule ends

@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import java.time.Duration
 
 class LoadTestConfigTest {
     @Test
@@ -22,19 +21,37 @@ class LoadTestConfigTest {
     }
 
     @Test
-    fun `reads independent stream rates from environment`() {
+    fun `reads traffic mix and domain settings from environment`() {
         val config = LoadTestConfig.fromEnvironment(
             mapOf(
-                "LIFECYCLE_BASE_RATE" to "25",
-                "TELEMETRY_BASE_RATE" to "250",
-                "LIFECYCLE_ORDERS_PER_BATCH" to "4",
-                "TELEMETRY_INTERVAL_SECONDS" to "7"
+                "BASE_TPS" to "250",
+                "ORDER_EVENT_PERCENT" to "45",
+                "BATCH_EVENT_PERCENT" to "15",
+                "CAULDRON_TELEMETRY_PERCENT" to "40",
+                "CAULDRON_COUNT" to "16",
+                "MIN_ORDERS_PER_BATCH" to "4",
+                "MAX_ORDERS_PER_BATCH" to "9",
+                "MIN_BREWING_STEPS" to "5",
+                "MAX_BREWING_STEPS" to "8",
+                "MAX_BURST" to "77",
+                "FAKE_ENTITY_PREFIX" to "fake-test",
+                "STATS_LOG_INTERVAL_SECONDS" to "9",
+                "PUBLISH_ENABLED" to "false"
             )
         )
 
-        assertEquals(25, config.lifecycleBaseRate)
-        assertEquals(250, config.telemetryBaseRate)
-        assertEquals(4, config.lifecycleOrdersPerBatch)
-        assertEquals(Duration.ofSeconds(7), config.telemetryInterval)
+        assertEquals(250, config.baseTps)
+        assertEquals(45, config.orderEventPercent)
+        assertEquals(15, config.batchEventPercent)
+        assertEquals(40, config.cauldronTelemetryPercent)
+        assertEquals(16, config.cauldronCount)
+        assertEquals(4, config.minOrdersPerBatch)
+        assertEquals(9, config.maxOrdersPerBatch)
+        assertEquals(5, config.minBrewingSteps)
+        assertEquals(8, config.maxBrewingSteps)
+        assertEquals(77, config.maxBurst)
+        assertEquals("fake-test", config.fakeEntityPrefix)
+        assertEquals(9, config.statsLogInterval.seconds)
+        assertEquals(false, config.publishEnabled)
     }
 }
