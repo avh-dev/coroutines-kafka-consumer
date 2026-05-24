@@ -79,6 +79,7 @@
 | [INFRA-24](#infra-24) | Clean up the Grafana dashboard for load-test result analysis with consistent time-series panels.                                             | DONE |
 | [INFRA-25](#infra-25) | Wire lifecycle processing mode through demo Helm values and add ordered-runtime-oriented CKC dashboard panels.                                | DONE |
 | [INFRA-26](#infra-26) | Update demo infrastructure topics, Helm wiring, scripts, and dashboards for order, batch, and cauldron aggregate event streams.              | DONE |
+| [INFRA-28](#infra-28) | Add local-dev scripts and env profiles for running and stopping load-test and demo-stubs processes from `.demo-infra`.                       | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -812,6 +813,15 @@ Update Kafka topic creation and test orchestration defaults for `order.events.v1
 Wire batch consumer runtime settings through Helm alongside order and cauldron settings.
 Refresh local-dev and internal-lab topic/group reset scripts so repeated runs start from a clean aggregate-stream state.
 Update Grafana metric selectors so runtime panels include the new batch consumer stream.
+
+<a id="infra-28"></a>
+### INFRA-28 - Add local-dev process scripts
+
+_Date: 2026-05-24_
+
+Add local-dev helpers for running and stopping the load-test generator as a local process.
+Add matching helpers for running and stopping the demo stubs service with selectable env profiles.
+Store local run configuration, pid files, and logs under `.demo-infra/local-dev` so repo-root temporary state stays centralized.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

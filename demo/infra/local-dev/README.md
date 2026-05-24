@@ -2,11 +2,10 @@ Local environment for `ckc-demo` and future demo support services.
 
 Services:
 - Kafka on `localhost:9092`
-- Demo stubs on `http://localhost:18080`
-- Demo stubs LT on `http://localhost:18081` when profile `lt` is enabled
 - Redis on `localhost:6379`
 - Prometheus on `http://localhost:9090`
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
+- Demo stubs on `http://localhost:18080` when started through `scripts/stubs.sh`
 
 Start:
 ```sh
@@ -35,14 +34,14 @@ To recreate topics with different partition counts:
 demo/infra/local-dev/scripts/create-topics.sh --orders 4 --batches 4 --cauldrons 4
 ```
 
-Start with the LT demo-stubs profile:
-```sh
-demo/infra/local-dev/scripts/start.sh --profile lt
-```
-
 Stop:
 ```sh
 demo/infra/local-dev/scripts/stop.sh
+```
+
+Start demo stubs with an env profile:
+```sh
+demo/infra/local-dev/scripts/stubs.sh baseline
 ```
 
 Demo stubs exposes:
@@ -52,10 +51,29 @@ Demo stubs exposes:
 - `POST /latency`
 - `GET /health`
 
-LT demo-stubs notes:
-- uses a smaller latency profile on `localhost:18081`
-- keeps the same response schema as the demo ETA model client
-- avoids heavyweight mock-server templating and request journaling overhead entirely
+Stop demo stubs:
+```sh
+demo/infra/local-dev/scripts/stop-stubs.sh
+```
+
+Run the local load-test generator with an env profile:
+```sh
+demo/infra/local-dev/scripts/test.sh smoke
+```
+
+Stop the local load-test generator:
+```sh
+demo/infra/local-dev/scripts/stop-test.sh
+```
+
+If no profile name is passed to `stubs.sh` or `test.sh`, the script prompts for an env file.
+The first run creates editable local env files under:
+- `.demo-infra/local-dev/stubs-env/`
+- `.demo-infra/local-dev/load-test-env/`
+
+Logs and pid files are stored under:
+- `.demo-infra/local-dev/logs/`
+- `.demo-infra/local-dev/pids/`
 
 Example application startup:
 ```sh
