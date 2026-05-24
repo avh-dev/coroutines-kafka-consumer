@@ -52,7 +52,7 @@
 | [DEMO-23](#demo-23) | Unify demo domain model classes for API and Redis state, and rename external ML clients to the `ml` package.                               | DONE |
 | [DEMO-24](#demo-24) | Split demo domain model into top-level aggregate files and use direct domain class names instead of state aliases.                          | DONE |
 | [DEMO-25](#demo-25) | Rename the order event consumer configuration and beans from lifecycle to order to avoid ambiguity with batch lifecycle events.              | DONE |
-| [DEMO-26](#demo-26) | Rework the demo load-test generator around stable event-type traffic, state queues, fake fallback events, and time-based rate control.       | IN_PROGRESS |
+| [DEMO-26](#demo-26) | Rework the demo load-test generator around stable event-type traffic, state queues, fake fallback events, and time-based rate control.       | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
