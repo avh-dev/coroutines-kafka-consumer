@@ -411,6 +411,8 @@ spec:
               value: "{as_int(load_test.get("stats_log_interval_seconds"), 30)}"
             - name: DIAGNOSTICS_BLOB_SIZE
               value: "{as_int(load_test.get("diagnostics_blob_size"), 512)}"
+            - name: PUBLISH_ENABLED
+              value: "{str(as_bool(load_test.get("publish_enabled"), True)).lower()}"
             - name: AUDIT_LOG_ENABLED
               value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
             - name: TOTAL_SHARDS

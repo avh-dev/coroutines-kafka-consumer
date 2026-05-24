@@ -167,6 +167,7 @@ def main() -> None:
         "FAKE_ENTITY_PREFIX": str(load_test.get("fake_entity_prefix", "fake")),
         "STATS_LOG_INTERVAL_SECONDS": str(load_test.get("stats_log_interval_seconds", 30)),
         "DIAGNOSTICS_BLOB_SIZE": str(load_test.get("diagnostics_blob_size", 512)),
+        "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
         "AUDIT_LOG_ENABLED": str(load_test.get("audit_log_enabled", True)).lower(),
     }
 

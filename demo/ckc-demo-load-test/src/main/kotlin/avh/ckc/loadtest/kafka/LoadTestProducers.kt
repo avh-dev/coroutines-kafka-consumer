@@ -41,18 +41,23 @@ class LoadTestProducers(
     private val telemetryFailed = AtomicLong(0)
     private val lastLoggedTotal = AtomicLong(0)
 
-    private val lifecycleProducer = KafkaProducer<String, OrderLifecycleEvent>(
-        producerProperties(OrderLifecycleEventSerializer::class.java)
-    )
-    private val batchProducer = KafkaProducer<String, BatchLifecycleEvent>(
-        producerProperties(BatchLifecycleEventSerializer::class.java)
-    )
-    private val telemetryProducer = KafkaProducer<String, CauldronTelemetryEvent>(
-        producerProperties(CauldronTelemetryEventSerializer::class.java)
-    )
+    private val lifecycleProducer by lazy {
+        KafkaProducer<String, OrderLifecycleEvent>(producerProperties(OrderLifecycleEventSerializer::class.java))
+    }
+    private val batchProducer by lazy {
+        KafkaProducer<String, BatchLifecycleEvent>(producerProperties(BatchLifecycleEventSerializer::class.java))
+    }
+    private val telemetryProducer by lazy {
+        KafkaProducer<String, CauldronTelemetryEvent>(producerProperties(CauldronTelemetryEventSerializer::class.java))
+    }
 
     override fun sendOrder(key: String, event: OrderLifecycleEvent) {
         val sent = lifecycleSent.incrementAndGet()
+        if (!config.publishEnabled) {
+            recordDryRun(config.orderEventsTopic, key, lifecycleAcked)
+            maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
+            return
+        }
         lifecycleProducer.send(
             ProducerRecord(config.orderEventsTopic, key, event),
             callback(stream = "order", key = key, sentCounter = lifecycleAcked, failureCounter = lifecycleFailed)
@@ -62,6 +67,11 @@ class LoadTestProducers(
 
     override fun sendBatch(key: String, event: BatchLifecycleEvent) {
         val sent = batchSent.incrementAndGet()
+        if (!config.publishEnabled) {
+            recordDryRun(config.batchEventsTopic, key, batchAcked)
+            maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
+            return
+        }
         batchProducer.send(
             ProducerRecord(config.batchEventsTopic, key, event),
             callback(stream = "batch", key = key, sentCounter = batchAcked, failureCounter = batchFailed)
@@ -71,6 +81,11 @@ class LoadTestProducers(
 
     override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
         val sent = telemetrySent.incrementAndGet()
+        if (!config.publishEnabled) {
+            recordDryRun(config.cauldronEventsTopic, key, telemetryAcked)
+            maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
+            return
+        }
         telemetryProducer.send(
             ProducerRecord(config.cauldronEventsTopic, key, event),
             callback(stream = "telemetry", key = key, sentCounter = telemetryAcked, failureCounter = telemetryFailed)
@@ -79,9 +94,11 @@ class LoadTestProducers(
     }
 
     override fun flush() {
-        lifecycleProducer.flush()
-        batchProducer.flush()
-        telemetryProducer.flush()
+        if (config.publishEnabled) {
+            lifecycleProducer.flush()
+            batchProducer.flush()
+            telemetryProducer.flush()
+        }
         logSnapshot("flush")
     }
 
@@ -98,10 +115,19 @@ class LoadTestProducers(
         try {
             flush()
         } finally {
-            lifecycleProducer.close()
-            batchProducer.close()
-            telemetryProducer.close()
+            if (config.publishEnabled) {
+                lifecycleProducer.close()
+                batchProducer.close()
+                telemetryProducer.close()
+            }
             logSnapshot("close")
+        }
+    }
+
+    private fun recordDryRun(topic: String, key: String, ackedCounter: AtomicLong) {
+        ackedCounter.incrementAndGet()
+        if (config.auditLogEnabled) {
+            LoadTestAuditLog.generated(topic, key)
         }
     }
 

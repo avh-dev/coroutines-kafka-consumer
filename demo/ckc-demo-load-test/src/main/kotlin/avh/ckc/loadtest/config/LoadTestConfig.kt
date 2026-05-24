@@ -21,6 +21,7 @@ data class LoadTestConfig(
     val fakeEntityPrefix: String,
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
+    val publishEnabled: Boolean,
     val auditLogEnabled: Boolean
 ) {
     init {
@@ -64,6 +65,7 @@ data class LoadTestConfig(
                 fakeEntityPrefix = environment["FAKE_ENTITY_PREFIX"] ?: "fake",
                 statsLogInterval = Duration.ofSeconds(environment["STATS_LOG_INTERVAL_SECONDS"]?.toLongOrNull() ?: 30L),
                 diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,
+                publishEnabled = environment["PUBLISH_ENABLED"]?.toBooleanStrictOrNull() ?: true,
                 auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true
             )
     }

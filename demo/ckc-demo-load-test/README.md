@@ -34,4 +34,5 @@ Rules:
 - `BASE_TPS` defines total generated messages per second at profile `100`
 - `ORDER_EVENT_PERCENT`, `BATCH_EVENT_PERCENT`, and `CAULDRON_TELEMETRY_PERCENT` split that total event budget across topics
 - event generators use state queues when a suitable simulated entity exists and `fake-*` fallback entities while the state is warming up
+- `PUBLISH_ENABLED=false` keeps generation and audit output enabled but skips Kafka sends for local debugging
 - the load-test process flushes producers and exits when the profile schedule ends

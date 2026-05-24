@@ -39,6 +39,7 @@ class TrafficGeneratorTest {
             fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
+            publishEnabled = true,
             auditLogEnabled = false
         )
 
@@ -79,6 +80,7 @@ class TrafficGeneratorTest {
             fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
+            publishEnabled = true,
             auditLogEnabled = false
         )
 

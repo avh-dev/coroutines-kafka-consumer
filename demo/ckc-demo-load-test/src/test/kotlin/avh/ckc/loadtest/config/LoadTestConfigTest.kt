@@ -35,7 +35,8 @@ class LoadTestConfigTest {
                 "MAX_BREWING_STEPS" to "8",
                 "MAX_BURST" to "77",
                 "FAKE_ENTITY_PREFIX" to "fake-test",
-                "STATS_LOG_INTERVAL_SECONDS" to "9"
+                "STATS_LOG_INTERVAL_SECONDS" to "9",
+                "PUBLISH_ENABLED" to "false"
             )
         )
 
@@ -51,5 +52,6 @@ class LoadTestConfigTest {
         assertEquals(77, config.maxBurst)
         assertEquals("fake-test", config.fakeEntityPrefix)
         assertEquals(9, config.statsLogInterval.seconds)
+        assertEquals(false, config.publishEnabled)
     }
 }
