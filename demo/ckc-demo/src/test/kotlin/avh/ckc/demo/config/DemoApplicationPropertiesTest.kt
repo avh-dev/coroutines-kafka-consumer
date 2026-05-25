@@ -12,6 +12,7 @@ class DemoApplicationPropertiesTest {
         val properties = bind(emptyMap())
 
         assertEquals(true, properties.consumers.processingEnabled)
+        assertEquals(DemoApplicationProperties.ModelClient.KTOR_CIO, properties.model.client)
         assertEquals(
             DemoApplicationProperties.DeserializationDispatcherMode.DEFAULT,
             properties.consumers.deserializationDispatcher.mode
@@ -33,6 +34,7 @@ class DemoApplicationPropertiesTest {
         val properties = bind(
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
+                "demo.model.client" to "armeria",
                 "demo.consumers.deserialization-dispatcher.mode" to "custom-thread-pool",
                 "demo.consumers.deserialization-dispatcher.custom-thread-pool-size" to "16",
                 "demo.consumers.deserialization-dispatcher.custom-thread-name-prefix" to "experiment-deserializer",
@@ -48,6 +50,7 @@ class DemoApplicationPropertiesTest {
         )
 
         assertEquals(false, properties.consumers.processingEnabled)
+        assertEquals(DemoApplicationProperties.ModelClient.ARMERIA, properties.model.client)
         assertEquals(
             DemoApplicationProperties.DeserializationDispatcherMode.CUSTOM_THREAD_POOL,
             properties.consumers.deserializationDispatcher.mode

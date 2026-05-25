@@ -54,6 +54,7 @@
 | [DEMO-25](#demo-25) | Rename the order event consumer configuration and beans from lifecycle to order to avoid ambiguity with batch lifecycle events.              | DONE |
 | [DEMO-26](#demo-26) | Rework the demo load-test generator around stable event-type traffic, state queues, fake fallback events, and time-based rate control.       | DONE |
 | [DEMO-27](#demo-27) | Move suspend model clients to a shared coroutine-native HTTP transport and only create sync or suspend clients for the active demo profile.   | DONE |
+| [DEMO-28](#demo-28) | Add an Armeria-backed suspend model-client transport option for comparing coroutine and Netty-based HTTP behavior in the CKC demo profile.   | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -701,6 +702,15 @@ _Date: 2026-05-25_
 Replace the suspend model-client transport with a coroutine-native HTTP client shared across model endpoints.
 Keep ETA and flavour clients as separate domain adapters while avoiding separate transport pools per model.
 Gate sync and suspend model-client beans by demo profile so inactive consumer paths do not allocate unused HTTP resources.
+
+<a id="demo-28"></a>
+### DEMO-28 - Add Armeria model-client transport
+
+_Date: 2026-05-25_
+
+Add an Armeria-backed suspend model-client implementation alongside the existing Ktor CIO implementation.
+Expose the selected suspend transport through demo model configuration so CKC runs can compare HTTP client behavior without changing consumer profiles.
+Keep ETA and flavour domain clients separate while sharing the selected transport resources.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

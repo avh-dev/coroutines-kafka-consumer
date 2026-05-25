@@ -6,6 +6,7 @@ import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
+import com.linecorp.armeria.client.WebClient
 import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -41,6 +42,7 @@ class CkcProfileContextTest(
     @Test
     fun `ckc profile creates only suspend model clients`() {
         assertTrue(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(WebClient::class.java).isNotEmpty())
         assertTrue(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
         assertTrue(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
