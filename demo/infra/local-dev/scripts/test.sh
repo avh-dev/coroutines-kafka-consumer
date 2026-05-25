@@ -17,13 +17,13 @@ PID_FILE="${PID_DIR}/load-test.pid"
 write_default_configs() {
   ensure_dir "${CONFIG_DIR}"
 
-  if [[ ! -f "${CONFIG_DIR}/smoke.env" ]]; then
-    cat > "${CONFIG_DIR}/smoke.env" <<'EOF'
+  if [[ ! -f "${CONFIG_DIR}/10tps.env" ]]; then
+    cat > "${CONFIG_DIR}/10tps.env" <<'EOF'
 BOOTSTRAP_SERVERS=localhost:9092
 ORDER_EVENTS_TOPIC=order.events.v1
 BATCH_EVENTS_TOPIC=batch.events.v1
 CAULDRON_EVENTS_TOPIC=cauldron.events.v1
-BASE_TPS=100
+BASE_TPS=10
 ORDER_EVENT_PERCENT=40
 BATCH_EVENT_PERCENT=20
 CAULDRON_TELEMETRY_PERCENT=40
@@ -44,35 +44,8 @@ JOB_COMPLETION_INDEX=0
 EOF
   fi
 
-  if [[ ! -f "${CONFIG_DIR}/baseline.env" ]]; then
-    cat > "${CONFIG_DIR}/baseline.env" <<'EOF'
-BOOTSTRAP_SERVERS=localhost:9092
-ORDER_EVENTS_TOPIC=order.events.v1
-BATCH_EVENTS_TOPIC=batch.events.v1
-CAULDRON_EVENTS_TOPIC=cauldron.events.v1
-BASE_TPS=10000
-ORDER_EVENT_PERCENT=40
-BATCH_EVENT_PERCENT=20
-CAULDRON_TELEMETRY_PERCENT=40
-LOAD_PROFILE="0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0"
-CAULDRON_COUNT=32
-MIN_ORDERS_PER_BATCH=3
-MAX_ORDERS_PER_BATCH=8
-MIN_BREWING_STEPS=5
-MAX_BREWING_STEPS=10
-MAX_BURST=1000
-FAKE_ENTITY_PREFIX=fake
-STATS_LOG_INTERVAL_SECONDS=30
-DIAGNOSTICS_BLOB_SIZE=512
-PUBLISH_ENABLED=true
-AUDIT_LOG_ENABLED=true
-TOTAL_SHARDS=1
-JOB_COMPLETION_INDEX=0
-EOF
-  fi
-
-  if [[ ! -f "${CONFIG_DIR}/quiet.env" ]]; then
-    cat > "${CONFIG_DIR}/quiet.env" <<'EOF'
+  if [[ ! -f "${CONFIG_DIR}/500tps.env" ]]; then
+    cat > "${CONFIG_DIR}/500tps.env" <<'EOF'
 BOOTSTRAP_SERVERS=localhost:9092
 ORDER_EVENTS_TOPIC=order.events.v1
 BATCH_EVENTS_TOPIC=batch.events.v1
@@ -81,7 +54,7 @@ BASE_TPS=500
 ORDER_EVENT_PERCENT=40
 BATCH_EVENT_PERCENT=20
 CAULDRON_TELEMETRY_PERCENT=40
-LOAD_PROFILE="0 -> (15s, warmup) -> 100 -> (60s, steady) -> 0"
+LOAD_PROFILE="0 -> (60s, warmup) -> 100 -> (300s, steady) -> 100 -> (60s, cooling) -> 0"
 CAULDRON_COUNT=16
 MIN_ORDERS_PER_BATCH=3
 MAX_ORDERS_PER_BATCH=8

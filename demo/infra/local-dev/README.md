@@ -87,7 +87,7 @@ demo/infra/local-dev/scripts/stop-stubs.sh
 
 Run the local load-test generator with an env profile:
 ```sh
-demo/infra/local-dev/scripts/test.sh smoke
+demo/infra/local-dev/scripts/test.sh 10tps
 ```
 
 Stop the local load-test generator:
@@ -96,7 +96,7 @@ demo/infra/local-dev/scripts/stop-test.sh
 ```
 
 If no profile name is passed to `run-app.sh`, `stubs.sh`, or `test.sh`, the script prompts for an env file.
-The first run creates three editable local env files for each process under:
+The first run creates editable local env files for each process under:
 - `.demo-infra/local-dev/app-env/`
 - `.demo-infra/local-dev/stubs-env/`
 - `.demo-infra/local-dev/load-test-env/`
