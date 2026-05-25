@@ -29,6 +29,18 @@ The full flow:
 - waits until the load test finishes, or stops it early when `q` is pressed
 - stops demo stubs before exiting
 
+Start the demo application with an env profile:
+```sh
+demo/infra/local-dev/scripts/run-app.sh ckc
+```
+
+Stop the demo application:
+```sh
+demo/infra/local-dev/scripts/stop-app.sh
+```
+
+`run-app.sh` is intentionally separate from `run-test.sh`; start the app only when you want a local consumer process in the flow.
+
 Recreate topics after Kafka starts:
 ```sh
 demo/infra/local-dev/scripts/create-topics.sh --orders 6 --batches 6 --cauldrons 6
@@ -83,8 +95,9 @@ Stop the local load-test generator:
 demo/infra/local-dev/scripts/stop-test.sh
 ```
 
-If no profile name is passed to `stubs.sh` or `test.sh`, the script prompts for an env file.
+If no profile name is passed to `run-app.sh`, `stubs.sh`, or `test.sh`, the script prompts for an env file.
 The first run creates three editable local env files for each process under:
+- `.demo-infra/local-dev/app-env/`
 - `.demo-infra/local-dev/stubs-env/`
 - `.demo-infra/local-dev/load-test-env/`
 
