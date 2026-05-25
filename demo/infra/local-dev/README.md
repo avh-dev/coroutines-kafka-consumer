@@ -1,17 +1,45 @@
 Local environment for `ckc-demo` and future demo support services.
 
+On Windows, run these scripts from Git Bash.
+They are Bash scripts and are adapted for Git Bash path behavior.
+
 Services:
-- Kafka on `localhost:9092`
-- Demo stubs on `http://localhost:18080`
-- Demo stubs LT on `http://localhost:18081` when profile `lt` is enabled
+- Redpanda Kafka API on `localhost:9092`
+- Redpanda Admin API on `http://localhost:9644`
 - Redis on `localhost:6379`
 - Prometheus on `http://localhost:9090`
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
+- Demo stubs on `http://localhost:18080` when started through `scripts/stubs.sh`
 
 Start:
 ```sh
 demo/infra/local-dev/scripts/start.sh
 ```
+
+Run a full local test flow:
+```sh
+demo/infra/local-dev/scripts/run-test.sh
+```
+
+The full flow:
+- recreates local Docker Compose services if they are not already running
+- prompts for a demo-stubs env profile and starts stubs
+- prompts for topic partition counts and recreates local topics
+- prompts for a load-test env profile and starts the load-test generator
+- waits until the load test finishes, or stops it early when `q` is pressed
+- stops demo stubs before exiting
+
+Start the demo application with an env profile:
+```sh
+demo/infra/local-dev/scripts/run-app.sh ckc
+```
+
+Stop the demo application:
+```sh
+demo/infra/local-dev/scripts/stop-app.sh
+```
+
+`run-app.sh` is intentionally separate from `run-test.sh`; start the app only when you want a local consumer process in the flow.
 
 Recreate topics after Kafka starts:
 ```sh
@@ -24,7 +52,7 @@ If no topic parameters are provided, the script prompts for all partition counts
 demo/infra/local-dev/scripts/create-topics.sh
 ```
 
-The topic script uses `docker exec ckc-local-kafka ...`, prints partition changes, deletes existing topics, and recreates:
+The topic script uses `docker exec ckc-local-redpanda rpk ...`, prints partition changes, deletes existing topics, and recreates:
 - `order.events.v1`
 - `batch.events.v1`
 - `cauldron.events.v1`
@@ -35,14 +63,14 @@ To recreate topics with different partition counts:
 demo/infra/local-dev/scripts/create-topics.sh --orders 4 --batches 4 --cauldrons 4
 ```
 
-Start with the LT demo-stubs profile:
-```sh
-demo/infra/local-dev/scripts/start.sh --profile lt
-```
-
 Stop:
 ```sh
 demo/infra/local-dev/scripts/stop.sh
+```
+
+Start demo stubs with an env profile:
+```sh
+demo/infra/local-dev/scripts/stubs.sh baseline
 ```
 
 Demo stubs exposes:
@@ -52,10 +80,30 @@ Demo stubs exposes:
 - `POST /latency`
 - `GET /health`
 
-LT demo-stubs notes:
-- uses a smaller latency profile on `localhost:18081`
-- keeps the same response schema as the demo ETA model client
-- avoids heavyweight mock-server templating and request journaling overhead entirely
+Stop demo stubs:
+```sh
+demo/infra/local-dev/scripts/stop-stubs.sh
+```
+
+Run the local load-test generator with an env profile:
+```sh
+demo/infra/local-dev/scripts/test.sh 10tps
+```
+
+Stop the local load-test generator:
+```sh
+demo/infra/local-dev/scripts/stop-test.sh
+```
+
+If no profile name is passed to `run-app.sh`, `stubs.sh`, or `test.sh`, the script prompts for an env file.
+The first run creates editable local env files for each process under:
+- `.demo-infra/local-dev/app-env/`
+- `.demo-infra/local-dev/stubs-env/`
+- `.demo-infra/local-dev/load-test-env/`
+
+Logs and pid files are stored under:
+- `.demo-infra/local-dev/logs/`
+- `.demo-infra/local-dev/pids/`
 
 Example application startup:
 ```sh

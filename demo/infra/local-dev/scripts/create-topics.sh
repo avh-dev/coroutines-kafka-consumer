@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-KAFKA_CONTAINER="${KAFKA_CONTAINER:-ckc-local-kafka}"
-KAFKA_TOPICS_BIN="${KAFKA_TOPICS_BIN:-/opt/kafka/bin/kafka-topics.sh}"
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-ckc-local-redpanda}"
+RPK_BIN="${RPK_BIN:-rpk}"
 BOOTSTRAP_SERVER="${BOOTSTRAP_SERVER:-localhost:9092}"
 DEFAULT_PARTITIONS=6
 
@@ -13,14 +13,14 @@ CAULDRON_PARTITIONS=""
 HAD_ARGS=0
 
 topic_command() {
-  MSYS_NO_PATHCONV=1 docker exec "${KAFKA_CONTAINER}" "${KAFKA_TOPICS_BIN}" --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  MSYS_NO_PATHCONV=1 docker exec "${KAFKA_CONTAINER}" "${RPK_BIN}" -X "brokers=${BOOTSTRAP_SERVER}" topic "$@"
 }
 
 usage() {
   cat <<EOF
 Usage: $0 [--orders N] [--batches M] [--cauldrons K]
 
-Creates local demo Kafka topics through docker exec against ${KAFKA_CONTAINER}.
+Creates local demo Kafka topics through rpk in ${KAFKA_CONTAINER}.
 When no parameters are provided, the script prompts for both partition counts.
 
 Options:
@@ -52,30 +52,15 @@ prompt_partitions() {
 
 current_partitions() {
   local topic="$1"
-  local description=""
+  local topics=""
   local partitions=""
 
-  description="$(topic_command --describe --topic "${topic}" 2>/dev/null || true)"
-  if [[ -z "${description}" ]]; then
+  topics="$(topic_command list 2>/dev/null || true)"
+  partitions="$(awk -v topic="${topic}" '$1 == topic { print $2; exit }' <<< "${topics}")"
+  if [[ -z "${partitions}" ]]; then
     echo "null"
     return
   fi
-
-  partitions="$(awk '
-    /PartitionCount:/ {
-      for (i = 1; i <= NF; i++) {
-        if ($i ~ /^PartitionCount:/) {
-          split($i, parts, ":")
-          if (parts[2] != "") {
-            print parts[2]
-          } else {
-            print $(i + 1)
-          }
-          exit
-        }
-      }
-    }
-  ' <<< "${description}")"
 
   if [[ "${partitions}" =~ ^[1-9][0-9]*$ ]]; then
     echo "${partitions}"
@@ -107,15 +92,11 @@ recreate_topic() {
   echo "${topic}: ${current} -> ${partitions}"
 
   if [[ "${current}" != "null" ]]; then
-    topic_command --delete --if-exists --topic "${topic}" >/dev/null
+    topic_command delete "${topic}" >/dev/null
     wait_topic_deleted "${topic}"
   fi
 
-  topic_command \
-    --create \
-    --topic "${topic}" \
-    --partitions "${partitions}" \
-    --replication-factor 1
+  topic_command create "${topic}" -p "${partitions}" -r 1 >/dev/null
 }
 
 while [[ $# -gt 0 ]]; do
