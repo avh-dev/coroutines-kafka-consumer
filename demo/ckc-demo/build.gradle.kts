@@ -23,6 +23,7 @@ java {
 }
 
 val coroutinesVersion = "1.9.0"
+val ktorVersion = "3.0.3"
 val parallelConsumerVersion = "0.5.3.3"
 val serializationVersion = "1.7.1"
 val springBootVersion = "3.3.5"
@@ -38,6 +39,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")

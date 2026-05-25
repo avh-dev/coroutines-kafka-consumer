@@ -7,9 +7,11 @@ import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.model.Batch
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
+@Profile("spring-kafka", "confluent-parallel")
 class SyncCauldronTelemetryService(
     private val modelClient: SyncArcaneEtaModelClient,
     private val normalizer: ArcaneEtaNormalizer,

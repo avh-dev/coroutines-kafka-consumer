@@ -1,7 +1,12 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.service.DemoRecordMetrics
+import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.micrometer.MicrometerConsumerMetrics
+import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.junit.jupiter.api.Test
@@ -12,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @SpringBootTest(
     properties = [
@@ -26,6 +32,15 @@ class ConfluentParallelProfileContextTest(
 ) {
     @Test
     fun contextLoads() {
+    }
+
+    @Test
+    fun `confluent parallel profile creates only sync model clients`() {
+        assertFalse(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SyncOrderFlavourModelClient::class.java).isNotEmpty())
     }
 
     @Test
