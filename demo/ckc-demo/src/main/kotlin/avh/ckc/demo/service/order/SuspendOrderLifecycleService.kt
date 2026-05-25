@@ -5,9 +5,11 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.repository.SuspendBrewingStateRepository
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
+@Profile("ckc")
 class SuspendOrderLifecycleService(
     private val brewingStateRepository: SuspendBrewingStateRepository,
     private val flavourModelClient: SuspendOrderFlavourModelClient

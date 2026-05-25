@@ -4,9 +4,7 @@ import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.model.Batch
 import org.springframework.stereotype.Component
 import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.roundToLong
-import kotlin.math.sin
 
 data class NormalizedEtaEstimate(
     val batchId: String,
@@ -69,14 +67,7 @@ class ArcaneEtaNormalizer(
         val thermalFactor = 1.0 + abs(92.0 - temperatureC) / 250.0
         val densityFactor = 1.0 + abs(1.15 - densitySg) / 3.0
 
-        var cpuAccumulator = 0.0
-        repeat(15_000) { iteration ->
-            val n = iteration.toDouble() + magicalEtaUnits
-            cpuAccumulator += sin(n / 11.0) * cos(n / 7.0)
-        }
-        val cpuFactor = 1.0 + abs(cpuAccumulator) / 100_000.0
-
-        return (magicalEtaUnits * lunarFactor * planetaryFactor * thermalFactor * densityFactor * cpuFactor)
+        return (magicalEtaUnits * lunarFactor * planetaryFactor * thermalFactor * densityFactor)
             .roundToLong()
             .coerceAtLeast(1L)
     }

@@ -1,13 +1,20 @@
 package avh.ckc.demo.ml.flavour
 
-import kotlinx.coroutines.future.await
+import io.ktor.client.HttpClient as KtorHttpClient
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
-import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpClient as JdkHttpClient
 
 interface SyncOrderFlavourModelClient {
     fun analyse(request: OrderFlavourRequest): OrderFlavourResponse
@@ -19,7 +26,7 @@ interface SuspendOrderFlavourModelClient {
 
 class JdkSyncOrderFlavourModelClient(
     private val baseUri: URI,
-    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val httpClient: JdkHttpClient = JdkHttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : SyncOrderFlavourModelClient {
     override fun analyse(request: OrderFlavourRequest): OrderFlavourResponse {
@@ -34,21 +41,22 @@ class JdkSyncOrderFlavourModelClient(
         decodeOrderFlavourResponse(json, response)
 }
 
-class JdkSuspendOrderFlavourModelClient(
+class KtorSuspendOrderFlavourModelClient(
     private val baseUri: URI,
-    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val httpClient: KtorHttpClient,
+    private val dispatcher: CoroutineDispatcher,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : SuspendOrderFlavourModelClient {
-    override suspend fun analyse(request: OrderFlavourRequest): OrderFlavourResponse {
-        val response = httpClient.sendAsync(httpRequest(request), HttpResponse.BodyHandlers.ofString()).await()
-        return decodeResponse(response)
+    override suspend fun analyse(request: OrderFlavourRequest): OrderFlavourResponse = withContext(dispatcher) {
+        val response = httpClient.post(baseUri.resolve("/flavour").toString()) {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(OrderFlavourRequest.serializer(), request))
+        }
+        decodeResponse(response)
     }
 
-    private fun httpRequest(request: OrderFlavourRequest): HttpRequest =
-        newOrderFlavourHttpRequest(baseUri, json, request)
-
-    private fun decodeResponse(response: HttpResponse<String>): OrderFlavourResponse =
-        decodeOrderFlavourResponse(json, response)
+    private suspend fun decodeResponse(response: io.ktor.client.statement.HttpResponse): OrderFlavourResponse =
+        decodeOrderFlavourResponse(json, response.status.value, response.bodyAsText())
 }
 
 private fun newOrderFlavourHttpRequest(baseUri: URI, json: Json, request: OrderFlavourRequest): HttpRequest =
@@ -58,11 +66,15 @@ private fun newOrderFlavourHttpRequest(baseUri: URI, json: Json, request: OrderF
         .build()
 
 private fun decodeOrderFlavourResponse(json: Json, response: HttpResponse<String>): OrderFlavourResponse {
-    check(response.statusCode() == 200) {
-        "Order flavour model responded with ${response.statusCode()}: ${response.body()}"
+    return decodeOrderFlavourResponse(json, response.statusCode(), response.body())
+}
+
+private fun decodeOrderFlavourResponse(json: Json, statusCode: Int, body: String): OrderFlavourResponse {
+    check(statusCode == 200) {
+        "Order flavour model responded with $statusCode: $body"
     }
 
-    return json.decodeFromString(OrderFlavourResponse.serializer(), response.body())
+    return json.decodeFromString(OrderFlavourResponse.serializer(), body)
 }
 
 @Serializable

@@ -1,13 +1,20 @@
 package avh.ckc.demo.ml.eta
 
-import kotlinx.coroutines.future.await
+import io.ktor.client.HttpClient as KtorHttpClient
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
-import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpClient as JdkHttpClient
 
 interface SyncArcaneEtaModelClient {
     fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse
@@ -19,7 +26,7 @@ interface SuspendArcaneEtaModelClient {
 
 class JdkSyncArcaneEtaModelClient(
     private val baseUri: URI,
-    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val httpClient: JdkHttpClient = JdkHttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : SyncArcaneEtaModelClient {
     override fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse {
@@ -34,21 +41,22 @@ class JdkSyncArcaneEtaModelClient(
         decodeArcaneEtaResponse(json, response)
 }
 
-class JdkSuspendArcaneEtaModelClient(
+class KtorSuspendArcaneEtaModelClient(
     private val baseUri: URI,
-    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val httpClient: KtorHttpClient,
+    private val dispatcher: CoroutineDispatcher,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : SuspendArcaneEtaModelClient {
-    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse {
-        val response = httpClient.sendAsync(httpRequest(request), HttpResponse.BodyHandlers.ofString()).await()
-        return decodeResponse(response)
+    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse = withContext(dispatcher) {
+        val response = httpClient.post(baseUri.resolve("/eta").toString()) {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(ArcaneEtaRequest.serializer(), request))
+        }
+        decodeResponse(response)
     }
 
-    private fun httpRequest(request: ArcaneEtaRequest): HttpRequest =
-        newArcaneEtaHttpRequest(baseUri, json, request)
-
-    private fun decodeResponse(response: HttpResponse<String>): ArcaneEtaResponse =
-        decodeArcaneEtaResponse(json, response)
+    private suspend fun decodeResponse(response: io.ktor.client.statement.HttpResponse): ArcaneEtaResponse =
+        decodeArcaneEtaResponse(json, response.status.value, response.bodyAsText())
 }
 
 private fun newArcaneEtaHttpRequest(baseUri: URI, json: Json, request: ArcaneEtaRequest): HttpRequest =
@@ -58,11 +66,15 @@ private fun newArcaneEtaHttpRequest(baseUri: URI, json: Json, request: ArcaneEta
         .build()
 
 private fun decodeArcaneEtaResponse(json: Json, response: HttpResponse<String>): ArcaneEtaResponse {
-    check(response.statusCode() == 200) {
-        "Arcane ETA model responded with ${response.statusCode()}: ${response.body()}"
+    return decodeArcaneEtaResponse(json, response.statusCode(), response.body())
+}
+
+private fun decodeArcaneEtaResponse(json: Json, statusCode: Int, body: String): ArcaneEtaResponse {
+    check(statusCode == 200) {
+        "Arcane ETA model responded with $statusCode: $body"
     }
 
-    return json.decodeFromString(ArcaneEtaResponse.serializer(), response.body())
+    return json.decodeFromString(ArcaneEtaResponse.serializer(), body)
 }
 
 @Serializable

@@ -1,17 +1,25 @@
 package avh.ckc.demo
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
+import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
+import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
+import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @SpringBootTest(
     properties = [
@@ -20,6 +28,7 @@ import kotlin.test.assertNull
 )
 @ActiveProfiles("ckc")
 class CkcProfileContextTest(
+    @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
     @Autowired
     @Qualifier("consumerMetrics")
@@ -27,6 +36,15 @@ class CkcProfileContextTest(
 ) {
     @Test
     fun contextLoads() {
+    }
+
+    @Test
+    fun `ckc profile creates only suspend model clients`() {
+        assertTrue(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(SyncOrderFlavourModelClient::class.java).isNotEmpty())
     }
 
     @Test
