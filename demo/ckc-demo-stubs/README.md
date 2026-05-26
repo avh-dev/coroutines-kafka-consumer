@@ -1,6 +1,6 @@
 # Demo Stubs
 
-This module contains a lightweight HTTP stub service for the demo domain.
+This module contains a lightweight Armeria HTTP stub service for the demo domain.
 
 Module: `ckc-demo-stubs`
 
@@ -15,7 +15,7 @@ Current scope:
 Key environment variables:
 
 - `PORT`
-- `STUB_WORKERS`
+- `STUB_WORKERS` (defaults to `4`)
 - `DELAY_P90_MS`
 - `DELAY_P95_MS`
 - `DELAY_P99_MS`

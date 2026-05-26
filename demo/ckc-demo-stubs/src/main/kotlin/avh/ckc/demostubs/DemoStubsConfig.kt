@@ -17,7 +17,7 @@ data class DemoStubsConfig(
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): DemoStubsConfig =
             DemoStubsConfig(
                 port = environment["PORT"]?.toIntOrNull() ?: 8080,
-                workers = environment["STUB_WORKERS"]?.toIntOrNull() ?: 64,
+                workers = environment["STUB_WORKERS"]?.toIntOrNull() ?: 4,
                 etaLatency = ModelLatencySettings.fromEnvironment(environment, "ETA", fallbackPrefix = ""),
                 flavourLatency = ModelLatencySettings.fromEnvironment(environment, "FLAVOUR", fallbackPrefix = ""),
                 errorRatePercent = environment["ERROR_RATE_PERCENT"]?.toIntOrNull() ?: 0
