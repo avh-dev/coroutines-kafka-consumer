@@ -1,20 +1,23 @@
 package avh.ckc.demostubs
 
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.call
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.netty.Netty
-import io.ktor.server.request.receiveText
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.post
-import io.ktor.server.routing.routing
-import kotlinx.coroutines.delay
+import com.linecorp.armeria.common.AggregatedHttpRequest
+import com.linecorp.armeria.common.HttpData
+import com.linecorp.armeria.common.HttpHeaderNames
+import com.linecorp.armeria.common.HttpMethod
+import com.linecorp.armeria.common.HttpRequest
+import com.linecorp.armeria.common.HttpResponse
+import com.linecorp.armeria.common.HttpStatus
+import com.linecorp.armeria.common.MediaType
+import com.linecorp.armeria.common.ResponseHeaders
+import com.linecorp.armeria.common.util.EventLoopGroups
+import com.linecorp.armeria.server.Server
+import com.linecorp.armeria.server.ServiceRequestContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.random.Random
@@ -29,104 +32,76 @@ fun main() {
             flavour = config.flavourLatency
         )
     )
-    val server = embeddedServer(
-        factory = Netty,
-        port = config.port,
-        host = "0.0.0.0",
-        configure = {
-            connectionGroupSize = maxOf(1, config.workers / 4)
-            workerGroupSize = config.workers
-            callGroupSize = config.workers
+    val workerGroup = EventLoopGroups.newEventLoopGroup(config.workers, "demo-stubs-armeria-worker")
+    val server = Server.builder()
+        .http(config.port)
+        .workerGroup(workerGroup, true)
+        .service("/health") { _, _ ->
+            jsonResponse("""{"status":"UP"}""")
         }
-    ) {
-        routing {
-            get("/health") {
-                call.respondText("""{"status":"UP"}""", ContentType.Application.Json)
-            }
-
-            get("/latency") {
-                call.respondText(
-                    json.encodeToString(ModelLatencyRegistry.serializer(), latencySettings.get()),
-                    ContentType.Application.Json
-                )
-            }
-
-            post("/latency") {
-                try {
-                    val update = json.decodeFromString(ModelLatencyRegistry.serializer(), call.receiveText())
-                    latencySettings.set(update)
-                    call.respondText(
-                        json.encodeToString(ModelLatencyRegistry.serializer(), update),
-                        ContentType.Application.Json
-                    )
-                } catch (_: Exception) {
-                    call.respondText(
-                        """{"error":"bad request"}""",
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
-                }
-            }
-
-            post("/eta") {
-                try {
-                    val request = json.decodeFromString(ArcaneEtaRequest.serializer(), call.receiveText())
-                    val shouldFail = Random.nextInt(100) < config.errorRatePercent
-                    delay(delaySampler.sampleDelayMillis(latencySettings.get().eta))
-
-                    if (shouldFail) {
-                        call.respondText(
-                            """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
-                            ContentType.Application.Json,
-                            HttpStatusCode.ServiceUnavailable
-                        )
-                        return@post
+        .service("/latency") { ctx, request ->
+            when (request.method()) {
+                HttpMethod.GET -> jsonResponse(json.encodeToString(ModelLatencyRegistry.serializer(), latencySettings.get()))
+                HttpMethod.POST -> aggregate(request) { aggregated ->
+                    try {
+                        val update = json.decodeFromString(ModelLatencyRegistry.serializer(), aggregated.contentUtf8())
+                        latencySettings.set(update)
+                        jsonResponse(json.encodeToString(ModelLatencyRegistry.serializer(), update))
+                    } catch (_: Exception) {
+                        jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
                     }
-
-                    val response = estimate(request)
-                    call.respondText(
-                        json.encodeToString(ArcaneEtaResponse.serializer(), response),
-                        ContentType.Application.Json
-                    )
-                } catch (_: Exception) {
-                    call.respondText(
-                        """{"error":"bad request"}""",
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
                 }
+
+                else -> methodNotAllowed()
             }
-
-            post("/flavour") {
-                try {
-                    val request = json.decodeFromString(OrderFlavourRequest.serializer(), call.receiveText())
-                    val shouldFail = Random.nextInt(100) < config.errorRatePercent
-                    delay(delaySampler.sampleDelayMillis(latencySettings.get().flavour))
-
-                    if (shouldFail) {
-                        call.respondText(
-                            """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
-                            ContentType.Application.Json,
-                            HttpStatusCode.ServiceUnavailable
-                        )
-                        return@post
+        }
+        .service("/eta") { ctx, request ->
+            if (request.method() != HttpMethod.POST) {
+                methodNotAllowed()
+            } else {
+                aggregate(request) { aggregated ->
+                    try {
+                        val modelRequest = json.decodeFromString(ArcaneEtaRequest.serializer(), aggregated.contentUtf8())
+                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(latencySettings.get().eta)) {
+                            if (Random.nextInt(100) < config.errorRatePercent) {
+                                jsonResponse(
+                                    """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
+                                    HttpStatus.SERVICE_UNAVAILABLE
+                                )
+                            } else {
+                                jsonResponse(json.encodeToString(ArcaneEtaResponse.serializer(), estimate(modelRequest)))
+                            }
+                        }
+                    } catch (_: Exception) {
+                        jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
                     }
-
-                    val response = analyseFlavour(request)
-                    call.respondText(
-                        json.encodeToString(OrderFlavourResponse.serializer(), response),
-                        ContentType.Application.Json
-                    )
-                } catch (_: Exception) {
-                    call.respondText(
-                        """{"error":"bad request"}""",
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
                 }
             }
         }
-    }
+        .service("/flavour") { ctx, request ->
+            if (request.method() != HttpMethod.POST) {
+                methodNotAllowed()
+            } else {
+                aggregate(request) { aggregated ->
+                    try {
+                        val modelRequest = json.decodeFromString(OrderFlavourRequest.serializer(), aggregated.contentUtf8())
+                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(latencySettings.get().flavour)) {
+                            if (Random.nextInt(100) < config.errorRatePercent) {
+                                jsonResponse(
+                                    """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
+                                    HttpStatus.SERVICE_UNAVAILABLE
+                                )
+                            } else {
+                                jsonResponse(json.encodeToString(OrderFlavourResponse.serializer(), analyseFlavour(modelRequest)))
+                            }
+                        }
+                    } catch (_: Exception) {
+                        jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
+                    }
+                }
+            }
+        }
+        .build()
 
     println(
         "demo-stubs listening on port=${config.port} workers=${config.workers} " +
@@ -135,8 +110,48 @@ fun main() {
                 "errorRate=${config.errorRatePercent}%"
     )
 
-    server.start(wait = true)
+    Runtime.getRuntime().addShutdownHook(Thread {
+        server.stop().join()
+    })
+    server.start().join()
+    Thread.currentThread().join()
 }
+
+private fun aggregate(
+    request: HttpRequest,
+    handle: (AggregatedHttpRequest) -> HttpResponse
+): HttpResponse =
+    HttpResponse.of(request.aggregate().thenApply(handle))
+
+private fun scheduledResponse(
+    context: ServiceRequestContext,
+    delayMillis: Long,
+    response: () -> HttpResponse
+): HttpResponse {
+    if (delayMillis <= 0) {
+        return response()
+    }
+    val future = CompletableFuture<HttpResponse>()
+    context.eventLoop().schedule(
+        { future.complete(response()) },
+        delayMillis,
+        TimeUnit.MILLISECONDS
+    )
+    return HttpResponse.of(future)
+}
+
+private fun jsonResponse(body: String, status: HttpStatus = HttpStatus.OK): HttpResponse =
+    HttpResponse.of(
+        ResponseHeaders.of(
+            status,
+            HttpHeaderNames.CONTENT_TYPE,
+            MediaType.JSON_UTF_8
+        ),
+        HttpData.ofUtf8(body)
+    )
+
+private fun methodNotAllowed(): HttpResponse =
+    jsonResponse("""{"error":"method not allowed"}""", HttpStatus.METHOD_NOT_ALLOWED)
 
 private fun analyseFlavour(request: OrderFlavourRequest): OrderFlavourResponse {
     val palette = when (abs(request.customerId.hashCode()) % 4) {

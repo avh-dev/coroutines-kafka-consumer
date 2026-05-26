@@ -55,6 +55,7 @@
 | [DEMO-26](#demo-26) | Rework the demo load-test generator around stable event-type traffic, state queues, fake fallback events, and time-based rate control.       | DONE |
 | [DEMO-27](#demo-27) | Move suspend model clients to a shared coroutine-native HTTP transport and only create sync or suspend clients for the active demo profile.   | DONE |
 | [DEMO-28](#demo-28) | Add an Armeria-backed suspend model-client transport option for comparing coroutine and Netty-based HTTP behavior in the CKC demo profile.   | DONE |
+| [DEMO-29](#demo-29) | Replace the demo stubs Ktor Netty server with an Armeria server to reduce thread overhead during model-client load tests.                   | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -711,6 +712,15 @@ _Date: 2026-05-25_
 Add an Armeria-backed suspend model-client implementation alongside the existing Ktor CIO implementation.
 Expose the selected suspend transport through demo model configuration so CKC runs can compare HTTP client behavior without changing consumer profiles.
 Keep ETA and flavour domain clients separate while sharing the selected transport resources.
+
+<a id="demo-29"></a>
+### DEMO-29 - Use Armeria for demo stubs
+
+_Date: 2026-05-26_
+
+Replace the Ktor Netty based demo stubs server with Armeria while preserving the existing `/health`, `/config`, `/eta`, and `/flavour` endpoints.
+Keep latency profile behavior and JSON response shapes unchanged so model-client load tests remain comparable.
+Reduce the number of server-side event-loop threads visible during local and lab profiling.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
