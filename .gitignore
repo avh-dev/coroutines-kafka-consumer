@@ -28,5 +28,4 @@ crash.*.log
 
 # Local runner state
 .demo-infra/
-.ckc-runner/
-.internal-lab/
+.tmp/
