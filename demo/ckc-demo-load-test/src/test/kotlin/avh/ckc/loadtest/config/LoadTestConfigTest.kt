@@ -11,6 +11,7 @@ class LoadTestConfigTest {
         val config = LoadTestConfig.fromEnvironment(emptyMap())
 
         assertTrue(config.auditLogEnabled)
+        assertEquals(Runtime.getRuntime().availableProcessors().coerceAtLeast(1), config.generatorWorkers)
     }
 
     @Test
@@ -36,7 +37,8 @@ class LoadTestConfigTest {
                 "MAX_BURST" to "77",
                 "FAKE_ENTITY_PREFIX" to "fake-test",
                 "STATS_LOG_INTERVAL_SECONDS" to "9",
-                "PUBLISH_ENABLED" to "false"
+                "PUBLISH_ENABLED" to "false",
+                "LOAD_TEST_WORKERS" to "4"
             )
         )
 
@@ -53,5 +55,6 @@ class LoadTestConfigTest {
         assertEquals("fake-test", config.fakeEntityPrefix)
         assertEquals(9, config.statsLogInterval.seconds)
         assertEquals(false, config.publishEnabled)
+        assertEquals(4, config.generatorWorkers)
     }
 }

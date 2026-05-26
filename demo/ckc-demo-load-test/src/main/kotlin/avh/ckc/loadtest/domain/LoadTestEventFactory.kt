@@ -19,11 +19,11 @@ import avh.ckc.demo.proto.OrderCreatedPayload
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.proto.OrderWaitingForBottlingPayload
-import avh.ckc.loadtest.runtime.ShardContext
+import avh.ckc.loadtest.runtime.GeneratorIdentity
 import java.time.Instant
 
 class LoadTestEventFactory(
-    private val shardContext: ShardContext
+    private val identity: GeneratorIdentity
 ) {
     fun orderCreated(order: PendingOrder, now: Instant): OrderLifecycleEvent =
         orderEvent(order, "", OrderLifecycleEventType.ORDER_CREATED, now) {
@@ -186,7 +186,7 @@ class LoadTestEventFactory(
             .setEventId(eventId)
             .setOccurredAt(now.toString())
             .setEventVersion(1)
-            .setRegulatoryTraceId("mrb-${shardContext.shardToken()}-${now.epochSecond}")
+            .setRegulatoryTraceId(identity.regulatoryTraceId(now))
             .build()
 
     private data class BrewingStepTemplate(

@@ -19,7 +19,6 @@ class ShardContextTest {
         assertEquals(3, context.shardIndex)
         assertEquals(12, context.totalShards)
         assertEquals("demo-1", context.testRunId)
-        assertEquals("shard-003", context.shardToken())
     }
 
     @Test

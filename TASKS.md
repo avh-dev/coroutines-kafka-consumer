@@ -56,6 +56,7 @@
 | [DEMO-27](#demo-27) | Move suspend model clients to a shared coroutine-native HTTP transport and only create sync or suspend clients for the active demo profile.   | DONE |
 | [DEMO-28](#demo-28) | Add an Armeria-backed suspend model-client transport option for comparing coroutine and Netty-based HTTP behavior in the CKC demo profile.   | DONE |
 | [DEMO-29](#demo-29) | Replace the demo stubs Ktor Netty server with an Armeria server to reduce thread overhead during model-client load tests.                   | DONE |
+| [DEMO-30](#demo-30) | Add in-process load-test workers with isolated shard state and a shared publisher so one JVM can use multiple CPU cores.                   | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -721,6 +722,16 @@ _Date: 2026-05-26_
 Replace the Ktor Netty based demo stubs server with Armeria while preserving the existing `/health`, `/config`, `/eta`, and `/flavour` endpoints.
 Keep latency profile behavior and JSON response shapes unchanged so model-client load tests remain comparable.
 Reduce the number of server-side event-loop threads visible during local and lab profiling.
+
+<a id="demo-30"></a>
+### DEMO-30 - Add in-process load-test workers
+
+_Date: 2026-05-26_
+
+Add configurable load-test generator workers inside one JVM.
+Each worker runs with its own generator identity and simulation state, while sharing the configured publisher resources.
+Keep external shard identity separate from internal worker identity so AWS/Kubernetes shards do not overlap with local process parallelism.
+Treat `BASE_TPS` as the process-level target and split it across workers, with compact generated ids such as `order-1-5-00021212`.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
