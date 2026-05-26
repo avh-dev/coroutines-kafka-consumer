@@ -1,5 +1,6 @@
 package avh.ckc.loadtest.domain
 
+import avh.ckc.loadtest.runtime.GeneratorIdentity
 import java.time.Instant
 import java.util.ArrayDeque
 import java.util.BitSet
@@ -40,7 +41,8 @@ data class ActiveBatch(
 
 class SimulationState(
     private val cauldronCount: Int,
-    private val fakePrefix: String
+    private val fakePrefix: String,
+    private val identity: GeneratorIdentity
 ) {
     private val recipes = listOf(
         PotionRecipe("healing-elixir", "healing-elixir-v2"),
@@ -83,7 +85,7 @@ class SimulationState(
             return null
         }
         val orders = (1..orderCount).map { createdOrders.removeFirst() }
-        val batchId = "batch-${(++realBatchSequence).toString().padStart(8, '0')}"
+        val batchId = identity.entityId("batch", ++realBatchSequence, width = 8)
         val batch = SimulatedBatch(
             batchId = batchId,
             cauldronId = null,
@@ -253,11 +255,11 @@ class SimulationState(
 
     private fun newOrder(real: Boolean, now: Instant): PendingOrder {
         val sequence = if (real) ++realOrderSequence else ++fakeSequence
-        val prefix = if (real) "ord" else "$fakePrefix-ord"
+        val prefix = if (real) "order" else "$fakePrefix-order"
         val recipe = recipe(sequence)
         return PendingOrder(
-            orderId = "$prefix-${sequence.toString().padStart(10, '0')}",
-            customerId = "customer-${sequence.toString().padStart(8, '0')}",
+            orderId = identity.entityId(prefix, sequence, width = 10),
+            customerId = identity.entityId("customer", sequence, width = 8),
             potion = recipe,
             createdAt = now
         )
@@ -269,25 +271,28 @@ class SimulationState(
     }
 
     private fun updateActiveBatch(batch: SimulatedBatch) {
-        val index = batch.cauldronId?.removePrefix("cauldron-")?.toIntOrNull()?.minus(1) ?: return
+        val index = cauldronIndex(batch.cauldronId) ?: return
         if (index in 0 until cauldronCount && activeCauldrons[index]) {
             cauldronBatches[index] = batch
         }
     }
 
     private fun releaseCauldron(batch: SimulatedBatch) {
-        val index = batch.cauldronId?.removePrefix("cauldron-")?.toIntOrNull()?.minus(1) ?: return
+        val index = cauldronIndex(batch.cauldronId) ?: return
         if (index in 0 until cauldronCount) {
             activeCauldrons.clear(index)
             cauldronBatches.remove(index)
         }
     }
 
-    private fun cauldronId(index: Int): String = "cauldron-${(index + 1).toString().padStart(4, '0')}"
+    private fun cauldronId(index: Int): String = identity.entityId("cauldron", (index + 1).toLong(), width = 4)
 
-    private fun fakeBatchId(): String = "$fakePrefix-batch-${(++fakeSequence).toString().padStart(10, '0')}"
+    private fun fakeBatchId(): String = identity.entityId("$fakePrefix-batch", ++fakeSequence, width = 10)
 
-    private fun fakeCauldronId(): String = "$fakePrefix-cauldron-${(++fakeSequence).toString().padStart(10, '0')}"
+    private fun fakeCauldronId(): String = identity.entityId("$fakePrefix-cauldron", ++fakeSequence, width = 10)
+
+    private fun cauldronIndex(cauldronId: String?): Int? =
+        cauldronId?.substringAfterLast('-')?.toIntOrNull()?.minus(1)
 
     private fun recipe(sequence: Long): PotionRecipe = recipes[(sequence % recipes.size).toInt()]
 }

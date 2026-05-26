@@ -19,11 +19,11 @@ import avh.ckc.demo.proto.OrderCreatedPayload
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.proto.OrderLifecycleEventType
 import avh.ckc.demo.proto.OrderWaitingForBottlingPayload
-import avh.ckc.loadtest.runtime.ShardContext
+import avh.ckc.loadtest.runtime.GeneratorIdentity
 import java.time.Instant
 
 class OrderLifecycleStateMachine(
-    private val shardContext: ShardContext
+    private val identity: GeneratorIdentity
 ) {
     fun createOrderCreated(order: PendingOrder): OrderLifecycleEvent =
         orderEvent(
@@ -55,7 +55,7 @@ class OrderLifecycleStateMachine(
         require(batchSlot >= 0) { "batchSlot must be non-negative" }
         require(orders.isNotEmpty()) { "orders must not be empty" }
 
-        val batchId = "batch-${shardContext.shardToken()}-${batchSlot.toString().padStart(6, '0')}"
+        val batchId = identity.entityId("batch", batchSlot.toLong(), width = 6)
         val recipe = orders.first().potion
         return buildBatch(batchId, cauldronId, orders, recipe, startedAt, brewDuration)
     }
@@ -80,14 +80,14 @@ class OrderLifecycleStateMachine(
         val recipe = PotionRecipe(potionId, recipeId)
         val orders = (0 until ordersPerBatch).map { offset ->
             PendingOrder(
-                orderId = "ord-${shardContext.shardToken()}-${(orderIndex + offset).toString().padStart(8, '0')}",
-                customerId = "customer-${shardContext.shardToken()}-${offset.toString().padStart(4, '0')}",
+                orderId = identity.entityId("order", (orderIndex + offset).toLong(), width = 8),
+                customerId = identity.entityId("customer", offset.toLong(), width = 4),
                 potion = recipe,
                 createdAt = occurredAt.plusMillis(offset * 50L)
             )
         }
-        val batchId = "batch-${shardContext.shardToken()}-${batchSlot.toString().padStart(6, '0')}"
-        val cauldronId = "cauldron-${(shardContext.shardIndex % 8) + 1}"
+        val batchId = identity.entityId("batch", batchSlot.toLong(), width = 6)
+        val cauldronId = identity.entityId("cauldron", ((identity.externalShardIndex % 8) + 1).toLong(), width = 4)
 
         return buildBatch(batchId, cauldronId, orders, recipe, occurredAt, java.time.Duration.ofSeconds(120))
     }
@@ -304,6 +304,6 @@ class OrderLifecycleStateMachine(
             .setEventId(eventId)
             .setOccurredAt(occurredAt.toString())
             .setEventVersion(1)
-            .setRegulatoryTraceId("mrb-${shardContext.shardToken()}-${occurredAt.epochSecond}")
+            .setRegulatoryTraceId(identity.regulatoryTraceId(occurredAt))
             .build()
 }

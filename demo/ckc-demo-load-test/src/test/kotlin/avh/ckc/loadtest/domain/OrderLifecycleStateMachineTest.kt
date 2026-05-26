@@ -2,7 +2,7 @@ package avh.ckc.loadtest.domain
 
 import avh.ckc.demo.proto.BatchLifecycleEventType
 import avh.ckc.demo.proto.OrderLifecycleEventType
-import avh.ckc.loadtest.runtime.ShardContext
+import avh.ckc.loadtest.runtime.GeneratorIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -11,16 +11,11 @@ class OrderLifecycleStateMachineTest {
     @Test
     fun `creates deterministic batch ids and lifecycle sequence`() {
         val batch = OrderLifecycleStateMachine(
-            ShardContext(
-                shardIndex = 2,
-                totalShards = 8,
-                testRunId = "demo-1",
-                testRunStartedAt = null
-            )
+            GeneratorIdentity(externalShardIndex = 2, totalExternalShards = 8, workerIndex = 5, totalWorkers = 6)
         ).createOrderBatch(orderIndex = 10, batchSlot = 4, ordersPerBatch = 2)
 
-        assertEquals("batch-shard-002-000004", batch.batchId)
-        assertEquals(listOf("ord-shard-002-00000010", "ord-shard-002-00000011"), batch.orderIds)
+        assertEquals("batch-2-5-000004", batch.batchId)
+        assertEquals(listOf("order-2-5-00000010", "order-2-5-00000011"), batch.orderIds)
         assertEquals(8, batch.orderEvents.size)
         assertEquals(12, batch.batchEvents.size)
         assertEquals(OrderLifecycleEventType.ORDER_CREATED, batch.orderEvents.first().eventType)

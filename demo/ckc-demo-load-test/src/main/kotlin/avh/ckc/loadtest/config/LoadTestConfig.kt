@@ -1,5 +1,6 @@
 package avh.ckc.loadtest.config
 
+import avh.ckc.loadtest.runtime.defaultGeneratorWorkers
 import java.time.Duration
 
 data class LoadTestConfig(
@@ -22,7 +23,8 @@ data class LoadTestConfig(
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
     val publishEnabled: Boolean,
-    val auditLogEnabled: Boolean
+    val auditLogEnabled: Boolean,
+    val generatorWorkers: Int = defaultGeneratorWorkers()
 ) {
     init {
         require(baseTps > 0) { "baseTps must be positive" }
@@ -41,6 +43,7 @@ data class LoadTestConfig(
         require(fakeEntityPrefix.isNotBlank()) { "fakeEntityPrefix must not be blank" }
         require(!statsLogInterval.isNegative && !statsLogInterval.isZero) { "statsLogInterval must be positive" }
         require(diagnosticsBlobSize >= 0) { "diagnosticsBlobSize must be non-negative" }
+        require(generatorWorkers > 0) { "generatorWorkers must be positive" }
     }
 
     companion object {
@@ -66,7 +69,8 @@ data class LoadTestConfig(
                 statsLogInterval = Duration.ofSeconds(environment["STATS_LOG_INTERVAL_SECONDS"]?.toLongOrNull() ?: 30L),
                 diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,
                 publishEnabled = environment["PUBLISH_ENABLED"]?.toBooleanStrictOrNull() ?: true,
-                auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true
+                auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true,
+                generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers()
             )
     }
 }

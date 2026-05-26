@@ -8,6 +8,12 @@ data class ShardContext(
     val testRunId: String?,
     val testRunStartedAt: Instant?
 ) {
+    init {
+        require(shardIndex >= 0) { "shardIndex must be non-negative" }
+        require(totalShards > 0) { "totalShards must be positive" }
+        require(shardIndex < totalShards) { "shardIndex must be less than totalShards" }
+    }
+
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): ShardContext =
             ShardContext(
@@ -17,6 +23,4 @@ data class ShardContext(
                 testRunStartedAt = environment["TEST_RUN_STARTED_AT"]?.let(Instant::parse)
             )
     }
-
-    fun shardToken(): String = "shard-${shardIndex.toString().padStart(3, '0')}"
 }
