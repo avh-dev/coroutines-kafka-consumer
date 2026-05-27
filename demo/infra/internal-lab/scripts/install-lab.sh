@@ -4,12 +4,14 @@ set -euo pipefail
 
 LAB_HOST_IP="${1:-}"
 if [[ -z "${LAB_HOST_IP}" ]]; then
-  echo "Usage: $0 <lab-host-ip>" >&2
+  echo "Usage: $0 <lab-host-ip> [kafka-advertised-host]" >&2
   exit 1
 fi
+LAB_KAFKA_ADVERTISED_HOST="${2:-${LAB_HOST_IP}}"
+LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST:-${LAB_HOST_IP}}"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
 SHARED_GRAFANA_DIR="${REPO_ROOT}/demo/infra/shared/grafana"
@@ -20,6 +22,8 @@ KUBECONFIG_PATH="${STATE_DIR}/kubeconfig.yaml"
 mkdir -p "${STATE_DIR}"
 cat > "${STATE_DIR}/lab.env" <<EOF
 LAB_HOST_IP=${LAB_HOST_IP}
+LAB_KAFKA_ADVERTISED_HOST=${LAB_KAFKA_ADVERTISED_HOST}
+LAB_GRAFANA_HOST=${LAB_GRAFANA_HOST}
 LAB_ROOT=${LAB_ROOT}
 SSH_TARGET=${SSH_TARGET}
 KUBECONFIG=${KUBECONFIG_PATH}
@@ -29,7 +33,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_TARGET}" "mkdir -p '${LAB_ROOT}
 scp -r "${ASSETS_DIR}" "${SSH_TARGET}:${LAB_ROOT}/"
 scp -r "${SHARED_GRAFANA_DIR}" "${SSH_TARGET}:${LAB_ROOT}/shared/"
 ssh "${SSH_TARGET}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh && LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/install-server.sh'"
-ssh "${SSH_TARGET}" "LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
+ssh "${SSH_TARGET}" "LAB_HOST_IP='${LAB_HOST_IP}' LAB_KAFKA_ADVERTISED_HOST='${LAB_KAFKA_ADVERTISED_HOST}' LAB_GRAFANA_HOST='${LAB_GRAFANA_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
 
 scp "${SSH_TARGET}:/etc/rancher/k3s/k3s.yaml" "${KUBECONFIG_PATH}"
 python - "${KUBECONFIG_PATH}" "${LAB_HOST_IP}" <<'PY'
@@ -49,11 +53,11 @@ curl -fsS "http://${LAB_HOST_IP}:3000/api/health" >/dev/null
 curl -fsS "http://${LAB_HOST_IP}:30090/-/ready" >/dev/null
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST_IP}/9092"
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST_IP}/6379"
-ssh "${SSH_TARGET}" "docker exec ckc-perf-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server '${LAB_HOST_IP}:9092' --list >/dev/null"
+ssh "${SSH_TARGET}" "docker exec ckc-perf-redpanda rpk -X brokers='${LAB_HOST_IP}:9092' topic list >/dev/null"
 
 echo "Internal lab is installed."
 echo "  state:      ${STATE_DIR}"
 echo "  kubeconfig: ${KUBECONFIG_PATH}"
-echo "  grafana:    http://${LAB_HOST_IP}:3000"
+echo "  grafana:    http://${LAB_GRAFANA_HOST}:3000"
 echo "  prometheus: http://${LAB_HOST_IP}:30090"
-echo "  kafka:      ${LAB_HOST_IP}:9092"
+echo "  kafka:      ${LAB_KAFKA_ADVERTISED_HOST}:9092"

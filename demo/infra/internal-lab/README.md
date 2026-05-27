@@ -2,7 +2,7 @@
 
 `demo/infra/internal-lab` runs the CKC demo on a dedicated Linux laptop with low overhead.
 
-The app, demo stubs, Prometheus, and metrics-server run in k3s. Kafka, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.demo-infra/internal-lab/`, which is ignored by Git.
+The app, demo stubs, Prometheus, and metrics-server run in k3s. Redpanda, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.demo-infra/internal-lab/`, which is ignored by Git.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ The app, demo stubs, Prometheus, and metrics-server run in k3s. Kafka, Redis, an
 - Local tools: Git Bash-compatible shell, `ssh`, `scp`, `kubectl`, `helm`, Docker, Java/Gradle.
 - Windows users should run all local scripts from Git Bash, not PowerShell.
 
-The lab host IP is provided to `install-lab.sh` and stored in `.demo-infra/internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP.
+The lab host IP is provided to `install-lab.sh` and stored in `.demo-infra/internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP. Grafana uses `LAB_GRAFANA_HOST` when set, otherwise it uses `LAB_HOST_IP`.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ local machine
   .demo-infra/internal-lab/kubeconfig.yaml -> k3s API on lab host
   kubectl / helm -> k3s
   Docker build -> image archive -> scp -> lab host
-  load test -> app NodePort and Kafka on lab host
+  load test -> app NodePort and Redpanda Kafka API on lab host
 
 lab host
   k3s
@@ -29,13 +29,13 @@ lab host
     ckc-demo-stubs Deployment, ClusterIP 8080
     ckc-prometheus Deployment, NodePort 30090
     metrics-server for kubectl top and HPA
-    ckc-external-kafka Service + Endpoints -> host Kafka
+    ckc-external-kafka Service + Endpoints -> host Redpanda
     ckc-external-redis Service + Endpoints -> host Redis
 
   Docker Compose
-    Kafka -> host:9092
+    Redpanda -> host:9092
     Redis -> host:6379
-    Grafana -> host:3000
+    Grafana -> host:3000 on all interfaces
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
@@ -48,6 +48,23 @@ From Git Bash at the repository root:
 ./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP>
 ```
 
+If producers will connect through a hostname that resolves differently on
+different client machines, pass that hostname as the advertised Kafka address:
+
+```sh
+./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP> optilab
+```
+
+Add the same hostname to `/etc/hosts` on Linux clients or to
+`C:\Windows\System32\drivers\etc\hosts` on Windows clients. The hostname must
+resolve to the lab interface reachable from that client.
+
+To access Grafana through a hostname such as `optilab`, set it before install:
+
+```sh
+LAB_GRAFANA_HOST=optilab ./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP> optilab
+```
+
 The installer:
 
 - writes `.demo-infra/internal-lab/lab.env`
@@ -55,10 +72,14 @@ The installer:
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
-- starts host Kafka, Redis, and Grafana
+- starts host Redpanda, Redis, and Grafana
 - provisions Grafana datasource and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
-- verifies `kubectl`, Grafana, Prometheus, and Kafka from the local machine
+- verifies `kubectl`, Grafana, Prometheus, and the Redpanda Kafka API from the local machine
+
+For an existing lab, set or update `LAB_KAFKA_ADVERTISED_HOST` in
+`.demo-infra/internal-lab/lab.env`, rerun `install-lab.sh`, then rerun
+`prepare-test.sh` so demo pods get the matching host alias.
 
 After install:
 
@@ -100,6 +121,7 @@ Build demo and stubs images locally, copy them to the lab, and load them into Do
 ```
 
 The app and stubs images are used by k3s.
+The interactive test runner checks the same image fingerprint and refreshes images automatically when they are missing or stale.
 
 ## Prepare A Test
 
@@ -129,13 +151,13 @@ This script:
 - removes any old demo HPA and scales the demo app down so consumer groups are inactive
 - resets Redis on the lab host
 - deletes stale Kafka consumer groups for the demo app
-- deletes and recreates Kafka topics on the lab host
+- deletes and recreates Redpanda topics on the lab host
 - deploys `ckc-demo-stubs` with the selected stubs Helm profile
 - deploys `ckc-demo` with the selected app Helm profile
 
 ## Run A Test
 
-Run the load generator locally as a Java process:
+Prepare the selected test definition and run the load generator locally as a Java process:
 
 ```sh
 ./demo/infra/internal-lab/scripts/run-test.sh
@@ -147,16 +169,36 @@ You can still pass an explicit definition when needed:
 ./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-internal
 ```
 
+To rerun only the local load generator without resetting Redis, topics, or Kubernetes deployments:
+
+```sh
+./demo/infra/internal-lab/scripts/run-test.sh --skip-prepare ckc-baseline-internal
+```
+
 The script reads `load_test` settings from the test definition, exports them as environment variables for `ckc-demo-load-test`, and redirects stdout/stderr to:
+
+Before preparing the test, the script compares the current local demo image fingerprint with the fingerprint stored on the lab host. If the images are missing or stale, it rebuilds the demo and stubs images locally and loads them into Docker and k3s on the lab.
+
+Force image refresh even when the fingerprint matches:
+
+```sh
+./demo/infra/internal-lab/scripts/run-test.sh --refresh-images ckc-baseline-internal
+```
+
+Skip the image freshness check when you only need to rerun against the current lab deployment:
+
+```sh
+./demo/infra/internal-lab/scripts/run-test.sh --skip-image-check ckc-baseline-internal
+```
 
 ```text
 .demo-infra/internal-lab/logs/
 ```
 
-It prints the Java process PID and the stop command:
+It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
 
 ```sh
-kill <PID>
+Press q to stop the test early.
 ```
 
 ## Endpoints
@@ -166,8 +208,8 @@ Use `.demo-infra/internal-lab/lab.env` for the actual IP:
 ```text
 App:        http://$LAB_HOST_IP:30080
 Prometheus: http://$LAB_HOST_IP:30090
-Grafana:    http://$LAB_HOST_IP:3000
-Kafka:      $LAB_HOST_IP:9092
+Grafana:    http://${LAB_GRAFANA_HOST:-$LAB_HOST_IP}:3000
+Kafka API:  $LAB_KAFKA_ADVERTISED_HOST:9092
 Redis:      $LAB_HOST_IP:6379
 ```
 
@@ -176,7 +218,7 @@ Grafana credentials are `admin` / `admin`.
 The shared dashboard is provisioned under the `CKC` folder:
 
 ```text
-http://$LAB_HOST_IP:3000/d/ckc-overview/ckc-overview
+http://${LAB_GRAFANA_HOST:-$LAB_HOST_IP}:3000/d/ckc-overview/ckc-overview
 ```
 
 ## Scaling And HPA
@@ -278,7 +320,7 @@ Host checks:
 ```sh
 ssh "$SSH_TARGET" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 ssh "$SSH_TARGET" "docker exec ckc-perf-redis redis-cli PING"
-ssh "$SSH_TARGET" "docker exec ckc-perf-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server ${LAB_HOST_IP}:9092 --list"
+ssh "$SSH_TARGET" "docker exec ckc-perf-redpanda rpk -X brokers=${LAB_HOST_IP}:9092 topic list"
 ```
 
 ## Benchmark Stability
@@ -296,7 +338,7 @@ The default demo app values set memory limits but do not set CPU limits. CPU lim
 
 ## Typical Pitfalls
 
-- Kafka `advertised.listeners` points at `localhost`.
+- Redpanda's advertised Kafka address points at `localhost`.
 - The app uses `localhost` for Redis, Kafka, or stubs from inside Kubernetes.
 - Images were rebuilt locally but not loaded into k3s.
 - Kafka topics were not recreated between tests.

@@ -18,6 +18,7 @@ env:
   redisHost: ""
   redisPort: 6379
   modelBaseUrl: ""
+  modelClient: KTOR_CIO
   auditLogEnabled: true
   orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   orderWorkerConcurrency: 2
@@ -57,3 +58,5 @@ hpa:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+
+hostAliases: []

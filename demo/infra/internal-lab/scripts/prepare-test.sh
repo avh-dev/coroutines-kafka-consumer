@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 TEST_STATE_PATH="${STATE_DIR}/selected-test-definition"
 TEST_DIR="${REPO_ROOT}/demo/infra/shared/test-definitions"
@@ -47,6 +47,20 @@ python "${REPO_ROOT}/demo/infra/internal-lab/scripts/helpers/definition-env.py" 
 source "${ENV_FILE}"
 
 export KUBECONFIG="${KUBECONFIG}"
+LAB_KAFKA_ADVERTISED_HOST="${LAB_KAFKA_ADVERTISED_HOST:-${LAB_HOST_IP}}"
+
+require_lab_image() {
+  local image="$1"
+
+  if ! ssh "${SSH_TARGET}" "k3s ctr images list -q | grep -Fxq '${image}'"; then
+    echo "Required lab image is not loaded into k3s: ${image}" >&2
+    echo "Run demo/infra/internal-lab/scripts/build-load-images.sh, then rerun this script." >&2
+    exit 1
+  fi
+}
+
+require_lab_image "docker.io/ckc-perf/demo:latest"
+require_lab_image "docker.io/ckc-perf/demo-stubs:latest"
 
 kubectl -n ckc-perf delete hpa ckc-demo --ignore-not-found=true
 if kubectl -n ckc-perf get deployment ckc-demo >/dev/null 2>&1; then
@@ -62,10 +76,19 @@ helm upgrade --install ckc-demo-stubs "${REPO_ROOT}/demo/infra/shared/helm/demo-
   -f "${REPO_ROOT}/demo/infra/internal-lab/assets/config/demo-stubs-values.yaml" \
   -f "${REPO_ROOT}/demo/infra/shared/helm/demo-stubs/profiles/${STUBS_PROFILE}.yaml"
 
+DEMO_HELM_ARGS=()
+if [[ "${LAB_KAFKA_ADVERTISED_HOST}" != "${LAB_HOST_IP}" ]]; then
+  DEMO_HELM_ARGS+=(
+    --set "hostAliases[0].ip=${LAB_HOST_IP}"
+    --set "hostAliases[0].hostnames[0]=${LAB_KAFKA_ADVERTISED_HOST}"
+  )
+fi
+
 helm upgrade --install ckc-demo "${REPO_ROOT}/demo/infra/shared/helm/demo" \
   --namespace ckc-perf \
   -f "${REPO_ROOT}/demo/infra/internal-lab/assets/config/demo-values.yaml" \
-  -f "${REPO_ROOT}/demo/infra/shared/helm/demo/profiles/${APP_PROFILE}.yaml"
+  -f "${REPO_ROOT}/demo/infra/shared/helm/demo/profiles/${APP_PROFILE}.yaml" \
+  "${DEMO_HELM_ARGS[@]}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo-stubs --timeout=10m
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
@@ -75,3 +98,4 @@ echo "Test definition is prepared."
 echo "  app_profile=${APP_PROFILE}"
 echo "  stubs_profile=${STUBS_PROFILE}"
 echo "  topics=${TOPIC_SPECS}"
+echo "  kafka_advertised_host=${LAB_KAFKA_ADVERTISED_HOST}"

@@ -8,6 +8,8 @@ if [ -z "${LAB_HOST_IP:-}" ]; then
 fi
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_KAFKA_ADVERTISED_HOST="${LAB_KAFKA_ADVERTISED_HOST:-${LAB_HOST_IP}}"
+LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST:-${LAB_HOST_IP}}"
 ASSETS_DIR="${ASSETS_DIR:-${LAB_ROOT}/assets}"
 SHARED_GRAFANA_DIR="${SHARED_GRAFANA_DIR:-${LAB_ROOT}/shared/grafana}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
@@ -36,7 +38,7 @@ cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/
 cp "${SHARED_GRAFANA_DIR}/dashboards/ckc-overview.json" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
 cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
 
-for container in ckc-perf-kafka ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter; do
+for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -45,11 +47,11 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_HOST_IP="${LAB_HOST_IP}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --remove-orphans kafka redis grafana kafka-exporter
+LAB_HOST_IP="${LAB_HOST_IP}" LAB_KAFKA_ADVERTISED_HOST="${LAB_KAFKA_ADVERTISED_HOST}" LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --remove-orphans kafka redis grafana kafka-exporter
 
 echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST_IP}:30080"
 echo "  prometheus: http://${LAB_HOST_IP}:30090"
-echo "  grafana:    http://${LAB_HOST_IP}:3000"
-echo "  kafka:      ${LAB_HOST_IP}:9092"
+echo "  grafana:    http://${LAB_GRAFANA_HOST}:3000"
+echo "  kafka:      ${LAB_KAFKA_ADVERTISED_HOST}:9092"
 echo "  redis:      ${LAB_HOST_IP}:6379"

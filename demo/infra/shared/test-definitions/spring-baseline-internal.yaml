@@ -1,20 +1,20 @@
 name: ckc-baseline-internal
 
 deployment:
-  app_profile: ckc-local-baseline
+  app_profile: spring-kafka-local-baseline
   stubs_profile: baseline
   kafka_topics:
     - name: order.events.v1
-      partitions: 6
+      partitions: 40
     - name: batch.events.v1
-      partitions: 6
+      partitions: 40
     - name: cauldron.events.v1
-      partitions: 6
+      partitions: 40
 
 
 load_test:
   shards: 1
-  base_tps: 2000
+  base_tps: 1000
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40

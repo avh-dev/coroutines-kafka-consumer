@@ -14,6 +14,10 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
     spec:
+{{- with .Values.hostAliases }}
+      hostAliases:
+{{ toYaml . | indent 8 }}
+{{- end }}
       containers:
         - name: demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -35,6 +39,8 @@ spec:
               value: {{ .Values.env.redisPort | quote }}
             - name: MODEL_BASE_URL
               value: {{ .Values.env.modelBaseUrl | quote }}
+            - name: MODEL_CLIENT
+              value: {{ .Values.env.modelClient | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
             - name: ORDER_PROCESSING_MODE

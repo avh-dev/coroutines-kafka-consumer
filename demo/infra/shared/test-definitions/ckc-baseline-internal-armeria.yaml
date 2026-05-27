@@ -1,7 +1,7 @@
 name: ckc-baseline-internal
 
 deployment:
-  app_profile: ckc-local-baseline
+  app_profile: ckc-local-baseline-armeria
   stubs_profile: baseline
   kafka_topics:
     - name: order.events.v1

@@ -85,6 +85,7 @@
 | [INFRA-26](#infra-26) | Update demo infrastructure topics, Helm wiring, scripts, and dashboards for order, batch, and cauldron aggregate event streams.              | DONE |
 | [INFRA-27](#infra-27) | Switch the local-dev Kafka broker to Redpanda while preserving the existing local Kafka endpoint and topic helper workflow.                   | DONE |
 | [INFRA-28](#infra-28) | Add local-dev scripts and env profiles for running and stopping load-test and demo-stubs processes from `.demo-infra`.                       | DONE |
+| [INFRA-29](#infra-29) | Switch the internal lab broker to Redpanda and run lab load tests through an interactive local process script.                                | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -875,6 +876,17 @@ Add matching helpers for running and stopping the demo stubs service with select
 Add a separate local demo app runner with selectable app profiles and runtime settings.
 Add a single interactive `run-test.sh` orchestration entrypoint for compose startup, stubs, topics, load-test execution, and cleanup.
 Store local run configuration, pid files, and logs under `.demo-infra/local-dev` so repo-root temporary state stays centralized.
+
+<a id="infra-29"></a>
+### INFRA-29 - Use Redpanda and local interactive lab load tests
+
+_Date: 2026-05-26_
+
+Switch the internal lab host broker from Apache Kafka to Redpanda while keeping the same Kafka API endpoint for apps and local load tests.
+Bind the external broker listener on all host interfaces and advertise the lab host IP so laptop-started generators receive a reachable broker address.
+Update lab reset and install verification scripts to use `rpk` for topic and consumer-group operations.
+Rework the internal lab `run-test.sh` flow so it prepares the selected test definition, starts the load generator as a local Java process, and allows interactive early stop with `q`.
+Make the lab runner compare local demo image fingerprints with the lab host and automatically rebuild/load images when they are stale or absent.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

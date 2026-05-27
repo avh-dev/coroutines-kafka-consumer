@@ -169,6 +169,7 @@ def main() -> None:
         "DIAGNOSTICS_BLOB_SIZE": str(load_test.get("diagnostics_blob_size", 512)),
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
         "AUDIT_LOG_ENABLED": str(load_test.get("audit_log_enabled", True)).lower(),
+        "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
     }
 
     for key, value in assignments.items():
