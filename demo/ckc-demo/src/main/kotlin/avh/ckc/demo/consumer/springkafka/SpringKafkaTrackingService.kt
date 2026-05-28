@@ -23,6 +23,7 @@ class SpringKafkaTrackingService(
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
+    private val auditLog: AuditLog,
     private val recordMetrics: DemoRecordMetrics,
     @Qualifier("springKafkaOrderConsumerMetrics")
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
@@ -45,7 +46,7 @@ class SpringKafkaTrackingService(
                 latencyOnlySleep()
             }
             recordMetrics.onProcessed(orderConsumerMetrics, context, event, startedAt)
-            auditProcessed(context.topic, context.partition, context.offset)
+            auditProcessed(context)
             logger.debug("Spring Kafka order event received for key={}, order={}", context.key, event.orderId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(orderConsumerMetrics, context, event, startedAt, error)
@@ -65,7 +66,7 @@ class SpringKafkaTrackingService(
                 latencyOnlySleep()
             }
             recordMetrics.onProcessed(batchConsumerMetrics, context, event, startedAt)
-            auditProcessed(context.topic, context.partition, context.offset)
+            auditProcessed(context)
             logger.debug("Spring Kafka batch event received for key={}, batch={}", context.key, event.batchId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(batchConsumerMetrics, context, event, startedAt, error)
@@ -85,7 +86,7 @@ class SpringKafkaTrackingService(
                 latencyOnlySleep()
             }
             recordMetrics.onProcessed(telemetryConsumerMetrics, context, event, startedAt)
-            auditProcessed(context.topic, context.partition, context.offset)
+            auditProcessed(context)
             logger.debug("Spring Kafka telemetry event received for key={}, cauldron={}", context.key, event.cauldronId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(telemetryConsumerMetrics, context, event, startedAt, error)
@@ -97,9 +98,7 @@ class SpringKafkaTrackingService(
         Thread.sleep((5L..8L).random())
     }
 
-    private fun auditProcessed(topic: String, partition: Int, offset: Long) {
-        if (properties.audit.enabled) {
-            AuditLog.processed(topic, partition, offset)
-        }
+    private fun auditProcessed(context: DemoConsumerRecordContext) {
+        auditLog.processed(context.topic, context.key, context.partition, context.offset, context.timestamp)
     }
 }

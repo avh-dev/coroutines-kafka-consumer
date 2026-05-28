@@ -43,6 +43,20 @@ spec:
               value: {{ .Values.env.modelClient | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
+            - name: AUDIT_LOG_DIR
+              value: {{ .Values.env.auditLogDir | quote }}
+            - name: AUDIT_LOG_FILE_PREFIX
+              value: {{ .Values.env.auditLogFilePrefix | quote }}
+            - name: AUDIT_QUEUE_CAPACITY
+              value: {{ .Values.env.auditQueueCapacity | quote }}
+            - name: AUDIT_FLUSH_RECORDS
+              value: {{ .Values.env.auditFlushRecords | quote }}
+            - name: AUDIT_FLUSH_INTERVAL_MS
+              value: {{ .Values.env.auditFlushIntervalMs | quote }}
+            - name: AUDIT_FSYNC_INTERVAL_MS
+              value: {{ .Values.env.auditFsyncIntervalMs | quote }}
+            - name: AUDIT_MAX_SEGMENT_BYTES
+              value: {{ .Values.env.auditMaxSegmentBytes | quote }}
             - name: ORDER_PROCESSING_MODE
               value: {{ .Values.env.orderProcessingMode | quote }}
             - name: ORDER_WORKER_CONCURRENCY
@@ -96,4 +110,16 @@ spec:
 {{- with .Values.resources }}
           resources:
 {{ toYaml . | indent 12 }}
+{{- end }}
+{{- if .Values.auditVolume.enabled }}
+          volumeMounts:
+            - name: demo-audit
+              mountPath: {{ .Values.auditVolume.mountPath | quote }}
+{{- end }}
+{{- if .Values.auditVolume.enabled }}
+      volumes:
+        - name: demo-audit
+          hostPath:
+            path: {{ .Values.auditVolume.hostPath | quote }}
+            type: DirectoryOrCreate
 {{- end }}

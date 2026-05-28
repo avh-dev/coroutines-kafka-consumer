@@ -19,6 +19,8 @@ env:
   redisPort: 6379
   modelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
   auditLogEnabled: true
+  auditLogDir: /var/lib/ckc-audit/processed
+  auditLogFilePrefix: ""
   orderWorkerConcurrency: 50
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 512
@@ -53,3 +55,8 @@ probes:
 
 hpa:
   enabled: false
+
+auditVolume:
+  enabled: true
+  hostPath: /opt/ckc-internal-lab/audit/current/processed
+  mountPath: /var/lib/ckc-audit
