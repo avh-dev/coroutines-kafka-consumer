@@ -91,6 +91,7 @@
 | [INFRA-29](#infra-29) | Switch the internal lab broker to Redpanda and run lab load tests through an interactive local process script.                                | DONE |
 | [INFRA-30](#infra-30) | Add internal-lab host service CPU observability and restore Redpanda-backed Kafka lag metrics.                                                | DONE |
 | [INFRA-31](#infra-31) | Increase internal-lab Redpanda and Redis resource limits for high-partition consumer load tests.                                                | DONE |
+| [INFRA-32](#infra-32) | Refresh the Grafana dashboard with clearer host service CPU, Kafka offset lag, batch stream, pod CPU, and recently added metric coverage.         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -938,6 +939,16 @@ Raise the internal-lab Redpanda container from one CPU and a 512M Redpanda memor
 Increase the Docker memory limit to 4G so Redpanda has headroom outside the Seastar allocator during high-partition consumer load tests.
 Raise Redis maxmemory to 2G, align its Docker memory limit, and use noeviction so state pressure fails visibly instead of dropping keys.
 Keep the change scoped to host-managed internal lab services used by optilab.
+
+<a id="infra-32"></a>
+### INFRA-32 - Refresh Grafana dashboard coverage
+
+_Date: 2026-05-28_
+
+Rework the shared Grafana dashboard so host service CPU is shown in millicores and split between Redpanda and Redis.
+Clarify Kafka offset lag panels and fix missing lag visibility for Spring Kafka where possible.
+Add missing batch-stream and pod CPU panels, remove low-value JVM CPU panels, and review panels for recently added demo metrics.
+Add model-call, drop-throughput, and OffsetTracker capacity panels so newer demo and CKC metrics have dashboard coverage.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
