@@ -38,12 +38,12 @@ services:
     restart: unless-stopped
     ports:
       - "${LAB_HOST_IP}:6379:6379"
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 768M
+          memory: 2G
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

@@ -89,7 +89,7 @@
 | [INFRA-28](#infra-28) | Add local-dev scripts and env profiles for running and stopping load-test and demo-stubs processes from `.demo-infra`.                       | DONE |
 | [INFRA-29](#infra-29) | Switch the internal lab broker to Redpanda and run lab load tests through an interactive local process script.                                | DONE |
 | [INFRA-30](#infra-30) | Add internal-lab host service CPU observability and restore Redpanda-backed Kafka lag metrics.                                                | DONE |
-| [INFRA-31](#infra-31) | Increase internal-lab Redpanda CPU and memory limits for high-partition consumer load tests.                                                   | DONE |
+| [INFRA-31](#infra-31) | Increase internal-lab Redpanda and Redis resource limits for high-partition consumer load tests.                                                | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -920,13 +920,14 @@ Expose the process-exporter endpoint to in-cluster Prometheus through the existi
 Update Kafka exporter topic filters for the aggregate topic names used after the Redpanda migration so consumer lag panels are populated again.
 
 <a id="infra-31"></a>
-### INFRA-31 - Increase internal-lab Redpanda resources
+### INFRA-31 - Increase internal-lab Redpanda and Redis resources
 
 _Date: 2026-05-28_
 
 Raise the internal-lab Redpanda container from one CPU and a 512M Redpanda memory budget to two CPU shards and a 3G Redpanda memory budget.
 Increase the Docker memory limit to 4G so Redpanda has headroom outside the Seastar allocator during high-partition consumer load tests.
-Keep the change scoped to the host-managed internal lab broker used by optilab.
+Raise Redis maxmemory to 2G, align its Docker memory limit, and use noeviction so state pressure fails visibly instead of dropping keys.
+Keep the change scoped to host-managed internal lab services used by optilab.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
