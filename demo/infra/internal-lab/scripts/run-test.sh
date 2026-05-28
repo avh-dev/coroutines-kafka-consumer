@@ -7,11 +7,16 @@ REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 LOG_DIR="${STATE_DIR}/logs"
 PID_DIR="${STATE_DIR}/pids"
+AUDIT_DIR="${STATE_DIR}/audit"
 TEST_STATE_PATH="${STATE_DIR}/selected-test-definition"
 TEST_DIR="${REPO_ROOT}/demo/infra/shared/test-definitions"
 RUN_PREPARE=1
 CHECK_IMAGES=1
 FORCE_IMAGES=0
+WAIT_FOR_CONSUMER_DRAIN="${WAIT_FOR_CONSUMER_DRAIN:-1}"
+CONSUMER_DRAIN_TIMEOUT_SECONDS="${CONSUMER_DRAIN_TIMEOUT_SECONDS:-900}"
+CONSUMER_DRAIN_STABLE_SECONDS="${CONSUMER_DRAIN_STABLE_SECONDS:-15}"
+CONSUMER_DRAIN_POLL_SECONDS="${CONSUMER_DRAIN_POLL_SECONDS:-5}"
 TEST_DEFINITION=""
 
 # shellcheck disable=SC1091
@@ -29,6 +34,8 @@ Options:
   --skip-image-check
                    Do not compare or refresh lab images before prepare.
   --refresh-images Build and load lab images before prepare even if unchanged.
+  --skip-drain-wait
+                   Do not wait for Kafka consumer lag to reach zero before audit analysis.
   -h, --help       Show this help.
 EOF
 }
@@ -45,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --refresh-images)
       FORCE_IMAGES=1
+      shift
+      ;;
+    --skip-drain-wait)
+      WAIT_FOR_CONSUMER_DRAIN=0
       shift
       ;;
     -h|--help)
@@ -179,6 +190,14 @@ fi
 
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
+RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
+PUBLISHED_AUDIT_DIR="${RUN_AUDIT_DIR}/published"
+PROCESSED_AUDIT_DIR="${RUN_AUDIT_DIR}/processed"
+mkdir -p "${PUBLISHED_AUDIT_DIR}" "${PROCESSED_AUDIT_DIR}"
+PUBLISHED_AUDIT_DIR_FOR_JAVA="${PUBLISHED_AUDIT_DIR}"
+if command -v cygpath >/dev/null 2>&1; then
+  PUBLISHED_AUDIT_DIR_FOR_JAVA="$(cygpath -w "${PUBLISHED_AUDIT_DIR}")"
+fi
 
 BOOTSTRAP_SERVERS="${LAB_KAFKA_ADVERTISED_HOST}:9092" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
@@ -205,6 +224,8 @@ DIAGNOSTICS_BLOB_SIZE="${DIAGNOSTICS_BLOB_SIZE}" \
 TELEMETRY_SOURCE_MODE="${TELEMETRY_SOURCE_MODE}" \
 PUBLISH_ENABLED="${PUBLISH_ENABLED}" \
 AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}" \
+AUDIT_LOG_DIR="${PUBLISHED_AUDIT_DIR_FOR_JAVA}" \
+AUDIT_LOG_FILE_PREFIX="published-${RUN_ID}" \
 LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
 nohup java -jar "${JAR_PATH}" > "${LOG_PATH}" 2>&1 &
 
@@ -214,6 +235,7 @@ echo "${PID}" > "${PID_PATH}"
 echo "Load test started."
 echo "  pid=${PID}"
 echo "  log=${LOG_PATH}"
+echo "  audit=${RUN_AUDIT_DIR}"
 echo "  pid_file=${PID_PATH}"
 echo "  bootstrap=${LAB_KAFKA_ADVERTISED_HOST}:9092"
 echo "  test_definition=$(basename "${TEST_DEFINITION}")"
@@ -276,3 +298,22 @@ while true; do
 done
 
 trap - INT TERM
+
+if [[ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]]; then
+  echo
+  echo "Waiting for demo consumer lag to drain before audit collection."
+  python "${SCRIPT_DIR}/helpers/wait-consumer-drain.py" \
+    --prometheus-url "http://${LAB_HOST_IP}:30090" \
+    --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
+    --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
+    --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}"
+fi
+
+echo
+echo "Collecting processed audit files from lab host."
+ssh "${SSH_TARGET}" "mkdir -p '${LAB_ROOT}/audit/current/processed'"
+ssh "${SSH_TARGET}" "cd '${LAB_ROOT}/audit/current/processed' && tar -cf - -- *.tsv 2>/dev/null || true" \
+  | tar -xf - -C "${PROCESSED_AUDIT_DIR}" 2>/dev/null || true
+python "${SCRIPT_DIR}/helpers/analyze-audit.py" \
+  --published-dir "${PUBLISHED_AUDIT_DIR}" \
+  --processed-dir "${PROCESSED_AUDIT_DIR}" | tee "${RUN_AUDIT_DIR}/summary.txt"

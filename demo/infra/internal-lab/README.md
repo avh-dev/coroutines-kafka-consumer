@@ -196,6 +196,27 @@ Skip the image freshness check when you only need to rerun against the current l
 .demo-infra/internal-lab/logs/
 ```
 
+High-volume publish and processed audit records are written outside stdout.
+For each run, `run-test.sh` stores published records from the local load
+generator and processed records copied from the lab host under:
+
+```text
+.demo-infra/internal-lab/audit/<run-id>/
+```
+
+The runner prints and saves `summary.txt` with published, processed, missing,
+duplicate, and latency counts calculated from the audit TSV files.
+
+After the local generator exits, the runner waits for Prometheus
+`kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
+and stay there briefly before collecting processed audit files. Override the
+wait with:
+
+```sh
+CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 ./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-internal
+./demo/infra/internal-lab/scripts/run-test.sh --skip-drain-wait ckc-baseline-internal
+```
+
 It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
 
 ```sh
