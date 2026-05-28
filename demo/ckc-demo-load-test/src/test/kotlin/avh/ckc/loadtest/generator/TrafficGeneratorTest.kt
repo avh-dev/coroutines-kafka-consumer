@@ -4,6 +4,7 @@ import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.config.TelemetrySourceMode
 import avh.ckc.loadtest.kafka.LoadTestPublisher
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.scenario.LoadScenario
@@ -39,6 +40,7 @@ class TrafficGeneratorTest {
             fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
+            telemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
             publishEnabled = true,
             auditLogEnabled = false
         )
@@ -80,6 +82,7 @@ class TrafficGeneratorTest {
             fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
+            telemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
             publishEnabled = true,
             auditLogEnabled = false
         )
@@ -95,6 +98,47 @@ class TrafficGeneratorTest {
 
         assertTrue(publisher.telemetryKeys.isNotEmpty())
         assertTrue(publisher.telemetryKeys.all { it.startsWith("fake-cauldron-") })
+    }
+
+    @Test
+    fun `fixed fleet telemetry prepares active batches and cycles cauldron keys`() = runBlocking {
+        val publisher = RecordingPublisher()
+        val config = LoadTestConfig(
+            bootstrapServers = "localhost:9092",
+            orderEventsTopic = "order.events.v1",
+            batchEventsTopic = "batch.events.v1",
+            cauldronEventsTopic = "cauldron.events.v1",
+            baseTps = 120,
+            orderEventPercent = 0,
+            batchEventPercent = 0,
+            cauldronTelemetryPercent = 100,
+            loadProfile = "100 -> (1s, steady) -> 100",
+            cauldronCount = 4,
+            minOrdersPerBatch = 3,
+            maxOrdersPerBatch = 3,
+            minBrewingSteps = 5,
+            maxBrewingSteps = 5,
+            maxBurst = 100,
+            fakeEntityPrefix = "fake",
+            statsLogInterval = Duration.ofSeconds(30),
+            diagnosticsBlobSize = 8,
+            telemetrySourceMode = TelemetrySourceMode.FIXED_FLEET,
+            publishEnabled = true,
+            auditLogEnabled = false
+        )
+
+        withTimeout(2_500) {
+            TrafficGenerator(
+                shardContext = ShardContext(shardIndex = 0, totalShards = 1, testRunId = "test", testRunStartedAt = null),
+                config = config,
+                scenario = LoadScenario.parse(config.loadProfile),
+                producers = publisher
+            ).run()
+        }
+
+        assertTrue(publisher.telemetryKeys.isNotEmpty())
+        assertTrue(publisher.batchSent >= 12)
+        assertTrue((1..4).all { index -> "cauldron-0-0-000$index" in publisher.telemetryKeys })
     }
 
     private class RecordingPublisher : LoadTestPublisher {

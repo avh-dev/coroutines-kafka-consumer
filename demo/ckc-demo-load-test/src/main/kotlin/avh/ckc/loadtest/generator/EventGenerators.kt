@@ -1,6 +1,7 @@
  package avh.ckc.loadtest.generator
 
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.config.TelemetrySourceMode
 import avh.ckc.loadtest.domain.LoadTestEventFactory
 import avh.ckc.loadtest.domain.SimulatedBatch
 import avh.ckc.loadtest.domain.SimulationState
@@ -190,9 +191,13 @@ fun eventGenerators(
             override val weight = 1.0
             private val telemetryFactory = avh.ckc.loadtest.domain.CauldronTelemetryFactory(config.diagnosticsBlobSize)
             override fun emit(now: Instant): EmitResult {
-                val batch = state.takeActiveBatchForTelemetry()
-                val real = batch != null
-                val value = batch ?: state.fakeBatch(now, cauldron = true)
+                val value = when (config.telemetrySourceMode) {
+                    TelemetrySourceMode.ACTIVE_BATCHES -> state.takeActiveBatchForTelemetry()
+                        ?: state.fakeBatch(now, cauldron = true)
+                    TelemetrySourceMode.FIXED_FLEET -> state.takeFixedFleetBatchForTelemetry(now)
+                }
+                val real = config.telemetrySourceMode == TelemetrySourceMode.FIXED_FLEET ||
+                    !value.batchId.startsWith("${config.fakeEntityPrefix}-")
                 val active = avh.ckc.loadtest.domain.ActiveBatch(
                     batchId = value.batchId,
                     cauldronId = value.cauldronId.orEmpty(),

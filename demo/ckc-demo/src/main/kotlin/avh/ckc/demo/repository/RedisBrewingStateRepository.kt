@@ -9,6 +9,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import reactor.core.publisher.Mono
+import java.time.Duration
 import java.util.concurrent.CompletionStage
 
 class RedisSyncBrewingStateRepository(
@@ -33,10 +34,6 @@ class RedisSyncBrewingStateRepository(
 
     override fun saveActiveBatchId(cauldronId: String, batchId: String) {
         store.saveActiveBatchId(cauldronId, batchId).toCompletableFuture().join()
-    }
-
-    override fun deleteActiveBatchId(cauldronId: String) {
-        store.deleteActiveBatchId(cauldronId).toCompletableFuture().join()
     }
 
     override fun findEtaContext(batchId: String): EtaContext? =
@@ -78,10 +75,6 @@ class RedisSuspendBrewingStateRepository(
         store.saveActiveBatchId(cauldronId, batchId).await()
     }
 
-    override suspend fun deleteActiveBatchId(cauldronId: String) {
-        store.deleteActiveBatchId(cauldronId).await()
-    }
-
     override suspend fun findEtaContext(batchId: String): EtaContext? =
         store.findEtaContext(batchId).await()
 
@@ -119,9 +112,6 @@ class RedisBrewingStateStore(
     fun saveActiveBatchId(cauldronId: String, batchId: String): CompletionStage<Void> =
         save(activeBatchKey(cauldronId), batchId.encodeToByteArray())
 
-    fun deleteActiveBatchId(cauldronId: String): CompletionStage<Void> =
-        delete(activeBatchKey(cauldronId))
-
     fun findEtaContext(batchId: String): CompletionStage<EtaContext?> =
         loadJson(etaContextKey(batchId), EtaContext.serializer())
 
@@ -141,10 +131,7 @@ class RedisBrewingStateStore(
         save(key, json.encodeToString(serializer, value).encodeToByteArray())
 
     private fun save(key: String, value: ByteArray): CompletionStage<Void> =
-        orderRedisTemplate.opsForValue().set(key, value).toFuture().thenAccept { }
-
-    private fun delete(key: String): CompletionStage<Void> =
-        orderRedisTemplate.delete(key).toFuture().thenAccept { }
+        orderRedisTemplate.opsForValue().set(key, value, STATE_RETENTION).toFuture().thenAccept { }
 
     private fun load(key: String): CompletionStage<ByteArray?> =
         orderRedisTemplate.opsForValue().get(key)
@@ -160,4 +147,8 @@ class RedisBrewingStateStore(
     private fun etaContextKey(batchId: String): String = "eta-context:$batchId"
 
     private fun orderFlavourKey(orderId: String): String = "order-flavour:$orderId"
+
+    private companion object {
+        private val STATE_RETENTION: Duration = Duration.ofMinutes(10)
+    }
 }

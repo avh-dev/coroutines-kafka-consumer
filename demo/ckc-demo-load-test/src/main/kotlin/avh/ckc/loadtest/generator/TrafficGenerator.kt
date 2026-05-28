@@ -1,6 +1,7 @@
 package avh.ckc.loadtest.generator
 
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.config.TelemetrySourceMode
 import avh.ckc.loadtest.domain.LoadTestEventFactory
 import avh.ckc.loadtest.domain.SimulationState
 import avh.ckc.loadtest.kafka.LoadTestPublisher
@@ -25,8 +26,9 @@ class TrafficGenerator(
     private val stats = TrafficStats()
 
     suspend fun run(flushOnCompletion: Boolean = true) = coroutineScope {
-        val startedAt = shardContext.testRunStartedAt ?: Instant.now()
         val factory = LoadTestEventFactory(identity)
+        prepareFixedFleetIfNeeded(factory)
+        val startedAt = shardContext.testRunStartedAt ?: Instant.now()
         val generators = eventGenerators(config, state, factory, producers)
         val topicWeights = generators
             .groupBy(EventGenerator::topic)
@@ -57,5 +59,20 @@ class TrafficGenerator(
         if (flushOnCompletion) {
             producers.flush()
         }
+    }
+
+    private fun prepareFixedFleetIfNeeded(factory: LoadTestEventFactory) {
+        if (config.telemetrySourceMode != TelemetrySourceMode.FIXED_FLEET) {
+            return
+        }
+
+        val now = Instant.now()
+        state.fixedFleetBatches(now).forEach { batch ->
+            producers.sendBatch(batch.batchId, factory.batchCreated(batch, now))
+            producers.sendBatch(batch.batchId, factory.batchCauldronAssigned(batch, now))
+            producers.sendBatch(batch.batchId, factory.batchBrewingStarted(batch, now))
+        }
+        producers.flush()
+        producers.logSnapshot("${identity.label()} fixed-fleet-prepared cauldrons=${config.cauldronCount}")
     }
 }

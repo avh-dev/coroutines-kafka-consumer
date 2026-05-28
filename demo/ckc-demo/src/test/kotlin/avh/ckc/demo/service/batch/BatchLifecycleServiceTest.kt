@@ -9,7 +9,6 @@ import avh.ckc.demo.model.OrderFlavour
 import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class BatchLifecycleServiceTest {
@@ -65,7 +64,7 @@ class BatchLifecycleServiceTest {
     }
 
     @Test
-    fun `deletes active batch when completed batch matches active one`() {
+    fun `retains active batch when completed batch matches active one`() {
         val repository = FakeBrewingStateRepository(
             activeBatchIds = mutableMapOf("cauldron-3" to "batch-11")
         )
@@ -79,7 +78,7 @@ class BatchLifecycleServiceTest {
             )
         )
 
-        assertNull(repository.activeBatchIds["cauldron-3"])
+        assertEquals("batch-11", repository.activeBatchIds["cauldron-3"])
     }
 
     private fun batchEvent(
@@ -128,10 +127,6 @@ private class FakeBrewingStateRepository(
 
     override fun saveActiveBatchId(cauldronId: String, batchId: String) {
         activeBatchIds[cauldronId] = batchId
-    }
-
-    override fun deleteActiveBatchId(cauldronId: String) {
-        activeBatchIds.remove(cauldronId)
     }
 
     override fun findEtaContext(batchId: String): EtaContext? = etaContexts[batchId]

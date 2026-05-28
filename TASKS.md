@@ -58,6 +58,7 @@
 | [DEMO-29](#demo-29) | Replace the demo stubs Ktor Netty server with an Armeria server to reduce thread overhead during model-client load tests.                   | DONE |
 | [DEMO-30](#demo-30) | Add in-process load-test workers with isolated shard state and a shared publisher so one JVM can use multiple CPU cores.                   | DONE |
 | [DEMO-31](#demo-31) | Add demo model-call metrics for throughput and latency percentile analysis.                                                                 | DONE |
+| [DEMO-32](#demo-32) | Add fixed-fleet cauldron telemetry load generation and retain demo Redis state through TTL instead of immediate deletes.                   | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -743,6 +744,15 @@ _Date: 2026-05-28_
 Add Micrometer metrics around demo model-client calls so load tests can inspect model throughput and latency directly.
 Expose model name, operation, client mode, and outcome tags without tying the metric to a specific HTTP transport.
 Enable histogram buckets for the model-call timer so Prometheus percentile queries can use p50, p95, and p99.
+
+<a id="demo-32"></a>
+### DEMO-32 - Add fixed-fleet telemetry and Redis TTL retention
+
+_Date: 2026-05-28_
+
+Add a load-test mode that keeps a fixed cauldron fleet active so telemetry key cardinality can be controlled independently of the business pipeline.
+Keep generated telemetry on the full processing path by pairing fleet cauldrons with live batch state instead of sending batchless events.
+Retain demo Redis state for a bounded period with TTL so completed orders remain queryable after completion without explicit active-batch deletes.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab
