@@ -304,6 +304,9 @@ if [[ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]]; then
   echo "Waiting for demo consumer lag to drain before audit collection."
   python "${SCRIPT_DIR}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://${LAB_HOST_IP}:30090" \
+    --ssh-target "${SSH_TARGET}" \
+    --lab-host-ip "${LAB_HOST_IP}" \
+    --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}"
