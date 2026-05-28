@@ -57,6 +57,7 @@
 | [DEMO-28](#demo-28) | Add an Armeria-backed suspend model-client transport option for comparing coroutine and Netty-based HTTP behavior in the CKC demo profile.   | DONE |
 | [DEMO-29](#demo-29) | Replace the demo stubs Ktor Netty server with an Armeria server to reduce thread overhead during model-client load tests.                   | DONE |
 | [DEMO-30](#demo-30) | Add in-process load-test workers with isolated shard state and a shared publisher so one JVM can use multiple CPU cores.                   | DONE |
+| [DEMO-31](#demo-31) | Add demo model-call metrics for throughput and latency percentile analysis.                                                                 | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -733,6 +734,15 @@ Add configurable load-test generator workers inside one JVM.
 Each worker runs with its own generator identity and simulation state, while sharing the configured publisher resources.
 Keep external shard identity separate from internal worker identity so AWS/Kubernetes shards do not overlap with local process parallelism.
 Treat `BASE_TPS` as the process-level target and split it across workers, with compact generated ids such as `order-1-5-00021212`.
+
+<a id="demo-31"></a>
+### DEMO-31 - Add model-call metrics
+
+_Date: 2026-05-28_
+
+Add Micrometer metrics around demo model-client calls so load tests can inspect model throughput and latency directly.
+Expose model name, operation, client mode, and outcome tags without tying the metric to a specific HTTP transport.
+Enable histogram buckets for the model-call timer so Prometheus percentile queries can use p50, p95, and p99.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

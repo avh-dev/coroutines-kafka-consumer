@@ -1,5 +1,6 @@
 package avh.ckc.demo.config
 
+import avh.ckc.demo.ml.ModelCallMetrics
 import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.JdkSyncArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.KtorSuspendArcaneEtaModelClient
@@ -13,6 +14,7 @@ import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import com.linecorp.armeria.client.WebClient
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -26,9 +28,16 @@ import java.util.concurrent.atomic.AtomicInteger
 @Configuration(proxyBeanMethods = false)
 class ModelClientConfiguration {
     @Bean
+    fun modelCallMetrics(meterRegistry: MeterRegistry): ModelCallMetrics =
+        ModelCallMetrics(meterRegistry)
+
+    @Bean
     @Profile("spring-kafka", "confluent-parallel")
-    fun syncArcaneEtaModelClient(properties: DemoApplicationProperties): SyncArcaneEtaModelClient =
-        JdkSyncArcaneEtaModelClient(URI.create(properties.model.baseUrl))
+    fun syncArcaneEtaModelClient(
+        properties: DemoApplicationProperties,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncArcaneEtaModelClient =
+        JdkSyncArcaneEtaModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
 
     @Bean(destroyMethod = "close")
     @Profile("ckc")
@@ -58,12 +67,14 @@ class ModelClientConfiguration {
     fun ktorSuspendArcaneEtaModelClient(
         properties: DemoApplicationProperties,
         suspendModelHttpClient: HttpClient,
-        suspendModelHttpDispatcher: ExecutorCoroutineDispatcher
+        suspendModelHttpDispatcher: ExecutorCoroutineDispatcher,
+        modelCallMetrics: ModelCallMetrics
     ): SuspendArcaneEtaModelClient =
         KtorSuspendArcaneEtaModelClient(
             URI.create(properties.model.baseUrl),
             suspendModelHttpClient,
-            suspendModelHttpDispatcher
+            suspendModelHttpDispatcher,
+            modelCallMetrics = modelCallMetrics
         )
 
     @Bean
@@ -75,13 +86,19 @@ class ModelClientConfiguration {
     @Bean
     @Profile("ckc")
     @ConditionalOnProperty(prefix = "demo.model", name = ["client"], havingValue = "ARMERIA")
-    fun armeriaSuspendArcaneEtaModelClient(armeriaModelWebClient: WebClient): SuspendArcaneEtaModelClient =
-        ArmeriaSuspendArcaneEtaModelClient(armeriaModelWebClient)
+    fun armeriaSuspendArcaneEtaModelClient(
+        armeriaModelWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SuspendArcaneEtaModelClient =
+        ArmeriaSuspendArcaneEtaModelClient(armeriaModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("spring-kafka", "confluent-parallel")
-    fun syncOrderFlavourModelClient(properties: DemoApplicationProperties): SyncOrderFlavourModelClient =
-        JdkSyncOrderFlavourModelClient(URI.create(properties.model.baseUrl))
+    fun syncOrderFlavourModelClient(
+        properties: DemoApplicationProperties,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncOrderFlavourModelClient =
+        JdkSyncOrderFlavourModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc")
@@ -89,17 +106,22 @@ class ModelClientConfiguration {
     fun ktorSuspendOrderFlavourModelClient(
         properties: DemoApplicationProperties,
         suspendModelHttpClient: HttpClient,
-        suspendModelHttpDispatcher: ExecutorCoroutineDispatcher
+        suspendModelHttpDispatcher: ExecutorCoroutineDispatcher,
+        modelCallMetrics: ModelCallMetrics
     ): SuspendOrderFlavourModelClient =
         KtorSuspendOrderFlavourModelClient(
             URI.create(properties.model.baseUrl),
             suspendModelHttpClient,
-            suspendModelHttpDispatcher
+            suspendModelHttpDispatcher,
+            modelCallMetrics = modelCallMetrics
         )
 
     @Bean
     @Profile("ckc")
     @ConditionalOnProperty(prefix = "demo.model", name = ["client"], havingValue = "ARMERIA")
-    fun armeriaSuspendOrderFlavourModelClient(armeriaModelWebClient: WebClient): SuspendOrderFlavourModelClient =
-        ArmeriaSuspendOrderFlavourModelClient(armeriaModelWebClient)
+    fun armeriaSuspendOrderFlavourModelClient(
+        armeriaModelWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SuspendOrderFlavourModelClient =
+        ArmeriaSuspendOrderFlavourModelClient(armeriaModelWebClient, modelCallMetrics = modelCallMetrics)
 }

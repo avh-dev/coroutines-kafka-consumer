@@ -11,6 +11,7 @@ import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
+import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
@@ -31,6 +32,7 @@ import kotlin.test.assertTrue
 class CkcProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
+    @Autowired private val metricsProperties: MetricsProperties,
     @Autowired
     @Qualifier("consumerMetrics")
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>
@@ -58,6 +60,14 @@ class CkcProfileContextTest(
 
         assertNotNull(gauge)
         assertEquals(1.0, gauge.value())
+    }
+
+    @Test
+    fun `model call timer publishes percentile histogram buckets`() {
+        assertEquals(
+            true,
+            metricsProperties.distribution.percentilesHistogram["ckc.demo.model.call.duration"]
+        )
     }
 
     @Test

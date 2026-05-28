@@ -1,5 +1,6 @@
 package avh.ckc.demo.ml.eta
 
+import avh.ckc.demo.ml.ModelCallMetrics
 import com.linecorp.armeria.client.WebClient
 import com.linecorp.armeria.common.HttpData
 import com.linecorp.armeria.common.HttpHeaderNames
@@ -34,11 +35,12 @@ interface SuspendArcaneEtaModelClient {
 class JdkSyncArcaneEtaModelClient(
     private val baseUri: URI,
     private val httpClient: JdkHttpClient = JdkHttpClient.newHttpClient(),
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
 ) : SyncArcaneEtaModelClient {
-    override fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse {
+    override fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse = recordCall("sync", "jdk") {
         val response = httpClient.send(httpRequest(request), HttpResponse.BodyHandlers.ofString())
-        return decodeResponse(response)
+        decodeResponse(response)
     }
 
     private fun httpRequest(request: ArcaneEtaRequest): HttpRequest =
@@ -46,31 +48,46 @@ class JdkSyncArcaneEtaModelClient(
 
     private fun decodeResponse(response: HttpResponse<String>): ArcaneEtaResponse =
         decodeArcaneEtaResponse(json, response)
+
+    private fun recordCall(clientMode: String, transport: String, block: () -> ArcaneEtaResponse): ArcaneEtaResponse =
+        modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
 class KtorSuspendArcaneEtaModelClient(
     private val baseUri: URI,
     private val httpClient: KtorHttpClient,
     private val dispatcher: CoroutineDispatcher,
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
 ) : SuspendArcaneEtaModelClient {
-    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse = withContext(dispatcher) {
-        val response = httpClient.post(baseUri.resolve("/eta").toString()) {
-            contentType(ContentType.Application.Json)
-            setBody(json.encodeToString(ArcaneEtaRequest.serializer(), request))
+    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse =
+        recordCall("suspend", "ktor_cio") {
+            withContext(dispatcher) {
+                val response = httpClient.post(baseUri.resolve("/eta").toString()) {
+                    contentType(ContentType.Application.Json)
+                    setBody(json.encodeToString(ArcaneEtaRequest.serializer(), request))
+                }
+                decodeResponse(response)
+            }
         }
-        decodeResponse(response)
-    }
 
     private suspend fun decodeResponse(response: io.ktor.client.statement.HttpResponse): ArcaneEtaResponse =
         decodeArcaneEtaResponse(json, response.status.value, response.bodyAsText())
+
+    private suspend fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: suspend () -> ArcaneEtaResponse
+    ): ArcaneEtaResponse =
+        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
 class ArmeriaSuspendArcaneEtaModelClient(
     private val webClient: WebClient,
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
 ) : SuspendArcaneEtaModelClient {
-    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse {
+    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse = recordCall("suspend", "armeria") {
         val response = webClient.execute(
             RequestHeaders.of(
                 HttpMethod.POST,
@@ -80,9 +97,19 @@ class ArmeriaSuspendArcaneEtaModelClient(
             ),
             HttpData.ofUtf8(json.encodeToString(ArcaneEtaRequest.serializer(), request))
         ).aggregate().await()
-        return decodeArcaneEtaResponse(json, response.status().code(), response.contentUtf8())
+        decodeArcaneEtaResponse(json, response.status().code(), response.contentUtf8())
     }
+
+    private suspend fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: suspend () -> ArcaneEtaResponse
+    ): ArcaneEtaResponse =
+        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
+
+private const val MODEL_NAME = "arcane_eta"
+private const val OPERATION_NAME = "estimate"
 
 private fun newArcaneEtaHttpRequest(baseUri: URI, json: Json, request: ArcaneEtaRequest): HttpRequest =
     HttpRequest.newBuilder(baseUri.resolve("/eta"))
