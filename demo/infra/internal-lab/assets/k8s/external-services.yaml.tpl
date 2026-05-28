@@ -66,3 +66,26 @@ subsets:
     ports:
       - name: metrics
         port: 9308
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ckc-external-process-exporter
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: metrics
+      port: 9256
+      targetPort: 9256
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-process-exporter
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_HOST_IP__
+    ports:
+      - name: metrics
+        port: 9256

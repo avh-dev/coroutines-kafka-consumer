@@ -282,7 +282,7 @@ spec:
           image: danielqsj/kafka-exporter:v1.8.0
           args:
 ${kafka_server_args}            - --web.listen-address=:9308
-            - --topic.filter=^potion\\..*
+            - --topic.filter=^(order|batch|cauldron)\\.events\\.v1$
             - --group.filter=^potion-tracking-.*
           ports:
             - name: metrics

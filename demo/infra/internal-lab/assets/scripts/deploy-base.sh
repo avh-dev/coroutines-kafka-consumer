@@ -37,8 +37,9 @@ sed "s/__LAB_HOST_IP__/${LAB_HOST_IP}/g" \
 cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
 cp "${SHARED_GRAFANA_DIR}/dashboards/ckc-overview.json" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
 cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
+cp "${ASSETS_DIR}/compose/process-exporter.yml" "${LAB_ROOT}/process-exporter.yml"
 
-for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter; do
+for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -47,7 +48,7 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_HOST_IP="${LAB_HOST_IP}" LAB_KAFKA_ADVERTISED_HOST="${LAB_KAFKA_ADVERTISED_HOST}" LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --remove-orphans kafka redis grafana kafka-exporter
+LAB_HOST_IP="${LAB_HOST_IP}" LAB_KAFKA_ADVERTISED_HOST="${LAB_KAFKA_ADVERTISED_HOST}" LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --remove-orphans kafka redis grafana kafka-exporter process-exporter
 
 echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST_IP}:30080"
