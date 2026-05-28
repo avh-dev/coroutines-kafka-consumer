@@ -18,8 +18,6 @@ interface SyncBrewingStateRepository {
 
     fun saveActiveBatchId(cauldronId: String, batchId: String)
 
-    fun deleteActiveBatchId(cauldronId: String)
-
     fun findEtaContext(batchId: String): EtaContext?
 
     fun saveEtaContext(context: EtaContext)
@@ -41,8 +39,6 @@ interface SuspendBrewingStateRepository {
     suspend fun findActiveBatchId(cauldronId: String): String?
 
     suspend fun saveActiveBatchId(cauldronId: String, batchId: String)
-
-    suspend fun deleteActiveBatchId(cauldronId: String)
 
     suspend fun findEtaContext(batchId: String): EtaContext?
 

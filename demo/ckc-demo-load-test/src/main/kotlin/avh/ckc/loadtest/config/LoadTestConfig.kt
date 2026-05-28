@@ -22,6 +22,7 @@ data class LoadTestConfig(
     val fakeEntityPrefix: String,
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
+    val telemetrySourceMode: TelemetrySourceMode,
     val publishEnabled: Boolean,
     val auditLogEnabled: Boolean,
     val generatorWorkers: Int = defaultGeneratorWorkers()
@@ -68,9 +69,17 @@ data class LoadTestConfig(
                 fakeEntityPrefix = environment["FAKE_ENTITY_PREFIX"] ?: "fake",
                 statsLogInterval = Duration.ofSeconds(environment["STATS_LOG_INTERVAL_SECONDS"]?.toLongOrNull() ?: 30L),
                 diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,
+                telemetrySourceMode = environment["TELEMETRY_SOURCE_MODE"]
+                    ?.let(TelemetrySourceMode::valueOf)
+                    ?: TelemetrySourceMode.ACTIVE_BATCHES,
                 publishEnabled = environment["PUBLISH_ENABLED"]?.toBooleanStrictOrNull() ?: true,
                 auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true,
                 generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers()
             )
     }
+}
+
+enum class TelemetrySourceMode {
+    ACTIVE_BATCHES,
+    FIXED_FLEET
 }

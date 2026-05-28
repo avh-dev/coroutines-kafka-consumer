@@ -411,10 +411,14 @@ spec:
               value: "{as_int(load_test.get("stats_log_interval_seconds"), 30)}"
             - name: DIAGNOSTICS_BLOB_SIZE
               value: "{as_int(load_test.get("diagnostics_blob_size"), 512)}"
+            - name: TELEMETRY_SOURCE_MODE
+              value: {yaml_string(as_str(load_test.get("telemetry_source_mode"), "ACTIVE_BATCHES"))}
             - name: PUBLISH_ENABLED
               value: "{str(as_bool(load_test.get("publish_enabled"), True)).lower()}"
             - name: AUDIT_LOG_ENABLED
               value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
+            - name: LOAD_TEST_WORKERS
+              value: {yaml_string(as_str(load_test.get("workers"), ""))}
             - name: TOTAL_SHARDS
               value: "{shards}"
             - name: TEST_RUN_ID

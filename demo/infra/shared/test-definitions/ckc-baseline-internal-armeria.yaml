@@ -14,12 +14,14 @@ deployment:
 
 load_test:
   shards: 1
-  base_tps: 1500
+  workers: 8
+  base_tps: 2000
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40
+  telemetry_source_mode: FIXED_FLEET
   load_profile: "0 -> (1m, warmup) -> 100 -> (10m, internal-baseline) -> 100 -> (1m, cool-down) -> 0"
-  cauldron_count: 16
+  cauldron_count: 75
   min_orders_per_batch: 4
   max_orders_per_batch: 8
   min_brewing_steps: 5

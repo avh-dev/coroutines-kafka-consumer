@@ -40,15 +40,6 @@ internal fun updateActiveBatch(event: BatchLifecycleEvent, repository: SyncBrewi
         BatchLifecycleEventType.BATCH_CAULDRON_ASSIGNED,
         BatchLifecycleEventType.BATCH_BREWING_STARTED -> repository.saveActiveBatchId(cauldronId, event.batchId)
 
-        BatchLifecycleEventType.BATCH_BOTTLING_COMPLETED,
-        BatchLifecycleEventType.BATCH_FAILED,
-        BatchLifecycleEventType.BATCH_CANCELLED -> {
-            val activeBatchId = repository.findActiveBatchId(cauldronId)
-            if (activeBatchId == event.batchId) {
-                repository.deleteActiveBatchId(cauldronId)
-            }
-        }
-
         else -> Unit
     }
 }
@@ -58,15 +49,6 @@ internal suspend fun updateActiveBatch(event: BatchLifecycleEvent, repository: S
     when (event.eventType) {
         BatchLifecycleEventType.BATCH_CAULDRON_ASSIGNED,
         BatchLifecycleEventType.BATCH_BREWING_STARTED -> repository.saveActiveBatchId(cauldronId, event.batchId)
-
-        BatchLifecycleEventType.BATCH_BOTTLING_COMPLETED,
-        BatchLifecycleEventType.BATCH_FAILED,
-        BatchLifecycleEventType.BATCH_CANCELLED -> {
-            val activeBatchId = repository.findActiveBatchId(cauldronId)
-            if (activeBatchId == event.batchId) {
-                repository.deleteActiveBatchId(cauldronId)
-            }
-        }
 
         else -> Unit
     }
