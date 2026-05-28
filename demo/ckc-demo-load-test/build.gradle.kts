@@ -29,6 +29,7 @@ val serializationVersion = "1.7.1"
 val junitVersion = "5.10.2"
 
 dependencies {
+    implementation(project(":ckc-demo-audit"))
     implementation(project(":ckc-demo-contracts"))
     implementation(kotlin("stdlib"))
     implementation("com.google.protobuf:protobuf-java")
