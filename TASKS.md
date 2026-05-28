@@ -59,6 +59,7 @@
 | [DEMO-30](#demo-30) | Add in-process load-test workers with isolated shard state and a shared publisher so one JVM can use multiple CPU cores.                   | DONE |
 | [DEMO-31](#demo-31) | Add demo model-call metrics for throughput and latency percentile analysis.                                                                 | DONE |
 | [DEMO-32](#demo-32) | Add fixed-fleet cauldron telemetry load generation and retain demo Redis state through TTL instead of immediate deletes.                   | DONE |
+| [DEMO-33](#demo-33) | Replace stdout demo audit records with lightweight file-backed audit collection for internal lab loss and duplicate analysis.              | IN_PROGRESS |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -755,6 +756,15 @@ _Date: 2026-05-28_
 Add a load-test mode that keeps a fixed cauldron fleet active so telemetry key cardinality can be controlled independently of the business pipeline.
 Keep generated telemetry on the full processing path by pairing fleet cauldrons with live batch state instead of sending batchless events.
 Retain demo Redis state for a bounded period with TTL so completed orders remain queryable after completion without explicit active-batch deletes.
+
+<a id="demo-33"></a>
+### DEMO-33 - Add file-backed demo audit
+
+_Date: 2026-05-28_
+
+Replace high-volume stdout audit records with lightweight append-only file audit for published and processed demo messages.
+Keep the first implementation focused on the internal lab so published records from the local load generator and processed records from k3s demo pods can be collected after a run.
+Use the audit as the source for loss, duplicate, and latency analysis across failure scenarios.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

@@ -19,7 +19,8 @@ class ConfluentParallelTrackingService(
     private val properties: DemoApplicationProperties,
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
-    private val cauldronTelemetryService: SyncCauldronTelemetryService
+    private val cauldronTelemetryService: SyncCauldronTelemetryService,
+    private val auditLog: AuditLog
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -71,7 +72,7 @@ class ConfluentParallelTrackingService(
 
     private fun auditProcessed(record: ConsumerRecord<*, *>) {
         if (properties.audit.enabled) {
-            AuditLog.processed(record.topic(), record.partition(), record.offset())
+            auditLog.processed(record)
         }
     }
 }

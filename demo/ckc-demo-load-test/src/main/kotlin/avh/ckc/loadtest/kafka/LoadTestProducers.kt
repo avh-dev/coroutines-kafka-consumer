@@ -28,7 +28,8 @@ interface LoadTestPublisher {
 }
 
 class LoadTestProducers(
-    private val config: LoadTestConfig
+    private val config: LoadTestConfig,
+    private val auditLog: LoadTestAuditLog? = if (config.auditLogEnabled) LoadTestAuditLog.fromEnvironment() else null
 ) : LoadTestPublisher, AutoCloseable {
     private val lifecycleSent = AtomicLong(0)
     private val lifecycleAcked = AtomicLong(0)
@@ -141,15 +142,14 @@ class LoadTestProducers(
                 batchProducer.close()
                 telemetryProducer.close()
             }
+            auditLog?.close()
             logSnapshot("close")
         }
     }
 
     private fun recordDryRun(topic: String, key: String, eventType: String, ackedCounter: AtomicLong) {
         ackedCounter.incrementAndGet()
-        if (config.auditLogEnabled) {
-            LoadTestAuditLog.generated(topic, key, eventType)
-        }
+        auditLog?.generated(topic, key, eventType)
     }
 
     private fun producerProperties(valueSerializerClass: Class<*>): Map<String, Any> = mapOf(
@@ -181,9 +181,7 @@ class LoadTestProducers(
 
             val acked = sentCounter.incrementAndGet()
             val recordMetadata = metadata!!
-            if (config.auditLogEnabled) {
-                LoadTestAuditLog.published(recordMetadata, key, eventType)
-            }
+            auditLog?.published(recordMetadata, key, eventType)
             if (acked <= 5 || acked % 500 == 0L) {
                 println(
                     "load-test publish ack stream=$stream key=$key " +

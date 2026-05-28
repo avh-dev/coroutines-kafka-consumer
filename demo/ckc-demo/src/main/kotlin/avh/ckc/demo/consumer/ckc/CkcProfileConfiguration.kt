@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.demo.AuditLog
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -34,6 +35,7 @@ class CkcProfileConfiguration {
         orderLifecycleService: SuspendOrderLifecycleService,
         batchLifecycleService: SuspendBatchLifecycleService,
         cauldronTelemetryService: SuspendCauldronTelemetryService,
+        auditLog: AuditLog,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
@@ -43,6 +45,7 @@ class CkcProfileConfiguration {
             orderLifecycleService,
             batchLifecycleService,
             cauldronTelemetryService,
+            auditLog,
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics
@@ -54,6 +57,7 @@ private class CkcConsumerRuntime(
     private val orderLifecycleService: SuspendOrderLifecycleService,
     private val batchLifecycleService: SuspendBatchLifecycleService,
     private val cauldronTelemetryService: SuspendCauldronTelemetryService,
+    private val auditLog: AuditLog,
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
@@ -75,7 +79,7 @@ private class CkcConsumerRuntime(
         orderConsumer = DemoConsumers.orderConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId),
             orderConsumerMetrics,
-            properties.audit.enabled,
+            auditLog,
             properties.consumers.order,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
@@ -86,7 +90,7 @@ private class CkcConsumerRuntime(
         batchConsumer = DemoConsumers.batchConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId),
             batchConsumerMetrics,
-            properties.audit.enabled,
+            auditLog,
             properties.consumers.batch,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled
@@ -97,7 +101,7 @@ private class CkcConsumerRuntime(
         telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId),
             consumerMetrics,
-            properties.audit.enabled,
+            auditLog,
             properties.consumers.telemetry,
             deserializationDispatcher.dispatcher,
             properties.consumers.processingEnabled

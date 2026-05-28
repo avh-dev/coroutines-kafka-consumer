@@ -71,6 +71,8 @@ fi
 ssh "${SSH_TARGET}" \
   "LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' TOPIC_SPECS='${TOPIC_SPECS}' CONSUMER_GROUPS='potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons' '${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh'"
 
+ssh "${SSH_TARGET}" "rm -rf '${LAB_ROOT}/audit/current' && mkdir -p '${LAB_ROOT}/audit/current/processed'"
+
 helm upgrade --install ckc-demo-stubs "${REPO_ROOT}/demo/infra/shared/helm/demo-stubs" \
   --namespace ckc-perf \
   -f "${REPO_ROOT}/demo/infra/internal-lab/assets/config/demo-stubs-values.yaml" \

@@ -1,7 +1,6 @@
 replicaCount: 2
 
 env:
-  auditLogEnabled: false
   springProfilesActive: ckc
   orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   telemetryProcessingMode: FRESHNESS_FIRST

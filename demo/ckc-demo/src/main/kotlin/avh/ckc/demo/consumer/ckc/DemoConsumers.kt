@@ -21,7 +21,7 @@ object DemoConsumers {
     fun orderConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
-        auditLogEnabled: Boolean,
+        auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -48,7 +48,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    if (auditLogEnabled) AuditLog.processed(record)
+                    auditLog.processed(record)
                 }
             }
         }
@@ -57,7 +57,7 @@ object DemoConsumers {
     fun batchConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        auditLogEnabled: Boolean,
+        auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -84,7 +84,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    if (auditLogEnabled) AuditLog.processed(record)
+                    auditLog.processed(record)
                 }
             }
         }
@@ -93,7 +93,7 @@ object DemoConsumers {
     fun telemetryConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-        auditLogEnabled: Boolean,
+        auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -120,7 +120,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    if (auditLogEnabled) AuditLog.processed(record)
+                    auditLog.processed(record)
                 }
             }
         }
