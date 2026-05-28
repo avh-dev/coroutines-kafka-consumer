@@ -1,8 +1,9 @@
 replicaCount: 2
 
 env:
+  auditLogEnabled: false
   springProfilesActive: ckc
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   telemetryProcessingMode: FRESHNESS_FIRST
   modelClient: ARMERIA
   orderWorkerConcurrency: 20
@@ -11,7 +12,7 @@ env:
   batchWorkerConcurrency: 20
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 512
-  telemetryWorkerConcurrency: 20
+  telemetryWorkerConcurrency: 30
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512
 

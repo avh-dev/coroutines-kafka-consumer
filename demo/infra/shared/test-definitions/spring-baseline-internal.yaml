@@ -5,16 +5,16 @@ deployment:
   stubs_profile: baseline
   kafka_topics:
     - name: order.events.v1
-      partitions: 40
+      partitions: 14
     - name: batch.events.v1
-      partitions: 40
+      partitions: 10
     - name: cauldron.events.v1
-      partitions: 40
+      partitions: 150
 
 
 load_test:
   shards: 1
-  base_tps: 1000
+  base_tps: 1500
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40

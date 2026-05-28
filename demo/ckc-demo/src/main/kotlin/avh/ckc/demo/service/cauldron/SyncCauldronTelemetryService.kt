@@ -28,7 +28,7 @@ class SyncCauldronTelemetryService(
             brewingStateRepository.saveEtaContext(etaContext(batch, telemetryEvent, modelResponse))
 
             val estimate = normalizer.normalize(batch, telemetryEvent, modelResponse)
-            logger.info(
+            logger.debug(
                 "Spring Kafka ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
                 estimate.batchId,
                 estimate.cauldronId,

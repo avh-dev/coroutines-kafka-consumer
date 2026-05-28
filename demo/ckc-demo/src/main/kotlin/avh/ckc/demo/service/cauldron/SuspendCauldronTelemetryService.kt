@@ -28,7 +28,7 @@ class SuspendCauldronTelemetryService(
             brewingStateRepository.saveEtaContext(etaContext(batch, telemetryEvent, modelResponse))
 
             val estimate = normalizer.normalize(batch, telemetryEvent, modelResponse)
-            logger.info(
+            logger.debug(
                 "CKC ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
                 estimate.batchId,
                 estimate.cauldronId,
