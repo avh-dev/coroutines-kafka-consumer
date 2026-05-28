@@ -3,13 +3,13 @@ services:
     image: docker.redpanda.com/redpandadata/redpanda:v25.1.3
     container_name: ckc-perf-redpanda
     restart: unless-stopped
-    cpus: "1.0"
-    mem_limit: 768m
+    cpus: "2.0"
+    mem_limit: 4g
     command:
       - redpanda
       - start
-      - --smp=1
-      - --memory=512M
+      - --smp=2
+      - --memory=3G
       - --reserve-memory=0M
       - --overprovisioned
       - --node-id=0
@@ -24,8 +24,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 768M
+          cpus: "2.0"
+          memory: 4G
     healthcheck:
       test: ["CMD-SHELL", "rpk -X brokers=localhost:9092 cluster health >/dev/null 2>&1"]
       interval: 10s
@@ -38,12 +38,12 @@ services:
     restart: unless-stopped
     ports:
       - "${LAB_HOST_IP}:6379:6379"
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 768M
+          memory: 2G
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
