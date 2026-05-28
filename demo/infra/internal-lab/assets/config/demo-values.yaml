@@ -58,5 +58,5 @@ hpa:
 
 auditVolume:
   enabled: true
-  hostPath: /opt/ckc-internal-lab/audit/current/processed
+  hostPath: /opt/ckc-internal-lab/audit/current
   mountPath: /var/lib/ckc-audit
