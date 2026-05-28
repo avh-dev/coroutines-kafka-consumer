@@ -81,6 +81,12 @@ data:
         static_configs:
           - targets:
               - ckc-external-kafka-exporter.ckc-perf.svc.cluster.local:9308
+
+      - job_name: ckc-host-process-exporter
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - ckc-external-process-exporter.ckc-perf.svc.cluster.local:9256
 ---
 apiVersion: apps/v1
 kind: Deployment

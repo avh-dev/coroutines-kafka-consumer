@@ -74,8 +74,21 @@ services:
     command:
       - --kafka.server=kafka:29092
       - --web.listen-address=:9308
-      - --topic.filter=^potion\..*
+      - --topic.filter=^(order|batch|cauldron)\.events\.v1$
       - --group.filter=^potion-tracking-.*
     depends_on:
       kafka:
         condition: service_healthy
+
+  process-exporter:
+    image: ncabatoff/process-exporter:0.8.7
+    container_name: ckc-internal-process-exporter
+    restart: unless-stopped
+    ports:
+      - "${LAB_HOST_IP}:9256:9256"
+    command:
+      - --procfs=/host/proc
+      - --config.path=/config/process-exporter.yml
+    volumes:
+      - /proc:/host/proc:ro
+      - ./process-exporter.yml:/config/process-exporter.yml:ro

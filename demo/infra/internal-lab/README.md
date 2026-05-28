@@ -36,6 +36,7 @@ lab host
     Redpanda -> host:9092
     Redis -> host:6379
     Grafana -> host:3000 on all interfaces
+    process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
@@ -304,6 +305,13 @@ sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"potion-tr
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
 
+Host-managed Redpanda and Redis run outside Kubernetes, so their CPU and memory are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
+
+```promql
+100 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname=~"redpanda|redis"}[30s]))
+sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname=~"redpanda|redis", memtype="resident"})
+```
+
 ## Verification
 
 ```sh
@@ -313,6 +321,7 @@ kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf top pods
 curl -fsS "http://${LAB_HOST_IP}:30080/actuator/health"
 curl -fsS "http://${LAB_HOST_IP}:30080/actuator/prometheus" | head
 curl -fsS "http://${LAB_HOST_IP}:30090/api/v1/targets"
+curl -fsS "http://${LAB_HOST_IP}:9256/metrics" | head
 ```
 
 Host checks:
@@ -321,6 +330,7 @@ Host checks:
 ssh "$SSH_TARGET" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 ssh "$SSH_TARGET" "docker exec ckc-perf-redis redis-cli PING"
 ssh "$SSH_TARGET" "docker exec ckc-perf-redpanda rpk -X brokers=${LAB_HOST_IP}:9092 topic list"
+ssh "$SSH_TARGET" "curl -fsS http://${LAB_HOST_IP}:9308/metrics | grep kafka_consumergroup_lag | head"
 ```
 
 ## Benchmark Stability

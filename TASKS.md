@@ -88,6 +88,7 @@
 | [INFRA-27](#infra-27) | Switch the local-dev Kafka broker to Redpanda while preserving the existing local Kafka endpoint and topic helper workflow.                   | DONE |
 | [INFRA-28](#infra-28) | Add local-dev scripts and env profiles for running and stopping load-test and demo-stubs processes from `.demo-infra`.                       | DONE |
 | [INFRA-29](#infra-29) | Switch the internal lab broker to Redpanda and run lab load tests through an interactive local process script.                                | DONE |
+| [INFRA-30](#infra-30) | Add internal-lab host service CPU observability and restore Redpanda-backed Kafka lag metrics.                                                | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -907,6 +908,15 @@ Bind the external broker listener on all host interfaces and advertise the lab h
 Update lab reset and install verification scripts to use `rpk` for topic and consumer-group operations.
 Rework the internal lab `run-test.sh` flow so it prepares the selected test definition, starts the load generator as a local Java process, and allows interactive early stop with `q`.
 Make the lab runner compare local demo image fingerprints with the lab host and automatically rebuild/load images when they are stale or absent.
+
+<a id="infra-30"></a>
+### INFRA-30 - Add host service CPU and Redpanda lag observability
+
+_Date: 2026-05-28_
+
+Add process-exporter to the internal-lab host Docker Compose stack so Prometheus can scrape CPU and memory for host-managed Redpanda and Redis processes.
+Expose the process-exporter endpoint to in-cluster Prometheus through the existing external service pattern and add Grafana panels for host service CPU and memory.
+Update Kafka exporter topic filters for the aggregate topic names used after the Redpanda migration so consumer lag panels are populated again.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
