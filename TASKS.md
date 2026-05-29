@@ -97,6 +97,7 @@
 | [INFRA-32](#infra-32) | Refresh the Grafana dashboard with clearer host service CPU, Kafka offset lag, batch stream, pod CPU, and recently added metric coverage.         | DONE |
 | [INFRA-33](#infra-33) | Move internal-lab image building and load-test execution onto the lab host while keeping local Gradle builds for uncommitted changes.              | DONE |
 | [INFRA-34](#infra-34) | Add Helm and load-test definition support for the `ckc-sync` demo profile.                                                                         | DONE |
+| [INFRA-35](#infra-35) | Add Grafana visibility for CKC backpressure pause and resume events.                                                                               | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1006,6 +1007,15 @@ Keep the new profile aligned with existing CKC baseline settings while selecting
 Expose the demo processing enablement switch through Helm as `env.processingEnabled`.
 Add a dedicated test definition so sync CKC runs can be selected without editing shared baseline files.
 Validate the new Helm values profile and definition references with local rendering and lint checks.
+
+<a id="infra-35"></a>
+### INFRA-35 - Add CKC pause/resume dashboard panel
+
+_Date: 2026-05-29_
+
+Add Grafana dashboard visibility for the CKC backpressure pause/resume metric.
+Place the panel near CKC poll and queue pressure panels so paused intake can be correlated with lower poll duration.
+Use per-consumer and action labels to show pause and resume rates separately.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
