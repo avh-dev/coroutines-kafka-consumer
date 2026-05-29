@@ -94,6 +94,7 @@
 | [INFRA-31](#infra-31) | Increase internal-lab Redpanda and Redis resource limits for high-partition consumer load tests.                                                | DONE |
 | [INFRA-32](#infra-32) | Refresh the Grafana dashboard with clearer host service CPU, Kafka offset lag, batch stream, pod CPU, and recently added metric coverage.         | DONE |
 | [INFRA-33](#infra-33) | Move internal-lab image building and load-test execution onto the lab host while keeping local Gradle builds for uncommitted changes.              | DONE |
+| [INFRA-34](#infra-34) | Add Helm and load-test definition support for the `ckc-sync` demo profile.                                                                         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -974,6 +975,17 @@ Update local-dev and AWS build scripts to use the same split Gradle runtime dist
 Keep local internal-lab scripts limited to `install-lab.sh` and `update-lab.sh`; move lab runtime scripts and Python helpers under copied assets.
 Make `install-lab.sh` read or prompt for a lab host from the single local lab state file, and add a lab-side cleanup script for rebuilding the server from scratch.
 Reduce local lab configuration to `LAB_HOST`, derive SSH from that host, and keep the resolved node IP only in lab-side config for Kubernetes endpoints and Redpanda advertising.
+
+<a id="infra-34"></a>
+### INFRA-34 - Add CKC sync infrastructure profile
+
+_Date: 2026-05-29_
+
+Add infrastructure wiring so the internal lab can deploy and test the `ckc-sync` demo profile.
+Keep the new profile aligned with existing CKC baseline settings while selecting the blocking CKC Spring profile.
+Expose the demo processing enablement switch through Helm as `env.processingEnabled`.
+Add a dedicated test definition so sync CKC runs can be selected without editing shared baseline files.
+Validate the new Helm values profile and definition references with local rendering and lint checks.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
