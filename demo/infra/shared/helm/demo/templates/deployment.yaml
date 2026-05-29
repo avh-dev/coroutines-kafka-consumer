@@ -47,6 +47,12 @@ spec:
               value: {{ .Values.env.modelClient | quote }}
             - name: DEMO_CONSUMER_PROCESSING_ENABLED
               value: {{ .Values.env.processingEnabled | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.kafkaConsumerFetchMinBytes | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.kafkaConsumerFetchMaxWaitMs | quote }}
+            - name: KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.kafkaConsumerMaxPollRecords | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
             - name: AUDIT_LOG_DIR
