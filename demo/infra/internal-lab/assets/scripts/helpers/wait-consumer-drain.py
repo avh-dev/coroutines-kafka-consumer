@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--group-regex", default="potion-tracking-.*")
     parser.add_argument("--groups", default="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons")
     parser.add_argument("--ssh-target")
-    parser.add_argument("--lab-host-ip")
+    parser.add_argument("--broker", default="localhost:9092")
     parser.add_argument("--redpanda-container", default="ckc-perf-redpanda")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--poll-seconds", type=int, default=5)
@@ -42,18 +42,16 @@ def query_lag(prometheus_url: str, group_regex: str) -> float | None:
 
 
 def query_rpk_lag(args: argparse.Namespace) -> float | None:
-    if not args.ssh_target or not args.lab_host_ip:
-        return None
-
     total_lag = 0
     group_seen = False
     for group in [value.strip() for value in args.groups.split(",") if value.strip()]:
         command = (
             f"docker exec {shell_quote(args.redpanda_container)} "
-            f"rpk -X brokers={shell_quote(args.lab_host_ip + ':9092')} group describe {shell_quote(group)}"
+            f"rpk -X brokers={shell_quote(args.broker)} group describe {shell_quote(group)}"
         )
+        run_command = ["ssh", args.ssh_target, command] if args.ssh_target else ["sh", "-c", command]
         result = subprocess.run(
-            ["ssh", args.ssh_target, command],
+            run_command,
             text=True,
             capture_output=True,
             check=False,
@@ -70,16 +68,37 @@ def query_rpk_lag(args: argparse.Namespace) -> float | None:
 
 
 def parse_rpk_lag(output: str) -> int:
+    total_lag: int | None = None
+    lag_column: int | None = None
+    partition_lag = 0
+
+    # Prefer rpk's group-level TOTAL-LAG. Other metadata lines such as
+    # MEMBERS also contain integers and must not be counted as lag.
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0].upper() == "TOTAL-LAG":
+            total_lag = max(0, int(fields[1]))
+
+    if total_lag is not None:
+        return total_lag
+
     total = 0
     for line in output.splitlines():
         fields = line.split()
-        if not fields or fields[0].upper() == "GROUP" or fields[0].upper() == "TOPIC":
+        if not fields:
             continue
-        for field in reversed(fields):
-            if re.fullmatch(r"-?\d+", field):
-                total += max(0, int(field))
-                break
-    return total
+        if fields[0].upper() == "TOPIC":
+            try:
+                lag_column = fields.index("LAG")
+            except ValueError:
+                lag_column = None
+            continue
+        if fields[0].upper() in {"GROUP", "COORDINATOR", "STATE", "BALANCER", "MEMBERS"}:
+            continue
+        if lag_column is not None and len(fields) > lag_column and re.fullmatch(r"-?\d+", fields[lag_column]):
+            partition_lag += max(0, int(fields[lag_column]))
+
+    return partition_lag
 
 
 def shell_quote(value: str) -> str:

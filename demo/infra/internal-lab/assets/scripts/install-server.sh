@@ -7,8 +7,8 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-if [ -z "${LAB_HOST_IP:-}" ]; then
-  echo "LAB_HOST_IP is required." >&2
+if [ -z "${LAB_NODE_IP:-}" ]; then
+  echo "LAB_NODE_IP is required." >&2
   exit 1
 fi
 
@@ -17,7 +17,7 @@ LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y ca-certificates curl gnupg lsb-release linux-tools-common linux-tools-generic
+apt-get install -y ca-certificates curl gnupg lsb-release linux-tools-common linux-tools-generic openjdk-21-jre-headless
 
 if ! command -v docker >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings
@@ -37,7 +37,7 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 
 if ! command -v k3s >/dev/null 2>&1; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --disable local-storage --disable metrics-server --write-kubeconfig-mode 644 --node-ip ${LAB_HOST_IP} --advertise-address ${LAB_HOST_IP}" sh -
+  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --disable local-storage --disable metrics-server --write-kubeconfig-mode 644 --node-ip ${LAB_NODE_IP} --advertise-address ${LAB_NODE_IP}" sh -
 else
   systemctl enable --now k3s
 fi
@@ -56,4 +56,4 @@ mkdir -p "${LAB_ROOT}"
 
 echo "Server prerequisites are ready."
 echo "  lab_root=${LAB_ROOT}"
-echo "  lab_host_ip=${LAB_HOST_IP}"
+echo "  lab_node_ip=${LAB_NODE_IP}"

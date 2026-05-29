@@ -23,9 +23,9 @@ LOAD_TEST_IMAGE="${PREFIX}/load-test:latest"
 cd "${REPO_DIR}"
 
 ./gradlew \
-  :ckc-demo:bootJar \
-  :ckc-demo-stubs:fatJar \
-  :ckc-demo-load-test:fatJar
+  :ckc-demo:installDist \
+  :ckc-demo-stubs:installDist \
+  :ckc-demo-load-test:installDist
 
 aws ecr describe-repositories \
   --region "${REGION}" \

@@ -5,6 +5,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     id("org.springframework.boot")
+    application
 }
 
 description = "Demo application for coroutine-based Kafka consumer with protobuf payloads"
@@ -66,6 +67,18 @@ dependencies {
             version { require(serializationVersion) }
         }
     }
+}
+
+application {
+    mainClass.set("avh.ckc.demo.DemoApplicationKt")
+}
+
+tasks.jar {
+    enabled = true
+}
+
+tasks.bootJar {
+    enabled = false
 }
 
 tasks.test {

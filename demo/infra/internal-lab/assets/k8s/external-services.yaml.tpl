@@ -16,7 +16,7 @@ metadata:
   namespace: ckc-perf
 subsets:
   - addresses:
-      - ip: __LAB_HOST_IP__
+      - ip: __LAB_NODE_IP__
     ports:
       - name: kafka
         port: 9092
@@ -39,7 +39,7 @@ metadata:
   namespace: ckc-perf
 subsets:
   - addresses:
-      - ip: __LAB_HOST_IP__
+      - ip: __LAB_NODE_IP__
     ports:
       - name: redis
         port: 6379
@@ -62,7 +62,7 @@ metadata:
   namespace: ckc-perf
 subsets:
   - addresses:
-      - ip: __LAB_HOST_IP__
+      - ip: __LAB_NODE_IP__
     ports:
       - name: metrics
         port: 9308
@@ -85,7 +85,7 @@ metadata:
   namespace: ckc-perf
 subsets:
   - addresses:
-      - ip: __LAB_HOST_IP__
+      - ip: __LAB_NODE_IP__
     ports:
       - name: metrics
         port: 9256

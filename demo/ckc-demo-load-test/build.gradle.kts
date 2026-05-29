@@ -1,6 +1,4 @@
 import org.gradle.api.JavaVersion
-import org.gradle.api.file.DuplicatesStrategy
-import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -63,25 +61,4 @@ application {
 
 tasks.test {
     useJUnitPlatform()
-}
-
-tasks.register<Jar>("fatJar") {
-    group = "build"
-    description = "Assembles an executable fat jar for the load-test generator."
-    archiveClassifier.set("all")
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-    manifest {
-        attributes["Main-Class"] = "avh.ckc.loadtest.LoadTestApplicationKt"
-    }
-
-    from(sourceSets.main.get().output)
-    dependsOn(configurations.runtimeClasspath)
-    from({
-        configurations.runtimeClasspath.get()
-            .filter { it.name.endsWith(".jar") }
-            .map { zipTree(it) }
-    })
-
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
 }

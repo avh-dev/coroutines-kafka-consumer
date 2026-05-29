@@ -37,6 +37,10 @@ spec:
               value: {{ .Values.env.redisHost | quote }}
             - name: SPRING_DATA_REDIS_PORT
               value: {{ .Values.env.redisPort | quote }}
+{{- if .Values.env.javaToolOptions }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.env.javaToolOptions | quote }}
+{{- end }}
             - name: MODEL_BASE_URL
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: MODEL_CLIENT

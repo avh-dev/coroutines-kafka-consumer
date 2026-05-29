@@ -15,12 +15,12 @@ services:
       - --node-id=0
       - --check=false
       - --kafka-addr=internal://0.0.0.0:29092,external://0.0.0.0:9092
-      - --advertise-kafka-addr=internal://kafka:29092,external://${LAB_KAFKA_ADVERTISED_HOST:-${LAB_HOST_IP}}:9092
+      - --advertise-kafka-addr=internal://kafka:29092,external://${LAB_NODE_IP}:9092
       - --set
       - redpanda.auto_create_topics_enabled=false
     ports:
       - "0.0.0.0:9092:9092"
-      - "${LAB_HOST_IP}:9644:9644"
+      - "0.0.0.0:9644:9644"
     deploy:
       resources:
         limits:
@@ -37,7 +37,7 @@ services:
     container_name: ckc-perf-redis
     restart: unless-stopped
     ports:
-      - "${LAB_HOST_IP}:6379:6379"
+      - "0.0.0.0:6379:6379"
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
     deploy:
       resources:
@@ -59,8 +59,8 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_SERVER_DOMAIN: "${LAB_GRAFANA_HOST:-${LAB_HOST_IP}}"
-      GF_SERVER_ROOT_URL: "http://${LAB_GRAFANA_HOST:-${LAB_HOST_IP}}:3000/"
+      GF_SERVER_DOMAIN: "${LAB_HOST:-localhost}"
+      GF_SERVER_ROOT_URL: "http://${LAB_HOST:-localhost}:3000/"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -70,7 +70,7 @@ services:
     container_name: ckc-internal-kafka-exporter
     restart: unless-stopped
     ports:
-      - "${LAB_HOST_IP}:9308:9308"
+      - "0.0.0.0:9308:9308"
     command:
       - --kafka.server=kafka:29092
       - --web.listen-address=:9308
@@ -86,7 +86,7 @@ services:
     container_name: ckc-internal-process-exporter
     restart: unless-stopped
     ports:
-      - "${LAB_HOST_IP}:9256:9256"
+      - "0.0.0.0:9256:9256"
     command:
       - --procfs=/host/proc
       - --config.path=/config/process-exporter.yml

@@ -82,11 +82,11 @@ source_env_file "${ENV_FILE}"
 printf '%s\n' "${ENV_FILE}" > "${PID_DIR}/load-test.env"
 
 cd "${REPO_ROOT}"
-./gradlew :ckc-demo-load-test:fatJar
+./gradlew :ckc-demo-load-test:installDist
 
-JAR_PATH="$(find "${REPO_ROOT}/demo/ckc-demo-load-test/build/libs" -maxdepth 1 -type f -name '*-all.jar' | head -n 1)"
-if [[ -z "${JAR_PATH}" ]]; then
-  echo "Load-test jar was not found under demo/ckc-demo-load-test/build/libs." >&2
+LOAD_TEST_BIN="${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test/bin/ckc-demo-load-test"
+if [[ ! -f "${LOAD_TEST_BIN}" ]]; then
+  echo "Load-test runtime was not found: ${LOAD_TEST_BIN}" >&2
   exit 1
 fi
 
@@ -95,7 +95,7 @@ export TEST_RUN_ID="${TEST_RUN_ID:-${RUN_ID}}"
 export TEST_RUN_STARTED_AT="${TEST_RUN_STARTED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
 
 LOG_FILE="${LOG_DIR}/load-test-${RUN_ID}.log"
-nohup java -jar "${JAR_PATH}" > "${LOG_FILE}" 2>&1 &
+nohup bash "${LOAD_TEST_BIN}" > "${LOG_FILE}" 2>&1 &
 PID="$!"
 echo "${PID}" > "${PID_FILE}"
 

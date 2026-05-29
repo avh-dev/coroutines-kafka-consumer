@@ -5,5 +5,5 @@ datasources:
     uid: prometheus
     type: prometheus
     access: proxy
-    url: http://__LAB_HOST_IP__:30090
+    url: http://__LAB_NODE_IP__:30090
     isDefault: true

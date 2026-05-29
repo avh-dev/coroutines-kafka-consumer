@@ -1,5 +1,5 @@
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY build/libs/*-all.jar /app/app.jar
+COPY build/install/ckc-demo-stubs/ /app/
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["/app/bin/ckc-demo-stubs"]

@@ -92,6 +92,7 @@
 | [INFRA-30](#infra-30) | Add internal-lab host service CPU observability and restore Redpanda-backed Kafka lag metrics.                                                | DONE |
 | [INFRA-31](#infra-31) | Increase internal-lab Redpanda and Redis resource limits for high-partition consumer load tests.                                                | DONE |
 | [INFRA-32](#infra-32) | Refresh the Grafana dashboard with clearer host service CPU, Kafka offset lag, batch stream, pod CPU, and recently added metric coverage.         | DONE |
+| [INFRA-33](#infra-33) | Move internal-lab image building and load-test execution onto the lab host while keeping local Gradle builds for uncommitted changes.              | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -949,6 +950,19 @@ Rework the shared Grafana dashboard so host service CPU is shown in millicores a
 Clarify Kafka offset lag panels and fix missing lag visibility for Spring Kafka where possible.
 Add missing batch-stream and pod CPU panels, remove low-value JVM CPU panels, and review panels for recently added demo metrics.
 Add model-call, drop-throughput, and OffsetTracker capacity panels so newer demo and CKC metrics have dashboard coverage.
+
+<a id="infra-33"></a>
+### INFRA-33 - Run internal-lab runtime on the lab host
+
+_Date: 2026-05-28_
+
+Keep local Gradle builds so uncommitted workspace changes can be tested without committing them first.
+Replace the local image archive workflow with an update step that syncs built runtime artifacts to the lab host.
+Move Docker image rebuild/loading and load-test generator execution onto the lab host so the laptop is only used for install/update orchestration.
+Update local-dev and AWS build scripts to use the same split Gradle runtime distributions instead of removed fat-jar tasks.
+Keep local internal-lab scripts limited to `install-lab.sh` and `update-lab.sh`; move lab runtime scripts and Python helpers under copied assets.
+Make `install-lab.sh` read or prompt for a lab host from the single local lab state file, and add a lab-side cleanup script for rebuilding the server from scratch.
+Reduce local lab configuration to `LAB_HOST`, derive SSH from that host, and keep the resolved node IP only in lab-side config for Kubernetes endpoints and Redpanda advertising.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

@@ -76,17 +76,17 @@ source_env_file "${ENV_FILE}"
 printf '%s\n' "${ENV_FILE}" > "${PID_DIR}/stubs.env"
 
 cd "${REPO_ROOT}"
-./gradlew :ckc-demo-stubs:fatJar
+./gradlew :ckc-demo-stubs:installDist
 
-JAR_PATH="$(find "${REPO_ROOT}/demo/ckc-demo-stubs/build/libs" -maxdepth 1 -type f -name '*-all.jar' | head -n 1)"
-if [[ -z "${JAR_PATH}" ]]; then
-  echo "Demo stubs jar was not found under demo/ckc-demo-stubs/build/libs." >&2
+STUBS_BIN="${REPO_ROOT}/demo/ckc-demo-stubs/build/install/ckc-demo-stubs/bin/ckc-demo-stubs"
+if [[ ! -f "${STUBS_BIN}" ]]; then
+  echo "Demo stubs runtime was not found: ${STUBS_BIN}" >&2
   exit 1
 fi
 
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 LOG_FILE="${LOG_DIR}/stubs-${RUN_ID}.log"
-nohup java -jar "${JAR_PATH}" > "${LOG_FILE}" 2>&1 &
+nohup bash "${STUBS_BIN}" > "${LOG_FILE}" 2>&1 &
 PID="$!"
 echo "${PID}" > "${PID_FILE}"
 

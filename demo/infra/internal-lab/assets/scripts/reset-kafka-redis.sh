@@ -2,22 +2,27 @@
 
 set -eu
 
-if [ -z "${LAB_HOST_IP:-}" ]; then
-  echo "LAB_HOST_IP is required." >&2
-  exit 1
-fi
-
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ENV="${LAB_ROOT}/config/lab.env"
 TOPIC_SPECS="${TOPIC_SPECS:-order.events.v1:4,batch.events.v1:4,cauldron.events.v1:4}"
 CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons}"
 REDPANDA_CONTAINER="${REDPANDA_CONTAINER:-ckc-perf-redpanda}"
-BOOTSTRAP_SERVER="${LAB_HOST_IP}:9092"
+BOOTSTRAP_SERVER="localhost:9092"
+
+if [ -f "${LAB_ENV}" ]; then
+  # shellcheck disable=SC1090
+  . "${LAB_ENV}"
+fi
+if [ -z "${LAB_NODE_IP:-}" ]; then
+  echo "LAB_NODE_IP is required in ${LAB_ENV}." >&2
+  exit 1
+fi
 
 rpk() {
   docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" "$@"
 }
 
-LAB_HOST_IP="${LAB_HOST_IP}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait kafka redis
+LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait kafka redis
 docker exec ckc-perf-redis redis-cli FLUSHALL
 
 IFS=","

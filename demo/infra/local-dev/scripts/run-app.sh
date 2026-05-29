@@ -84,17 +84,17 @@ source_env_file "${ENV_FILE}"
 printf '%s\n' "${ENV_FILE}" > "${PID_DIR}/app.env"
 
 cd "${REPO_ROOT}"
-./gradlew :ckc-demo:bootJar
+./gradlew :ckc-demo:installDist
 
-JAR_PATH="$(find "${REPO_ROOT}/demo/ckc-demo/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*plain.jar' | head -n 1)"
-if [[ -z "${JAR_PATH}" ]]; then
-  echo "Demo app jar was not found under demo/ckc-demo/build/libs." >&2
+APP_BIN="${REPO_ROOT}/demo/ckc-demo/build/install/ckc-demo/bin/ckc-demo"
+if [[ ! -f "${APP_BIN}" ]]; then
+  echo "Demo app runtime was not found: ${APP_BIN}" >&2
   exit 1
 fi
 
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 LOG_FILE="${LOG_DIR}/app-${RUN_ID}.log"
-nohup java -jar "${JAR_PATH}" > "${LOG_FILE}" 2>&1 &
+nohup bash "${APP_BIN}" > "${LOG_FILE}" 2>&1 &
 PID="$!"
 echo "${PID}" > "${PID_FILE}"
 

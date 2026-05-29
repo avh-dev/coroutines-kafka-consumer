@@ -8,19 +8,18 @@ The app, demo stubs, Prometheus, and metrics-server run in k3s. Redpanda, Redis,
 
 - Lab host: Linux, preferably Ubuntu or Debian.
 - Local machine: `root` SSH access to the lab host through a key.
-- Local tools: Git Bash-compatible shell, `ssh`, `scp`, `kubectl`, `helm`, Docker, Java/Gradle.
+- Local tools: Git Bash-compatible shell, `ssh`, `scp`, `rsync` when available, `kubectl`, `helm`, Java/Gradle.
 - Windows users should run all local scripts from Git Bash, not PowerShell.
 
-The lab host IP is provided to `install-lab.sh` and stored in `.demo-infra/internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP. Grafana uses `LAB_GRAFANA_HOST` when set, otherwise it uses `LAB_HOST_IP`.
+The lab host is stored in `.demo-infra/internal-lab/lab.env`. Repository scripts and manifests should not hardcode a lab IP. Prefer a stable hostname such as `optilab` in the local hosts file; `install-lab.sh` resolves it to the current lab IP for Kubernetes endpoints.
 
 ## Architecture
 
 ```text
 local machine
   .demo-infra/internal-lab/kubeconfig.yaml -> k3s API on lab host
-  kubectl / helm -> k3s
-  Docker build -> image archive -> scp -> lab host
-  load test -> app NodePort and Redpanda Kafka API on lab host
+  install-lab.sh -> base host setup
+  update-lab.sh -> local Gradle build, artifact sync, lab-side image rebuild
 
 lab host
   k3s
@@ -37,6 +36,10 @@ lab host
     Redis -> host:6379
     Grafana -> host:3000 on all interfaces
     process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
+
+  Host runtime
+    Docker build for ckc-perf/demo and ckc-perf/demo-stubs from synced dist layouts
+    ckc-demo-load-test as a host Java process under /opt/ckc-internal-lab/runtime/load-test
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
@@ -46,29 +49,39 @@ Prometheus stays in Kubernetes so it can use Kubernetes service discovery and sc
 From Git Bash at the repository root:
 
 ```sh
-./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP>
+./demo/infra/internal-lab/scripts/install-lab.sh
 ```
 
-If producers will connect through a hostname that resolves differently on
-different client machines, pass that hostname as the advertised Kafka address:
+On the first run, the script asks for the lab host name or IP and writes:
 
-```sh
-./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP> optilab
+```text
+.demo-infra/internal-lab/lab.env
 ```
 
-Add the same hostname to `/etc/hosts` on Linux clients or to
-`C:\Windows\System32\drivers\etc\hosts` on Windows clients. The hostname must
-resolve to the lab interface reachable from that client.
+For example, add the lab Wi-Fi address to your local hosts file:
 
-To access Grafana through a hostname such as `optilab`, set it before install:
+```text
+192.168.1.50 optilab
+```
+
+Then answer `optilab` when `install-lab.sh` prompts. The only local lab state
+value is `LAB_HOST=optilab`; scripts derive `root@optilab` for SSH. The
+resolved IP is written only into the lab-host config because k3s Endpoints and
+Redpanda's advertised listener need a concrete node address for pod traffic.
+
+You can pre-create or edit the state file instead of using the prompt:
 
 ```sh
-LAB_GRAFANA_HOST=optilab ./demo/infra/internal-lab/scripts/install-lab.sh <LAB_IP> optilab
+mkdir -p .demo-infra/internal-lab
+cat > .demo-infra/internal-lab/lab.env <<'EOF'
+LAB_HOST=optilab
+EOF
+./demo/infra/internal-lab/scripts/install-lab.sh
 ```
 
 The installer:
 
-- writes `.demo-infra/internal-lab/lab.env`
+- writes or refreshes `.demo-infra/internal-lab/lab.env`
 - copies `demo/infra/internal-lab/assets` to `/opt/ckc-internal-lab/assets` on the lab host
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
@@ -78,72 +91,83 @@ The installer:
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
 - verifies `kubectl`, Grafana, Prometheus, and the Redpanda Kafka API from the local machine
 
-For an existing lab, set or update `LAB_KAFKA_ADVERTISED_HOST` in
-`.demo-infra/internal-lab/lab.env`, rerun `install-lab.sh`, then rerun
-`prepare-test.sh` so demo pods get the matching host alias.
-
 After install:
 
 ```sh
 source .demo-infra/internal-lab/lab.env
-kubectl --kubeconfig "$KUBECONFIG" get nodes -o wide
-curl -fsS "http://${LAB_HOST_IP}:3000/api/health"
-curl -fsS "http://${LAB_HOST_IP}:30090/-/ready"
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml get nodes -o wide
+curl -fsS "http://${LAB_HOST}:3000/api/health"
+curl -fsS "http://${LAB_HOST}:30090/-/ready"
 ```
 
-## Wake Lab Host
+## Clean Reinstall
 
-If the lab host supports Wake-on-LAN, wake it from the local machine with the
-lab script:
+To rebuild an existing lab host from scratch, first make sure the current
+assets are present on the lab host, then run the destructive lab-side cleanup:
 
 ```sh
-./demo/infra/internal-lab/scripts/wakeup-lab.sh aa:bb:cc:dd:ee:ff --host 192.168.1.50 --wait-seconds 120
+./demo/infra/internal-lab/scripts/update-lab.sh
+source .demo-infra/internal-lab/lab.env
+ssh "root@${LAB_HOST}"
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/uninstall-server.sh
 ```
 
-After install, you can store the host MAC next to the lab IP in local ignored
-state:
+The cleanup removes k3s, internal-lab Docker containers/images, Helm, Java 21,
+Docker packages installed by the lab installer, and `/opt/ckc-internal-lab`.
+After it finishes, run a fresh install from the local machine:
 
 ```sh
-echo 'LAB_HOST_MAC=aa:bb:cc:dd:ee:ff' >> .demo-infra/internal-lab/lab.env
-./demo/infra/internal-lab/scripts/wakeup-lab.sh --wait-seconds 120
+./demo/infra/internal-lab/scripts/install-lab.sh
 ```
 
-The wrapper delegates to a Python helper under `scripts/helpers/` that uses
-only the Python standard library. It sends Wake-on-LAN magic packets to
-`255.255.255.255:9` by default and can wait for SSH port `22` to become
-reachable.
+## Update Lab
 
-## Build Images
-
-Build demo and stubs images locally, copy them to the lab, and load them into Docker and k3s containerd:
+Build the JVM runtime distributions locally, sync changed artifacts to the lab, and rebuild/reload images on the lab host when the fingerprint changed:
 
 ```sh
-./demo/infra/internal-lab/scripts/build-load-images.sh
+./demo/infra/internal-lab/scripts/update-lab.sh
 ```
 
-The app and stubs images are used by k3s.
-The interactive test runner checks the same image fingerprint and refreshes images automatically when they are missing or stale.
+This keeps uncommitted local code changes testable without making the lab host run Gradle or read from Git. The update step syncs:
+
+- `ckc-demo`, `ckc-demo-stubs`, and `ckc-demo-load-test` `installDist` outputs
+- Dockerfiles used by the lab-side image builds
+- shared Helm charts, test definitions, and helper scripts
+- internal-lab assets and host scripts
+
+Force a rebuild even when the fingerprint matches:
+
+```sh
+./demo/infra/internal-lab/scripts/update-lab.sh --force-rebuild
+```
 
 ## Prepare A Test
 
-Select a test definition once:
+After `update-lab.sh`, connect to the lab host:
 
 ```sh
-./demo/infra/internal-lab/scripts/set-test.sh
+source .demo-infra/internal-lab/lab.env
+ssh "root@${LAB_HOST}"
 ```
 
-The selection is saved under `.demo-infra/internal-lab/`.
+Select a test definition once on the lab host:
+
+```sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/set-test.sh
+```
+
+The selection is saved under `/opt/ckc-internal-lab/config/selected-test-definition`.
 
 Prepare the selected test definition:
 
 ```sh
-./demo/infra/internal-lab/scripts/prepare-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh
 ```
 
 You can still pass an explicit definition when needed:
 
 ```sh
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
 This script:
@@ -158,50 +182,38 @@ This script:
 
 ## Run A Test
 
-Prepare the selected test definition and run the load generator locally as a Java process:
+Connect to the lab host and run the load generator there as a host Java process:
 
 ```sh
-./demo/infra/internal-lab/scripts/run-test.sh
+source .demo-infra/internal-lab/lab.env
+ssh "root@${LAB_HOST}"
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
 ```
 
 You can still pass an explicit definition when needed:
 
 ```sh
-./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
 ```
 
-To rerun only the local load generator without resetting Redis, topics, or Kubernetes deployments:
+To rerun only the lab-host load generator without resetting Redis, topics, or Kubernetes deployments:
 
 ```sh
-./demo/infra/internal-lab/scripts/run-test.sh --skip-prepare ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-prepare ckc-baseline-internal
 ```
 
 The script reads `load_test` settings from the test definition, exports them as environment variables for `ckc-demo-load-test`, and redirects stdout/stderr to:
 
-Before preparing the test, the script compares the current local demo image fingerprint with the fingerprint stored on the lab host. If the images are missing or stale, it rebuilds the demo and stubs images locally and loads them into Docker and k3s on the lab.
-
-Force image refresh even when the fingerprint matches:
-
-```sh
-./demo/infra/internal-lab/scripts/run-test.sh --refresh-images ckc-baseline-internal
-```
-
-Skip the image freshness check when you only need to rerun against the current lab deployment:
-
-```sh
-./demo/infra/internal-lab/scripts/run-test.sh --skip-image-check ckc-baseline-internal
-```
-
 ```text
-.demo-infra/internal-lab/logs/
+/opt/ckc-internal-lab/logs/
 ```
 
 High-volume publish and processed audit records are written outside stdout.
-For each run, `run-test.sh` stores published records from the local load
-generator and processed records copied from the lab host under:
+For each run, `run-test.sh` stores published records from the lab-host load
+generator and processed records under:
 
 ```text
-.demo-infra/internal-lab/audit/<run-id>/
+/opt/ckc-internal-lab/audit/<run-id>/
 ```
 
 The runner prints and saves `summary.txt` with published, processed, missing,
@@ -213,8 +225,8 @@ and stay there briefly before collecting processed audit files. Override the
 wait with:
 
 ```sh
-CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 ./demo/infra/internal-lab/scripts/run-test.sh ckc-baseline-internal
-./demo/infra/internal-lab/scripts/run-test.sh --skip-drain-wait ckc-baseline-internal
+CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-drain-wait ckc-baseline-internal
 ```
 
 It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
@@ -225,14 +237,14 @@ Press q to stop the test early.
 
 ## Endpoints
 
-Use `.demo-infra/internal-lab/lab.env` for the actual IP:
+Use `.demo-infra/internal-lab/lab.env` for the actual host:
 
 ```text
-App:        http://$LAB_HOST_IP:30080
-Prometheus: http://$LAB_HOST_IP:30090
-Grafana:    http://${LAB_GRAFANA_HOST:-$LAB_HOST_IP}:3000
-Kafka API:  $LAB_KAFKA_ADVERTISED_HOST:9092
-Redis:      $LAB_HOST_IP:6379
+App:        http://$LAB_HOST:30080
+Prometheus: http://$LAB_HOST:30090
+Grafana:    http://$LAB_HOST:3000
+Kafka API:  $LAB_HOST:9092
+Redis:      $LAB_HOST:6379
 ```
 
 Grafana credentials are `admin` / `admin`.
@@ -240,7 +252,7 @@ Grafana credentials are `admin` / `admin`.
 The shared dashboard is provisioned under the `CKC` folder:
 
 ```text
-http://${LAB_GRAFANA_HOST:-$LAB_HOST_IP}:3000/d/ckc-overview/ckc-overview
+http://$LAB_HOST:3000/d/ckc-overview/ckc-overview
 ```
 
 ## Scaling And HPA
@@ -248,27 +260,27 @@ http://${LAB_GRAFANA_HOST:-$LAB_HOST_IP}:3000/d/ckc-overview/ckc-overview
 Manual scaling does not need metrics-server:
 
 ```sh
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf scale deployment ckc-demo --replicas=3
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf rollout status deployment/ckc-demo
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf scale deployment ckc-demo --replicas=3
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf rollout status deployment/ckc-demo
 ```
 
 `kubectl top` and HPA do need metrics-server:
 
 ```sh
-kubectl --kubeconfig "$KUBECONFIG" top nodes
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf top pods
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml top nodes
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf top pods
 ```
 
 Enable the existing HPA profile when autoscaling itself is part of the test:
 
 ```sh
 helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
-  --kubeconfig "$KUBECONFIG" \
+  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
   -f demo/infra/shared/helm/demo/profiles/ckc-hpa.yaml
 
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf get hpa ckc-demo -w
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf get hpa ckc-demo -w
 ```
 
 For blocking vs non-blocking comparisons, prefer fixed manual replicas first. HPA changes pod count during the run and makes profile comparisons harder unless autoscaling behavior is the subject.
@@ -287,7 +299,7 @@ Keep these constant between runs:
 Reset state and deploy the same test definition before every run:
 
 ```sh
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
@@ -296,7 +308,7 @@ Switch only the app profile or explicit Helm settings. For example:
 
 ```sh
 helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
-  --kubeconfig "$KUBECONFIG" \
+  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
   -f demo/infra/shared/helm/demo/profiles/ckc-local-baseline.yaml \
@@ -305,7 +317,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
 
 ```sh
 helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
-  --kubeconfig "$KUBECONFIG" \
+  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
   -f demo/infra/shared/helm/demo/profiles/ckc-local-baseline.yaml \
@@ -337,21 +349,21 @@ sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-ex
 
 ```sh
 source .demo-infra/internal-lab/lab.env
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf get pods,svc,endpoints -o wide
-kubectl --kubeconfig "$KUBECONFIG" -n ckc-perf top pods
-curl -fsS "http://${LAB_HOST_IP}:30080/actuator/health"
-curl -fsS "http://${LAB_HOST_IP}:30080/actuator/prometheus" | head
-curl -fsS "http://${LAB_HOST_IP}:30090/api/v1/targets"
-curl -fsS "http://${LAB_HOST_IP}:9256/metrics" | head
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf get pods,svc,endpoints -o wide
+kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf top pods
+curl -fsS "http://${LAB_HOST}:30080/actuator/health"
+curl -fsS "http://${LAB_HOST}:30080/actuator/prometheus" | head
+curl -fsS "http://${LAB_HOST}:30090/api/v1/targets"
+curl -fsS "http://${LAB_HOST}:9256/metrics" | head
 ```
 
 Host checks:
 
 ```sh
-ssh "$SSH_TARGET" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
-ssh "$SSH_TARGET" "docker exec ckc-perf-redis redis-cli PING"
-ssh "$SSH_TARGET" "docker exec ckc-perf-redpanda rpk -X brokers=${LAB_HOST_IP}:9092 topic list"
-ssh "$SSH_TARGET" "curl -fsS http://${LAB_HOST_IP}:9308/metrics | grep kafka_consumergroup_lag | head"
+ssh "root@${LAB_HOST}" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-redis redis-cli PING"
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers=localhost:9092 topic list"
+ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:9308/metrics | grep kafka_consumergroup_lag | head"
 ```
 
 ## Benchmark Stability
@@ -359,11 +371,13 @@ ssh "$SSH_TARGET" "curl -fsS http://${LAB_HOST_IP}:9308/metrics | grep kafka_con
 Recommended before serious runs:
 
 ```sh
-ssh "$SSH_TARGET" "LAB_ROOT=${LAB_ROOT} ${LAB_ROOT}/assets/scripts/tune-host.sh"
-./demo/infra/internal-lab/scripts/prepare-test.sh ckc-baseline-internal
+source .demo-infra/internal-lab/lab.env
+ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/tune-host.sh"
+ssh "root@${LAB_HOST}"
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
 ```
 
-Use wired Ethernet when possible. Keep load generation off the lab host. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.
+Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.
 
 The default demo app values set memory limits but do not set CPU limits. CPU limits can introduce CFS throttling and distort latency measurements. Add CPU limits only when testing constrained CPU behavior.
 
@@ -374,7 +388,7 @@ The default demo app values set memory limits but do not set CPU limits. CPU lim
 - Images were rebuilt locally but not loaded into k3s.
 - Kafka topics were not recreated between tests.
 - CPU limits cause throttling and look like application latency.
-- The load generator runs on the lab host and competes with the app.
+- The lab has not been refreshed with `update-lab.sh` after local code changes.
 - Prometheus scrape interval is too aggressive.
 - Swap is enabled or CPU governor is `powersave`.
 - Windows scripts are run from PowerShell instead of Git Bash.

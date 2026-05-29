@@ -85,9 +85,9 @@ $loadTestImage = "$prefix/load-test:latest"
 Push-Location $repoRoot
 try {
     & .\gradlew.bat `
-        ":ckc-demo:bootJar" `
-        ":ckc-demo-stubs:fatJar" `
-        ":ckc-demo-load-test:fatJar"
+        ":ckc-demo:installDist" `
+        ":ckc-demo-stubs:installDist" `
+        ":ckc-demo-load-test:installDist"
 
     aws ecr describe-repositories `
         --region $Region `

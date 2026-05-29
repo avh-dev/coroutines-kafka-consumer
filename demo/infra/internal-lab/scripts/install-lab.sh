@@ -2,13 +2,11 @@
 
 set -euo pipefail
 
-LAB_HOST_IP="${1:-}"
-if [[ -z "${LAB_HOST_IP}" ]]; then
-  echo "Usage: $0 <lab-host-ip> [kafka-advertised-host]" >&2
+if [[ $# -gt 0 ]]; then
+  echo "Usage: $0" >&2
+  echo "Configure the lab host in ${PWD}/.demo-infra/internal-lab/lab.env or answer the prompt." >&2
   exit 1
 fi
-LAB_KAFKA_ADVERTISED_HOST="${2:-${LAB_HOST_IP}}"
-LAB_GRAFANA_HOST="${LAB_GRAFANA_HOST:-${LAB_HOST_IP}}"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
@@ -16,27 +14,65 @@ STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
 SHARED_GRAFANA_DIR="${REPO_ROOT}/demo/infra/shared/grafana"
 LAB_ROOT="/opt/ckc-internal-lab"
-SSH_TARGET="root@${LAB_HOST_IP}"
 KUBECONFIG_PATH="${STATE_DIR}/kubeconfig.yaml"
+LAB_ENV_PATH="${STATE_DIR}/lab.env"
 
 mkdir -p "${STATE_DIR}"
+
+resolve_host_ip() {
+  local host="$1"
+
+  if command -v getent >/dev/null 2>&1; then
+    getent ahostsv4 "${host}" | awk 'NR == 1 { print $1 }'
+    return
+  fi
+
+  python - "${host}" <<'PY'
+import socket
+import sys
+
+print(socket.gethostbyname(sys.argv[1]))
+PY
+}
+
+if [[ -f "${LAB_ENV_PATH}" ]]; then
+  # shellcheck disable=SC1090
+  source "${LAB_ENV_PATH}"
+fi
+
+if [[ -z "${LAB_HOST:-}" ]]; then
+  read -r -p "Lab host name or IP: " LAB_HOST
+fi
+
+if [[ -z "${LAB_HOST:-}" ]]; then
+  echo "Lab host is required." >&2
+  exit 1
+fi
+
+LAB_NODE_IP="$(resolve_host_ip "${LAB_HOST}")"
+if [[ -z "${LAB_NODE_IP}" ]]; then
+  echo "Unable to resolve lab host: ${LAB_HOST}" >&2
+  exit 1
+fi
+
 cat > "${STATE_DIR}/lab.env" <<EOF
-LAB_HOST_IP=${LAB_HOST_IP}
-LAB_KAFKA_ADVERTISED_HOST=${LAB_KAFKA_ADVERTISED_HOST}
-LAB_GRAFANA_HOST=${LAB_GRAFANA_HOST}
-LAB_ROOT=${LAB_ROOT}
-SSH_TARGET=${SSH_TARGET}
-KUBECONFIG=${KUBECONFIG_PATH}
+LAB_HOST=${LAB_HOST}
 EOF
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_TARGET}" "mkdir -p '${LAB_ROOT}/shared' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana'"
-scp -r "${ASSETS_DIR}" "${SSH_TARGET}:${LAB_ROOT}/"
-scp -r "${SHARED_GRAFANA_DIR}" "${SSH_TARGET}:${LAB_ROOT}/shared/"
-ssh "${SSH_TARGET}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh && LAB_HOST_IP='${LAB_HOST_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/install-server.sh'"
-ssh "${SSH_TARGET}" "LAB_HOST_IP='${LAB_HOST_IP}' LAB_KAFKA_ADVERTISED_HOST='${LAB_KAFKA_ADVERTISED_HOST}' LAB_GRAFANA_HOST='${LAB_GRAFANA_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/shared' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana'"
+scp -r "${ASSETS_DIR}" "root@${LAB_HOST}:${LAB_ROOT}/"
+scp -r "${SHARED_GRAFANA_DIR}" "root@${LAB_HOST}:${LAB_ROOT}/shared/"
+ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config'"
+ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
+LAB_HOST=${LAB_HOST}
+LAB_NODE_IP=${LAB_NODE_IP}
+LAB_ROOT=${LAB_ROOT}
+EOF
+ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh && LAB_NODE_IP='${LAB_NODE_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/install-server.sh'"
+ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
 
-scp "${SSH_TARGET}:/etc/rancher/k3s/k3s.yaml" "${KUBECONFIG_PATH}"
-python - "${KUBECONFIG_PATH}" "${LAB_HOST_IP}" <<'PY'
+scp "root@${LAB_HOST}:/etc/rancher/k3s/k3s.yaml" "${KUBECONFIG_PATH}"
+python - "${KUBECONFIG_PATH}" "${LAB_HOST}" <<'PY'
 from pathlib import Path
 import sys
 
@@ -49,15 +85,15 @@ PY
 
 export KUBECONFIG="${KUBECONFIG_PATH}"
 kubectl get nodes -o wide
-curl -fsS "http://${LAB_HOST_IP}:3000/api/health" >/dev/null
-curl -fsS "http://${LAB_HOST_IP}:30090/-/ready" >/dev/null
-timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST_IP}/9092"
-timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST_IP}/6379"
-ssh "${SSH_TARGET}" "docker exec ckc-perf-redpanda rpk -X brokers='${LAB_HOST_IP}:9092' topic list >/dev/null"
+curl -fsS "http://${LAB_HOST}:3000/api/health" >/dev/null
+curl -fsS "http://${LAB_HOST}:30090/-/ready" >/dev/null
+timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9092"
+timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/6379"
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers='localhost:9092' topic list >/dev/null"
 
 echo "Internal lab is installed."
 echo "  state:      ${STATE_DIR}"
 echo "  kubeconfig: ${KUBECONFIG_PATH}"
-echo "  grafana:    http://${LAB_GRAFANA_HOST}:3000"
-echo "  prometheus: http://${LAB_HOST_IP}:30090"
-echo "  kafka:      ${LAB_KAFKA_ADVERTISED_HOST}:9092"
+echo "  grafana:    http://${LAB_HOST}:3000"
+echo "  prometheus: http://${LAB_HOST}:30090"
+echo "  kafka:      ${LAB_HOST}:9092"

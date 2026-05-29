@@ -2,13 +2,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
-STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
-TEST_STATE_PATH="${STATE_DIR}/selected-test-definition"
-TEST_DIR="${REPO_ROOT}/demo/infra/shared/test-definitions"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+TEST_STATE_PATH="${LAB_ROOT}/config/selected-test-definition"
+TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions"
 
-mkdir -p "${STATE_DIR}"
+mkdir -p "${LAB_ROOT}/config"
 
 mapfile -t TESTS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
 
@@ -36,7 +34,7 @@ if (( selected_index < 0 || selected_index >= ${#TESTS[@]} )); then
   exit 1
 fi
 
-selected="${TESTS[$selected_index]#"${REPO_ROOT}/"}"
+selected="demo/infra/shared/test-definitions/$(basename "${TESTS[$selected_index]}")"
 printf "%s\n" "${selected}" > "${TEST_STATE_PATH}"
 
 echo "Selected test definition: $(basename "${selected}" .yaml)"

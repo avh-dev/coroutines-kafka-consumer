@@ -17,6 +17,7 @@ env:
   bootstrapServers: ""
   redisHost: ""
   redisPort: 6379
+  javaToolOptions: ""
   modelBaseUrl: ""
   modelClient: KTOR_CIO
   auditLogEnabled: true
