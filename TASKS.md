@@ -98,6 +98,7 @@
 | [INFRA-33](#infra-33) | Move internal-lab image building and load-test execution onto the lab host while keeping local Gradle builds for uncommitted changes.              | DONE |
 | [INFRA-34](#infra-34) | Add Helm and load-test definition support for the `ckc-sync` demo profile.                                                                         | DONE |
 | [INFRA-35](#infra-35) | Add Grafana visibility for CKC backpressure pause and resume events.                                                                               | DONE |
+| [INFRA-36](#infra-36) | Mount internal-lab Grafana dashboards from the synced workspace copy.                                                                              | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1016,6 +1017,17 @@ _Date: 2026-05-29_
 Add Grafana dashboard visibility for the CKC backpressure pause/resume metric.
 Place the panel near CKC poll and queue pressure panels so paused intake can be correlated with lower poll duration.
 Use per-consumer and action labels to show pause and resume rates separately.
+
+<a id="infra-36"></a>
+### INFRA-36 - Mount synced Grafana dashboards
+
+_Date: 2026-05-29_
+
+Make internal-lab Grafana read dashboards from the workspace path that `update-lab.sh` refreshes.
+Keep generated provisioning files under the runtime Grafana directory because the Prometheus datasource still needs lab host templating.
+Remove the stale dashboard copy step so dashboard updates no longer require manual copying after lab updates.
+Reapply the Grafana compose service during lab updates so existing labs switch to the synced dashboard mount.
+Align fresh installs with the same workspace-backed shared infra path.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

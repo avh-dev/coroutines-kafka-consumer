@@ -255,6 +255,10 @@ The shared dashboard is provisioned under the `CKC` folder:
 http://$LAB_HOST:3000/d/ckc-overview/ckc-overview
 ```
 
+Dashboard JSON is mounted from `/opt/ckc-internal-lab/workspace/demo/infra/shared/grafana/dashboards`,
+the same path refreshed by `update-lab.sh`. The update script reapplies the Grafana compose service so mount
+changes and refreshed dashboard JSON are visible without manual copying.
+
 ## Scaling And HPA
 
 Manual scaling does not need metrics-server:
