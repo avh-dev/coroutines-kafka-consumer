@@ -60,6 +60,7 @@
 | [DEMO-31](#demo-31) | Add demo model-call metrics for throughput and latency percentile analysis.                                                                 | DONE |
 | [DEMO-32](#demo-32) | Add fixed-fleet cauldron telemetry load generation and retain demo Redis state through TTL instead of immediate deletes.                   | DONE |
 | [DEMO-33](#demo-33) | Replace stdout demo audit records with lightweight file-backed audit collection for internal lab loss and duplicate analysis.              | IN_PROGRESS |
+| [DEMO-34](#demo-34) | Add a CKC sync Spring profile that keeps CKC consumption while running blocking demo business services on the IO dispatcher.               | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -767,6 +768,16 @@ _Date: 2026-05-28_
 Replace high-volume stdout audit records with lightweight append-only file audit for published and processed demo messages.
 Keep the first implementation focused on the internal lab so published records from the local load generator and processed records from k3s demo pods can be collected after a run.
 Use the audit as the source for loss, duplicate, and latency analysis across failure scenarios.
+
+<a id="demo-34"></a>
+### DEMO-34 - Add CKC sync profile
+
+_Date: 2026-05-29_
+
+Add a `ckc-sync` Spring profile for comparing CKC runtime behavior with blocking demo service calls.
+Keep the consumer implementation on CKC while routing record processing work through the IO dispatcher.
+Reuse the existing synchronous order, batch, and cauldron business service variants so the profile models blocking application logic explicitly.
+Cover the profile with a Spring context test and document the local run command.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

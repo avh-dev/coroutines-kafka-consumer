@@ -22,7 +22,7 @@ class MetricsConfiguration {
     private val eventTypeTag = recordMetricTag("event_type")
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "ckc-sync")
     fun micrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
@@ -51,7 +51,7 @@ class MetricsConfiguration {
     }
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "ckc-sync")
     fun consumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
@@ -61,7 +61,7 @@ class MetricsConfiguration {
         )
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "ckc-sync")
     fun orderConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
@@ -71,7 +71,7 @@ class MetricsConfiguration {
         )
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "ckc-sync")
     fun batchConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
@@ -129,6 +129,7 @@ class MetricsConfiguration {
         when {
             environment.acceptsProfiles(Profiles.of("confluent-parallel")) -> "confluent-parallel"
             environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
+            environment.acceptsProfiles(Profiles.of("ckc-sync")) -> "ckc-sync"
             environment.acceptsProfiles(Profiles.of("ckc")) -> "ckc"
             else -> environment.activeProfiles.firstOrNull() ?: "unknown"
         }
@@ -137,6 +138,7 @@ class MetricsConfiguration {
         when (profile) {
             "confluent-parallel" -> "confluent_parallel"
             "spring-kafka" -> "spring_kafka"
+            "ckc-sync" -> "ckc"
             "ckc" -> "ckc"
             else -> "unknown"
         }

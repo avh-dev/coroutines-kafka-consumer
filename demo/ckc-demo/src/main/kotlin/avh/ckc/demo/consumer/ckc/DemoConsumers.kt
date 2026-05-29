@@ -24,6 +24,7 @@ object DemoConsumers {
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
+        processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
@@ -40,6 +41,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.deserializationDispatcher = deserializationDispatcher
+            this.processingDispatcher = processingDispatcher
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {
@@ -60,6 +62,7 @@ object DemoConsumers {
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
+        processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, BatchLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, BatchLifecycleEvent> {
@@ -76,6 +79,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.deserializationDispatcher = deserializationDispatcher
+            this.processingDispatcher = processingDispatcher
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {
@@ -96,6 +100,7 @@ object DemoConsumers {
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         deserializationDispatcher: CoroutineDispatcher,
+        processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
@@ -112,6 +117,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.deserializationDispatcher = deserializationDispatcher
+            this.processingDispatcher = processingDispatcher
             this.metrics = metrics
             handle { key, value, record ->
                 if (value != null) {

@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka", "confluent-parallel")
+@Profile("spring-kafka", "confluent-parallel", "ckc-sync")
 class SyncOrderLifecycleService(
     private val brewingStateRepository: SyncBrewingStateRepository,
     private val flavourModelClient: SyncOrderFlavourModelClient
@@ -27,7 +27,7 @@ class SyncOrderLifecycleService(
             }
         } catch (error: Throwable) {
             logger.error(
-                "Spring Kafka order processing failed for orderId={}, eventType={}",
+                "Sync order processing failed for orderId={}, eventType={}",
                 event.orderId,
                 event.eventType.name,
                 error

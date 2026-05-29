@@ -32,7 +32,7 @@ class ModelClientConfiguration {
         ModelCallMetrics(meterRegistry)
 
     @Bean
-    @Profile("spring-kafka", "confluent-parallel")
+    @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
     fun syncArcaneEtaModelClient(
         properties: DemoApplicationProperties,
         modelCallMetrics: ModelCallMetrics
@@ -93,7 +93,7 @@ class ModelClientConfiguration {
         ArmeriaSuspendArcaneEtaModelClient(armeriaModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("spring-kafka", "confluent-parallel")
+    @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
     fun syncOrderFlavourModelClient(
         properties: DemoApplicationProperties,
         modelCallMetrics: ModelCallMetrics

@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka", "confluent-parallel")
+@Profile("spring-kafka", "confluent-parallel", "ckc-sync")
 class SyncCauldronTelemetryService(
     private val modelClient: SyncArcaneEtaModelClient,
     private val normalizer: ArcaneEtaNormalizer,
@@ -29,7 +29,7 @@ class SyncCauldronTelemetryService(
 
             val estimate = normalizer.normalize(batch, telemetryEvent, modelResponse)
             logger.debug(
-                "Spring Kafka ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
+                "Sync ETA recalculated for batch={}, cauldron={}, etaSeconds={}",
                 estimate.batchId,
                 estimate.cauldronId,
                 estimate.etaSeconds
@@ -37,7 +37,7 @@ class SyncCauldronTelemetryService(
             return estimate
         } catch (error: Throwable) {
             logger.error(
-                "Spring Kafka telemetry processing failed for cauldronId={}, batchId={}, occurredAt={}",
+                "Sync telemetry processing failed for cauldronId={}, batchId={}, occurredAt={}",
                 telemetryEvent.cauldronId,
                 telemetryEvent.batchId,
                 telemetryEvent.metadata.occurredAt,

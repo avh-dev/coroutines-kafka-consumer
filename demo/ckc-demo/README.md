@@ -12,7 +12,8 @@ The demo uses a potion workshop domain:
 
 The application is intended for functional checks and for comparing consumer implementations under the same workload:
 
-- `ckc` profile uses `coroutines-kafka-consumer`;
+- `ckc` profile uses `coroutines-kafka-consumer` with suspend business services;
+- `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services on `Dispatchers.IO`;
 - `spring-kafka` profile uses `@KafkaListener` as a legacy baseline;
 - `confluent-parallel` profile uses a blocking Confluent Parallel Consumer implementation with key-ordered parallel processing.
 
@@ -40,6 +41,12 @@ Run the demo with the coroutine-based consumer:
 ./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
 ```
 
+Run the demo with CKC and blocking business services:
+
+```bash
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc-sync --demo.kafka.enabled=true'
+```
+
 Run the demo with Spring Kafka listeners:
 
 ```bash
@@ -62,7 +69,7 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 
 ## CKC Experiment Controls
 
-The `ckc` profile exposes demo-only switches for consumer experiments:
+The `ckc` and `ckc-sync` profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
 - `DEMO_CONSUMER_DESERIALIZATION_DISPATCHER=DEFAULT|IO|CUSTOM_THREAD_POOL` selects the coroutine dispatcher used for Kafka deserializers.

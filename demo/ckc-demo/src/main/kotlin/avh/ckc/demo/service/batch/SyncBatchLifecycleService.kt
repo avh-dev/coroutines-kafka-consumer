@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka", "confluent-parallel")
+@Profile("spring-kafka", "confluent-parallel", "ckc-sync")
 class SyncBatchLifecycleService(
     private val brewingStateRepository: SyncBrewingStateRepository
 ) {
@@ -20,7 +20,7 @@ class SyncBatchLifecycleService(
             updateActiveBatch(event, brewingStateRepository)
         } catch (error: Throwable) {
             logger.error(
-                "Spring Kafka batch processing failed for batchId={}, eventType={}",
+                "Sync batch processing failed for batchId={}, eventType={}",
                 event.batchId,
                 event.eventType.name,
                 error
