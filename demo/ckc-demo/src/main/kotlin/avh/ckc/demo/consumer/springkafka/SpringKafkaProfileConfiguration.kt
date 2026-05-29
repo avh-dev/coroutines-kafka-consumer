@@ -83,5 +83,11 @@ class SpringKafkaProfileConfiguration {
         ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
         ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
         ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+    ) + properties.kafka.consumerProperties()
+
+    private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
+        ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,
+        ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
+        ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords
     )
 }
