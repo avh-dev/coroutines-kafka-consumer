@@ -1,5 +1,6 @@
 package avh.ckc.core
 
+import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
@@ -42,6 +43,11 @@ data class CommitCall(
     val success: Boolean
 )
 
+data class BackpressurePauseResumeCall(
+    val action: BackpressureAction,
+    val partitionsCount: Int
+)
+
 data class PartitionMetricsKey(
     val topic: String,
     val partition: Int
@@ -54,6 +60,7 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val dropped = CopyOnWriteArrayList<RecordDroppedCall>()
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
+    val backpressurePauseResume = CopyOnWriteArrayList<BackpressurePauseResumeCall>()
     val consumerFailures = CopyOnWriteArrayList<Throwable>()
     val boundRuntimeStats = CopyOnWriteArrayList<ConsumerRuntimeStats>()
     val unbindRuntimeMetricsCalls = CopyOnWriteArrayList<Unit>()
@@ -111,6 +118,10 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
 
     override fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) {
         commits += CommitCall(partitionsCount, offsetsCount, durationNanos, success)
+    }
+
+    override fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) {
+        backpressurePauseResume += BackpressurePauseResumeCall(action, partitionsCount)
     }
 
     override fun onConsumerFailure(error: Throwable) {

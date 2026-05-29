@@ -17,7 +17,14 @@ data class DemoApplicationProperties(
         var bootstrapServers: String = "localhost:9092",
         var orderGroupId: String = "potion-tracking-orders",
         var batchGroupId: String = "potion-tracking-batches",
-        var cauldronGroupId: String = "potion-tracking-cauldrons"
+        var cauldronGroupId: String = "potion-tracking-cauldrons",
+        var consumer: KafkaConsumer = KafkaConsumer()
+    )
+
+    data class KafkaConsumer(
+        var fetchMinBytes: Int = 1,
+        var fetchMaxWaitMs: Int = 500,
+        var maxPollRecords: Int = 500
     )
 
     data class Topics(

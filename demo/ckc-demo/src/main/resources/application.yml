@@ -16,6 +16,10 @@ demo:
     order-group-id: potion-tracking-orders
     batch-group-id: potion-tracking-batches
     cauldron-group-id: potion-tracking-cauldrons
+    consumer:
+      fetch-min-bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
+      fetch-max-wait-ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
+      max-poll-records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
   topics:
     order-events: order.events.v1
     batch-events: batch.events.v1

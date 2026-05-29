@@ -61,6 +61,8 @@
 | [DEMO-32](#demo-32) | Add fixed-fleet cauldron telemetry load generation and retain demo Redis state through TTL instead of immediate deletes.                   | DONE |
 | [DEMO-33](#demo-33) | Replace stdout demo audit records with lightweight file-backed audit collection for internal lab loss and duplicate analysis.              | IN_PROGRESS |
 | [DEMO-34](#demo-34) | Add a CKC sync Spring profile that keeps CKC consumption while running blocking demo business services on the IO dispatcher.               | DONE |
+| [DEMO-35](#demo-35) | Add demo application settings for Kafka consumer fetch batching and per-poll record limits.                                                | DONE |
+| [DEMO-36](#demo-36) | Add CKC pause and resume metrics for observing demo consumer backpressure.                                                                 | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -779,6 +781,24 @@ Add a `ckc-sync` Spring profile for comparing CKC runtime behavior with blocking
 Keep the consumer implementation on CKC while routing record processing work through the IO dispatcher.
 Reuse the existing synchronous order, batch, and cauldron business service variants so the profile models blocking application logic explicitly.
 Cover the profile with a Spring context test and document the local run command.
+
+<a id="demo-35"></a>
+### DEMO-35 - Add Kafka consumer fetch settings
+
+_Date: 2026-05-29_
+
+Add demo application properties for `fetch.min.bytes`, `fetch.max.wait.ms`, and `max.poll.records`.
+Wire those settings into all demo consumer profiles so CKC, CKC sync, Spring Kafka, and Confluent Parallel Consumer can be compared with the same Kafka consumer fetch behavior.
+Keep defaults aligned with Kafka client defaults unless an experiment overrides them.
+
+<a id="demo-36"></a>
+### DEMO-36 - Add pause and resume metrics
+
+_Date: 2026-05-29_
+
+Add a CKC metric signal for Kafka consumer pause and resume events caused by downstream backpressure.
+Expose the events through the Micrometer adapter so demo dashboards can correlate lower poll duration with paused intake.
+Keep the metric lightweight and tagged by action so it can be queried as pause and resume rates.
 
 <a id="infra-15"></a>
 ### INFRA-15 - Add lightweight internal k3s lab

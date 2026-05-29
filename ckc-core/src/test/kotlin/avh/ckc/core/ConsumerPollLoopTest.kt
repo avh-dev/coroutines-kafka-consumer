@@ -1,6 +1,7 @@
 package avh.ckc.core
 
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
+import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
@@ -149,8 +150,10 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when work channel is full in AT_LEAST_ONCE_UNORDERED mode then consumer is paused`() = runBlocking {
+            val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                metrics = metrics,
                 workChannelCapacity = 2,
                 assignmentPosition = 100L,
                 initialChannelRecords = listOf(record(topic = "prefill", offset = 0L)),
@@ -173,6 +176,10 @@ class ConsumerPollLoopTest {
             val delivered = withTimeout(2_000) { fixture.workChannel.receive() }
             assertEquals("topic-a", delivered.topic())
             assertEquals(123L, delivered.offset())
+            assertEquals(
+                BackpressurePauseResumeCall(BackpressureAction.PAUSE, 1),
+                metrics.backpressurePauseResume.first()
+            )
 
             job.cancel()
             job.join()
@@ -183,8 +190,10 @@ class ConsumerPollLoopTest {
         @Test
         fun `when stashed records are drained then consumer is resumed and poll batch tail is delivered in order`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
+            val metrics = RecordingMetrics<Any?, Any?>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                metrics = metrics,
                 workChannelCapacity = 1,
                 assignmentPosition = 100L,
                 initialChannelRecords = listOf(record(topic = "prefill", offset = 0L)),
@@ -219,6 +228,13 @@ class ConsumerPollLoopTest {
             assertEquals(124L, tail.offset())
 
             fixture.awaitResume()
+            assertEquals(
+                listOf(
+                    BackpressurePauseResumeCall(BackpressureAction.PAUSE, 1),
+                    BackpressurePauseResumeCall(BackpressureAction.RESUME, 1)
+                ),
+                metrics.backpressurePauseResume
+            )
 
             job.cancel()
             job.join()

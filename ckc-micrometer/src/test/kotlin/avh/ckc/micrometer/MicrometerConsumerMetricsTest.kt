@@ -1,5 +1,6 @@
 package avh.ckc.micrometer
 
+import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import io.micrometer.core.instrument.Tag
@@ -128,6 +129,7 @@ class MicrometerConsumerMetricsTest {
         metrics.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
         metrics.onPoll(recordsCount = 5, durationNanos = TimeUnit.MILLISECONDS.toNanos(15))
         metrics.onCommit(partitionsCount = 2, offsetsCount = 25, durationNanos = TimeUnit.MILLISECONDS.toNanos(5), success = false)
+        metrics.onBackpressurePauseResume(BackpressureAction.PAUSE, partitionsCount = 3)
         metrics.onConsumerFailure(IllegalStateException("boom"))
 
         assertEquals(
@@ -156,6 +158,20 @@ class MicrometerConsumerMetricsTest {
             25.0,
             registry.get("ckc.commit.offsets")
                 .tag("success", "false")
+                .summary()
+                .totalAmount()
+        )
+        assertEquals(
+            1.0,
+            registry.get("ckc.pause.resume")
+                .tag("action", "pause")
+                .counter()
+                .count()
+        )
+        assertEquals(
+            3.0,
+            registry.get("ckc.pause.resume.partitions")
+                .tag("action", "pause")
                 .summary()
                 .totalAmount()
         )

@@ -12,6 +12,9 @@ class DemoApplicationPropertiesTest {
         val properties = bind(emptyMap())
 
         assertEquals(true, properties.consumers.processingEnabled)
+        assertEquals(1, properties.kafka.consumer.fetchMinBytes)
+        assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
+        assertEquals(500, properties.kafka.consumer.maxPollRecords)
         assertEquals(DemoApplicationProperties.ModelClient.KTOR_CIO, properties.model.client)
         assertEquals(
             DemoApplicationProperties.DeserializationDispatcherMode.DEFAULT,
@@ -42,6 +45,9 @@ class DemoApplicationPropertiesTest {
         val properties = bind(
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
+                "demo.kafka.consumer.fetch-min-bytes" to "65536",
+                "demo.kafka.consumer.fetch-max-wait-ms" to "100",
+                "demo.kafka.consumer.max-poll-records" to "200",
                 "demo.model.client" to "armeria",
                 "demo.consumers.deserialization-dispatcher.mode" to "custom-thread-pool",
                 "demo.consumers.deserialization-dispatcher.custom-thread-pool-size" to "16",
@@ -66,6 +72,9 @@ class DemoApplicationPropertiesTest {
         )
 
         assertEquals(false, properties.consumers.processingEnabled)
+        assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
+        assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
+        assertEquals(200, properties.kafka.consumer.maxPollRecords)
         assertEquals(DemoApplicationProperties.ModelClient.ARMERIA, properties.model.client)
         assertEquals(
             DemoApplicationProperties.DeserializationDispatcherMode.CUSTOM_THREAD_POOL,
