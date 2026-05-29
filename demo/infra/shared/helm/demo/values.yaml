@@ -21,6 +21,9 @@ env:
   modelBaseUrl: ""
   modelClient: KTOR_CIO
   processingEnabled: true
+  kafkaConsumerFetchMinBytes: 8192
+  kafkaConsumerFetchMaxWaitMs: 250
+  kafkaConsumerMaxPollRecords: 500
   auditLogEnabled: true
   auditLogDir: .demo-audit
   auditLogFilePrefix: ""

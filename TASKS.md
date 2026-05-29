@@ -99,6 +99,7 @@
 | [INFRA-34](#infra-34) | Add Helm and load-test definition support for the `ckc-sync` demo profile.                                                                         | DONE |
 | [INFRA-35](#infra-35) | Add Grafana visibility for CKC backpressure pause and resume events.                                                                               | DONE |
 | [INFRA-36](#infra-36) | Mount internal-lab Grafana dashboards from the synced workspace copy.                                                                              | DONE |
+| [INFRA-37](#infra-37) | Wire Kafka consumer fetch settings through Helm and tune lab profiles to 8 KiB fetch minimum with 250 ms max wait.                                 | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1028,6 +1029,15 @@ Keep generated provisioning files under the runtime Grafana directory because th
 Remove the stale dashboard copy step so dashboard updates no longer require manual copying after lab updates.
 Reapply the Grafana compose service during lab updates so existing labs switch to the synced dashboard mount.
 Align fresh installs with the same workspace-backed shared infra path.
+
+<a id="infra-37"></a>
+### INFRA-37 - Wire Helm consumer fetch settings
+
+_Date: 2026-05-29_
+
+Add Helm values and deployment environment variables for Kafka consumer `fetch.min.bytes`, `fetch.max.wait.ms`, and `max.poll.records`.
+Set shared chart defaults to an 8 KiB fetch minimum, 250 ms max wait, and 500 records per poll.
+Apply the same fetch settings across demo Helm profiles so CKC, CKC sync, Spring Kafka, and Confluent Parallel Consumer lab runs use comparable consumer fetch behavior.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope
