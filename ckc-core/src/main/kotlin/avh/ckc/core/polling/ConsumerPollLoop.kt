@@ -2,12 +2,13 @@ package avh.ckc.core.polling
 
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.ProcessingMode
-import avh.ckc.core.tracksProcessedOffsets
+import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.tracksProcessedOffsets
 import kotlinx.coroutines.*
 import org.apache.kafka.clients.consumer.*
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
@@ -344,7 +345,7 @@ internal class ConsumerPollLoop<K, V>(
              */
             if (shutdownRequested && !state.shuttingDown) {
                 state = State.DRAINING_TAIL
-                pause(consumer)
+                pause(consumer, recordBackpressureMetric = false)
             }
 
             /**
@@ -442,11 +443,17 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /** Pause all assigned partitions (best-effort). */
-    private fun pause(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private fun pause(
+        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        recordBackpressureMetric: Boolean = true
+    ) {
         try {
             val assigned = consumer.assignment()
             if (assigned.isNotEmpty()) {
                 consumer.pause(assigned)
+                if (recordBackpressureMetric) {
+                    metrics.onBackpressurePauseResume(BackpressureAction.PAUSE, assigned.size)
+                }
             }
         } catch (e: Exception) {
             log.warn("Error pausing consumer in manager #$id", e)
@@ -459,6 +466,7 @@ internal class ConsumerPollLoop<K, V>(
             val assigned = consumer.assignment()
             if (assigned.isNotEmpty()) {
                 consumer.resume(assigned)
+                metrics.onBackpressurePauseResume(BackpressureAction.RESUME, assigned.size)
             }
         } catch (e: Exception) {
             log.warn("Error resuming consumer in manager #$id", e)

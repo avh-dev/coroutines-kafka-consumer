@@ -102,6 +102,13 @@ interface ConsumerMetrics<K, V> {
     fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) = Unit
 
     /**
+     * Records a Kafka consumer pause or resume event caused by downstream backpressure.
+     *
+     * [partitionsCount] is the number of assigned partitions passed to KafkaConsumer.pause/resume.
+     */
+    fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) = Unit
+
+    /**
      * Records an unrecoverable consumer-level failure.
      */
     fun onConsumerFailure(error: Throwable) = Unit
@@ -110,4 +117,9 @@ interface ConsumerMetrics<K, V> {
         /** No-op metrics implementation used when metrics are not configured. */
         val NOOP: ConsumerMetrics<Any?, Any?> = object : ConsumerMetrics<Any?, Any?> {}
     }
+}
+
+enum class BackpressureAction {
+    PAUSE,
+    RESUME
 }

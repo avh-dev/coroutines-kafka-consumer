@@ -1,5 +1,6 @@
 package avh.ckc.micrometer
 
+import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
@@ -210,6 +211,12 @@ open class MicrometerConsumerMetrics(
             summary("commit.partitions", tags).record(partitionsCount.toDouble())
             summary("commit.offsets", tags).record(offsetsCount.toDouble())
             counter("commit", tags).increment()
+        }
+
+        override fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) {
+            val tags = tags("action" to action.name.lowercase())
+            counter("pause.resume", tags).increment()
+            summary("pause.resume.partitions", tags).record(partitionsCount.toDouble())
         }
 
         override fun onConsumerFailure(error: Throwable) {
