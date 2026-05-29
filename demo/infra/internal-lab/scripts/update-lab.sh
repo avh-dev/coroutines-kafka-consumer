@@ -158,6 +158,7 @@ EOF
 
 sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets" "${LAB_ROOT}/assets"
 sync_path "${REPO_ROOT}/demo/infra/shared" "${LAB_ROOT}/workspace/demo/infra/shared"
+ssh "root@${LAB_HOST}" "cp '${LAB_ROOT}/assets/compose/docker-compose.host-services.yml' '${LAB_ROOT}/docker-compose.host-services.yml'"
 
 sync_file "${REPO_ROOT}/demo/ckc-demo/Dockerfile" "${LAB_ROOT}/build-context/demo/Dockerfile"
 sync_file "${REPO_ROOT}/demo/ckc-demo-stubs/Dockerfile" "${LAB_ROOT}/build-context/demo-stubs/Dockerfile"
@@ -167,6 +168,7 @@ sync_path "${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test
 printf '%s\n' "${IMAGE_FINGERPRINT}" | ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/images/images.fingerprint.next'"
 
 ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh '${LAB_ROOT}/build-context/demo/build/install/ckc-demo/bin/'* '${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs/bin/'* '${LAB_ROOT}/runtime/load-test/bin/'*"
+ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' up -d --no-deps grafana"
 
 REBUILD_ARGS=()
 if [[ "${FORCE_REBUILD}" -eq 1 ]]; then

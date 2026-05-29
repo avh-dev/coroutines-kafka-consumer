@@ -12,7 +12,6 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
-SHARED_GRAFANA_DIR="${REPO_ROOT}/demo/infra/shared/grafana"
 LAB_ROOT="/opt/ckc-internal-lab"
 KUBECONFIG_PATH="${STATE_DIR}/kubeconfig.yaml"
 LAB_ENV_PATH="${STATE_DIR}/lab.env"
@@ -59,9 +58,9 @@ cat > "${STATE_DIR}/lab.env" <<EOF
 LAB_HOST=${LAB_HOST}
 EOF
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/shared' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana'"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/workspace/demo/infra' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana' '${LAB_ROOT}/workspace/demo/infra/shared'"
 scp -r "${ASSETS_DIR}" "root@${LAB_HOST}:${LAB_ROOT}/"
-scp -r "${SHARED_GRAFANA_DIR}" "root@${LAB_HOST}:${LAB_ROOT}/shared/"
+scp -r "${REPO_ROOT}/demo/infra/shared" "root@${LAB_HOST}:${LAB_ROOT}/workspace/demo/infra/"
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config'"
 ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}

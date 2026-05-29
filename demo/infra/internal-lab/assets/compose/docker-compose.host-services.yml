@@ -63,7 +63,7 @@ services:
       GF_SERVER_ROOT_URL: "http://${LAB_HOST:-localhost}:3000/"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./workspace/demo/infra/shared/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.8.0

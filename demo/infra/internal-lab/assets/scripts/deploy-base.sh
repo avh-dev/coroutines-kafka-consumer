@@ -10,7 +10,7 @@ fi
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
 LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}"
 ASSETS_DIR="${ASSETS_DIR:-${LAB_ROOT}/assets}"
-SHARED_GRAFANA_DIR="${SHARED_GRAFANA_DIR:-${LAB_ROOT}/shared/grafana}"
+SHARED_GRAFANA_DIR="${SHARED_GRAFANA_DIR:-${LAB_ROOT}/workspace/demo/infra/shared/grafana}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 mkdir -p "${LAB_ROOT}/generated"
@@ -29,12 +29,11 @@ kubectl -n ckc-perf rollout restart deployment/ckc-prometheus
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
 kubectl -n ckc-perf rollout status deployment/ckc-prometheus --timeout=5m
 
-mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/dashboards"
+mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/provisioning/dashboards"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${ASSETS_DIR}/grafana/provisioning/datasources/prometheus.yml" \
   > "${LAB_ROOT}/grafana/provisioning/datasources/prometheus.yml"
 cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
-cp "${SHARED_GRAFANA_DIR}/dashboards/ckc-overview.json" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
 cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
 cp "${ASSETS_DIR}/compose/process-exporter.yml" "${LAB_ROOT}/process-exporter.yml"
 
