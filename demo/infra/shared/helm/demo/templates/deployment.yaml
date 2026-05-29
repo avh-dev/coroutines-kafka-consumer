@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: MODEL_CLIENT
               value: {{ .Values.env.modelClient | quote }}
+            - name: DEMO_CONSUMER_PROCESSING_ENABLED
+              value: {{ .Values.env.processingEnabled | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
             - name: AUDIT_LOG_DIR

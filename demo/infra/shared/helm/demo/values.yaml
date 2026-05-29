@@ -20,6 +20,7 @@ env:
   javaToolOptions: ""
   modelBaseUrl: ""
   modelClient: KTOR_CIO
+  processingEnabled: true
   auditLogEnabled: true
   auditLogDir: .demo-audit
   auditLogFilePrefix: ""

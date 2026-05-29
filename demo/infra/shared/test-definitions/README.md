@@ -12,6 +12,7 @@ Available definitions:
 
 - `smoke-test.yaml`: short functional check with low traffic.
 - `ckc-baseline-internal.yaml`: internal k3s lab baseline for the dedicated Linux host.
+- `ckc-sync-baseline-internal.yaml`: internal k3s lab baseline for CKC with blocking business services on the IO dispatcher.
 - `ckc-baseline.yaml`: AWS baseline intended for larger, more production-like load.
 
 `load_profile` is a shared percentage schedule. `base_tps` is applied per load-test shard, and `order_event_percent`, `batch_event_percent`, and `cauldron_telemetry_percent` split that event budget across order, batch, and cauldron telemetry topics. `telemetry_source_mode` defaults to `ACTIVE_BATCHES`; set it to `FIXED_FLEET` when a test needs stable cauldron-key cardinality instead of business-pipeline active-batch cardinality. The load-test job exits when the profile schedule ends.

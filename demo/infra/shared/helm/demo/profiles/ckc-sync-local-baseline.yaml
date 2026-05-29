@@ -1,0 +1,39 @@
+replicaCount: 2
+
+env:
+  springProfilesActive: ckc-sync
+  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  telemetryProcessingMode: FRESHNESS_FIRST
+
+  orderWorkerConcurrency: 20
+  orderPollLoopConcurrency: 1
+  orderWorkChannelCapacity: 1024
+  telemetryWorkerConcurrency: 20
+  telemetryPollLoopConcurrency: 1
+  telemetryWorkChannelCapacity: 512
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1Gi
+
+probes:
+  readiness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 12
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 15
+    failureThreshold: 8
+  startup:
+    enabled: true
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 30
+
+hpa:
+  enabled: false
