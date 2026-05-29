@@ -2,13 +2,16 @@ replicaCount: 2
 
 env:
   springProfilesActive: ckc-sync
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   telemetryProcessingMode: FRESHNESS_FIRST
 
   orderWorkerConcurrency: 20
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024
-  telemetryWorkerConcurrency: 20
+  batchWorkerConcurrency: 20
+  batchPollLoopConcurrency: 1
+  batchWorkChannelCapacity: 512
+  telemetryWorkerConcurrency: 30
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512
 
