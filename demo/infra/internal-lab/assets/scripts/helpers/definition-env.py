@@ -8,13 +8,6 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_TOPICS = [
-    {"name": "order.events.v1", "partitions": 4},
-    {"name": "batch.events.v1", "partitions": 4},
-    {"name": "cauldron.events.v1", "partitions": 4},
-]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Print shell assignments for an internal-lab deployment and test.")
     parser.add_argument("test_definition")
@@ -135,9 +128,9 @@ def main() -> None:
             else repo_dir / deployment_profile_path
         )
     deployment_profile = load_yaml(deployment_profile_path)
-    topics = value_at(deployment_profile, "lab", "kafkaTopics", default=DEFAULT_TOPICS)
+    topics = value_at(deployment_profile, "lab", "kafkaTopics", default=None)
     if not isinstance(topics, list) or not topics:
-        topics = DEFAULT_TOPICS
+        raise ValueError(f"Deployment profile must define lab.kafkaTopics: {deployment_profile_path}")
     topic_specs: list[str] = []
     for topic in topics:
         if not isinstance(topic, dict):
@@ -153,24 +146,32 @@ def main() -> None:
         load_test = {}
 
     stubs = value_at(definition, "stubs", default={})
-    if not isinstance(stubs, dict):
-        stubs = {}
+    if not isinstance(stubs, dict) or not stubs:
+        raise ValueError(f"Test definition must define stubs baseline settings: {definition_path}")
+
+    def required_int(values: dict[str, Any], key: str, context: str) -> int:
+        if key not in values:
+            raise ValueError(f"Test definition must define stubs.{context}.{key}: {definition_path}")
+        return int(values[key])
 
     def latency_settings(name: str) -> dict[str, int]:
         values = stubs.get(name, {})
-        if not isinstance(values, dict):
-            values = {}
+        if not isinstance(values, dict) or not values:
+            raise ValueError(f"Test definition must define stubs.{name}: {definition_path}")
         return {
-            "delayP90Ms": int(values.get("delay_p90_ms", 40)),
-            "delayP95Ms": int(values.get("delay_p95_ms", 80)),
-            "delayP99Ms": int(values.get("delay_p99_ms", 160)),
-            "delayP100Ms": int(values.get("delay_p100_ms", 300)),
+            "delayP90Ms": required_int(values, "delay_p90_ms", name),
+            "delayP95Ms": required_int(values, "delay_p95_ms", name),
+            "delayP99Ms": required_int(values, "delay_p99_ms", name),
+            "delayP100Ms": required_int(values, "delay_p100_ms", name),
         }
+
+    if "error_rate_percent" not in stubs:
+        raise ValueError(f"Test definition must define stubs.error_rate_percent: {definition_path}")
 
     stub_settings = {
         "eta": latency_settings("eta"),
         "flavour": latency_settings("flavour"),
-        "errorRatePercent": int(stubs.get("error_rate_percent", 0)),
+        "errorRatePercent": int(stubs["error_rate_percent"]),
     }
 
     assignments = {
