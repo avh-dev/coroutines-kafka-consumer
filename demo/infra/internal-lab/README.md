@@ -141,7 +141,7 @@ Force a rebuild even when the fingerprint matches:
 ./demo/infra/internal-lab/scripts/update-lab.sh --force-rebuild
 ```
 
-## Prepare A Test
+## Run A Test
 
 After `update-lab.sh`, connect to the lab host:
 
@@ -150,59 +150,50 @@ source .demo-infra/internal-lab/lab.env
 ssh "root@${LAB_HOST}"
 ```
 
-Select a test definition once on the lab host:
+Start the interactive runner:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/set-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
 ```
 
-The selection is saved under `/opt/ckc-internal-lab/config/selected-test-definition`.
+The runner asks for:
 
-Prepare the selected test definition:
+- a Helm deployment profile, defaulting to the currently deployed profile
+- whether business processing is enabled; select `false` for a noop run
+- a load-test definition
+
+Pass the same choices explicitly for a non-interactive run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
+  --deployment ckc-sync-local-baseline \
+  --processing-enabled false \
+  baseline
 ```
 
-You can still pass an explicit definition when needed:
+Before starting the load generator, the runner:
 
-```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
-```
-
-This script:
-
-- reads `deployment.app_profile`, `deployment.stubs_profile`, and `deployment.kafka_topics`
+- reads Kafka topics from `lab.kafkaTopics` in the selected Helm deployment profile
+- reads mandatory stub baseline settings and load parameters from the selected lab test definition
 - removes any old demo HPA and scales the demo app down so consumer groups are inactive
 - resets Redis on the lab host
 - deletes stale Kafka consumer groups for the demo app
 - deletes and recreates Redpanda topics on the lab host
-- deploys `ckc-demo-stubs` with the selected stubs Helm profile
-- deploys `ckc-demo` with the selected app Helm profile
+- reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
+- applies the selected app Helm profile with `env.processingEnabled` overridden from the prompt
 
-## Run A Test
-
-Connect to the lab host and run the load generator there as a host Java process:
+To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
 ```sh
-source .demo-infra/internal-lab/lab.env
-ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
+  --skip-prepare \
+  --deployment ckc-sync-local-baseline \
+  --processing-enabled false \
+  baseline
 ```
 
-You can still pass an explicit definition when needed:
-
-```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
-```
-
-To rerun only the lab-host load generator without resetting Redis, topics, or Kubernetes deployments:
-
-```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-prepare ckc-baseline-internal
-```
-
-The script reads `load_test` settings from the test definition, exports them as environment variables for `ckc-demo-load-test`, and redirects stdout/stderr to:
+Even with `--skip-prepare`, stub baseline settings are applied before the load generator starts.
+The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text
 /opt/ckc-internal-lab/logs/
@@ -225,8 +216,8 @@ and stay there briefly before collecting processed audit files. Override the
 wait with:
 
 ```sh
-CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh ckc-baseline-internal
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-drain-wait ckc-baseline-internal
+CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-drain-wait
 ```
 
 It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
@@ -300,10 +291,10 @@ Keep these constant between runs:
 - load profile
 - warm-up and measurement window
 
-Reset state and deploy the same test definition before every run:
+Reset state and deploy the same profile before every run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
@@ -378,7 +369,7 @@ Recommended before serious runs:
 source .demo-infra/internal-lab/lab.env
 ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/tune-host.sh"
 ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/prepare-test.sh ckc-baseline-internal
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
 ```
 
 Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.
