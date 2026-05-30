@@ -114,7 +114,6 @@ private class CkcConsumerRuntime(
             orderConsumerMetrics,
             auditLog,
             properties.consumers.order,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> orderHandler(key, event) }
@@ -124,7 +123,6 @@ private class CkcConsumerRuntime(
             batchConsumerMetrics,
             auditLog,
             properties.consumers.batch,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> batchHandler(key, event) }
@@ -134,7 +132,6 @@ private class CkcConsumerRuntime(
             consumerMetrics,
             auditLog,
             properties.consumers.telemetry,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, telemetry -> telemetryHandler(key, telemetry) }

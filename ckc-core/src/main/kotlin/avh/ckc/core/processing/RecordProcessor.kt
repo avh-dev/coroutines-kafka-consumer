@@ -3,7 +3,6 @@ package avh.ckc.core.processing
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
-import avh.ckc.core.processing.deserialization.DeserializedRecord
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -22,30 +21,27 @@ internal class RecordProcessor<K, V>(
     private val retryPolicy: RetryPolicy,
     private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val onRecordProcessed: (ConsumerRecord<ByteArray, ByteArray>) -> Unit
+    private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit
 ) {
     /**
-     * Processes a single deserialized Kafka record end-to-end.
+     * Processes a single Kafka record end-to-end.
      */
-    suspend fun process(
-        record: ConsumerRecord<ByteArray, ByteArray>,
-        deserializedRecord: DeserializedRecord<K, V>
-    ) {
+    suspend fun process(record: ConsumerRecord<K, V>) {
         val startedAt = System.nanoTime()
         val recordAgeMillis = (System.currentTimeMillis() - record.timestamp()).coerceAtLeast(0L)
-        val key = deserializedRecord.key
-        val value = deserializedRecord.value
+        val key = record.key()
+        val value = record.value()
         try {
             try {
                 executeWithRetry(record, key, value) {
-                    handler.process(key, value, record)
+                    handler.process(record)
                 }
             } catch (error: Throwable) {
                 if (error.isCancellation()) {
                     throw error
                 }
 
-                processingFailureHandler.handle(key, value, record, error)
+                processingFailureHandler.handle(record, error)
                 metrics.onRecordFailed(
                     key = key,
                     value = value,
@@ -85,7 +81,7 @@ internal class RecordProcessor<K, V>(
      * Executes the user handler with the externally configured retry policy.
      */
     private suspend fun executeWithRetry(
-        record: ConsumerRecord<ByteArray, ByteArray>,
+        record: ConsumerRecord<K, V>,
         key: K?,
         value: V?,
         block: suspend () -> Unit

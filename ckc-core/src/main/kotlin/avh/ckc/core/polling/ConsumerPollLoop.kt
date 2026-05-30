@@ -14,7 +14,6 @@ import org.apache.kafka.clients.consumer.*
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.WakeupException
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.Executors
@@ -29,9 +28,7 @@ import kotlin.time.toKotlinDuration
  *
  * Design notes:
  * - KafkaConsumer is confined to a dedicated single thread (not thread-safe).
- * - Keys and values are deserialized as raw ByteArray (ByteArrayDeserializer).
- *   Actual business deserialization is performed in worker coroutines for better parallelism
- *   and to keep the poll loop lightweight.
+ * - Kafka performs configured key and value deserialization inside poll().
  *
  * Processing modes:
  * - AT_LEAST_ONCE_UNORDERED: non-blocking dispatch via `trySend` + `pause/resume`
@@ -54,11 +51,11 @@ internal class ConsumerPollLoop<K, V>(
     private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
-    private val recordSink: PolledRecordSink,
+    private val recordSink: PolledRecordSink<K, V>,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
-        (consumerProperties: Map<String, Any?>) -> KafkaConsumer<ByteArray, ByteArray> = {
-            KafkaConsumer(it, ByteArrayDeserializer(), ByteArrayDeserializer())
+        (consumerProperties: Map<String, Any?>) -> KafkaConsumer<K, V> = {
+            KafkaConsumer(it)
         },
 ) : ConsumerPollLoopControl {
     /** Dedicated poll thread (KafkaConsumer thread-safety). */
@@ -92,7 +89,7 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Used to call wakeup() from outside poll thread. */
     @Volatile
-    private var consumerRef: Consumer<ByteArray, ByteArray>? = null
+    private var consumerRef: Consumer<K, V>? = null
 
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
@@ -129,7 +126,7 @@ internal class ConsumerPollLoop<K, V>(
         }
     }
 
-    private fun subscribe(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private fun subscribe(consumer: KafkaConsumer<K, V>) {
         if (topicsPattern != null) {
             consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
         } else {
@@ -144,7 +141,7 @@ internal class ConsumerPollLoop<K, V>(
      * - FRESHNESS_FIRST: does not maintain commit tracking; no-op listener is sufficient.
      */
     private fun createRebalanceListener(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         processingMode: ProcessingMode
     ): ConsumerRebalanceListener =
         if (processingMode.tracksProcessedOffsets())
@@ -159,7 +156,7 @@ internal class ConsumerPollLoop<K, V>(
             override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) = Unit
         }
 
-    private fun atLeastOnceRebalanceListener(consumer: KafkaConsumer<ByteArray, ByteArray>): ConsumerRebalanceListener =
+    private fun atLeastOnceRebalanceListener(consumer: KafkaConsumer<K, V>): ConsumerRebalanceListener =
         object : ConsumerRebalanceListener {
             override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) =
                 handlePartitionsRevoked(consumer, partitions)
@@ -180,7 +177,7 @@ internal class ConsumerPollLoop<K, V>(
      * - The commit is best-effort; in failure scenarios Kafka may re-deliver.
      */
     private fun handlePartitionsRevoked(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         partitions: Collection<TopicPartition>
     ) {
         val revokedPartitionStates = mutableSetOf<PartitionState>()
@@ -208,7 +205,7 @@ internal class ConsumerPollLoop<K, V>(
      * - Fall back to the committed/assigned Kafka position when CKC metadata is absent or invalid.
      */
     private fun handlePartitionsAssigned(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
@@ -248,7 +245,7 @@ internal class ConsumerPollLoop<K, V>(
         }
     }
 
-    private suspend fun consumerLoop(consumer: KafkaConsumer<ByteArray, ByteArray>) = try {
+    private suspend fun consumerLoop(consumer: KafkaConsumer<K, V>) = try {
         when (processingMode) {
             ProcessingMode.AT_LEAST_ONCE_UNORDERED,
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
@@ -273,7 +270,7 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Commit contiguous-ready offsets only (PartitionState encapsulates readiness). */
     private fun commitReadyOffsets(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         partitionStates: Set<PartitionState>
     ) {
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
@@ -324,12 +321,12 @@ internal class ConsumerPollLoop<K, V>(
      * DRAINING_TAIL
      *   └─(stash drained AND poll returns empty)→ TAIL_DRAINED
      */
-    private suspend fun consumerLoopAtLeastOnceUnordered(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private suspend fun consumerLoopAtLeastOnceUnordered(consumer: KafkaConsumer<K, V>) {
 
         val maxPollRecords = consumerConfigAdapter.getInt(MAX_POLL_RECORDS_CONFIG)!!
 
         // Bounded spill queue for records already fetched when channel is saturated.
-        val stash = ArrayDeque<ConsumerRecord<ByteArray, ByteArray>>(maxPollRecords)
+        val stash = ArrayDeque<ConsumerRecord<K, V>>(maxPollRecords)
 
         // Do not commit on every loop iteration.
         var lastCommitAt = System.currentTimeMillis()
@@ -414,9 +411,9 @@ internal class ConsumerPollLoop<K, V>(
      * - WakeupException is expected during shutdown; translate to an empty batch.
      */
     private suspend fun pollRecords(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         state: State
-    ): ConsumerRecords<ByteArray, ByteArray> {
+    ): ConsumerRecords<K, V> {
         return try {
             val startedAt = System.nanoTime()
             val records = consumer.poll(state.pollTimeout)
@@ -426,12 +423,12 @@ internal class ConsumerPollLoop<K, V>(
             }
             records
         } catch (_: WakeupException) {
-            ConsumerRecords<ByteArray, ByteArray>(emptyMap())
+            ConsumerRecords<K, V>(emptyMap())
         }
     }
 
     /** Drain stash to processing runtime; returns true if fully drained. */
-    private fun drainStash(stash: ArrayDeque<ConsumerRecord<ByteArray, ByteArray>>): Boolean {
+    private fun drainStash(stash: ArrayDeque<ConsumerRecord<K, V>>): Boolean {
         while (stash.isNotEmpty()) {
             val record = stash.first()
             if (!recordSink.tryEmit(record)) {
@@ -444,7 +441,7 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Pause all assigned partitions (best-effort). */
     private fun pause(
-        consumer: KafkaConsumer<ByteArray, ByteArray>,
+        consumer: KafkaConsumer<K, V>,
         recordBackpressureMetric: Boolean = true
     ) {
         try {
@@ -461,7 +458,7 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /** Resume all assigned partitions (best-effort). */
-    private fun resume(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private fun resume(consumer: KafkaConsumer<K, V>) {
         try {
             val assigned = consumer.assignment()
             if (assigned.isNotEmpty()) {
@@ -478,7 +475,7 @@ internal class ConsumerPollLoop<K, V>(
      * - Minimal mode; uses best-effort dispatch into a dropping queue.
      * - Intended to be paired with a channel that drops and with client internal auto-commit.
      */
-    private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<ByteArray, ByteArray>) {
+    private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<K, V>) {
         while (currentCoroutineContext().isActive) {
             if (shutdownRequested) {
                 readyForShutdownSignal.complete(Unit)

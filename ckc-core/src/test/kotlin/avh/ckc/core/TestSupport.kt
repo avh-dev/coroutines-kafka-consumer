@@ -9,6 +9,8 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.serialization.LongDeserializer
+import org.apache.kafka.common.serialization.StringDeserializer
 
 suspend fun <T : Any> awaitFor(
     timeoutMillis: Long,
@@ -27,7 +29,6 @@ fun testRuntime(
     processingMode: ProcessingMode,
     commitIntervalMs: Long = 5_000L,
     workChannelCapacity: Int = 1024,
-    deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 ): TestConsumerRuntime =
     TestConsumerRuntime(
@@ -36,7 +37,6 @@ fun testRuntime(
         consumerPollLoopConcurrency = 1,
         commitIntervalMs = commitIntervalMs,
         workChannelCapacity = workChannelCapacity,
-        deserializationDispatcher = deserializationDispatcher,
         processingDispatcher = processingDispatcher
     )
 
@@ -58,6 +58,22 @@ fun testConsumerProperties(vararg extraProperties: Pair<String, String>): Map<St
         extraProperties.forEach { (key, value) -> put(key, value) }
     }
 
+internal fun stringSerdeProperties(): Map<String, Any?> =
+    mapOf(
+        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "dummy:9092",
+        ConsumerConfig.GROUP_ID_CONFIG to "test-group",
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+    )
+
+internal fun longSerdeProperties(): Map<String, Any?> =
+    mapOf(
+        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "dummy:9092",
+        ConsumerConfig.GROUP_ID_CONFIG to "test-group",
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to LongDeserializer::class.java,
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to LongDeserializer::class.java
+    )
+
 fun testRecord(
     topic: String = "topic-a",
     partition: Int = 0,
@@ -71,6 +87,14 @@ fun testRecord(
     key.toByteArray(),
     value.toByteArray()
 )
+
+fun typedTestRecord(
+    topic: String = "topic-a",
+    partition: Int = 0,
+    offset: Long,
+    key: String = "key",
+    value: String = "value"
+) = ConsumerRecord(topic, partition, offset, key, value)
 
 fun emptyRecords(): ConsumerRecords<ByteArray, ByteArray> =
     ConsumerRecords(emptyMap())
@@ -87,6 +111,5 @@ data class TestConsumerRuntime(
     val consumerPollLoopConcurrency: Int,
     val commitIntervalMs: Long,
     val workChannelCapacity: Int,
-    val deserializationDispatcher: CoroutineDispatcher,
     val processingDispatcher: CoroutineDispatcher
 )

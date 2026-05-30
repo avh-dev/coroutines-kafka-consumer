@@ -1,8 +1,6 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
-import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred
@@ -13,7 +11,7 @@ import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 internal fun <K, V> createTestConsumer(
-    records: List<ConsumerRecord<ByteArray, ByteArray>>,
+    records: List<ConsumerRecord<K, V>>,
     consumerProperties: Map<String, Any?>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy = RetryPolicy.none(),
@@ -21,9 +19,7 @@ internal fun <K, V> createTestConsumer(
     metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
-    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED),
-    recordDeserializerFactory: RecordDeserializerFactory<K, V> =
-        defaultRecordDeserializerFactory(consumerProperties, runtime.deserializationDispatcher)
+    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,
@@ -32,7 +28,6 @@ internal fun <K, V> createTestConsumer(
         consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
         commitIntervalMs = runtime.commitIntervalMs,
         workChannelCapacity = runtime.workChannelCapacity,
-        deserializationDispatcher = runtime.deserializationDispatcher,
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
         metrics = metrics,
@@ -44,14 +39,13 @@ internal fun <K, V> createTestConsumer(
         pollLoopFactory = { _, context, _, _, _, _, _, _, _, recordSink, _ ->
             FakePollLoopControl(context, recordSink, records)
         },
-        processingRuntimeFactory = ::defaultProcessingRuntime,
-        recordDeserializerFactory = recordDeserializerFactory
+        processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
-internal class FakePollLoopControl(
+internal class FakePollLoopControl<K, V>(
     coroutineContext: kotlin.coroutines.CoroutineContext,
-    private val recordSink: PolledRecordSink,
-    private val records: List<ConsumerRecord<ByteArray, ByteArray>>
+    private val recordSink: PolledRecordSink<K, V>,
+    private val records: List<ConsumerRecord<K, V>>
 ) : ConsumerPollLoopControl {
     private val scope = CoroutineScope(coroutineContext)
     private val stopSignal = CompletableDeferred<Unit>()

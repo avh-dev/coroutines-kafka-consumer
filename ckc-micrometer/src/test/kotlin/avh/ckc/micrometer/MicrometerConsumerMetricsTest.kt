@@ -424,8 +424,8 @@ class MicrometerConsumerMetricsTest {
         assertTrue(scrape.contains("ckc_record_age_sum{error=\"IOException\",topic=\"orders\"} 7.0"))
     }
 
-    private fun testRecord(topic: String = "orders", partition: Int): ConsumerRecord<ByteArray, ByteArray> =
-        ConsumerRecord(topic, partition, 0L, "key".toByteArray(), "value".toByteArray())
+    private fun <K, V> testRecord(topic: String = "orders", partition: Int): ConsumerRecord<K, V> =
+        ConsumerRecord(topic, partition, 0L, null, null)
 
     private class MutableRuntimeStats(
         override val workerCount: Int,

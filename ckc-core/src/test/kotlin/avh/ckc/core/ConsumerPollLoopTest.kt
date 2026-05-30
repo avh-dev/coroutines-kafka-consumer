@@ -150,7 +150,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when work channel is full in AT_LEAST_ONCE_UNORDERED mode then consumer is paused`() = runBlocking {
-            val metrics = RecordingMetrics<Any?, Any?>()
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                 metrics = metrics,
@@ -190,7 +190,7 @@ class ConsumerPollLoopTest {
         @Test
         fun `when stashed records are drained then consumer is resumed and poll batch tail is delivered in order`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
-            val metrics = RecordingMetrics<Any?, Any?>()
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                 metrics = metrics,
@@ -244,7 +244,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when partitions assigned in AT_LEAST_ONCE_UNORDERED mode then registry is updated and position is queried`() = runBlocking {
-            val metrics = RecordingMetrics<Any?, Any?>()
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                 metrics = metrics,
@@ -362,7 +362,7 @@ class ConsumerPollLoopTest {
         @Test
         fun `when partition is revoked in AT_LEAST_ONCE_UNORDERED mode then ready offsets are committed`() = runBlocking {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
-            val metrics = RecordingMetrics<Any?, Any?>()
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                 metrics = metrics,
@@ -393,7 +393,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when commit interval elapses in AT_LEAST_ONCE_UNORDERED mode then ready offsets are committed`() = runBlocking {
-            val metrics = RecordingMetrics<Any?, Any?>()
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                 metrics = metrics,
@@ -502,7 +502,7 @@ class ConsumerPollLoopTest {
 private class PollLoopFixture(
     processingMode: ProcessingMode,
     @Suppress("UNCHECKED_CAST")
-    metrics: ConsumerMetrics<Any?, Any?> = ConsumerMetrics.NOOP as ConsumerMetrics<Any?, Any?>,
+    metrics: ConsumerMetrics<ByteArray, ByteArray> = ConsumerMetrics.NOOP as ConsumerMetrics<ByteArray, ByteArray>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
     private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
@@ -521,7 +521,7 @@ private class PollLoopFixture(
             ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
         }
     )
-    private val recordSink = object : PolledRecordSink {
+    private val recordSink = object : PolledRecordSink<ByteArray, ByteArray> {
         override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
             if (processingMode.tracksProcessedOffsets() &&
                 registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
@@ -534,7 +534,7 @@ private class PollLoopFixture(
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
     private val consumerProperties = testConsumerProperties()
-    val loop = ConsumerPollLoop<Any?, Any?>(
+    val loop = ConsumerPollLoop<ByteArray, ByteArray>(
         id = 1,
         parentContext = Dispatchers.Default,
         processingMode = processingMode,

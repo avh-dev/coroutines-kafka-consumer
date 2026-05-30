@@ -1,9 +1,6 @@
 package avh.ckc.core.kafka
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
-import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
-import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 /**
  * Thin adapter over Kafka's [ConsumerConfig].
@@ -16,12 +13,7 @@ internal class KafkaConsumerConfigAdapter(
     consumerProperties: Map<String, Any?>
 ) {
     private val consumerConfig: ConsumerConfig by lazy {
-        ConsumerConfig(
-            consumerProperties + mapOf(
-                KEY_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java,
-                VALUE_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java
-            )
-        )
+        ConsumerConfig(consumerProperties)
     }
 
     /**

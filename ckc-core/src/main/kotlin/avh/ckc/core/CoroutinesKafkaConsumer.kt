@@ -1,8 +1,6 @@
 package avh.ckc.core
 
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
-import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
-import avh.ckc.core.processing.deserialization.defaultRecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
@@ -38,7 +36,7 @@ import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 
 fun interface KafkaRecordHandler<K, V> {
-    suspend fun process(key: K?, value: V?, rawRecord: ConsumerRecord<ByteArray, ByteArray>)
+    suspend fun process(record: ConsumerRecord<K, V>)
 }
 
 /**
@@ -48,10 +46,10 @@ fun interface KafkaRecordHandler<K, V> {
  * or trigger application-specific alerting/recovery.
  */
 fun interface ProcessingFailureHandler<K, V> {
-    suspend fun handle(key: K?, value: V?, rawRecord: ConsumerRecord<ByteArray, ByteArray>, error: Throwable)
+    suspend fun handle(record: ConsumerRecord<K, V>, error: Throwable)
 
     companion object {
-        fun <K, V> skip(): ProcessingFailureHandler<K, V> = ProcessingFailureHandler { _, _, _, _ -> }
+        fun <K, V> skip(): ProcessingFailureHandler<K, V> = ProcessingFailureHandler { _, _ -> }
     }
 }
 
@@ -65,7 +63,7 @@ private typealias PollLoopFactory<K, V> = (
     consumerConfigAdapter: KafkaConsumerConfigAdapter,
     topics: List<String>?,
     topicsPattern: Pattern?,
-    recordSink: PolledRecordSink,
+    recordSink: PolledRecordSink<K, V>,
     partitionRegistry: PartitionRegistry
 ) -> ConsumerPollLoopControl
 
@@ -76,7 +74,6 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     workChannelCapacity: Int,
     processingDispatcher: CoroutineDispatcher,
     metrics: ConsumerMetrics<K, V>,
-    recordDeserializerFactory: RecordDeserializerFactory<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
@@ -89,8 +86,7 @@ private typealias ProcessingRuntimeFactory<K, V> = (
  * Coordinates:
  * - poll loop lifecycle and graceful shutdown;
  * - worker coroutine startup and failure propagation;
- * - per-worker deserializer instances;
- * - dispatch of raw Kafka records into the processing pipeline.
+ * - dispatch of typed Kafka records into the processing pipeline.
  *
  * Public users are expected to construct instances via [coroutinesKafkaConsumer].
  * This class keeps the low-level constructor for internal wiring and tests.
@@ -101,7 +97,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
     private val workChannelCapacity: Int,
-    private val deserializationDispatcher: CoroutineDispatcher,
     private val processingDispatcher: CoroutineDispatcher,
     private val consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
@@ -112,8 +107,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
-    private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>,
-    private val recordDeserializerFactory: RecordDeserializerFactory<K, V>
+    private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
@@ -137,7 +131,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         workChannelCapacity,
         processingDispatcher,
         metrics,
-        recordDeserializerFactory,
         handler,
         retryPolicy,
         processingFailureHandler,
@@ -197,7 +190,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
         workChannelCapacity: Int = 1024,
-        deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO,
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
@@ -213,7 +205,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
         workChannelCapacity = workChannelCapacity,
-        deserializationDispatcher = deserializationDispatcher,
         processingDispatcher = processingDispatcher,
         consumerProperties = consumerProperties,
         handler = handler,
@@ -224,11 +215,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics = topics,
         topicsPattern = topicsPattern,
         pollLoopFactory = defaultPollLoopFactory(),
-        processingRuntimeFactory = ::defaultProcessingRuntime,
-        recordDeserializerFactory = defaultRecordDeserializerFactory<K, V>(
-            consumerProperties = consumerProperties,
-            dispatcher = deserializationDispatcher
-        )
+        processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
     fun start() {
@@ -319,7 +306,6 @@ internal fun <K, V> defaultProcessingRuntime(
     workChannelCapacity: Int,
     processingDispatcher: CoroutineDispatcher,
     metrics: ConsumerMetrics<K, V>,
-    recordDeserializerFactory: RecordDeserializerFactory<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
@@ -332,7 +318,6 @@ internal fun <K, V> defaultProcessingRuntime(
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
-            recordDeserializerFactory = recordDeserializerFactory,
             handler = handler,
             retryPolicy = retryPolicy,
             processingFailureHandler = processingFailureHandler,
@@ -346,7 +331,6 @@ internal fun <K, V> defaultProcessingRuntime(
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
-            recordDeserializerFactory = recordDeserializerFactory,
             handler = handler,
             retryPolicy = retryPolicy,
             processingFailureHandler = processingFailureHandler,
@@ -360,7 +344,6 @@ internal fun <K, V> defaultProcessingRuntime(
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
-            recordDeserializerFactory = recordDeserializerFactory,
             handler = handler,
             retryPolicy = retryPolicy,
             processingFailureHandler = processingFailureHandler,
@@ -373,7 +356,6 @@ internal fun <K, V> defaultProcessingRuntime(
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
-            recordDeserializerFactory = recordDeserializerFactory,
             handler = handler,
             retryPolicy = retryPolicy,
             processingFailureHandler = processingFailureHandler,

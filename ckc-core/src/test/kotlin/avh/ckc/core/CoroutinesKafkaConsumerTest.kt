@@ -17,26 +17,18 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
-import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import kotlin.coroutines.EmptyCoroutineContext
 
 class CoroutinesKafkaConsumerTest {
-
-    @BeforeEach
-    fun resetTrackingDeserializers() {
-        TrackingStringDeserializer.reset()
-        TrackingLongDeserializer.reset()
-    }
 
     @Test
     fun `when processing mode is AT_LEAST_ONCE_UNORDERED then default factory creates at least once runtime`() {
@@ -73,9 +65,9 @@ class CoroutinesKafkaConsumerTest {
         val releaseFirstRecord = CompletableDeferred<Unit>()
         val consumer = createTestConsumer(
             records = listOf(
-                testRecord(offset = 1L, key = "key-1", value = "value-1"),
-                testRecord(offset = 2L, key = "key-2", value = "value-2"),
-                testRecord(offset = 3L, key = "key-3", value = "value-3")
+                typedTestRecord(offset = 1L, key = "key-1", value = "value-1"),
+                typedTestRecord(offset = 2L, key = "key-2", value = "value-2"),
+                typedTestRecord(offset = 3L, key = "key-3", value = "value-3")
             ),
             consumerProperties = stringSerdeProperties(),
             metrics = metrics,
@@ -83,8 +75,8 @@ class CoroutinesKafkaConsumerTest {
                 processingMode = ProcessingMode.FRESHNESS_FIRST,
                 workChannelCapacity = 1
             ),
-            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
-                if (rawRecord.offset() == 1L) {
+            handler = KafkaRecordHandler<String, String> { record ->
+                if (record.offset() == 1L) {
                     firstRecordStarted.complete(Unit)
                     releaseFirstRecord.await()
                 }
@@ -110,8 +102,8 @@ class CoroutinesKafkaConsumerTest {
         val releaseFirstRecord = CompletableDeferred<Unit>()
         val consumer = createTestConsumer(
             records = listOf(
-                testRecord(offset = 1L, key = "key-1", value = "value-1"),
-                testRecord(offset = 2L, key = "key-2", value = "value-2")
+                typedTestRecord(offset = 1L, key = "key-1", value = "value-1"),
+                typedTestRecord(offset = 2L, key = "key-2", value = "value-2")
             ),
             consumerProperties = stringSerdeProperties(),
             metrics = metrics,
@@ -119,8 +111,8 @@ class CoroutinesKafkaConsumerTest {
                 processingMode = ProcessingMode.FRESHNESS_FIRST,
                 workChannelCapacity = 2
             ),
-            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
-                if (rawRecord.offset() == 1L) {
+            handler = KafkaRecordHandler<String, String> { record ->
+                if (record.offset() == 1L) {
                     firstRecordStarted.complete(Unit)
                     releaseFirstRecord.await()
                 }
@@ -139,13 +131,13 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
-    fun `when record is received then key value and rawRecord are passed to handler`() = runBlocking {
+    fun `when record is received then typed record is passed to handler`() = runBlocking {
         val processed = CompletableDeferred<Triple<String?, String?, Long>>()
         val consumer = createTestConsumer(
-            records = listOf(testRecord(offset = 10L, key = "key-10", value = "payload")),
+            records = listOf(typedTestRecord(offset = 10L, key = "key-10", value = "payload")),
             consumerProperties = stringSerdeProperties(),
-            handler = KafkaRecordHandler<String, String> { key, value, rawRecord ->
-                processed.complete(Triple(key, value, rawRecord.offset()))
+            handler = KafkaRecordHandler<String, String> { record ->
+                processed.complete(Triple(record.key(), record.value(), record.offset()))
             }
         )
 
@@ -160,9 +152,9 @@ class CoroutinesKafkaConsumerTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val consumer = createTestConsumer(
-            records = listOf(testRecord(offset = 11L)),
+            records = listOf(ConsumerRecord("topic-a", 0, 11L, 0L, 0L)),
             consumerProperties = longSerdeProperties(),
-            handler = KafkaRecordHandler<Long, Long> { _, _, _ ->
+            handler = KafkaRecordHandler<Long, Long> {
                 started.complete(Unit)
                 release.await()
             }
@@ -179,62 +171,6 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
-    fun `when consumer starts then each worker gets its own deserializer instances`() = runBlocking {
-        val recordDeserializers = CopyOnWriteArrayList<Pair<TrackingLongDeserializer, TrackingLongDeserializer>>()
-        val consumer = createTestConsumer(
-            records = emptyList(),
-            workerConcurrency = 2,
-            consumerProperties = longSerdeProperties(),
-            recordDeserializerFactory = { _ ->
-                val key = TrackingLongDeserializer()
-                val value = TrackingLongDeserializer()
-                recordDeserializers += key to value
-                TestRecordDeserializer(key, value)
-            },
-            handler = KafkaRecordHandler<Long, Long> { _, _, _ -> }
-        )
-
-        consumer.start()
-        consumer.stop()
-
-        assertEquals(2, recordDeserializers.size)
-        assertNotSame(recordDeserializers[0].first, recordDeserializers[1].first)
-        assertNotSame(recordDeserializers[0].second, recordDeserializers[1].second)
-    }
-
-    @Test
-    fun `when deserializing then key and value run on deserialization dispatcher`() = runBlocking {
-        val processed = CompletableDeferred<Pair<String, String>>()
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "deser-thread")
-        }.asCoroutineDispatcher()
-
-        try {
-            val consumer = createTestConsumer(
-                records = listOf(testRecord(offset = 21L)),
-                consumerProperties = stringSerdeProperties(),
-                runtime = testRuntime(
-                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-                    deserializationDispatcher = dispatcher
-                ),
-                handler = KafkaRecordHandler<String, String> { _, _, _ ->
-                    processed.complete(
-                        TrackingStringDeserializer.lastKeyThreadName to TrackingStringDeserializer.lastValueThreadName
-                    )
-                }
-            )
-
-            consumer.start()
-            val (keyThread, valueThread) = withTimeout(2_000) { processed.await() }
-            assertTrue(keyThread.contains("deser-thread"))
-            assertTrue(valueThread.contains("deser-thread"))
-            consumer.stop()
-        } finally {
-            dispatcher.close()
-        }
-    }
-
-    @Test
     fun `when processing then handler runs on processing dispatcher`() = runBlocking {
         val processedThread = CompletableDeferred<String>()
         val dispatcher = Executors.newSingleThreadExecutor { runnable ->
@@ -243,13 +179,13 @@ class CoroutinesKafkaConsumerTest {
 
         try {
             val consumer = createTestConsumer(
-                records = listOf(testRecord(offset = 22L)),
+                records = listOf(typedTestRecord(offset = 22L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
                     processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
                     processingDispatcher = dispatcher
                 ),
-                handler = KafkaRecordHandler<String, String> { _, _, _ ->
+                handler = KafkaRecordHandler<String, String> {
                     processedThread.complete(Thread.currentThread().name)
                 }
             )
@@ -269,13 +205,13 @@ class CoroutinesKafkaConsumerTest {
         val releaseFirstRecord = CompletableDeferred<Unit>()
         val consumer = createTestConsumer(
             records = listOf(
-                testRecord(offset = 31L, key = "key-31", value = "value-31"),
-                testRecord(offset = 32L, key = "key-32", value = "value-32")
+                typedTestRecord(offset = 31L, key = "key-31", value = "value-31"),
+                typedTestRecord(offset = 32L, key = "key-32", value = "value-32")
             ),
             consumerProperties = stringSerdeProperties(),
             metrics = metrics,
-            handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
-                if (rawRecord.offset() == 31L) {
+            handler = KafkaRecordHandler<String, String> { record ->
+                if (record.offset() == 31L) {
                     firstRecordStarted.complete(Unit)
                     releaseFirstRecord.await()
                 }
@@ -309,17 +245,16 @@ class CoroutinesKafkaConsumerTest {
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,
             workChannelCapacity = 16,
-            deserializationDispatcher = kotlinx.coroutines.Dispatchers.IO,
             processingDispatcher = kotlinx.coroutines.Dispatchers.Default,
             consumerProperties = stringSerdeProperties(),
             retryPolicy = RetryPolicy.none(),
             metrics = metrics,
-            handler = KafkaRecordHandler<String, String> { _, _, _ -> },
+            handler = KafkaRecordHandler<String, String> { },
             processingFailureHandler = ProcessingFailureHandler.skip<String, String>(),
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected
@@ -328,8 +263,7 @@ class CoroutinesKafkaConsumerTest {
                     override fun prepareForShutdown() = CompletableDeferred(Unit)
                 }
             },
-            processingRuntimeFactory = ::defaultProcessingRuntime,
-            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties())
+            processingRuntimeFactory = ::defaultProcessingRuntime
         )
 
         consumer.start()
@@ -357,8 +291,7 @@ class CoroutinesKafkaConsumerTest {
             workChannelCapacity = 16,
             processingDispatcher = Dispatchers.Default,
             metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
-            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties()),
-            handler = KafkaRecordHandler { _, _, _ -> },
+            handler = KafkaRecordHandler { },
             retryPolicy = RetryPolicy.none(),
             processingFailureHandler = ProcessingFailureHandler.skip(),
             processedRecordTracker = NoopProcessedRecordTracker

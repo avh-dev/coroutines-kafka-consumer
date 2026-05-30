@@ -22,6 +22,7 @@ import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.testcontainers.junit.jupiter.Container
@@ -51,8 +52,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
-            handle { key, value, rawRecord ->
-                processed.complete(Triple(key, value, rawRecord.offset()))
+            handle { record ->
+                processed.complete(Triple(record.key(), record.value(), record.offset()))
             }
         }
 
@@ -83,8 +84,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.FRESHNESS_FIRST
             topics(topic)
-            handle { _, value, _ ->
-                processed.complete(value)
+            handle { record ->
+                processed.complete(record.value())
             }
         }
 
@@ -116,9 +117,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             workChannelCapacity = 1
             this.metrics = metrics
             topics(topic)
-            handle { _, value, _ ->
+            handle { record ->
                 delay(100)
-                processed += value!!
+                processed += record.value()!!
             }
         }
 
@@ -152,8 +153,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topicsPattern(Pattern.compile("orders-.*"))
-            handle { key, value, _ ->
-                processed.complete(key to value)
+            handle { record ->
+                processed.complete(record.key() to record.value())
             }
         }
 
@@ -184,8 +185,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topicsPattern(Pattern.compile("orders-.*"))
-            handle { _, value, _ ->
-                processed += value!!
+            handle { record ->
+                processed += record.value()!!
             }
         }
 
@@ -218,10 +219,10 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
-            onProcessingFailure { key, value, _, error ->
-                recovered.complete("$key:${error.message}" to value)
+            onProcessingFailure { record, error ->
+                recovered.complete("${record.key()}:${error.message}" to record.value())
             }
-            handle { _, _, _ ->
+            handle {
                 throw IllegalStateException("boom")
             }
         }
@@ -253,10 +254,10 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             this.metrics = metrics
             topics(topic)
-            onProcessingFailure { _, _, _, _ ->
+            onProcessingFailure { _, _ ->
                 recovered.complete(Unit)
             }
-            handle { _, _, _ ->
+            handle {
                 throw IllegalStateException("metrics-boom")
             }
         }
@@ -290,9 +291,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             workerConcurrency = 1
             workChannelCapacity = 1
             topics(topic)
-            handle { _, value, _ ->
+            handle { record ->
                 delay(100)
-                processed += value!!.toLong()
+                processed += record.value()!!.toLong()
             }
         }
 
@@ -325,8 +326,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             commitIntervalMs = 100L
             topics(topic)
-            handle { _, _, rawRecord ->
-                processed.complete(rawRecord.offset())
+            handle { record ->
+                processed.complete(record.offset())
             }
         }
 
@@ -374,8 +375,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             commitIntervalMs = 100L
             topics(topic)
-            handle { _, _, rawRecord ->
-                processed += rawRecord.offset()
+            handle { record ->
+                processed += record.offset()
             }
         }
 
@@ -414,7 +415,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             this.metrics = metrics
             topics(topic)
-            handle { _, _, _ -> }
+            handle { }
         }
 
         try {
@@ -427,13 +428,14 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 }
             }
 
-            assertEquals("Size of data received by LongDeserializer is not 8", failure.message)
-            val thrown = assertThrows(org.apache.kafka.common.errors.SerializationException::class.java) {
+            assertTrue(failure is org.apache.kafka.common.errors.RecordDeserializationException)
+            assertEquals("Size of data received by LongDeserializer is not 8", failure.cause?.message)
+            val thrown = assertThrows(org.apache.kafka.common.errors.RecordDeserializationException::class.java) {
                 runBlocking {
                     consumer.stop()
                 }
             }
-            assertEquals("Size of data received by LongDeserializer is not 8", thrown.message)
+            assertEquals("Size of data received by LongDeserializer is not 8", thrown.cause?.message)
         } finally {
             try {
                 consumer.stop()
@@ -463,11 +465,11 @@ class CoroutinesKafkaConsumerIntegrationTest {
             }
             this.metrics = metrics
             topics(topic)
-            handle { _, value, _ ->
+            handle { record ->
                 if (attempts.getAndIncrement() < 2) {
                     throw IOException("transient")
                 }
-                processed.complete(value)
+                processed.complete(record.value())
             }
         }
 
@@ -507,7 +509,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             parentContext = firstConsumerJob
             topics(topic)
-            handle { _, _, _ ->
+            handle {
                 started.complete(Unit)
                 release.await()
             }
@@ -525,8 +527,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ) {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             topics(topic)
-            handle { _, value, _ ->
-                redelivered.complete(value)
+            handle { record ->
+                redelivered.complete(record.value())
             }
         }
 
@@ -552,8 +554,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             workerConcurrency = 1
             topics(topic)
-            handle { _, value, _ ->
-                processed += "c1:${value!!}"
+            handle { record ->
+                processed += "c1:${record.value()!!}"
                 delay(50)
             }
         }
@@ -564,8 +566,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
             workerConcurrency = 1
             topics(topic)
-            handle { _, value, _ ->
-                processed += "c2:${value!!}"
+            handle { record ->
+                processed += "c2:${record.value()!!}"
                 delay(50)
             }
         }

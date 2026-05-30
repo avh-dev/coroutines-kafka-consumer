@@ -1,6 +1,5 @@
 package avh.ckc.core
 
-import avh.ckc.core.processing.deserialization.DeserializedRecord
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CompletableDeferred
@@ -9,7 +8,6 @@ import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -17,23 +15,17 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class RecordProcessorTest {
 
-    @BeforeEach
-    fun resetTrackingDeserializers() {
-        TrackingStringDeserializer.reset()
-        TrackingLongDeserializer.reset()
-    }
-
     @Test
     fun `when retry policy matches then worker retries and eventually succeeds`() = runBlocking {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<String>()
         val metrics = RecordingMetrics<String, String>()
         val processor = createRecordProcessor<String, String>(
-            handler = KafkaRecordHandler { _, value, _ ->
+            handler = KafkaRecordHandler { record ->
                 if (attempts.getAndIncrement() < 2) {
                     throw IOException("transient")
                 }
-                processed.complete(value!!)
+                processed.complete(record.value())
             },
             metrics = metrics,
             retryPolicy = retryPolicy {
@@ -44,10 +36,7 @@ class RecordProcessorTest {
             }
         )
 
-        processor.process(
-            testRecord(offset = 10L, value = "payload"),
-            DeserializedRecord(key = "key", value = "payload")
-        )
+        processor.process(typedTestRecord(offset = 10L, value = "payload"))
 
         assertEquals("payload", withTimeout(2_000) { processed.await() })
         assertEquals(3, attempts.get())
@@ -63,19 +52,16 @@ class RecordProcessorTest {
         val recovered = CompletableDeferred<Pair<Long?, String>>()
         val metrics = RecordingMetrics<Long, Long>()
         val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, _, _ ->
+            handler = KafkaRecordHandler {
                 throw IllegalStateException("boom")
             },
             metrics = metrics,
-            processingFailureHandler = ProcessingFailureHandler { key, _, rawRecord, error ->
-                recovered.complete(key to "${rawRecord.offset()}:${error.message}")
+            processingFailureHandler = ProcessingFailureHandler { record, error ->
+                recovered.complete(record.key() to "${record.offset()}:${error.message}")
             }
         )
 
-        processor.process(
-            testRecord(offset = 12L),
-            DeserializedRecord(key = 0L, value = 0L)
-        )
+        processor.process(ConsumerRecord("topic-a", 0, 12L, 0L, 0L))
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
         assertEquals(1, metrics.failed.size)
@@ -90,11 +76,11 @@ class RecordProcessorTest {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<Long>()
         val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, value, _ ->
+            handler = KafkaRecordHandler { record ->
                 if (attempts.getAndIncrement() == 0) {
                     throw IllegalArgumentException("retry me")
                 }
-                processed.complete(value!!)
+                processed.complete(record.value())
             },
             retryPolicy = retryPolicy {
                 retry<IllegalArgumentException, IOException> {
@@ -103,10 +89,7 @@ class RecordProcessorTest {
             }
         )
 
-        processor.process(
-            testRecord(offset = 13L, value = "13"),
-            DeserializedRecord(key = 0L, value = 13L)
-        )
+        processor.process(ConsumerRecord("topic-a", 0, 13L, 0L, 13L))
 
         assertEquals(13L, withTimeout(2_000) { processed.await() })
         assertEquals(2, attempts.get())
@@ -117,11 +100,11 @@ class RecordProcessorTest {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<Long>()
         val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, value, _ ->
+            handler = KafkaRecordHandler { record ->
                 if (attempts.getAndIncrement() == 0) {
                     throw IllegalStateException("retry me too")
                 }
-                processed.complete(value!!)
+                processed.complete(record.value())
             },
             retryPolicy = retryPolicy {
                 retry(listOf(IllegalStateException::class, IOException::class)) {
@@ -130,10 +113,7 @@ class RecordProcessorTest {
             }
         )
 
-        processor.process(
-            testRecord(offset = 14L, value = "14"),
-            DeserializedRecord(key = 0L, value = 14L)
-        )
+        processor.process(ConsumerRecord("topic-a", 0, 14L, 0L, 14L))
 
         assertEquals(14L, withTimeout(2_000) { processed.await() })
         assertEquals(2, attempts.get())
@@ -142,20 +122,17 @@ class RecordProcessorTest {
     @Test
     fun `when processing failure handler throws then error is rethrown`() = runBlocking {
         val processor = createRecordProcessor<Long, Long>(
-            handler = KafkaRecordHandler { _, _, _ ->
+            handler = KafkaRecordHandler {
                 throw IllegalStateException("boom")
             },
-            processingFailureHandler = ProcessingFailureHandler { _, _, _, _ ->
+            processingFailureHandler = ProcessingFailureHandler { _, _ ->
                 throw UnsupportedOperationException("dlt failed")
             }
         )
 
         val error = assertThrows(UnsupportedOperationException::class.java) {
             runBlocking {
-                processor.process(
-                    testRecord(offset = 22L),
-                    DeserializedRecord(key = 0L, value = 0L)
-                )
+                processor.process(ConsumerRecord("topic-a", 0, 22L, 0L, 0L))
             }
         }
 
@@ -164,17 +141,17 @@ class RecordProcessorTest {
 
     @Test
     fun `when processing succeeds in AT_LEAST_ONCE_UNORDERED mode then partition is marked processed`() = runBlocking {
-        val record = testRecord(offset = 25L)
+        val record = ConsumerRecord("topic-a", 0, 25L, 0L, 0L)
         var processedRecordOffset: Long? = null
         val processor = RecordProcessor(
-            handler = KafkaRecordHandler<Long, Long> { _, _, _ -> },
+            handler = KafkaRecordHandler<Long, Long> { },
             retryPolicy = RetryPolicy.none(),
             metrics = noopConsumerMetrics(),
             processingFailureHandler = ProcessingFailureHandler.skip<Long, Long>(),
             onRecordProcessed = { processedRecordOffset = it.offset() }
         )
 
-        processor.process(record, DeserializedRecord(key = 0L, value = 0L))
+        processor.process(record)
 
         assertEquals(25L, processedRecordOffset)
     }
@@ -185,8 +162,7 @@ class RecordProcessorTest {
         @Suppress("UNCHECKED_CAST")
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
-        runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED),
-        onRecordProcessed: (ConsumerRecord<ByteArray, ByteArray>) -> Unit = {}
+        onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {}
     ): RecordProcessor<K, V> = RecordProcessor(
         handler = handler,
         retryPolicy = retryPolicy,

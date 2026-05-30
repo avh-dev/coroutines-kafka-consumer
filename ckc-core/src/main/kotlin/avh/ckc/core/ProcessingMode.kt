@@ -13,7 +13,7 @@ enum class ProcessingMode {
     AT_LEAST_ONCE_UNORDERED,
 
     /**
-     * At-least-once processing with ordering preserved for records that have the same raw Kafka key.
+     * At-least-once processing with ordering preserved for records that have equal deserialized Kafka keys.
      *
      * Records with different keys may be processed concurrently. Records with a null Kafka key share a
      * single ordering lane and are therefore processed sequentially relative to each other.
