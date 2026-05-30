@@ -2,6 +2,6 @@ package avh.ckc.core.processing
 
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
-internal interface PolledRecordSink {
-    fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean
+internal interface PolledRecordSink<K, V> {
+    fun tryEmit(record: ConsumerRecord<K, V>): Boolean
 }

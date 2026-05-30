@@ -15,8 +15,6 @@ import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -25,8 +23,6 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import org.springframework.beans.factory.annotation.Qualifier
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @Configuration(proxyBeanMethods = false)
 @Profile("ckc")
@@ -98,12 +94,10 @@ private class CkcConsumerRuntime(
     private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
-    private lateinit var deserializationDispatcher: DemoDeserializationDispatcher
     @Volatile
     private var running = false
 
     override fun start() {
-        deserializationDispatcher = newDemoDeserializationDispatcher(properties.consumers.deserializationDispatcher)
         val commonProperties = mapOf(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
@@ -114,7 +108,6 @@ private class CkcConsumerRuntime(
             orderConsumerMetrics,
             auditLog,
             properties.consumers.order,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> orderHandler(key, event) }
@@ -124,7 +117,6 @@ private class CkcConsumerRuntime(
             batchConsumerMetrics,
             auditLog,
             properties.consumers.batch,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> batchHandler(key, event) }
@@ -134,7 +126,6 @@ private class CkcConsumerRuntime(
             consumerMetrics,
             auditLog,
             properties.consumers.telemetry,
-            deserializationDispatcher.dispatcher,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, telemetry -> telemetryHandler(key, telemetry) }
@@ -156,7 +147,6 @@ private class CkcConsumerRuntime(
                 orderConsumer.stop()
             }
         } finally {
-            deserializationDispatcher.close()
             running = false
         }
     }
@@ -171,38 +161,3 @@ private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, An
     ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
     ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords
 )
-
-private data class DemoDeserializationDispatcher(
-    val dispatcher: CoroutineDispatcher,
-    private val closeAction: () -> Unit = {}
-) {
-    fun close() = closeAction.invoke()
-}
-
-private fun newDemoDeserializationDispatcher(
-    properties: DemoApplicationProperties.DeserializationDispatcher
-): DemoDeserializationDispatcher =
-    when (properties.mode) {
-        DemoApplicationProperties.DeserializationDispatcherMode.DEFAULT ->
-            DemoDeserializationDispatcher(Dispatchers.Default)
-        DemoApplicationProperties.DeserializationDispatcherMode.IO ->
-            DemoDeserializationDispatcher(Dispatchers.IO)
-        DemoApplicationProperties.DeserializationDispatcherMode.CUSTOM_THREAD_POOL -> {
-            require(properties.customThreadPoolSize > 0) {
-                "demo.consumers.deserialization-dispatcher.custom-thread-pool-size must be > 0"
-            }
-            val dispatcher = newCustomDemoDeserializationDispatcher(properties)
-            DemoDeserializationDispatcher(dispatcher, dispatcher::close)
-        }
-    }
-
-private fun newCustomDemoDeserializationDispatcher(
-    properties: DemoApplicationProperties.DeserializationDispatcher
-): ExecutorCoroutineDispatcher {
-    val threadCounter = AtomicInteger(1)
-    return Executors.newFixedThreadPool(properties.customThreadPoolSize) { runnable ->
-        Thread(runnable, "${properties.customThreadNamePrefix}-${threadCounter.getAndIncrement()}").apply {
-            isDaemon = true
-        }
-    }.asCoroutineDispatcher()
-}

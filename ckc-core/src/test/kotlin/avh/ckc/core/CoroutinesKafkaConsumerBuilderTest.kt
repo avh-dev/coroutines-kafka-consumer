@@ -12,7 +12,7 @@ class CoroutinesKafkaConsumerBuilderTest {
     fun `when builder is configured with topics then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
             topics("topic-a")
-            handle { _, _, _ -> }
+            handle { }
         }
 
         assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
@@ -22,7 +22,7 @@ class CoroutinesKafkaConsumerBuilderTest {
     fun `when builder is configured with topics pattern then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
             topicsPattern(Pattern.compile("topic-.*"))
-            handle { _, _, _ -> }
+            handle { }
         }
 
         assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
@@ -49,7 +49,7 @@ class CoroutinesKafkaConsumerBuilderTest {
             ) {
                 processingMode = ProcessingMode.FRESHNESS_FIRST
                 topics("topic-a")
-                handle { _, _, _ -> }
+                handle { }
             }
         }
 
@@ -68,7 +68,7 @@ class CoroutinesKafkaConsumerBuilderTest {
         ) {
             processingMode = ProcessingMode.FRESHNESS_FIRST
             topics("topic-a")
-            handle { _, _, _ -> }
+            handle { }
         }
 
         assertEquals(CoroutinesKafkaConsumer::class, consumer::class)

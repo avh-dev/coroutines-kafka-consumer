@@ -17,7 +17,7 @@ class DemoRecordMetrics {
         metrics.onRecordProcessed(
             key = context.key,
             value = value,
-            record = context.rawRecord(),
+            record = context.record(value),
             recordAgeMillis = context.recordAgeMillis(),
             durationNanos = System.nanoTime() - startedAtNanos
         )
@@ -33,7 +33,7 @@ class DemoRecordMetrics {
         metrics.onRecordFailed(
             key = context.key,
             value = value,
-            record = context.rawRecord(),
+            record = context.record(value),
             recordAgeMillis = context.recordAgeMillis(),
             error = error,
             durationNanos = System.nanoTime() - startedAtNanos
@@ -55,12 +55,12 @@ data class DemoConsumerRecordContext(
             0L
         }
 
-    fun rawRecord(): ConsumerRecord<ByteArray, ByteArray> =
+    fun <V> record(value: V): ConsumerRecord<String, V> =
         ConsumerRecord(
             topic,
             partition,
             offset,
-            key?.encodeToByteArray(),
-            null
+            key,
+            value
         )
 }

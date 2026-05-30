@@ -4,11 +4,9 @@ import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.awaitFor
-import avh.ckc.core.defaultRecordDeserializerFactoryForTests
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.processing.NoopProcessedRecordTracker
-import avh.ckc.core.stringSerdeProperties
-import avh.ckc.core.testRecord
+import avh.ckc.core.typedTestRecord
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,18 +32,19 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 4,
             workChannelCapacity = 16,
-            handler = KafkaRecordHandler<String, String> { key, _, rawRecord ->
+            handler = KafkaRecordHandler<String, String> { record ->
+                val key = record.key()
                 val active = activeByKey.computeIfAbsent(key!!) { AtomicInteger() }.incrementAndGet()
                 maxActiveByKey.computeIfAbsent(key) { AtomicInteger() }.updateAndGet { maxOf(it, active) }
                 delay(10)
-                processedOffsets += rawRecord.offset()
+                processedOffsets += record.offset()
                 activeByKey[key]!!.decrementAndGet()
             }
         )
 
         runtime.start { throw it }
         repeat(8) { index ->
-            assertTrue(runtime.tryEmit(testRecord(offset = index.toLong(), key = "same-key")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = index.toLong(), key = "same-key")))
         }
 
         awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
@@ -66,7 +65,8 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 2,
             workChannelCapacity = 8,
-            handler = KafkaRecordHandler<String, String> { key, _, _ ->
+            handler = KafkaRecordHandler<String, String> { record ->
+                val key = record.key()
                 if (key == "key-a") {
                     firstStarted.complete(Unit)
                     releaseFirst.await()
@@ -77,8 +77,8 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
         )
 
         runtime.start { throw it }
-        assertTrue(runtime.tryEmit(testRecord(offset = 1L, key = "key-a")))
-        assertTrue(runtime.tryEmit(testRecord(offset = 2L, key = "key-b")))
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "key-a")))
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, key = "key-b")))
 
         withTimeout(2_000) { firstStarted.await() }
         withTimeout(2_000) { secondStarted.await() }
@@ -97,22 +97,22 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
                 ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_PARTITION,
                 workerConcurrency = 2,
                 workChannelCapacity = 8,
-                handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
-                    when (rawRecord.offset()) {
+                handler = KafkaRecordHandler<String, String> { record ->
+                    when (record.offset()) {
                         1L -> {
                             firstPartitionRecordStarted.complete(Unit)
                             releaseFirstPartitionRecord.await()
                         }
                         3L -> otherPartitionRecordStarted.complete(Unit)
                     }
-                    processedOffsets += rawRecord.offset()
+                    processedOffsets += record.offset()
                 }
             )
 
             runtime.start { throw it }
-            assertTrue(runtime.tryEmit(testRecord(offset = 1L, partition = 0, key = "key-a")))
-            assertTrue(runtime.tryEmit(testRecord(offset = 2L, partition = 0, key = "key-b")))
-            assertTrue(runtime.tryEmit(testRecord(offset = 3L, partition = 1, key = "key-c")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, partition = 0, key = "key-a")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, partition = 0, key = "key-b")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = 3L, partition = 1, key = "key-c")))
 
             withTimeout(2_000) { firstPartitionRecordStarted.await() }
             withTimeout(2_000) { otherPartitionRecordStarted.await() }
@@ -137,28 +137,28 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
                 ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
                 workerConcurrency = 1,
                 workChannelCapacity = 2,
-                handler = KafkaRecordHandler<String, String> { _, _, rawRecord ->
-                    if (rawRecord.offset() == 1L) {
+                handler = KafkaRecordHandler<String, String> { record ->
+                    if (record.offset() == 1L) {
                         firstStarted.complete(Unit)
                         releaseFirst.await()
                     }
-                    processedOffsets += rawRecord.offset()
+                    processedOffsets += record.offset()
                 }
             )
 
             runtime.start { throw it }
-            assertTrue(runtime.tryEmit(testRecord(offset = 1L, key = "hot-key")))
-            assertTrue(runtime.tryEmit(testRecord(offset = 2L, key = "hot-key")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "hot-key")))
+            assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, key = "hot-key")))
             withTimeout(2_000) { firstStarted.await() }
 
-            assertFalse(runtime.tryEmit(testRecord(offset = 3L, key = "hot-key")))
+            assertFalse(runtime.tryEmit(typedTestRecord(offset = 3L, key = "hot-key")))
 
             releaseFirst.complete(Unit)
             awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
                 processedOffsets.takeIf { it.contains(1L) }
             }
             awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
-                runtime.tryEmit(testRecord(offset = 3L, key = "hot-key")).takeIf { it }
+                runtime.tryEmit(typedTestRecord(offset = 3L, key = "hot-key")).takeIf { it }
             }
             awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
                 processedOffsets.takeIf { it.containsAll(listOf(1L, 2L, 3L)) }
@@ -181,7 +181,6 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             processingDispatcher = Dispatchers.Default,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             metrics = metrics,
-            recordDeserializerFactory = defaultRecordDeserializerFactoryForTests(stringSerdeProperties()),
             handler = handler,
             retryPolicy = RetryPolicy.none(),
             processingFailureHandler = ProcessingFailureHandler.skip(),

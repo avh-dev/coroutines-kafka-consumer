@@ -75,7 +75,7 @@ class CkcProfileContextTest(
         consumerMetrics.onRecordProcessed(
             key = "key",
             value = sampleTelemetryEvent(),
-            record = ConsumerRecord("cauldron.events.v1", 0, 0L, "key".toByteArray(), ByteArray(0)),
+            record = ConsumerRecord("cauldron.events.v1", 0, 0L, "key", sampleTelemetryEvent()),
             recordAgeMillis = 10,
             durationNanos = 1_000_000
         )

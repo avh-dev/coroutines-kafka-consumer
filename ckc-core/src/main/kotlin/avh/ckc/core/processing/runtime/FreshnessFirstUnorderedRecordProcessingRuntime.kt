@@ -3,7 +3,6 @@ package avh.ckc.core.processing.runtime
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
-import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
@@ -20,7 +19,6 @@ internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
     processingDispatcher: CoroutineDispatcher,
     scope: CoroutineScope,
     metrics: ConsumerMetrics<K, V>,
-    recordDeserializerFactory: RecordDeserializerFactory<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
@@ -31,7 +29,6 @@ internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
     processingDispatcher = processingDispatcher,
     scope = scope,
     metrics = metrics,
-    recordDeserializerFactory = recordDeserializerFactory,
     handler = handler,
     retryPolicy = retryPolicy,
     processingFailureHandler = processingFailureHandler,
@@ -42,7 +39,7 @@ internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
     override fun createChannel(
         capacity: Int,
         runtimeStats: ConsumerRuntimeStatsTracker
-    ): Channel<ConsumerRecord<ByteArray, ByteArray>> =
+    ): Channel<ConsumerRecord<K, V>> =
         Channel(
             capacity = capacity,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,

@@ -23,7 +23,6 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        deserializationDispatcher: CoroutineDispatcher,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
@@ -40,13 +39,13 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
-            this.deserializationDispatcher = deserializationDispatcher
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
-            handle { key, value, record ->
+            handle { record ->
+                val value = record.value()
                 if (value != null) {
                     if (processingEnabled) {
-                        handler(key, value)
+                        handler(record.key(), value)
                     } else {
                         latencyOnlyDelay()
                     }
@@ -61,7 +60,6 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        deserializationDispatcher: CoroutineDispatcher,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, BatchLifecycleEvent) -> Unit
@@ -78,13 +76,13 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
-            this.deserializationDispatcher = deserializationDispatcher
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
-            handle { key, value, record ->
+            handle { record ->
+                val value = record.value()
                 if (value != null) {
                     if (processingEnabled) {
-                        handler(key, value)
+                        handler(record.key(), value)
                     } else {
                         latencyOnlyDelay()
                     }
@@ -99,7 +97,6 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         auditLog: AuditLog,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        deserializationDispatcher: CoroutineDispatcher,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
@@ -116,13 +113,13 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
-            this.deserializationDispatcher = deserializationDispatcher
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
-            handle { key, value, record ->
+            handle { record ->
+                val value = record.value()
                 if (value != null) {
                     if (processingEnabled) {
-                        handler(key, value)
+                        handler(record.key(), value)
                     } else {
                         latencyOnlyDelay()
                     }

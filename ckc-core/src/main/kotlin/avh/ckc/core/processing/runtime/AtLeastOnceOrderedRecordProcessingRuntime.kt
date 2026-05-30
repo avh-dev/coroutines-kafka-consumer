@@ -8,9 +8,6 @@ import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
-import avh.ckc.core.processing.deserialization.RecordDeserializer
-import avh.ckc.core.processing.deserialization.RecordDeserializerFactory
-import avh.ckc.core.processing.deserialization.closeAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
@@ -34,7 +31,6 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
     private val processingDispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
     private val metrics: ConsumerMetrics<K, V>,
-    private val recordDeserializerFactory: RecordDeserializerFactory<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
@@ -57,10 +53,10 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         workQueueCapacity = workChannelCapacity
     )
     private val admissionBudget = AdmissionBudget(workChannelCapacity, runtimeStats)
-    private val states = ConcurrentHashMap<OrderingKey, KeyState>()
+    private val states = ConcurrentHashMap<OrderingKey, KeyState<K, V>>()
     private val acceptingRecords = AtomicBoolean(true)
     private val inputChannel by lazy {
-        Channel<ConsumerRecord<ByteArray, ByteArray>>(
+        Channel<ConsumerRecord<K, V>>(
             capacity = workChannelCapacity,
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
@@ -69,23 +65,12 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         )
     }
     private val workerChannel by lazy {
-        Channel<WorkItem>(capacity = Channel.RENDEZVOUS)
+        Channel<WorkItem<K, V>>(capacity = Channel.RENDEZVOUS)
     }
 
     private var schedulerJob: Job? = null
     private var workerJobs: List<Job> = emptyList()
-    private var recordDeserializers: List<RecordDeserializer<K, V>> = emptyList()
-
     override fun start(onFailure: (Throwable) -> Unit) {
-        recordDeserializers = try {
-            List(workerConcurrency) { workerIndex ->
-                recordDeserializerFactory(workerIndex)
-            }
-        } catch (error: Throwable) {
-            recordDeserializers.closeAll()
-            throw error
-        }
-
         schedulerJob = scope.launch(processingDispatcher + CoroutineName("KafkaOrderedScheduler")) {
             runScheduler()
         }.also { job ->
@@ -98,9 +83,8 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         }
 
         workerJobs = List(workerConcurrency) { workerIndex ->
-            val recordDeserializer = recordDeserializers[workerIndex]
             scope.launch(processingDispatcher + CoroutineName("KafkaOrderedWorker-$workerIndex")) {
-                runWorker(recordDeserializer)
+                runWorker()
             }.also { job ->
                 job.invokeOnCompletion { cause ->
                     if (cause != null && cause !is CancellationException) {
@@ -114,7 +98,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         metrics.bindRuntimeMetrics(runtimeStats)
     }
 
-    override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
+    override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
             return true
         }
@@ -145,7 +129,6 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         } finally {
             releaseBufferedKeyQueues()
             metrics.unbindRuntimeMetrics()
-            recordDeserializers.closeAll()
         }
     }
 
@@ -155,7 +138,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
                 val record = inputChannel.receiveCatching().getOrNull() ?: break
                 val key = ordering.keyFor(record)
                 val workItem = WorkItem(key, record)
-                var dispatch: WorkItem? = null
+                var dispatch: WorkItem<K, V>? = null
 
                 states.compute(key) { _, current ->
                     val state = current ?: KeyState()
@@ -175,7 +158,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         }
     }
 
-    private suspend fun dispatchToWorker(workItem: WorkItem) {
+    private suspend fun dispatchToWorker(workItem: WorkItem<K, V>) {
         try {
             workerChannel.send(workItem)
         } catch (error: Throwable) {
@@ -185,13 +168,13 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         }
     }
 
-    private suspend fun runWorker(recordDeserializer: RecordDeserializer<K, V>) {
+    private suspend fun runWorker() {
         while (currentCoroutineContext().isActive) {
             var workItem = workerChannel.receiveCatching().getOrNull() ?: break
             while (true) {
                 runtimeStats.onWorkerStarted()
                 try {
-                    processRecord(workItem.record, recordDeserializer)
+                    recordProcessor.process(workItem.record)
                 } finally {
                     runtimeStats.onWorkerFinished()
                     admissionBudget.release()
@@ -203,8 +186,8 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         }
     }
 
-    private fun nextRecordFor(key: OrderingKey): ConsumerRecord<ByteArray, ByteArray>? {
-        var next: ConsumerRecord<ByteArray, ByteArray>? = null
+    private fun nextRecordFor(key: OrderingKey): ConsumerRecord<K, V>? {
+        var next: ConsumerRecord<K, V>? = null
         states.compute(key) { _, state ->
             if (state == null) {
                 return@compute null
@@ -248,69 +231,35 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         }
     }
 
-    private suspend fun processRecord(
-        record: ConsumerRecord<ByteArray, ByteArray>,
-        recordDeserializer: RecordDeserializer<K, V>
-    ) {
-        val startedAt = System.nanoTime()
-        val recordAgeMillis = (System.currentTimeMillis() - record.timestamp()).coerceAtLeast(0L)
-        val deserializedRecord = try {
-            recordDeserializer.deserialize(record)
-        } catch (error: Throwable) {
-            if (error is CancellationException) {
-                throw error
-            }
-            metrics.onRecordFailed(
-                key = null,
-                value = null,
-                record = record,
-                recordAgeMillis = recordAgeMillis,
-                error = error,
-                durationNanos = System.nanoTime() - startedAt
-            )
-            throw error
-        }
-        recordProcessor.process(record, deserializedRecord)
-    }
-
-    private fun Ordering.keyFor(record: ConsumerRecord<ByteArray, ByteArray>): OrderingKey =
+    private fun Ordering.keyFor(record: ConsumerRecord<K, V>): OrderingKey =
         when (this) {
             Ordering.BY_KEY -> {
                 val key = record.key()
                 if (key == null) {
                     OrderingKey.NullKey
                 } else {
-                    OrderingKey.RawKey(ByteArrayKey(key))
+                    OrderingKey.DeserializedKey(key)
                 }
             }
             Ordering.BY_PARTITION -> OrderingKey.Partition(record.topic(), record.partition())
         }
 
-    private class KeyState(
-        val queue: ArrayDeque<ConsumerRecord<ByteArray, ByteArray>> = ArrayDeque(),
+    private class KeyState<K, V>(
+        val queue: ArrayDeque<ConsumerRecord<K, V>> = ArrayDeque(),
         var inFlight: Boolean = false
     )
 
-    private data class WorkItem(
+    private data class WorkItem<K, V>(
         val key: OrderingKey,
-        val record: ConsumerRecord<ByteArray, ByteArray>
+        val record: ConsumerRecord<K, V>
     )
 
     private sealed interface OrderingKey {
         data object NullKey : OrderingKey
 
-        data class RawKey(val key: ByteArrayKey) : OrderingKey
+        data class DeserializedKey(val key: Any) : OrderingKey
 
         data class Partition(val topic: String, val partition: Int) : OrderingKey
-    }
-
-    private class ByteArrayKey(private val bytes: ByteArray) {
-        private val hash = bytes.contentHashCode()
-
-        override fun equals(other: Any?): Boolean =
-            other is ByteArrayKey && bytes.contentEquals(other.bytes)
-
-        override fun hashCode(): Int = hash
     }
 
     private class AdmissionBudget(

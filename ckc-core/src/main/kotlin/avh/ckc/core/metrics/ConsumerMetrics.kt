@@ -48,12 +48,12 @@ interface ConsumerMetrics<K, V> {
      * Records a successfully processed record after user handler execution completes.
      *
      * [recordAgeMillis] is measured from Kafka record timestamp to processing start. [durationNanos] covers
-     * deserialization, configured handler retries, and successful handler execution.
+     * configured handler retries and successful handler execution.
      */
     fun onRecordProcessed(
         key: K?,
         value: V?,
-        record: ConsumerRecord<ByteArray, ByteArray>,
+        record: ConsumerRecord<K, V>,
         recordAgeMillis: Long,
         durationNanos: Long
     ) = Unit
@@ -61,13 +61,12 @@ interface ConsumerMetrics<K, V> {
     /**
      * Records a failed record after processing cannot continue.
      *
-     * For deserialization failures [key] and [value] can be null because typed values may not exist.
      * [durationNanos] covers the processing attempt until failure is reported.
      */
     fun onRecordFailed(
         key: K?,
         value: V?,
-        record: ConsumerRecord<ByteArray, ByteArray>,
+        record: ConsumerRecord<K, V>,
         recordAgeMillis: Long,
         error: Throwable,
         durationNanos: Long
@@ -78,7 +77,7 @@ interface ConsumerMetrics<K, V> {
      *
      * This callback is not used for shutdown or cancellation cleanup.
      */
-    fun onRecordDropped(record: ConsumerRecord<ByteArray, ByteArray>) = Unit
+    fun onRecordDropped(record: ConsumerRecord<K, V>) = Unit
 
     /**
      * Records a retry of the user handler.
@@ -88,7 +87,7 @@ interface ConsumerMetrics<K, V> {
     fun onRetry(
         key: K?,
         value: V?,
-        record: ConsumerRecord<ByteArray, ByteArray>,
+        record: ConsumerRecord<K, V>,
         attempt: Int,
         error: Throwable
     ) = Unit

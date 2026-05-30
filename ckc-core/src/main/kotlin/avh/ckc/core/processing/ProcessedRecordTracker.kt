@@ -4,24 +4,24 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 internal interface ProcessedRecordTracker {
-    fun isProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean
+    fun <K, V> isProcessed(record: ConsumerRecord<K, V>): Boolean
 
-    fun markProcessed(record: ConsumerRecord<ByteArray, ByteArray>)
+    fun <K, V> markProcessed(record: ConsumerRecord<K, V>)
 }
 
 internal object NoopProcessedRecordTracker : ProcessedRecordTracker {
-    override fun isProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean = false
+    override fun <K, V> isProcessed(record: ConsumerRecord<K, V>): Boolean = false
 
-    override fun markProcessed(record: ConsumerRecord<ByteArray, ByteArray>) = Unit
+    override fun <K, V> markProcessed(record: ConsumerRecord<K, V>) = Unit
 }
 
 internal class PartitionProcessedRecordTracker(
     private val partitionRegistry: PartitionRegistry
 ) : ProcessedRecordTracker {
-    override fun isProcessed(record: ConsumerRecord<ByteArray, ByteArray>): Boolean =
+    override fun <K, V> isProcessed(record: ConsumerRecord<K, V>): Boolean =
         partitionRegistry.partitionStateFor(record)?.isProcessed(record.offset()) == true
 
-    override fun markProcessed(record: ConsumerRecord<ByteArray, ByteArray>) {
+    override fun <K, V> markProcessed(record: ConsumerRecord<K, V>) {
         partitionRegistry.partitionStateFor(record)?.markProcessed(record.offset())
     }
 }

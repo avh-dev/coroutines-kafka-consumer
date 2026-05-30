@@ -69,7 +69,7 @@ class RecordMetricTagValueBuilder internal constructor(
 }
 
 fun interface ConsumerRecordTagValueProvider<in K, in V> {
-    fun populateTags(builder: RecordMetricTagValueBuilder, key: K?, value: V?, record: ConsumerRecord<ByteArray, ByteArray>)
+    fun populateTags(builder: RecordMetricTagValueBuilder, key: K?, value: V?, record: ConsumerRecord<*, *>)
 
     companion object {
         fun none(): ConsumerRecordTagValueProvider<Any?, Any?> = ConsumerRecordTagValueProvider { _, _, _, _ -> }
@@ -78,7 +78,7 @@ fun interface ConsumerRecordTagValueProvider<in K, in V> {
 
 @Suppress("UNCHECKED_CAST")
 fun <K, V> consumerRecordTagValueProvider(
-    block: RecordMetricTagValueBuilder.(K?, V?, ConsumerRecord<ByteArray, ByteArray>) -> Unit
+    block: RecordMetricTagValueBuilder.(K?, V?, ConsumerRecord<*, *>) -> Unit
 ): ConsumerRecordTagValueProvider<Any?, Any?> =
     ConsumerRecordTagValueProvider { builder, key, value, record -> builder.block(key as K?, value as V?, record) }
 
@@ -162,7 +162,7 @@ open class MicrometerConsumerMetrics(
         override fun onRecordProcessed(
             key: K?,
             value: V?,
-            record: ConsumerRecord<ByteArray, ByteArray>,
+            record: ConsumerRecord<K, V>,
             recordAgeMillis: Long,
             durationNanos: Long
         ) {
@@ -175,7 +175,7 @@ open class MicrometerConsumerMetrics(
         override fun onRecordFailed(
             key: K?,
             value: V?,
-            record: ConsumerRecord<ByteArray, ByteArray>,
+            record: ConsumerRecord<K, V>,
             recordAgeMillis: Long,
             error: Throwable,
             durationNanos: Long
@@ -186,14 +186,14 @@ open class MicrometerConsumerMetrics(
             counter("record.failed", tags).increment()
         }
 
-        override fun onRecordDropped(record: ConsumerRecord<ByteArray, ByteArray>) {
+        override fun onRecordDropped(record: ConsumerRecord<K, V>) {
             counter("record.dropped", tags("topic" to record.topic())).increment()
         }
 
         override fun onRetry(
             key: K?,
             value: V?,
-            record: ConsumerRecord<ByteArray, ByteArray>,
+            record: ConsumerRecord<K, V>,
             attempt: Int,
             error: Throwable
         ) {
@@ -265,7 +265,7 @@ open class MicrometerConsumerMetrics(
         recordTagValueProvider: ConsumerRecordTagValueProvider<K, V>,
         key: K?,
         value: V?,
-        record: ConsumerRecord<ByteArray, ByteArray>
+        record: ConsumerRecord<K, V>
     ): Tags {
         val builder = RecordMetricTagValueBuilder(recordTagSchema)
         recordTagValueProvider.populateTags(builder, key, value, record)

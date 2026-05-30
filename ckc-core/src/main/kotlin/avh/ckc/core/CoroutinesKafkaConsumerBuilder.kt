@@ -42,11 +42,6 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var workChannelCapacity: Int = 1024
 
     /**
-     * Dispatcher used for key/value deserialization.
-     */
-    var deserializationDispatcher: CoroutineDispatcher = Dispatchers.IO
-
-    /**
      * Dispatcher used for the main user-defined record handler.
      */
     var processingDispatcher: CoroutineDispatcher = Dispatchers.Default
@@ -103,14 +98,14 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
      * Configures a callback invoked after the processing retry policy is exhausted.
      */
-    fun onProcessingFailure(handler: suspend (K?, V?, ConsumerRecord<ByteArray, ByteArray>, Throwable) -> Unit) {
+    fun onProcessingFailure(handler: suspend (ConsumerRecord<K, V>, Throwable) -> Unit) {
         processingFailureHandler = ProcessingFailureHandler(handler)
     }
 
     /**
      * Configures the main business handler for deserialized Kafka records.
      */
-    fun handle(handler: suspend (K?, V?, ConsumerRecord<ByteArray, ByteArray>) -> Unit) {
+    fun handle(handler: suspend (ConsumerRecord<K, V>) -> Unit) {
         this.handler = KafkaRecordHandler(handler)
     }
 
@@ -130,7 +125,6 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
             workChannelCapacity = workChannelCapacity,
-            deserializationDispatcher = deserializationDispatcher,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
             metrics = metrics,
