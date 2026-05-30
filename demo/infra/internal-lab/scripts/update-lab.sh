@@ -176,6 +176,7 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]]; then
 fi
 
 ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/rebuild-images.sh' '${IMAGE_FINGERPRINT}' ${REBUILD_ARGS[*]}"
+ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/deploy-stubs.sh' --restart"
 
 echo "Internal lab is updated."
 echo "  fingerprint=${IMAGE_FINGERPRINT}"

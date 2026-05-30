@@ -23,16 +23,6 @@ spec:
           env:
             - name: PORT
               value: "8080"
-            - name: DELAY_P90_MS
-              value: {{ .Values.env.delayP90Ms | quote }}
-            - name: DELAY_P95_MS
-              value: {{ .Values.env.delayP95Ms | quote }}
-            - name: DELAY_P99_MS
-              value: {{ .Values.env.delayP99Ms | quote }}
-            - name: DELAY_P100_MS
-              value: {{ .Values.env.delayP100Ms | quote }}
-            - name: ERROR_RATE_PERCENT
-              value: {{ .Values.env.errorRatePercent | quote }}
 {{- with .Values.resources }}
           resources:
 {{ toYaml . | indent 12 }}

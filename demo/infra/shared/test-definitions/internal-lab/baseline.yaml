@@ -1,16 +1,17 @@
-name: ckc-baseline-internal
+name: baseline
 
-deployment:
-  app_profile: spring-kafka-local-baseline
-  stubs_profile: baseline
-  kafka_topics:
-    - name: order.events.v1
-      partitions: 14
-    - name: batch.events.v1
-      partitions: 10
-    - name: cauldron.events.v1
-      partitions: 150
-
+stubs:
+  error_rate_percent: 0
+  eta:
+    delay_p90_ms: 40
+    delay_p95_ms: 80
+    delay_p99_ms: 160
+    delay_p100_ms: 300
+  flavour:
+    delay_p90_ms: 40
+    delay_p95_ms: 80
+    delay_p99_ms: 160
+    delay_p100_ms: 300
 
 load_test:
   shards: 1
