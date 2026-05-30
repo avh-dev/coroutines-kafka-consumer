@@ -42,9 +42,6 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var workChannelCapacity: Int = 1024
 
     /**
-     * Dispatcher used for key/value deserialization.
-     */
-    /**
      * Dispatcher used for the main user-defined record handler.
      */
     var processingDispatcher: CoroutineDispatcher = Dispatchers.Default

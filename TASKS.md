@@ -27,7 +27,7 @@
 | [CORE-22](#core-22) | Move deserialization under the processing package so package layout reflects the raw-polling and typed-processing boundary.                                                                              | DONE |
 | [CORE-23](#core-23) | Reorganize polling state packages and rename the Kafka consumer config adapter for clearer package boundaries.                                                                                         | DONE |
 | [CORE-24](#core-24) | Add bounded at-least-once ordered processing modes for key and partition ordering.                                                                                                                       | DONE |
-| [CORE-25](#core-25) | Delegate deserialization to Kafka poll loops and remove the custom worker-side deserialization pipeline.                                                                                                 | IN_PROGRESS |
+| [CORE-25](#core-25) | Delegate deserialization to Kafka poll loops and remove the custom worker-side deserialization pipeline.                                                                                                 | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -437,6 +437,7 @@ _Date: 2026-05-30_
 Delegate key and value deserialization to the standard Kafka consumer poll path.
 Remove the custom worker-side deserialization pipeline and its per-record dispatcher handoff.
 Pass typed records through bounded processing runtimes while preserving backpressure, ordering, and offset tracking.
+Remove obsolete demo dispatcher settings, environment wiring, and documentation.
 
 <a id="infra-4"></a>
 ### INFRA-4 - Revise Grafana dashboards for consumer metrics
