@@ -101,6 +101,7 @@
 | [INFRA-35](#infra-35) | Add Grafana visibility for CKC backpressure pause and resume events.                                                                               | DONE |
 | [INFRA-36](#infra-36) | Mount internal-lab Grafana dashboards from the synced workspace copy.                                                                              | DONE |
 | [INFRA-37](#infra-37) | Wire Kafka consumer fetch settings through Helm and tune lab profiles to 8 KiB fetch minimum with 250 ms max wait.                                 | DONE |
+| [INFRA-38](#infra-38) | Split internal-lab deployment profiles from load-test definitions and configure reusable stubs before each run.                                  | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1049,6 +1050,16 @@ _Date: 2026-05-29_
 Add Helm values and deployment environment variables for Kafka consumer `fetch.min.bytes`, `fetch.max.wait.ms`, and `max.poll.records`.
 Set shared chart defaults to an 8 KiB fetch minimum, 250 ms max wait, and 500 records per poll.
 Apply the same fetch settings across demo Helm profiles so CKC, CKC sync, Spring Kafka, and Confluent Parallel Consumer lab runs use comparable consumer fetch behavior.
+
+<a id="infra-38"></a>
+### INFRA-38 - Simplify internal-lab test workflow
+
+_Date: 2026-05-30_
+
+Separate reusable internal-lab deployment profiles from load-test definitions.
+Configure the already deployed demo stubs through their HTTP API before each test run.
+Replace persistent test selection with one interactive run command for choosing a deployment and a test.
+Keep AWS orchestration and timed failure scenarios out of scope for this task.
 
 <a id="doc-1"></a>
 ### DOC-1 - Add documentation task scope

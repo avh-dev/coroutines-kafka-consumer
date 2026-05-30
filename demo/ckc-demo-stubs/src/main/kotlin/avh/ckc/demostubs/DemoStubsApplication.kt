@@ -26,12 +26,7 @@ fun main() {
     val config = DemoStubsConfig.fromEnvironment()
     val json = Json { ignoreUnknownKeys = true }
     val delaySampler = DelaySampler(Random.Default)
-    val latencySettings = AtomicReference(
-        ModelLatencyRegistry(
-            eta = config.etaLatency,
-            flavour = config.flavourLatency
-        )
-    )
+    val settings = AtomicReference(DemoStubsSettings.baseline())
     val workerGroup = EventLoopGroups.newEventLoopGroup(config.workers, "demo-stubs-armeria-worker")
     val server = Server.builder()
         .http(config.port)
@@ -39,14 +34,14 @@ fun main() {
         .service("/health") { _, _ ->
             jsonResponse("""{"status":"UP"}""")
         }
-        .service("/latency") { ctx, request ->
+        .service("/settings") { _, request ->
             when (request.method()) {
-                HttpMethod.GET -> jsonResponse(json.encodeToString(ModelLatencyRegistry.serializer(), latencySettings.get()))
+                HttpMethod.GET -> jsonResponse(json.encodeToString(DemoStubsSettings.serializer(), settings.get()))
                 HttpMethod.POST -> aggregate(request) { aggregated ->
                     try {
-                        val update = json.decodeFromString(ModelLatencyRegistry.serializer(), aggregated.contentUtf8())
-                        latencySettings.set(update)
-                        jsonResponse(json.encodeToString(ModelLatencyRegistry.serializer(), update))
+                        val update = json.decodeFromString(DemoStubsSettings.serializer(), aggregated.contentUtf8())
+                        settings.set(update)
+                        jsonResponse(json.encodeToString(DemoStubsSettings.serializer(), update))
                     } catch (_: Exception) {
                         jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
                     }
@@ -62,8 +57,9 @@ fun main() {
                 aggregate(request) { aggregated ->
                     try {
                         val modelRequest = json.decodeFromString(ArcaneEtaRequest.serializer(), aggregated.contentUtf8())
-                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(latencySettings.get().eta)) {
-                            if (Random.nextInt(100) < config.errorRatePercent) {
+                        val currentSettings = settings.get()
+                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.eta)) {
+                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -85,8 +81,9 @@ fun main() {
                 aggregate(request) { aggregated ->
                     try {
                         val modelRequest = json.decodeFromString(OrderFlavourRequest.serializer(), aggregated.contentUtf8())
-                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(latencySettings.get().flavour)) {
-                            if (Random.nextInt(100) < config.errorRatePercent) {
+                        val currentSettings = settings.get()
+                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.flavour)) {
+                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -104,10 +101,7 @@ fun main() {
         .build()
 
     println(
-        "demo-stubs listening on port=${config.port} workers=${config.workers} " +
-                "etaDelays=${config.etaLatency.delayP90Ms}/${config.etaLatency.delayP95Ms}/${config.etaLatency.delayP99Ms}/${config.etaLatency.delayP100Ms}ms " +
-                "flavourDelays=${config.flavourLatency.delayP90Ms}/${config.flavourLatency.delayP95Ms}/${config.flavourLatency.delayP99Ms}/${config.flavourLatency.delayP100Ms}ms " +
-                "errorRate=${config.errorRatePercent}%"
+        "demo-stubs listening on port=${config.port} workers=${config.workers} settings=${settings.get()}"
     )
 
     Runtime.getRuntime().addShutdownHook(Thread {
@@ -210,12 +204,6 @@ data class ArcaneEtaResponse(
     @SerialName("magical_eta_units") val magicalEtaUnits: Double,
     @SerialName("moon_phase") val moonPhase: String,
     @SerialName("planetary_alignment") val planetaryAlignment: String
-)
-
-@Serializable
-data class ModelLatencyRegistry(
-    val eta: ModelLatencySettings,
-    val flavour: ModelLatencySettings
 )
 
 @Serializable
