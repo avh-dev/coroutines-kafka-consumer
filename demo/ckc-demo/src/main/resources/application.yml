@@ -38,10 +38,6 @@ demo:
     max-segment-bytes: ${AUDIT_MAX_SEGMENT_BYTES:268435456}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
-    deserialization-dispatcher:
-      mode: ${DEMO_CONSUMER_DESERIALIZATION_DISPATCHER:DEFAULT}
-      custom-thread-pool-size: ${DEMO_CONSUMER_DESERIALIZATION_THREADS:8}
-      custom-thread-name-prefix: ${DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX:ckc-demo-deserializer}
     order:
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}

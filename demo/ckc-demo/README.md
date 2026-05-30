@@ -72,16 +72,11 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 The `ckc` and `ckc-sync` profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
-- `DEMO_CONSUMER_DESERIALIZATION_DISPATCHER=DEFAULT|IO|CUSTOM_THREAD_POOL` selects the coroutine dispatcher used for Kafka deserializers.
-- `DEMO_CONSUMER_DESERIALIZATION_THREADS=8` sets the custom thread pool size when `CUSTOM_THREAD_POOL` is selected.
-- `DEMO_CONSUMER_DESERIALIZATION_THREAD_PREFIX=ckc-demo-deserializer` sets custom deserializer thread names.
 
 Example:
 
 ```bash
 DEMO_CONSUMER_PROCESSING_ENABLED=false \
-DEMO_CONSUMER_DESERIALIZATION_DISPATCHER=CUSTOM_THREAD_POOL \
-DEMO_CONSUMER_DESERIALIZATION_THREADS=8 \
 ./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc --demo.kafka.enabled=true'
 ```
 

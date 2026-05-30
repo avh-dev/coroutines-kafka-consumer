@@ -56,7 +56,6 @@ data class DemoApplicationProperties(
 
     data class Consumers(
         var processingEnabled: Boolean = true,
-        var deserializationDispatcher: DeserializationDispatcher = DeserializationDispatcher(),
         var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
@@ -65,18 +64,6 @@ data class DemoApplicationProperties(
             processingMode = ProcessingMode.FRESHNESS_FIRST
         )
     )
-
-    data class DeserializationDispatcher(
-        var mode: DeserializationDispatcherMode = DeserializationDispatcherMode.DEFAULT,
-        var customThreadPoolSize: Int = 8,
-        var customThreadNamePrefix: String = "ckc-demo-deserializer"
-    )
-
-    enum class DeserializationDispatcherMode {
-        DEFAULT,
-        IO,
-        CUSTOM_THREAD_POOL
-    }
 
     data class ConsumerRuntime(
         var workerConcurrency: Int = 1,
