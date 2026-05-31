@@ -7,15 +7,7 @@ import com.linecorp.armeria.common.HttpHeaderNames
 import com.linecorp.armeria.common.HttpMethod
 import com.linecorp.armeria.common.MediaType
 import com.linecorp.armeria.common.RequestHeaders
-import io.ktor.client.HttpClient as KtorHttpClient
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.future.await
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -55,35 +47,6 @@ class JdkSyncOrderFlavourModelClient(
         block: () -> OrderFlavourResponse
     ): OrderFlavourResponse =
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
-}
-
-class KtorSuspendOrderFlavourModelClient(
-    private val baseUri: URI,
-    private val httpClient: KtorHttpClient,
-    private val dispatcher: CoroutineDispatcher,
-    private val json: Json = Json { ignoreUnknownKeys = true },
-    private val modelCallMetrics: ModelCallMetrics? = null
-) : SuspendOrderFlavourModelClient {
-    override suspend fun analyse(request: OrderFlavourRequest): OrderFlavourResponse =
-        recordCall("suspend", "ktor_cio") {
-            withContext(dispatcher) {
-                val response = httpClient.post(baseUri.resolve("/flavour").toString()) {
-                    contentType(ContentType.Application.Json)
-                    setBody(json.encodeToString(OrderFlavourRequest.serializer(), request))
-                }
-                decodeResponse(response)
-            }
-        }
-
-    private suspend fun decodeResponse(response: io.ktor.client.statement.HttpResponse): OrderFlavourResponse =
-        decodeOrderFlavourResponse(json, response.status.value, response.bodyAsText())
-
-    private suspend fun recordCall(
-        clientMode: String,
-        transport: String,
-        block: suspend () -> OrderFlavourResponse
-    ): OrderFlavourResponse =
-        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
 class ArmeriaSuspendOrderFlavourModelClient(

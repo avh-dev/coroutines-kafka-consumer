@@ -6,7 +6,6 @@ import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.micrometer.MicrometerConsumerMetrics
-import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.junit.jupiter.api.Test
@@ -36,7 +35,6 @@ class ConfluentParallelProfileContextTest(
 
     @Test
     fun `confluent parallel profile creates only sync model clients`() {
-        assertFalse(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
         assertTrue(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())

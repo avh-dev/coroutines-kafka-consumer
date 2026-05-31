@@ -7,15 +7,7 @@ import com.linecorp.armeria.common.HttpHeaderNames
 import com.linecorp.armeria.common.HttpMethod
 import com.linecorp.armeria.common.MediaType
 import com.linecorp.armeria.common.RequestHeaders
-import io.ktor.client.HttpClient as KtorHttpClient
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.future.await
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -51,35 +43,6 @@ class JdkSyncArcaneEtaModelClient(
 
     private fun recordCall(clientMode: String, transport: String, block: () -> ArcaneEtaResponse): ArcaneEtaResponse =
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
-}
-
-class KtorSuspendArcaneEtaModelClient(
-    private val baseUri: URI,
-    private val httpClient: KtorHttpClient,
-    private val dispatcher: CoroutineDispatcher,
-    private val json: Json = Json { ignoreUnknownKeys = true },
-    private val modelCallMetrics: ModelCallMetrics? = null
-) : SuspendArcaneEtaModelClient {
-    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse =
-        recordCall("suspend", "ktor_cio") {
-            withContext(dispatcher) {
-                val response = httpClient.post(baseUri.resolve("/eta").toString()) {
-                    contentType(ContentType.Application.Json)
-                    setBody(json.encodeToString(ArcaneEtaRequest.serializer(), request))
-                }
-                decodeResponse(response)
-            }
-        }
-
-    private suspend fun decodeResponse(response: io.ktor.client.statement.HttpResponse): ArcaneEtaResponse =
-        decodeArcaneEtaResponse(json, response.status.value, response.bodyAsText())
-
-    private suspend fun recordCall(
-        clientMode: String,
-        transport: String,
-        block: suspend () -> ArcaneEtaResponse
-    ): ArcaneEtaResponse =
-        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
 class ArmeriaSuspendArcaneEtaModelClient(

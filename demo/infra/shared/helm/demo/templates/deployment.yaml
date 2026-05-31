@@ -43,8 +43,6 @@ spec:
 {{- end }}
             - name: MODEL_BASE_URL
               value: {{ .Values.env.modelBaseUrl | quote }}
-            - name: MODEL_CLIENT
-              value: {{ .Values.env.modelClient | quote }}
             - name: DEMO_CONSUMER_PROCESSING_ENABLED
               value: {{ .Values.env.processingEnabled | quote }}
             - name: KAFKA_CONSUMER_FETCH_MIN_BYTES

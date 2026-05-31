@@ -19,7 +19,6 @@ env:
   redisPort: 6379
   javaToolOptions: ""
   modelBaseUrl: ""
-  modelClient: KTOR_CIO
   processingEnabled: true
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250

@@ -13,7 +13,6 @@ env:
   springProfilesActive: ckc
   orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   telemetryProcessingMode: FRESHNESS_FIRST
-  modelClient: ARMERIA
   orderWorkerConcurrency: 20
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024

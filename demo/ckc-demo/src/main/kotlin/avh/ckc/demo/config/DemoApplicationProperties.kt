@@ -34,14 +34,8 @@ data class DemoApplicationProperties(
     )
 
     data class Model(
-        var baseUrl: String = "http://127.0.0.1:18080",
-        var client: ModelClient = ModelClient.KTOR_CIO
+        var baseUrl: String = "http://127.0.0.1:18080"
     )
-
-    enum class ModelClient {
-        KTOR_CIO,
-        ARMERIA
-    }
 
     data class Audit(
         var enabled: Boolean = true,

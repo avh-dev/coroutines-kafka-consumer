@@ -1,13 +1,14 @@
 package avh.ckc.demo
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import com.linecorp.armeria.client.WebClient
-import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
@@ -19,6 +20,7 @@ import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -43,10 +45,13 @@ class CkcProfileContextTest(
 
     @Test
     fun `ckc profile creates only suspend model clients`() {
-        assertTrue(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
-        assertFalse(applicationContext.getBeansOfType(WebClient::class.java).isNotEmpty())
-        assertTrue(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
-        assertTrue(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(WebClient::class.java).isNotEmpty())
+        assertIs<ArmeriaSuspendArcaneEtaModelClient>(
+            applicationContext.getBean(SuspendArcaneEtaModelClient::class.java)
+        )
+        assertIs<ArmeriaSuspendOrderFlavourModelClient>(
+            applicationContext.getBean(SuspendOrderFlavourModelClient::class.java)
+        )
         assertFalse(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SyncOrderFlavourModelClient::class.java).isNotEmpty())
     }

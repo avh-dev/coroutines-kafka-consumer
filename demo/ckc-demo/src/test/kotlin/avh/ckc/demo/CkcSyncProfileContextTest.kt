@@ -6,7 +6,6 @@ import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import io.ktor.client.HttpClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -38,7 +37,6 @@ class CkcSyncProfileContextTest(
 
     @Test
     fun `ckc sync profile creates only sync model clients`() {
-        assertFalse(applicationContext.getBeansOfType(HttpClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
         assertTrue(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())

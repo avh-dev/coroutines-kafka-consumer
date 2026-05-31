@@ -64,6 +64,7 @@
 | [DEMO-34](#demo-34) | Add a CKC sync Spring profile that keeps CKC consumption while running blocking demo business services on the IO dispatcher.               | DONE |
 | [DEMO-35](#demo-35) | Add demo application settings for Kafka consumer fetch batching and per-poll record limits.                                                | DONE |
 | [DEMO-36](#demo-36) | Add CKC pause and resume metrics for observing demo consumer backpressure.                                                                 | DONE |
+| [DEMO-37](#demo-37) | Remove the remaining Ktor demo model-client path and keep Armeria as the only suspend HTTP transport.                                      | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1079,3 +1080,12 @@ _Date: 2026-05-10_
 Added internal links from the task table to detailed task notes below the table.
 Restored retrospective descriptions by reading git history, changed files, and the current code layout rather than relying only on commit messages.
 Kept the table as the high-level tracker while making `TASKS.md` usable as a chronological project history.
+
+<a id="demo-37"></a>
+### DEMO-37 - Remove Ktor remnants
+
+_Date: 2026-05-31_
+
+Remove the obsolete Ktor CIO model-client implementation from the demo application.
+Keep Armeria as the only suspend HTTP transport for the CKC profile.
+Drop transport selection settings and align demo Helm defaults and context tests with the single supported path.

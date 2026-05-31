@@ -42,7 +42,7 @@ class ModelCallMetricsTest {
                 model = "order_flavour",
                 operation = "analyse",
                 clientMode = "suspend",
-                transport = "ktor_cio"
+                transport = "armeria"
             ) {
                 error("model failed")
             }
@@ -52,7 +52,7 @@ class ModelCallMetricsTest {
             .tag("model", "order_flavour")
             .tag("operation", "analyse")
             .tag("client_mode", "suspend")
-            .tag("transport", "ktor_cio")
+            .tag("transport", "armeria")
             .tag("outcome", "error")
             .timer()
 
