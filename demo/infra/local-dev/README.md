@@ -76,8 +76,8 @@ demo/infra/local-dev/scripts/stubs.sh baseline
 Demo stubs exposes:
 - `POST /eta`
 - `POST /flavour`
-- `GET /latency`
-- `POST /latency`
+- `GET /settings`
+- `POST /settings`
 - `GET /health`
 
 Stop demo stubs:

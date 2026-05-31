@@ -1,12 +1,5 @@
 replicaCount: 1
 
-env:
-  delayP90Ms: 40
-  delayP95Ms: 80
-  delayP99Ms: 160
-  delayP100Ms: 300
-  errorRatePercent: 0
-
 resources:
   requests:
     cpu: 100m

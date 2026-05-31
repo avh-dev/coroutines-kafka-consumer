@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
 
-DEFAULT_TOPICS = [
-    {"name": "order.events.v1", "partitions": 4},
-    {"name": "batch.events.v1", "partitions": 4},
-    {"name": "cauldron.events.v1", "partitions": 4},
-]
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Print shell assignments for an internal-lab test definition.")
+    parser = argparse.ArgumentParser(description="Print shell assignments for an internal-lab deployment and test.")
     parser.add_argument("test_definition")
+    parser.add_argument("--deployment-profile", required=True)
+    parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--repo-dir", default=".")
     return parser.parse_args()
 
@@ -67,7 +63,7 @@ def load_yaml_fallback(path: Path) -> dict[str, Any]:
 
         if indent == 2 and stripped.endswith(":"):
             subsection = stripped[:-1]
-            if subsection == "kafka_topics":
+            if subsection in {"kafka_topics", "kafkaTopics"}:
                 data[section][subsection] = []
             else:
                 data[section].setdefault(subsection, {})
@@ -78,7 +74,7 @@ def load_yaml_fallback(path: Path) -> dict[str, Any]:
             data[section][key.strip()] = scalar(value)
             continue
 
-        if section == "deployment" and subsection == "kafka_topics":
+        if subsection in {"kafka_topics", "kafkaTopics"}:
             if stripped.startswith("- "):
                 current_topic = {}
                 data[section][subsection].append(current_topic)
@@ -124,16 +120,17 @@ def main() -> None:
         definition_path = definition_path.resolve() if definition_path.is_file() else repo_dir / definition_path
 
     definition = load_yaml(definition_path)
-    deployment = value_at(definition, "deployment", default={})
-    if not isinstance(deployment, dict):
-        deployment = {}
-
-    app_profile = str(deployment.get("app_profile", "ckc-single"))
-    stubs_profile = str(deployment.get("stubs_profile", "baseline"))
-
-    topics = deployment.get("kafka_topics", DEFAULT_TOPICS)
+    deployment_profile_path = Path(args.deployment_profile)
+    if not deployment_profile_path.is_absolute():
+        deployment_profile_path = (
+            deployment_profile_path.resolve()
+            if deployment_profile_path.is_file()
+            else repo_dir / deployment_profile_path
+        )
+    deployment_profile = load_yaml(deployment_profile_path)
+    topics = value_at(deployment_profile, "lab", "kafkaTopics", default=None)
     if not isinstance(topics, list) or not topics:
-        topics = DEFAULT_TOPICS
+        raise ValueError(f"Deployment profile must define lab.kafkaTopics: {deployment_profile_path}")
     topic_specs: list[str] = []
     for topic in topics:
         if not isinstance(topic, dict):
@@ -148,10 +145,40 @@ def main() -> None:
     if not isinstance(load_test, dict):
         load_test = {}
 
+    stubs = value_at(definition, "stubs", default={})
+    if not isinstance(stubs, dict) or not stubs:
+        raise ValueError(f"Test definition must define stubs baseline settings: {definition_path}")
+
+    def required_int(values: dict[str, Any], key: str, context: str) -> int:
+        if key not in values:
+            raise ValueError(f"Test definition must define stubs.{context}.{key}: {definition_path}")
+        return int(values[key])
+
+    def latency_settings(name: str) -> dict[str, int]:
+        values = stubs.get(name, {})
+        if not isinstance(values, dict) or not values:
+            raise ValueError(f"Test definition must define stubs.{name}: {definition_path}")
+        return {
+            "delayP90Ms": required_int(values, "delay_p90_ms", name),
+            "delayP95Ms": required_int(values, "delay_p95_ms", name),
+            "delayP99Ms": required_int(values, "delay_p99_ms", name),
+            "delayP100Ms": required_int(values, "delay_p100_ms", name),
+        }
+
+    if "error_rate_percent" not in stubs:
+        raise ValueError(f"Test definition must define stubs.error_rate_percent: {definition_path}")
+
+    stub_settings = {
+        "eta": latency_settings("eta"),
+        "flavour": latency_settings("flavour"),
+        "errorRatePercent": int(stubs["error_rate_percent"]),
+    }
+
     assignments = {
-        "APP_PROFILE": app_profile,
-        "STUBS_PROFILE": stubs_profile,
+        "APP_PROFILE": deployment_profile_path.stem,
+        "PROCESSING_ENABLED": args.processing_enabled,
         "TOPIC_SPECS": ",".join(topic_specs),
+        "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
         "BASE_TPS": str(load_test.get("base_tps", 10000)),
         "ORDER_EVENT_PERCENT": str(load_test.get("order_event_percent", 40)),

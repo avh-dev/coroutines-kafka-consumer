@@ -1,16 +1,1 @@
 replicaCount: 1
-
-env:
-  delayP90Ms: 100
-  delayP95Ms: 160
-  delayP99Ms: 300
-  delayP100Ms: 500
-  errorRatePercent: 1
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi

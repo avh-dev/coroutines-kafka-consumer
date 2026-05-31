@@ -2,25 +2,38 @@ package avh.ckc.demostubs
 
 data class DemoStubsConfig(
     val port: Int,
-    val workers: Int,
-    val etaLatency: ModelLatencySettings,
-    val flavourLatency: ModelLatencySettings,
-    val errorRatePercent: Int
+    val workers: Int
 ) {
     init {
         require(port > 0) { "port must be positive" }
         require(workers > 0) { "workers must be positive" }
-        require(errorRatePercent in 0..100) { "errorRatePercent must be in 0..100" }
     }
 
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): DemoStubsConfig =
             DemoStubsConfig(
                 port = environment["PORT"]?.toIntOrNull() ?: 8080,
-                workers = environment["STUB_WORKERS"]?.toIntOrNull() ?: 4,
-                etaLatency = ModelLatencySettings.fromEnvironment(environment, "ETA", fallbackPrefix = ""),
-                flavourLatency = ModelLatencySettings.fromEnvironment(environment, "FLAVOUR", fallbackPrefix = ""),
-                errorRatePercent = environment["ERROR_RATE_PERCENT"]?.toIntOrNull() ?: 0
+                workers = environment["STUB_WORKERS"]?.toIntOrNull() ?: 4
+            )
+    }
+}
+
+@kotlinx.serialization.Serializable
+data class DemoStubsSettings(
+    val eta: ModelLatencySettings,
+    val flavour: ModelLatencySettings,
+    val errorRatePercent: Int
+) {
+    init {
+        require(errorRatePercent in 0..100) { "errorRatePercent must be in 0..100" }
+    }
+
+    companion object {
+        fun baseline(): DemoStubsSettings =
+            DemoStubsSettings(
+                eta = ModelLatencySettings.baseline(),
+                flavour = ModelLatencySettings.baseline(),
+                errorRatePercent = 0
             )
     }
 }
@@ -40,27 +53,12 @@ data class ModelLatencySettings(
     }
 
     companion object {
-        fun fromEnvironment(
-            environment: Map<String, String>,
-            prefix: String,
-            fallbackPrefix: String
-        ): ModelLatencySettings =
+        fun baseline(): ModelLatencySettings =
             ModelLatencySettings(
-                delayP90Ms = latency(environment, prefix, fallbackPrefix, "P90", 10L),
-                delayP95Ms = latency(environment, prefix, fallbackPrefix, "P95", 50L),
-                delayP99Ms = latency(environment, prefix, fallbackPrefix, "P99", 150L),
-                delayP100Ms = latency(environment, prefix, fallbackPrefix, "P100", 300L)
+                delayP90Ms = 40,
+                delayP95Ms = 80,
+                delayP99Ms = 160,
+                delayP100Ms = 300
             )
-
-        private fun latency(
-            environment: Map<String, String>,
-            prefix: String,
-            fallbackPrefix: String,
-            percentile: String,
-            default: Long
-        ): Long =
-            environment["${prefix}_DELAY_${percentile}_MS"]?.toLongOrNull()
-                ?: environment["${fallbackPrefix}DELAY_${percentile}_MS"]?.toLongOrNull()
-                ?: default
     }
 }

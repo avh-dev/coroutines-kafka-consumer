@@ -1,10 +1,16 @@
 replicaCount: 3
 
+lab:
+  kafkaTopics:
+    - name: order.events.v1
+      partitions: 14
+    - name: batch.events.v1
+      partitions: 10
+    - name: cauldron.events.v1
+      partitions: 150
+
 env:
   springProfilesActive: spring-kafka
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
-  telemetryProcessingMode: FRESHNESS_FIRST
-
   orderPollLoopConcurrency: 10
   telemetryPollLoopConcurrency: 50
   batchPollLoopConcurrency: 6

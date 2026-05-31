@@ -7,26 +7,33 @@ LAB_ENV="${LAB_ROOT}/config/lab.env"
 LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/pids"
 AUDIT_DIR="${LAB_ROOT}/audit"
-TEST_STATE_PATH="${LAB_ROOT}/config/selected-test-definition"
-TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions"
+CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/shared/helm/demo/profiles"
+TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
 RUN_PREPARE=1
 WAIT_FOR_CONSUMER_DRAIN="${WAIT_FOR_CONSUMER_DRAIN:-1}"
 CONSUMER_DRAIN_TIMEOUT_SECONDS="${CONSUMER_DRAIN_TIMEOUT_SECONDS:-900}"
 CONSUMER_DRAIN_STABLE_SECONDS="${CONSUMER_DRAIN_STABLE_SECONDS:-15}"
 CONSUMER_DRAIN_POLL_SECONDS="${CONSUMER_DRAIN_POLL_SECONDS:-5}"
 TEST_DEFINITION=""
+DEPLOYMENT_PROFILE=""
+PROCESSING_ENABLED=""
 
 usage() {
   cat <<EOF
-Usage: $0 [--skip-prepare] [--skip-drain-wait] [test-definition]
+Usage: $0 [--skip-prepare] [--skip-drain-wait] [--deployment profile]
+          [--processing-enabled true|false] [test-definition]
 
-Prepares the selected internal-lab test definition, then runs the load-test
-generator on the lab host.
+Selects an internal-lab deployment and test definition, prepares the lab when
+needed, then runs the load-test generator on the lab host.
 
 Options:
   --skip-prepare   Start only the lab-host load-test process.
   --skip-drain-wait
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
+  --deployment     Select a Helm deployment profile without prompting.
+  --processing-enabled
+                   Override demo processing with true or false. Use false for noop mode.
   -h, --help       Show this help.
 EOF
 }
@@ -40,6 +47,14 @@ while [ "$#" -gt 0 ]; do
     --skip-drain-wait)
       WAIT_FOR_CONSUMER_DRAIN=0
       shift
+      ;;
+    --deployment)
+      DEPLOYMENT_PROFILE="${2:?--deployment requires a profile}"
+      shift 2
+      ;;
+    --processing-enabled)
+      PROCESSING_ENABLED="${2:?--processing-enabled requires true or false}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -66,38 +81,121 @@ fi
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
 
-if [ -z "${TEST_DEFINITION}" ]; then
-  if [ ! -f "${TEST_STATE_PATH}" ]; then
-    echo "No test definition selected. Pass a definition name/path or create ${TEST_STATE_PATH}." >&2
-    exit 1
-  fi
-  TEST_DEFINITION="$(cat "${TEST_STATE_PATH}")"
+CURRENT_APP_PROFILE=""
+CURRENT_PROCESSING_ENABLED="true"
+if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
+  REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
+  # shellcheck disable=SC1090
+  . "${CURRENT_DEPLOYMENT_PATH}"
+  CURRENT_APP_PROFILE="${APP_PROFILE:-}"
+  CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
+  PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
 fi
 
-case "${TEST_DEFINITION}" in
-  */*|*\\*)
-    if [ "${TEST_DEFINITION#/}" = "${TEST_DEFINITION}" ]; then
-      TEST_DEFINITION="${LAB_ROOT}/workspace/${TEST_DEFINITION}"
-    fi
-    ;;
-  *)
-    case "${TEST_DEFINITION}" in
-      *.yaml) ;;
-      *) TEST_DEFINITION="${TEST_DEFINITION}.yaml" ;;
-    esac
-    TEST_DEFINITION="${TEST_DIR}/${TEST_DEFINITION}"
-    ;;
-esac
+select_file() {
+  local title="$1"
+  local directory="$2"
+  local default_name="$3"
+  shift 3
+  local -a files=("$@")
+  local index choice label default_index=""
 
+  echo "${title}:" >&2
+  for index in "${!files[@]}"; do
+    label="$(basename "${files[$index]}" .yaml)"
+    if [ "${label}" = "${default_name}" ]; then
+      default_index="$((index + 1))"
+      printf "  %2d) %s [current]\n" "$((index + 1))" "${label}" >&2
+    else
+      printf "  %2d) %s\n" "$((index + 1))" "${label}" >&2
+    fi
+  done
+
+  if [ -n "${default_index}" ]; then
+    read -r -p "Select number [${default_index}]: " choice
+    choice="${choice:-${default_index}}"
+  else
+    read -r -p "Select number: " choice
+  fi
+
+  if ! [[ "${choice}" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#files[@]} )); then
+    echo "Invalid selection: ${choice}" >&2
+    exit 1
+  fi
+  printf "%s\n" "${files[$((choice - 1))]}"
+}
+
+resolve_yaml() {
+  local directory="$1"
+  local value="$2"
+  case "${value}" in
+    */*|*\\*)
+      if [ "${value#/}" = "${value}" ]; then
+        printf "%s/%s\n" "${LAB_ROOT}/workspace" "${value}"
+      else
+        printf "%s\n" "${value}"
+      fi
+      ;;
+    *.yaml) printf "%s/%s\n" "${directory}" "${value}" ;;
+    *) printf "%s/%s.yaml\n" "${directory}" "${value}" ;;
+  esac
+}
+
+if [ -z "${DEPLOYMENT_PROFILE}" ]; then
+  if [ ! -t 0 ]; then
+    DEPLOYMENT_PROFILE="${CURRENT_APP_PROFILE:?--deployment is required without interactive input}"
+  else
+    mapfile -t DEPLOYMENT_PROFILES < <(grep -l '^lab:' "${DEPLOYMENT_PROFILE_DIR}"/*.yaml | sort)
+    DEPLOYMENT_PROFILE="$(select_file "Available deployment profiles" "${DEPLOYMENT_PROFILE_DIR}" "${CURRENT_APP_PROFILE}" "${DEPLOYMENT_PROFILES[@]}")"
+  fi
+else
+  DEPLOYMENT_PROFILE="$(resolve_yaml "${DEPLOYMENT_PROFILE_DIR}" "${DEPLOYMENT_PROFILE}")"
+fi
+
+if [ -z "${PROCESSING_ENABLED}" ]; then
+  if [ ! -t 0 ]; then
+    PROCESSING_ENABLED="${CURRENT_PROCESSING_ENABLED}"
+  else
+    read -r -p "Enable business processing? [${CURRENT_PROCESSING_ENABLED}]: " PROCESSING_ENABLED
+    PROCESSING_ENABLED="${PROCESSING_ENABLED:-${CURRENT_PROCESSING_ENABLED}}"
+  fi
+fi
+if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false" ]; then
+  echo "processing-enabled must be true or false: ${PROCESSING_ENABLED}" >&2
+  exit 1
+fi
+
+if [ -z "${TEST_DEFINITION}" ]; then
+  if [ ! -t 0 ]; then
+    echo "A test definition is required without interactive input." >&2
+    exit 1
+  fi
+  mapfile -t TEST_DEFINITIONS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
+  TEST_DEFINITION="$(select_file "Available test definitions" "${TEST_DIR}" "" "${TEST_DEFINITIONS[@]}")"
+else
+  TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
+fi
+
+if [ ! -f "${DEPLOYMENT_PROFILE}" ]; then
+  echo "Deployment profile was not found: ${DEPLOYMENT_PROFILE}" >&2
+  exit 1
+fi
 if [ ! -f "${TEST_DEFINITION}" ]; then
   echo "Test definition was not found: ${TEST_DEFINITION}" >&2
   exit 1
 fi
 
-echo "Test definition: $(basename "${TEST_DEFINITION}")"
+echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
+echo "Processing enabled: ${PROCESSING_ENABLED}"
+echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" "${TEST_DEFINITION}" --repo-dir "${LAB_ROOT}/workspace" > "${ENV_FILE}"
+python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
+  "${TEST_DEFINITION}" \
+  --deployment-profile "${DEPLOYMENT_PROFILE}" \
+  --processing-enabled "${PROCESSING_ENABLED}" \
+  --repo-dir "${LAB_ROOT}/workspace" \
+  > "${ENV_FILE}"
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 
@@ -115,8 +213,10 @@ fi
 
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
-  echo "Preparing lab test definition."
-  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${TEST_DEFINITION}"
+  echo "Preparing lab deployment and test."
+  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}"
+else
+  "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
 LOAD_TEST_BIN="${LAB_ROOT}/runtime/load-test/bin/ckc-demo-load-test"

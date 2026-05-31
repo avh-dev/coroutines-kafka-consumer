@@ -1,5 +1,14 @@
 replicaCount: 2
 
+lab:
+  kafkaTopics:
+    - name: order.events.v1
+      partitions: 2
+    - name: batch.events.v1
+      partitions: 2
+    - name: cauldron.events.v1
+      partitions: 2
+
 env:
   springProfilesActive: ckc-sync
   orderProcessingMode: AT_LEAST_ONCE_UNORDERED
