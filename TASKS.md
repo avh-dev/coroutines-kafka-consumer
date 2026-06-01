@@ -1195,3 +1195,4 @@ _Date: 2026-06-01_
 Split demo Helm deployment profiles into explicit `aws` and `internal-lab` directories.
 Keep environment runners scoped to their own profiles so interactive selection does not mix unrelated presets.
 Duplicate shared smoke and HPA presets where both environments need an independently discoverable profile.
+Replace obsolete demo-stubs latency-named profiles with fixed `internal-lab` and `aws-hpa` deployment presets.

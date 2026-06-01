@@ -2,7 +2,6 @@ name: smoke-test
 
 deployment:
   app_profile: ckc-single
-  stubs_profile: fast
   kafka_topics:
     - name: order.events.v1
       partitions: 1

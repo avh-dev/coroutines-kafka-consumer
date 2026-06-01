@@ -478,14 +478,13 @@ def require_profile_file(base_dir: Path, name: str) -> Path:
 def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: dict[str, Any], registry: str) -> None:
     deployment = require_section(definition, "deployment")
     app_profile = as_str(deployment.get("app_profile"), "ckc-single")
-    stubs_profile = as_str(deployment.get("stubs_profile"), "baseline")
     charts_dir = repo_dir / "infra" / "shared" / "helm"
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
     stubs_chart = charts_dir / "demo-stubs"
     stubs_value_files = [
         stubs_chart / "values.yaml",
-        require_profile_file(stubs_chart / "profiles", stubs_profile),
+        require_profile_file(stubs_chart / "profiles", "aws-hpa"),
     ]
     helm_upgrade_install(
         "ckc-demo-stubs",

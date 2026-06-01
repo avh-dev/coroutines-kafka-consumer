@@ -9,3 +9,9 @@ service:
   port: 8080
 
 resources: {}
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70

@@ -14,7 +14,8 @@ fi
 if ! kubectl -n ckc-perf get deployment ckc-demo-stubs >/dev/null 2>&1; then
   helm upgrade --install ckc-demo-stubs "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo-stubs" \
     --namespace ckc-perf \
-    -f "${LAB_ROOT}/assets/config/demo-stubs-values.yaml"
+    -f "${LAB_ROOT}/assets/config/demo-stubs-values.yaml" \
+    -f "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo-stubs/profiles/internal-lab.yaml"
 elif [ "${RESTART}" = "--restart" ]; then
   kubectl -n ckc-perf rollout restart deployment/ckc-demo-stubs
 fi

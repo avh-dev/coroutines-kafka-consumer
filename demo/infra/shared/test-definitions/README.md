@@ -4,7 +4,7 @@
 
 AWS definitions currently select:
 
-- deployment profiles for the app and stubs
+- deployment profiles for the app
 - Kafka topics and partition counts prepared during lab setup
 - load-test runtime settings such as shards, base TPS, traffic mix, domain limits, and load profile
 
