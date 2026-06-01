@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.env.processingEnabled | quote }}
             - name: METRICS_IMPLEMENTATION
               value: {{ .Values.env.metricsImplementation | quote }}
+            - name: WORKER_DISPATCHER_THREADS
+              value: {{ .Values.env.workerDispatcherThreads | quote }}
             - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
               value: {{ .Values.env.kafkaConsumerFetchMinBytes | quote }}
             - name: KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
