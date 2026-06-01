@@ -112,6 +112,7 @@
 | [INFRA-38](#infra-38) | Split internal-lab deployment profiles from load-test definitions and configure reusable stubs before each run.                                  | DONE |
 | [INFRA-39](#infra-39) | Add interactive internal-lab audit logging and consumer metrics implementation settings for performance comparisons.                              | DONE |
 | [INFRA-40](#infra-40) | Add an interactive internal-lab CKC worker dispatcher thread setting for suspend-consumer experiments.                                            | DONE |
+| [INFRA-41](#infra-41) | Group demo Helm deployment profiles by environment and keep AWS and internal-lab runners scoped to their own profile directories.                   | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1185,3 +1186,14 @@ _Date: 2026-06-01_
 Map CKC processing-mode settings to the corresponding Confluent Parallel Consumer ordering.
 Discard stale records before external-adapter business processing when freshness-first mode is selected.
 Reject processing modes that Spring Kafka cannot model faithfully instead of silently running a different comparison.
+
+<a id="infra-41"></a>
+### INFRA-41 - Group Helm profiles by environment
+
+_Date: 2026-06-01_
+
+Split demo Helm deployment profiles into explicit `aws` and `internal-lab` directories.
+Keep environment runners scoped to their own profiles so interactive selection does not mix unrelated presets.
+Duplicate shared smoke and HPA presets where both environments need an independently discoverable profile.
+Replace obsolete demo-stubs latency-named profiles with fixed `internal-lab` and `aws-hpa` deployment presets.
+Reduce internal-lab demo profiles to concise consumer-oriented names and remove unused HPA and alternate CKC presets.

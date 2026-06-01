@@ -10,10 +10,7 @@ lab:
       partitions: 2
 
 env:
-  springProfilesActive: ckc-sync
-  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
-  telemetryProcessingMode: FRESHNESS_FIRST
-
+  springProfilesActive: ckc
   orderWorkerConcurrency: 20
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024
