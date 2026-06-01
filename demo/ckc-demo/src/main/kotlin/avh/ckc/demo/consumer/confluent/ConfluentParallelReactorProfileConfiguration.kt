@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.toConfluentProcessingOrder
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -187,7 +188,7 @@ private class ConfluentParallelReactorConsumerRuntime(
             "demo.consumers.*.worker-concurrency must be > 0 for confluent-parallel-reactor"
         }
         val options = ParallelConsumerOptions.builder<String, V>()
-            .ordering(ParallelConsumerOptions.ProcessingOrder.KEY)
+            .ordering(runtime.processingMode.toConfluentProcessingOrder())
             .commitMode(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC)
             .maxConcurrency(runtime.workerConcurrency)
             .consumer(consumer)

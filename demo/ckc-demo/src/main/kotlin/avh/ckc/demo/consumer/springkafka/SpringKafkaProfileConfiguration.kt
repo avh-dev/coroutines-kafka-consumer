@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.springkafka
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.requireSupportedBySpringKafka
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -24,7 +25,7 @@ class SpringKafkaProfileConfiguration {
     @Bean
     fun orderOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, OrderLifecycleEvent> =
         DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties) + mapOf(
+            commonConsumerProperties(properties, properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             )
@@ -43,7 +44,7 @@ class SpringKafkaProfileConfiguration {
     @Bean
     fun batchOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, BatchLifecycleEvent> =
         DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties) + mapOf(
+            commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
             )
@@ -62,7 +63,7 @@ class SpringKafkaProfileConfiguration {
     @Bean
     fun cauldronTelemetryConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, CauldronTelemetryEvent> =
         DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties) + mapOf(
+            commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to true,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
@@ -79,11 +80,17 @@ class SpringKafkaProfileConfiguration {
             setConcurrency(properties.consumers.telemetry.pollLoopConcurrency)
         }
 
-    private fun commonConsumerProperties(properties: DemoApplicationProperties): Map<String, Any> = mapOf(
-        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
-        ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
-        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
-    ) + properties.kafka.consumerProperties()
+    private fun commonConsumerProperties(
+        properties: DemoApplicationProperties,
+        runtime: DemoApplicationProperties.ConsumerRuntime
+    ): Map<String, Any> {
+        runtime.processingMode.requireSupportedBySpringKafka()
+        return mapOf(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+        ) + properties.kafka.consumerProperties()
+    }
 
     private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
         ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,

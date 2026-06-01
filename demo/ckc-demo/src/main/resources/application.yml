@@ -45,6 +45,7 @@ demo:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
     worker-dispatcher-threads: ${WORKER_DISPATCHER_THREADS:8}
+    freshness-first-max-record-age-seconds: ${FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS:10}
     order:
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}

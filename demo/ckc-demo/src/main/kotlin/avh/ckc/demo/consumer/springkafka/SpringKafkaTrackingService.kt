@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.springkafka
 import avh.ckc.demo.AuditLog
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -25,6 +26,7 @@ class SpringKafkaTrackingService(
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
     private val auditLog: AuditLog,
     private val recordMetrics: DemoRecordMetrics,
+    private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter,
     @Qualifier("springKafkaOrderConsumerMetrics")
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     @Qualifier("springKafkaBatchConsumerMetrics")
@@ -40,6 +42,7 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
+            if (shouldDiscard(properties.consumers.order, context)) return
             if (properties.consumers.processingEnabled) {
                 orderLifecycleService.apply(event)
             } else {
@@ -60,6 +63,7 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
+            if (shouldDiscard(properties.consumers.batch, context)) return
             if (properties.consumers.processingEnabled) {
                 batchLifecycleService.apply(event)
             } else {
@@ -80,6 +84,7 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
+            if (shouldDiscard(properties.consumers.telemetry, context)) return
             if (properties.consumers.processingEnabled) {
                 cauldronTelemetryService.recalculate(event)
             } else {
@@ -101,4 +106,14 @@ class SpringKafkaTrackingService(
     private fun auditProcessed(context: DemoConsumerRecordContext) {
         auditLog.processed(context.topic, context.key, context.partition, context.offset, context.timestamp)
     }
+
+    private fun shouldDiscard(
+        runtime: DemoApplicationProperties.ConsumerRuntime,
+        context: DemoConsumerRecordContext
+    ): Boolean =
+        freshnessFirstRecordFilter.shouldDiscard(runtime, context.timestamp).also { discard ->
+            if (discard) {
+                logger.debug("Discarding stale Spring Kafka record for topic={}, offset={}", context.topic, context.offset)
+            }
+        }
 }
