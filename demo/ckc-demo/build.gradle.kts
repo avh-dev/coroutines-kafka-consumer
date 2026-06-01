@@ -47,8 +47,10 @@ dependencies {
     implementation("io.lettuce:lettuce-core")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.confluent.parallelconsumer:parallel-consumer-core:$parallelConsumerVersion")
+    implementation("io.confluent.parallelconsumer:parallel-consumer-reactor:$parallelConsumerVersion")
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -62,6 +64,9 @@ dependencies {
             version { require(coroutinesVersion) }
         }
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive") {
+            version { require(coroutinesVersion) }
+        }
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor") {
             version { require(coroutinesVersion) }
         }
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json") {

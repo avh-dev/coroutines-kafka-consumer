@@ -70,6 +70,20 @@ AUDIT_LOG_ENABLED=true
 DEMO_CONSUMER_PROCESSING_ENABLED=true
 EOF
   fi
+
+  if [[ ! -f "${CONFIG_DIR}/confluent-parallel-reactor.env" ]]; then
+    cat > "${CONFIG_DIR}/confluent-parallel-reactor.env" <<'EOF'
+SERVER_PORT=8080
+SPRING_PROFILES_ACTIVE=confluent-parallel-reactor
+KAFKA_ENABLED=true
+DEMO_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+SPRING_DATA_REDIS_HOST=localhost
+SPRING_DATA_REDIS_PORT=6379
+MODEL_BASE_URL=http://127.0.0.1:18080
+AUDIT_LOG_ENABLED=true
+DEMO_CONSUMER_PROCESSING_ENABLED=true
+EOF
+  fi
 }
 
 write_default_configs

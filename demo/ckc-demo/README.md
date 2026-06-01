@@ -16,6 +16,7 @@ The application is intended for functional checks and for comparing consumer imp
 - `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services on `Dispatchers.IO`;
 - `spring-kafka` profile uses `@KafkaListener` as a legacy baseline;
 - `confluent-parallel` profile uses a blocking Confluent Parallel Consumer implementation with key-ordered parallel processing.
+- `confluent-parallel-reactor` profile uses the Reactor Parallel Consumer adapter with the suspend business path.
 
 ## Runtime Features
 

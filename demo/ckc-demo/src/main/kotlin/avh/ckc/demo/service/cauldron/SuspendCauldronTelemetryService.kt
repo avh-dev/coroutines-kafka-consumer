@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("ckc")
+@Profile("ckc", "confluent-parallel-reactor")
 class SuspendCauldronTelemetryService(
     private val modelClient: SuspendArcaneEtaModelClient,
     private val normalizer: ArcaneEtaNormalizer,
