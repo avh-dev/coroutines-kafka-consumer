@@ -44,7 +44,7 @@ Options:
   --metrics-implementation
                     Select MICROMETER or NOOP consumer metrics.
   --worker-dispatcher-threads
-                    Set the shared suspend CKC worker dispatcher thread count.
+                    Set the shared suspend worker dispatcher thread count.
   -h, --help       Show this help.
 EOF
 }

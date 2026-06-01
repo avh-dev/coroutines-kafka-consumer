@@ -8,10 +8,12 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactor.mono
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
@@ -23,12 +25,14 @@ class ConfluentParallelReactorTrackingService(
     private val orderLifecycleService: SuspendOrderLifecycleService,
     private val batchLifecycleService: SuspendBatchLifecycleService,
     private val cauldronTelemetryService: SuspendCauldronTelemetryService,
-    private val auditLog: AuditLog
+    private val auditLog: AuditLog,
+    @Qualifier("confluentParallelReactorWorkerDispatcher")
+    private val workerDispatcher: CoroutineDispatcher
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun processOrderLifecycle(record: ConsumerRecord<String, OrderLifecycleEvent>): Mono<Boolean> =
-        mono {
+        mono(context = workerDispatcher) {
             if (properties.consumers.processingEnabled) {
                 orderLifecycleService.apply(record.value())
             } else {
@@ -40,7 +44,7 @@ class ConfluentParallelReactorTrackingService(
         }
 
     fun processBatchLifecycle(record: ConsumerRecord<String, BatchLifecycleEvent>): Mono<Boolean> =
-        mono {
+        mono(context = workerDispatcher) {
             if (properties.consumers.processingEnabled) {
                 batchLifecycleService.apply(record.value())
             } else {
@@ -52,7 +56,7 @@ class ConfluentParallelReactorTrackingService(
         }
 
     fun processCauldronTelemetry(record: ConsumerRecord<String, CauldronTelemetryEvent>): Mono<Boolean> =
-        mono {
+        mono(context = workerDispatcher) {
             if (properties.consumers.processingEnabled) {
                 cauldronTelemetryService.recalculate(record.value())
             } else {

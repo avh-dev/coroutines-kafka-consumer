@@ -7,8 +7,12 @@ import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
@@ -28,7 +32,10 @@ import kotlin.test.assertTrue
 class ConfluentParallelReactorProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
-    @Autowired private val metricsProperties: MetricsProperties
+    @Autowired private val metricsProperties: MetricsProperties,
+    @Autowired
+    @Qualifier("confluentParallelReactorWorkerDispatcher")
+    private val workerDispatcher: ExecutorCoroutineDispatcher
 ) {
     @Test
     fun contextLoads() {
@@ -65,5 +72,17 @@ class ConfluentParallelReactorProfileContextTest(
             true,
             metricsProperties.distribution.percentilesHistogram["pc.user.function.processing.time"]
         )
+    }
+
+    @Test
+    fun `confluent parallel reactor profile creates shared named worker dispatcher`() {
+        assertEquals(1, applicationContext.getBeansOfType(ExecutorCoroutineDispatcher::class.java).size)
+        val threadName = runBlocking {
+            withContext(workerDispatcher) {
+                Thread.currentThread().name
+            }
+        }
+
+        assertTrue(threadName.startsWith("pc-reactor-worker-"))
     }
 }

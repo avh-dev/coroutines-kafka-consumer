@@ -1163,4 +1163,5 @@ _Date: 2026-06-01_
 
 Add a separate Reactor-backed Confluent Parallel Consumer profile for a fair async comparison with CKC.
 Bridge the existing suspend business path into `Mono` processing and complete each record only after suspend audit acknowledgement.
+Run suspend work on the configured fixed worker dispatcher and avoid the Reactor adapter's default bounded-elastic pool.
 Keep the existing blocking Confluent Parallel Consumer profile available as a separate baseline.
