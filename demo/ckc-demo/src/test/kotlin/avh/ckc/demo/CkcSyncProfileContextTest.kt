@@ -58,4 +58,9 @@ class CkcSyncProfileContextTest(
     fun `ckc sync profile publishes CKC record metrics`() {
         assertNotNull(consumerMetrics)
     }
+
+    @Test
+    fun `ckc sync profile keeps IO dispatcher without fixed worker pool bean`() {
+        assertFalse(applicationContext.containsBean("ckcWorkerDispatcher"))
+    }
 }

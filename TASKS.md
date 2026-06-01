@@ -65,6 +65,7 @@
 | [DEMO-35](#demo-35) | Add demo application settings for Kafka consumer fetch batching and per-poll record limits.                                                | DONE |
 | [DEMO-36](#demo-36) | Add CKC pause and resume metrics for observing demo consumer backpressure.                                                                 | DONE |
 | [DEMO-37](#demo-37) | Remove the remaining Ktor demo model-client path and keep Armeria as the only suspend HTTP transport.                                      | DONE |
+| [DEMO-38](#demo-38) | Add a configurable shared fixed worker dispatcher for suspend CKC demo consumers.                                                           | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1101,3 +1102,12 @@ Add a selectable consumer metrics implementation for comparing Micrometer-backed
 Wire both settings through the internal-lab deployment path while preserving existing defaults and explicit non-interactive flags.
 Add CKC and Spring Kafka context coverage for the no-op consumer metrics configuration.
 Present every interactive runner choice as a numbered list and reuse the previous test definition as the default selection.
+
+<a id="demo-38"></a>
+### DEMO-38 - Add shared CKC worker dispatcher
+
+_Date: 2026-06-01_
+
+Add a configurable fixed thread pool shared by suspend CKC demo consumers.
+Keep per-consumer worker concurrency settings independent from the shared physical thread limit.
+Retain `Dispatchers.IO` for the CKC sync profile because its handlers execute blocking service calls.

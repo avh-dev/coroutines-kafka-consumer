@@ -13,6 +13,7 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(true, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.MICROMETER, properties.consumers.metricsImplementation)
+        assertEquals(8, properties.consumers.workerDispatcherThreads)
         assertEquals(1, properties.kafka.consumer.fetchMinBytes)
         assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(500, properties.kafka.consumer.maxPollRecords)
@@ -40,6 +41,7 @@ class DemoApplicationPropertiesTest {
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
                 "demo.consumers.metrics-implementation" to "noop",
+                "demo.consumers.worker-dispatcher-threads" to "6",
                 "demo.kafka.consumer.fetch-min-bytes" to "65536",
                 "demo.kafka.consumer.fetch-max-wait-ms" to "100",
                 "demo.kafka.consumer.max-poll-records" to "200",
@@ -64,6 +66,7 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(false, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.NOOP, properties.consumers.metricsImplementation)
+        assertEquals(6, properties.consumers.workerDispatcherThreads)
         assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
         assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(200, properties.kafka.consumer.maxPollRecords)
