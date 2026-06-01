@@ -31,12 +31,12 @@ class ModelClientConfiguration {
         JdkSyncArcaneEtaModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "confluent-parallel-reactor")
     fun armeriaModelWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.model.baseUrl)
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "confluent-parallel-reactor")
     fun armeriaSuspendArcaneEtaModelClient(
         armeriaModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
@@ -52,7 +52,7 @@ class ModelClientConfiguration {
         JdkSyncOrderFlavourModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("ckc")
+    @Profile("ckc", "confluent-parallel-reactor")
     fun armeriaSuspendOrderFlavourModelClient(
         armeriaModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics

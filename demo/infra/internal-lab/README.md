@@ -164,7 +164,7 @@ shown as defaults and used when Enter is pressed:
 - whether business processing is enabled; select `false` for a noop run
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
-- the shared suspend CKC worker dispatcher thread count
+- the shared suspend worker dispatcher thread count
 - a load-test definition, defaulting to the previous run
 
 Pass the same choices explicitly for a non-interactive run:
@@ -188,7 +188,7 @@ Before starting the load generator, the runner:
 - deletes stale Kafka consumer groups for the demo app
 - deletes and recreates Redpanda topics on the lab host
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
-- applies the selected app Helm profile with processing, audit logging, consumer metrics implementation, and suspend CKC worker dispatcher threads overridden from the prompts
+- applies the selected app Helm profile with processing, audit logging, consumer metrics implementation, and suspend worker dispatcher threads overridden from the prompts
 
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
@@ -204,9 +204,9 @@ LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh 
 ```
 
 Even with `--skip-prepare`, stub baseline settings are applied before the load generator starts.
-`--worker-dispatcher-threads` limits the shared fixed worker pool only for the
-suspend `ckc` profile. The blocking `ckc-sync` profile continues to use
-`Dispatchers.IO`.
+`--worker-dispatcher-threads` limits the shared fixed worker pool for the
+suspend `ckc` and `confluent-parallel-reactor` profiles. The blocking `ckc-sync`
+profile continues to use `Dispatchers.IO`.
 The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text

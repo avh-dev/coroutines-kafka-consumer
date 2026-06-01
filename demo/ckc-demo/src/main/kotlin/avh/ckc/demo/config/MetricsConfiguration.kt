@@ -166,6 +166,7 @@ class MetricsConfiguration {
 
     private fun activeConsumerProfile(environment: Environment): String =
         when {
+            environment.acceptsProfiles(Profiles.of("confluent-parallel-reactor")) -> "confluent-parallel-reactor"
             environment.acceptsProfiles(Profiles.of("confluent-parallel")) -> "confluent-parallel"
             environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
             environment.acceptsProfiles(Profiles.of("ckc-sync")) -> "ckc-sync"
@@ -175,7 +176,7 @@ class MetricsConfiguration {
 
     private fun consumerImplementation(profile: String): String =
         when (profile) {
-            "confluent-parallel" -> "confluent_parallel"
+            "confluent-parallel", "confluent-parallel-reactor" -> "confluent_parallel"
             "spring-kafka" -> "spring_kafka"
             "ckc-sync" -> "ckc"
             "ckc" -> "ckc"

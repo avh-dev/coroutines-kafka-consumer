@@ -69,6 +69,7 @@
 | [DEMO-39](#demo-39) | Replace the demo application's embedded Tomcat server with Armeria while preserving query and Actuator endpoints.                           | DONE |
 | [DEMO-40](#demo-40) | Add Redis audit analyzer read progress and per-topic result summaries.                                                                      | DONE |
 | [DEMO-41](#demo-41) | Replace Spring Data Redis with direct Lettuce coroutine and synchronous commands for demo Redis access.                                      | DONE |
+| [DEMO-42](#demo-42) | Add a Reactor-backed Confluent Parallel Consumer profile that runs the suspend demo business path without blocking worker threads.           | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1154,3 +1155,13 @@ Replace the suspend demo Redis path with direct Lettuce coroutine commands.
 Keep blocking demo profiles on direct synchronous Lettuce commands.
 Preserve Redis data formats and audit completion semantics so the same internal-lab baseline can compare overhead.
 Retain the change after two sequential baseline comparisons showed a stable 10-15% throughput improvement.
+
+<a id="demo-42"></a>
+### DEMO-42 - Add async Confluent Parallel Consumer profile
+
+_Date: 2026-06-01_
+
+Add a separate Reactor-backed Confluent Parallel Consumer profile for a fair async comparison with CKC.
+Bridge the existing suspend business path into `Mono` processing and complete each record only after suspend audit acknowledgement.
+Run suspend work on the configured fixed worker dispatcher and avoid the Reactor adapter's default bounded-elastic pool.
+Keep the existing blocking Confluent Parallel Consumer profile available as a separate baseline.
