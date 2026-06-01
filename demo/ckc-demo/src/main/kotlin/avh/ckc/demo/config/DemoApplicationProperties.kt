@@ -50,6 +50,7 @@ data class DemoApplicationProperties(
 
     data class Consumers(
         var processingEnabled: Boolean = true,
+        var metricsImplementation: MetricsImplementation = MetricsImplementation.MICROMETER,
         var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
@@ -58,6 +59,11 @@ data class DemoApplicationProperties(
             processingMode = ProcessingMode.FRESHNESS_FIRST
         )
     )
+
+    enum class MetricsImplementation {
+        MICROMETER,
+        NOOP
+    }
 
     data class ConsumerRuntime(
         var workerConcurrency: Int = 1,

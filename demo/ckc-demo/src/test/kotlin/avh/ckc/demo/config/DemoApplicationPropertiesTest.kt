@@ -12,6 +12,7 @@ class DemoApplicationPropertiesTest {
         val properties = bind(emptyMap())
 
         assertEquals(true, properties.consumers.processingEnabled)
+        assertEquals(DemoApplicationProperties.MetricsImplementation.MICROMETER, properties.consumers.metricsImplementation)
         assertEquals(1, properties.kafka.consumer.fetchMinBytes)
         assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(500, properties.kafka.consumer.maxPollRecords)
@@ -38,6 +39,7 @@ class DemoApplicationPropertiesTest {
         val properties = bind(
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
+                "demo.consumers.metrics-implementation" to "noop",
                 "demo.kafka.consumer.fetch-min-bytes" to "65536",
                 "demo.kafka.consumer.fetch-max-wait-ms" to "100",
                 "demo.kafka.consumer.max-poll-records" to "200",
@@ -61,6 +63,7 @@ class DemoApplicationPropertiesTest {
         )
 
         assertEquals(false, properties.consumers.processingEnabled)
+        assertEquals(DemoApplicationProperties.MetricsImplementation.NOOP, properties.consumers.metricsImplementation)
         assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
         assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(200, properties.kafka.consumer.maxPollRecords)

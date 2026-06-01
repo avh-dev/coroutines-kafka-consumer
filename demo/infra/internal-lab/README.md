@@ -156,11 +156,14 @@ Start the interactive runner:
 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
 ```
 
-The runner asks for:
+The runner asks for each setting through a numbered list. Previous selections are
+marked as current and used when Enter is pressed:
 
 - a Helm deployment profile, defaulting to the currently deployed profile
 - whether business processing is enabled; select `false` for a noop run
-- a load-test definition
+- whether consumer and load-generator audit logging is enabled
+- the consumer metrics implementation: `MICROMETER` or `NOOP`
+- a load-test definition, defaulting to the previous run
 
 Pass the same choices explicitly for a non-interactive run:
 
@@ -168,6 +171,8 @@ Pass the same choices explicitly for a non-interactive run:
 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
   --deployment ckc-sync-local-baseline \
   --processing-enabled false \
+  --audit-log-enabled false \
+  --metrics-implementation NOOP \
   baseline
 ```
 
@@ -180,7 +185,7 @@ Before starting the load generator, the runner:
 - deletes stale Kafka consumer groups for the demo app
 - deletes and recreates Redpanda topics on the lab host
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
-- applies the selected app Helm profile with `env.processingEnabled` overridden from the prompt
+- applies the selected app Helm profile with processing, audit logging, and consumer metrics implementation overridden from the prompts
 
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
@@ -189,6 +194,8 @@ LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh 
   --skip-prepare \
   --deployment ckc-sync-local-baseline \
   --processing-enabled false \
+  --audit-log-enabled false \
+  --metrics-implementation NOOP \
   baseline
 ```
 

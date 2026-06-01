@@ -13,6 +13,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("test_definition")
     parser.add_argument("--deployment-profile", required=True)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
+    parser.add_argument("--audit-log-enabled", choices=["true", "false"], default="true")
+    parser.add_argument("--metrics-implementation", choices=["MICROMETER", "NOOP"], default="MICROMETER")
     parser.add_argument("--repo-dir", default=".")
     return parser.parse_args()
 
@@ -177,6 +179,7 @@ def main() -> None:
     assignments = {
         "APP_PROFILE": deployment_profile_path.stem,
         "PROCESSING_ENABLED": args.processing_enabled,
+        "METRICS_IMPLEMENTATION": args.metrics_implementation,
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
@@ -196,7 +199,7 @@ def main() -> None:
         "DIAGNOSTICS_BLOB_SIZE": str(load_test.get("diagnostics_blob_size", 512)),
         "TELEMETRY_SOURCE_MODE": str(load_test.get("telemetry_source_mode", "ACTIVE_BATCHES")),
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
-        "AUDIT_LOG_ENABLED": str(load_test.get("audit_log_enabled", True)).lower(),
+        "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
     }
 

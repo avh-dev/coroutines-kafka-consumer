@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.env.modelBaseUrl | quote }}
             - name: DEMO_CONSUMER_PROCESSING_ENABLED
               value: {{ .Values.env.processingEnabled | quote }}
+            - name: METRICS_IMPLEMENTATION
+              value: {{ .Values.env.metricsImplementation | quote }}
             - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
               value: {{ .Values.env.kafkaConsumerFetchMinBytes | quote }}
             - name: KAFKA_CONSUMER_FETCH_MAX_WAIT_MS

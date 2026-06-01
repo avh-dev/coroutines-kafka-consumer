@@ -11,6 +11,7 @@ import avh.ckc.micrometer.recordMetricTagSchema
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -23,6 +24,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun micrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
@@ -31,6 +33,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaMicrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
         MicrometerConsumerMetrics(
             meterRegistry = meterRegistry,
@@ -52,6 +55,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun consumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
@@ -62,6 +66,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun orderConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
@@ -72,6 +77,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun batchConsumerMetrics(
         @Qualifier("micrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
@@ -82,6 +88,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
@@ -92,6 +99,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaOrderConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
@@ -102,6 +110,7 @@ class MetricsConfiguration {
 
     @Bean
     @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaBatchConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
@@ -109,6 +118,36 @@ class MetricsConfiguration {
             consumerId = "batch_events",
             batchLifecycleTagValueProvider()
         )
+
+    @Bean("consumerMetrics")
+    @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopTelemetryConsumerMetrics(): ConsumerMetrics<String, CauldronTelemetryEvent> = noopMetrics()
+
+    @Bean("orderConsumerMetrics")
+    @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopOrderConsumerMetrics(): ConsumerMetrics<String, OrderLifecycleEvent> = noopMetrics()
+
+    @Bean("batchConsumerMetrics")
+    @Profile("ckc", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> = noopMetrics()
+
+    @Bean("springKafkaConsumerMetrics")
+    @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaTelemetryConsumerMetrics(): ConsumerMetrics<String, CauldronTelemetryEvent> = noopMetrics()
+
+    @Bean("springKafkaOrderConsumerMetrics")
+    @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaOrderConsumerMetrics(): ConsumerMetrics<String, OrderLifecycleEvent> = noopMetrics()
+
+    @Bean("springKafkaBatchConsumerMetrics")
+    @Profile("spring-kafka")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> = noopMetrics()
 
     private fun cauldronTelemetryTagValueProvider() =
         consumerRecordTagValueProvider<String, CauldronTelemetryEvent> { _, _, _ ->
@@ -142,4 +181,8 @@ class MetricsConfiguration {
             "ckc" -> "ckc"
             else -> "unknown"
         }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <K, V> noopMetrics(): ConsumerMetrics<K, V> =
+        ConsumerMetrics.NOOP as ConsumerMetrics<K, V>
 }

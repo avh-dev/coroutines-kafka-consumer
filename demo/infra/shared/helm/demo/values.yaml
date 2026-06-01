@@ -20,6 +20,7 @@ env:
   javaToolOptions: ""
   modelBaseUrl: ""
   processingEnabled: true
+  metricsImplementation: MICROMETER
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500

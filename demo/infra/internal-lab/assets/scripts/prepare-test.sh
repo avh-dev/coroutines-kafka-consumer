@@ -20,9 +20,19 @@ source "${LAB_ENV}"
 DEPLOYMENT_PROFILE="${1:-}"
 TEST_DEFINITION="${2:-}"
 PROCESSING_ENABLED="${3:-true}"
+AUDIT_LOG_ENABLED="${4:-true}"
+METRICS_IMPLEMENTATION="${5:-MICROMETER}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation]" >&2
+  exit 1
+fi
+if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
+  echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
+  exit 1
+fi
+if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}" != "NOOP" ]]; then
+  echo "metrics-implementation must be MICROMETER or NOOP: ${METRICS_IMPLEMENTATION}" >&2
   exit 1
 fi
 if [[ "${PROCESSING_ENABLED}" != "true" && "${PROCESSING_ENABLED}" != "false" ]]; then
@@ -68,6 +78,8 @@ python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
+  --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
+  --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --repo-dir "${LAB_ROOT}/workspace" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
@@ -100,7 +112,9 @@ helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/de
   --namespace ckc-perf \
   -f "${LAB_ROOT}/assets/config/demo-values.yaml" \
   -f "${DEPLOYMENT_PROFILE}" \
-  --set "env.processingEnabled=${PROCESSING_ENABLED}"
+  --set "env.processingEnabled=${PROCESSING_ENABLED}" \
+  --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
+  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
 "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
@@ -109,11 +123,16 @@ kubectl -n ckc-perf get pods,svc,endpoints -o wide
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF
 APP_PROFILE='${APP_PROFILE}'
 PROCESSING_ENABLED='${PROCESSING_ENABLED}'
+AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
+METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
+TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
 TOPIC_SPECS='${TOPIC_SPECS}'
 EOF
 
 echo "Lab test is prepared."
 echo "  app_profile=${APP_PROFILE}"
 echo "  processing_enabled=${PROCESSING_ENABLED}"
+echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
+echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"
 echo "  topics=${TOPIC_SPECS}"
 echo "  test_definition=$(basename "${TEST_DEFINITION}" .yaml)"

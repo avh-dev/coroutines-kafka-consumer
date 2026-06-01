@@ -18,11 +18,14 @@ CONSUMER_DRAIN_POLL_SECONDS="${CONSUMER_DRAIN_POLL_SECONDS:-5}"
 TEST_DEFINITION=""
 DEPLOYMENT_PROFILE=""
 PROCESSING_ENABLED=""
+AUDIT_LOG_ENABLED=""
+METRICS_IMPLEMENTATION=""
 
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--deployment profile]
-          [--processing-enabled true|false] [test-definition]
+          [--processing-enabled true|false] [--audit-log-enabled true|false]
+          [--metrics-implementation MICROMETER|NOOP] [test-definition]
 
 Selects an internal-lab deployment and test definition, prepares the lab when
 needed, then runs the load-test generator on the lab host.
@@ -33,7 +36,11 @@ Options:
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
   --deployment     Select a Helm deployment profile without prompting.
   --processing-enabled
-                   Override demo processing with true or false. Use false for noop mode.
+                    Override demo processing with true or false. Use false for noop mode.
+  --audit-log-enabled
+                    Override consumer and load-generator audit logging with true or false.
+  --metrics-implementation
+                    Select MICROMETER or NOOP consumer metrics.
   -h, --help       Show this help.
 EOF
 }
@@ -54,6 +61,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --processing-enabled)
       PROCESSING_ENABLED="${2:?--processing-enabled requires true or false}"
+      shift 2
+      ;;
+    --audit-log-enabled)
+      AUDIT_LOG_ENABLED="${2:?--audit-log-enabled requires true or false}"
+      shift 2
+      ;;
+    --metrics-implementation)
+      METRICS_IMPLEMENTATION="${2:?--metrics-implementation requires MICROMETER or NOOP}"
       shift 2
       ;;
     -h|--help)
@@ -83,13 +98,23 @@ fi
 
 CURRENT_APP_PROFILE=""
 CURRENT_PROCESSING_ENABLED="true"
+CURRENT_AUDIT_LOG_ENABLED="true"
+CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
+CURRENT_TEST_DEFINITION=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
+  REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
+  REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
   # shellcheck disable=SC1090
   . "${CURRENT_DEPLOYMENT_PATH}"
   CURRENT_APP_PROFILE="${APP_PROFILE:-}"
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
+  CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
+  CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
+  CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
+  AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
+  METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
 fi
 
 select_file() {
@@ -125,6 +150,32 @@ select_file() {
   printf "%s\n" "${files[$((choice - 1))]}"
 }
 
+select_value() {
+  local title="$1"
+  local default_value="$2"
+  shift 2
+  local -a values=("$@")
+  local index choice default_index=""
+
+  echo "${title}:" >&2
+  for index in "${!values[@]}"; do
+    if [ "${values[$index]}" = "${default_value}" ]; then
+      default_index="$((index + 1))"
+      printf "  %2d) %s [current]\n" "$((index + 1))" "${values[$index]}" >&2
+    else
+      printf "  %2d) %s\n" "$((index + 1))" "${values[$index]}" >&2
+    fi
+  done
+
+  read -r -p "Select number [${default_index}]: " choice
+  choice="${choice:-${default_index}}"
+  if ! [[ "${choice}" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#values[@]} )); then
+    echo "Invalid selection: ${choice}" >&2
+    exit 1
+  fi
+  printf "%s\n" "${values[$((choice - 1))]}"
+}
+
 resolve_yaml() {
   local directory="$1"
   local value="$2"
@@ -144,6 +195,7 @@ resolve_yaml() {
 if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   if [ ! -t 0 ]; then
     DEPLOYMENT_PROFILE="${CURRENT_APP_PROFILE:?--deployment is required without interactive input}"
+    DEPLOYMENT_PROFILE="$(resolve_yaml "${DEPLOYMENT_PROFILE_DIR}" "${DEPLOYMENT_PROFILE}")"
   else
     mapfile -t DEPLOYMENT_PROFILES < <(grep -l '^lab:' "${DEPLOYMENT_PROFILE_DIR}"/*.yaml | sort)
     DEPLOYMENT_PROFILE="$(select_file "Available deployment profiles" "${DEPLOYMENT_PROFILE_DIR}" "${CURRENT_APP_PROFILE}" "${DEPLOYMENT_PROFILES[@]}")"
@@ -156,8 +208,7 @@ if [ -z "${PROCESSING_ENABLED}" ]; then
   if [ ! -t 0 ]; then
     PROCESSING_ENABLED="${CURRENT_PROCESSING_ENABLED}"
   else
-    read -r -p "Enable business processing? [${CURRENT_PROCESSING_ENABLED}]: " PROCESSING_ENABLED
-    PROCESSING_ENABLED="${PROCESSING_ENABLED:-${CURRENT_PROCESSING_ENABLED}}"
+    PROCESSING_ENABLED="$(select_value "Enable business processing" "${CURRENT_PROCESSING_ENABLED}" true false)"
   fi
 fi
 if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false" ]; then
@@ -165,13 +216,39 @@ if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false"
   exit 1
 fi
 
+if [ -z "${AUDIT_LOG_ENABLED}" ]; then
+  if [ ! -t 0 ]; then
+    AUDIT_LOG_ENABLED="${CURRENT_AUDIT_LOG_ENABLED}"
+  else
+    AUDIT_LOG_ENABLED="$(select_value "Enable audit logging" "${CURRENT_AUDIT_LOG_ENABLED}" true false)"
+  fi
+fi
+if [ "${AUDIT_LOG_ENABLED}" != "true" ] && [ "${AUDIT_LOG_ENABLED}" != "false" ]; then
+  echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
+  exit 1
+fi
+
+if [ -z "${METRICS_IMPLEMENTATION}" ]; then
+  if [ ! -t 0 ]; then
+    METRICS_IMPLEMENTATION="${CURRENT_METRICS_IMPLEMENTATION}"
+  else
+    METRICS_IMPLEMENTATION="$(select_value "Consumer metrics implementation" "${CURRENT_METRICS_IMPLEMENTATION}" MICROMETER NOOP)"
+  fi
+fi
+METRICS_IMPLEMENTATION="$(printf '%s' "${METRICS_IMPLEMENTATION}" | tr '[:lower:]' '[:upper:]')"
+if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATION}" != "NOOP" ]; then
+  echo "metrics-implementation must be MICROMETER or NOOP: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+
 if [ -z "${TEST_DEFINITION}" ]; then
   if [ ! -t 0 ]; then
-    echo "A test definition is required without interactive input." >&2
-    exit 1
+    TEST_DEFINITION="${CURRENT_TEST_DEFINITION:?test definition is required without interactive input}"
+    TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
+  else
+    mapfile -t TEST_DEFINITIONS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
+    TEST_DEFINITION="$(select_file "Available test definitions" "${TEST_DIR}" "${CURRENT_TEST_DEFINITION}" "${TEST_DEFINITIONS[@]}")"
   fi
-  mapfile -t TEST_DEFINITIONS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
-  TEST_DEFINITION="$(select_file "Available test definitions" "${TEST_DIR}" "" "${TEST_DEFINITIONS[@]}")"
 else
   TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
 fi
@@ -187,6 +264,8 @@ fi
 
 echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
+echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
+echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
@@ -194,6 +273,8 @@ python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
+  --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
+  --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --repo-dir "${LAB_ROOT}/workspace" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
@@ -214,7 +295,7 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}"
+  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}"
 else
   "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi

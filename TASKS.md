@@ -103,6 +103,7 @@
 | [INFRA-36](#infra-36) | Mount internal-lab Grafana dashboards from the synced workspace copy.                                                                              | DONE |
 | [INFRA-37](#infra-37) | Wire Kafka consumer fetch settings through Helm and tune lab profiles to 8 KiB fetch minimum with 250 ms max wait.                                 | DONE |
 | [INFRA-38](#infra-38) | Split internal-lab deployment profiles from load-test definitions and configure reusable stubs before each run.                                  | DONE |
+| [INFRA-39](#infra-39) | Add interactive internal-lab audit logging and consumer metrics implementation settings for performance comparisons.                              | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1089,3 +1090,14 @@ _Date: 2026-05-31_
 Remove the obsolete Ktor CIO model-client implementation from the demo application.
 Keep Armeria as the only suspend HTTP transport for the CKC profile.
 Drop transport selection settings and align demo Helm defaults and context tests with the single supported path.
+
+<a id="infra-39"></a>
+### INFRA-39 - Add interactive audit and metrics settings
+
+_Date: 2026-05-31_
+
+Expose audit logging as an interactive internal-lab test-run setting.
+Add a selectable consumer metrics implementation for comparing Micrometer-backed and no-op record processing.
+Wire both settings through the internal-lab deployment path while preserving existing defaults and explicit non-interactive flags.
+Add CKC and Spring Kafka context coverage for the no-op consumer metrics configuration.
+Present every interactive runner choice as a numbered list and reuse the previous test definition as the default selection.

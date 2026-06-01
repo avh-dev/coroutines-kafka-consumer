@@ -37,6 +37,7 @@ demo:
     max-segment-bytes: ${AUDIT_MAX_SEGMENT_BYTES:268435456}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
+    metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
     order:
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
