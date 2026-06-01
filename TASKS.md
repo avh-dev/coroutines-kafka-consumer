@@ -67,6 +67,7 @@
 | [DEMO-37](#demo-37) | Remove the remaining Ktor demo model-client path and keep Armeria as the only suspend HTTP transport.                                      | DONE |
 | [DEMO-38](#demo-38) | Add a configurable shared fixed worker dispatcher for suspend CKC demo consumers.                                                           | DONE |
 | [DEMO-39](#demo-39) | Replace the demo application's embedded Tomcat server with Armeria while preserving query and Actuator endpoints.                           | DONE |
+| [DEMO-40](#demo-40) | Add Redis audit analyzer read progress and per-topic result summaries.                                                                      | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1133,3 +1134,12 @@ Replace the demo application's embedded Tomcat server with Armeria to reduce thr
 Serve the existing order query API through an Armeria annotated service.
 Keep health and Prometheus Actuator endpoints available on the existing port and paths.
 Limit consumer-side Armeria server threads and make the reference query API opt-in through the `api` profile.
+
+<a id="demo-40"></a>
+### DEMO-40 - Add audit analyzer progress and topic summaries
+
+_Date: 2026-06-01_
+
+Report Redis audit download progress in ten-percent increments.
+Keep progress on stderr so the persisted summary remains focused on analysis results.
+Print the existing loss, duplicate, and latency measurements for the complete audit and for each demo topic.
