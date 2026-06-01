@@ -26,13 +26,6 @@ class DemoApplicationPropertiesTest {
         assertEquals(256, properties.consumers.telemetry.workChannelCapacity)
         assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
         assertEquals(true, properties.audit.enabled)
-        assertEquals(".demo-audit", properties.audit.directory)
-        assertEquals("", properties.audit.filePrefix)
-        assertEquals(65_536, properties.audit.queueCapacity)
-        assertEquals(1_024, properties.audit.flushRecords)
-        assertEquals(50, properties.audit.flushIntervalMs)
-        assertEquals(1_000, properties.audit.fsyncIntervalMs)
-        assertEquals(256L * 1024L * 1024L, properties.audit.maxSegmentBytes)
     }
 
     @Test
@@ -53,14 +46,7 @@ class DemoApplicationPropertiesTest {
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
                 "demo.consumers.telemetry.work-channel-capacity" to "512",
                 "demo.consumers.telemetry.processing-mode" to "freshness-first",
-                "demo.audit.enabled" to "false",
-                "demo.audit.directory" to "/audit",
-                "demo.audit.file-prefix" to "processed-test",
-                "demo.audit.queue-capacity" to "17",
-                "demo.audit.flush-records" to "5",
-                "demo.audit.flush-interval-ms" to "25",
-                "demo.audit.fsync-interval-ms" to "250",
-                "demo.audit.max-segment-bytes" to "4096"
+                "demo.audit.enabled" to "false"
             )
         )
 
@@ -79,13 +65,6 @@ class DemoApplicationPropertiesTest {
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)
         assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
         assertEquals(false, properties.audit.enabled)
-        assertEquals("/audit", properties.audit.directory)
-        assertEquals("processed-test", properties.audit.filePrefix)
-        assertEquals(17, properties.audit.queueCapacity)
-        assertEquals(5, properties.audit.flushRecords)
-        assertEquals(25, properties.audit.flushIntervalMs)
-        assertEquals(250, properties.audit.fsyncIntervalMs)
-        assertEquals(4096, properties.audit.maxSegmentBytes)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =

@@ -213,20 +213,19 @@ The script exports `load_test` settings as environment variables for `ckc-demo-l
 /opt/ckc-internal-lab/logs/
 ```
 
-High-volume publish and processed audit records are written outside stdout.
-For each run, `run-test.sh` stores published records from the lab-host load
-generator and processed records under:
+High-volume publish and processed audit records are appended to the host Redis
+`audit` list. For each run, `run-test.sh` stores the calculated report under:
 
 ```text
 /opt/ckc-internal-lab/audit/<run-id>/
 ```
 
 The runner prints and saves `summary.txt` with published, processed, missing,
-duplicate, and latency counts calculated from the audit TSV files.
+duplicate, and latency counts calculated from the Redis audit list.
 
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
-and stay there briefly before collecting processed audit files. Override the
+and stay there briefly before analyzing the Redis audit list. Override the
 wait with:
 
 ```sh

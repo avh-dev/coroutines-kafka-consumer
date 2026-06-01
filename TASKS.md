@@ -60,7 +60,7 @@
 | [DEMO-30](#demo-30) | Add in-process load-test workers with isolated shard state and a shared publisher so one JVM can use multiple CPU cores.                   | DONE |
 | [DEMO-31](#demo-31) | Add demo model-call metrics for throughput and latency percentile analysis.                                                                 | DONE |
 | [DEMO-32](#demo-32) | Add fixed-fleet cauldron telemetry load generation and retain demo Redis state through TTL instead of immediate deletes.                   | DONE |
-| [DEMO-33](#demo-33) | Replace stdout demo audit records with lightweight file-backed audit collection for internal lab loss and duplicate analysis.              | IN_PROGRESS |
+| [DEMO-33](#demo-33) | Replace file-backed demo audit collection with synchronous Redis list writes for internal lab loss, duplicate, and resiliency analysis.      | DONE |
 | [DEMO-34](#demo-34) | Add a CKC sync Spring profile that keeps CKC consumption while running blocking demo business services on the IO dispatcher.               | DONE |
 | [DEMO-35](#demo-35) | Add demo application settings for Kafka consumer fetch batching and per-poll record limits.                                                | DONE |
 | [DEMO-36](#demo-36) | Add CKC pause and resume metrics for observing demo consumer backpressure.                                                                 | DONE |
@@ -784,13 +784,14 @@ Keep generated telemetry on the full processing path by pairing fleet cauldrons 
 Retain demo Redis state for a bounded period with TTL so completed orders remain queryable after completion without explicit active-batch deletes.
 
 <a id="demo-33"></a>
-### DEMO-33 - Add file-backed demo audit
+### DEMO-33 - Move demo audit to Redis
 
 _Date: 2026-05-28_
 
-Replace high-volume stdout audit records with lightweight append-only file audit for published and processed demo messages.
-Keep the first implementation focused on the internal lab so published records from the local load generator and processed records from k3s demo pods can be collected after a run.
-Use the audit as the source for loss, duplicate, and latency analysis across failure scenarios.
+Replace file-backed audit records with compact append-only Redis list entries for published and processed demo messages.
+Keep processed audit writes inside record completion: suspend CKC paths await Redis without blocking dispatcher threads, while sync profiles block naturally.
+Write generator publish acknowledgements asynchronously and drain outstanding Redis writes before normal generator shutdown.
+Read the complete run audit from Redis for loss, duplicate, and latency analysis across pod failure scenarios.
 
 <a id="demo-34"></a>
 ### DEMO-34 - Add CKC sync profile

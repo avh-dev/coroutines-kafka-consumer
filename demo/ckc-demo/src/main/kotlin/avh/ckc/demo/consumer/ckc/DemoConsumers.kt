@@ -49,7 +49,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processed(record)
+                    auditLog.processedSuspending(record)
                 }
             }
         }
@@ -86,7 +86,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processed(record)
+                    auditLog.processedSuspending(record)
                 }
             }
         }
@@ -123,7 +123,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processed(record)
+                    auditLog.processedSuspending(record)
                 }
             }
         }

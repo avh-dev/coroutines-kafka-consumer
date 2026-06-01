@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
+from typing import BinaryIO
 
 
 @dataclass(frozen=True)
@@ -26,39 +27,84 @@ class AuditRecord:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze CKC demo audit TSV files.")
-    parser.add_argument("--published-dir", required=True, type=Path)
-    parser.add_argument("--processed-dir", required=True, type=Path)
+    parser = argparse.ArgumentParser(description="Analyze CKC demo audit records stored in Redis.")
+    parser.add_argument("--redis-host", default="127.0.0.1")
+    parser.add_argument("--redis-port", default=6379, type=int)
+    parser.add_argument("--redis-key", default="audit")
+    parser.add_argument("--batch-size", default=10_000, type=int)
     return parser.parse_args()
 
 
-def read_records(directory: Path, expected_type: str) -> list[AuditRecord]:
-    if not directory.is_dir():
-        return []
+def encode_command(*parts: str | int) -> bytes:
+    encoded = [str(part).encode("utf-8") for part in parts]
+    return (
+        f"*{len(encoded)}\r\n".encode("ascii")
+        + b"".join(f"${len(part)}\r\n".encode("ascii") + part + b"\r\n" for part in encoded)
+    )
+
+
+def read_line(file: BinaryIO) -> bytes:
+    line = file.readline()
+    if not line.endswith(b"\r\n"):
+        raise ValueError("Redis returned an incomplete response")
+    return line[:-2]
+
+
+def read_response(file: BinaryIO) -> object:
+    prefix = file.read(1)
+    if prefix == b"+":
+        return read_line(file).decode("utf-8")
+    if prefix == b"-":
+        raise ValueError(f"Redis command failed: {read_line(file).decode('utf-8')}")
+    if prefix == b":":
+        return int(read_line(file))
+    if prefix == b"$":
+        size = int(read_line(file))
+        if size < 0:
+            return None
+        data = file.read(size)
+        if file.read(2) != b"\r\n":
+            raise ValueError("Redis returned an incomplete bulk string")
+        return data.decode("utf-8")
+    if prefix == b"*":
+        size = int(read_line(file))
+        return [read_response(file) for _ in range(size)]
+    raise ValueError(f"Unsupported Redis response prefix: {prefix!r}")
+
+
+def parse_record(value: str) -> AuditRecord:
+    parts = value.split("\t", 6)
+    if len(parts) != 7:
+        raise ValueError(f"expected 7 audit fields, got {len(parts)}: {value!r}")
+    record_type, topic_id, partition, offset, kafka_ts, audit_ts, message_key = parts
+    if record_type not in {"P", "C"}:
+        raise ValueError(f"unexpected audit record type: {record_type}")
+    return AuditRecord(
+        record_type=record_type,
+        key=RecordKey(int(topic_id), int(partition), int(offset)),
+        kafka_timestamp_ms=int(kafka_ts),
+        audit_timestamp_ms=int(audit_ts),
+        message_key=message_key,
+    )
+
+
+def read_records(host: str, port: int, key: str, batch_size: int) -> list[AuditRecord]:
+    if batch_size <= 0:
+        raise ValueError("batch size must be positive")
 
     records: list[AuditRecord] = []
-    for path in sorted(directory.glob("*.tsv")):
-        with path.open("r", encoding="utf-8") as file:
-            for line_number, line in enumerate(file, start=1):
-                line = line.rstrip("\n")
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t", 6)
-                if len(parts) != 7:
-                    raise ValueError(f"{path}:{line_number}: expected 7 TSV fields, got {len(parts)}")
-                record_type, topic_id, partition, offset, kafka_ts, audit_ts, message_key = parts
-                if record_type != expected_type:
-                    raise ValueError(f"{path}:{line_number}: expected record type {expected_type}, got {record_type}")
-                records.append(
-                    AuditRecord(
-                        record_type=record_type,
-                        key=RecordKey(int(topic_id), int(partition), int(offset)),
-                        kafka_timestamp_ms=int(kafka_ts),
-                        audit_timestamp_ms=int(audit_ts),
-                        message_key=message_key,
-                    )
-                )
-    return records
+    with socket.create_connection((host, port)) as connection:
+        file = connection.makefile("rb")
+        start = 0
+        while True:
+            connection.sendall(encode_command("LRANGE", key, start, start + batch_size - 1))
+            values = read_response(file)
+            if not isinstance(values, list):
+                raise ValueError(f"Redis LRANGE returned an unexpected response: {values!r}")
+            records.extend(parse_record(value) for value in values if isinstance(value, str))
+            if len(values) < batch_size:
+                return records
+            start += batch_size
 
 
 def percentile(values: list[int], percent: float) -> int:
@@ -75,8 +121,9 @@ def print_counter(name: str, counter: Counter[int]) -> None:
 
 def main() -> int:
     args = parse_args()
-    published = read_records(args.published_dir, "P")
-    processed = read_records(args.processed_dir, "C")
+    records = read_records(args.redis_host, args.redis_port, args.redis_key, args.batch_size)
+    published = [record for record in records if record.record_type == "P"]
+    processed = [record for record in records if record.record_type == "C"]
 
     published_by_key: dict[RecordKey, AuditRecord] = {}
     duplicate_published = 0

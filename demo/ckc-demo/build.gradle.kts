@@ -31,7 +31,6 @@ val springBootVersion = "3.5.10"
 
 dependencies {
     implementation(project(":ckc-core"))
-    implementation(project(":ckc-demo-audit"))
     implementation(project(":ckc-demo-contracts"))
     implementation(project(":ckc-micrometer"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))

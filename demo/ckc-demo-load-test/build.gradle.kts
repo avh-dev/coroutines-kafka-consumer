@@ -27,8 +27,8 @@ val serializationVersion = "1.7.1"
 val junitVersion = "5.10.2"
 
 dependencies {
-    implementation(project(":ckc-demo-audit"))
     implementation(project(":ckc-demo-contracts"))
+    implementation("io.lettuce:lettuce-core:6.4.2.RELEASE")
     implementation(kotlin("stdlib"))
     implementation("com.google.protobuf:protobuf-java")
     implementation("org.apache.kafka:kafka-clients")

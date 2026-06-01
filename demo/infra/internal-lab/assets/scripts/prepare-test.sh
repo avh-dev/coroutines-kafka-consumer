@@ -109,9 +109,6 @@ TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons" \
   "${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh"
 
-rm -rf "${LAB_ROOT}/audit/current"
-mkdir -p "${LAB_ROOT}/audit/current/processed"
-
 "${LAB_ROOT}/assets/scripts/deploy-stubs.sh"
 
 helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo" \
