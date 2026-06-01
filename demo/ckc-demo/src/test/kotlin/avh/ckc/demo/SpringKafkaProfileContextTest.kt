@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
 
 @SpringBootTest(
     properties = [
-        "demo.kafka.enabled=false"
+        "demo.kafka.enabled=false",
+        "SERVER_PORT=0"
     ]
 )
 @ActiveProfiles("spring-kafka")

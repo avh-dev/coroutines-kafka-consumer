@@ -23,7 +23,8 @@ The application is intended for functional checks and for comparing consumer imp
 - Redis-backed order and batch state
 - external ETA and order flavour model stubs via `:ckc-demo-stubs`
 - Prometheus metrics endpoint at `/actuator/prometheus`
-- read API for current order state at `/api/orders/{orderId}`
+- Armeria HTTP server for the query API, health checks, and Prometheus scrapes
+- optional reference read API for current order state at `/api/orders/{orderId}` under the `api` profile
 
 ## Local Environment
 
@@ -59,6 +60,12 @@ Run the demo with Confluent Parallel Consumer:
 ./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=confluent-parallel --demo.kafka.enabled=true'
 ```
 
+Run the reference order query API locally:
+
+```bash
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=api --demo.kafka.enabled=false'
+```
+
 If `8080` is already occupied, override the port:
 
 ```bash
@@ -90,7 +97,17 @@ Kafka client metrics are also bound for the underlying Kafka consumers.
 ## Endpoints
 
 - `GET /actuator/prometheus`
-- `GET /api/orders/{orderId}`
+- `GET /api/orders/{orderId}` when the `api` profile is active
+
+## Performance-Test Scope
+
+The consumer profiles do not enable the order query API. This repository keeps
+the API as a reference implementation for inspecting demo state locally.
+
+In a production layout, consumers and query APIs would normally be separate
+deployments. The API would read from a read-only replica of the persistence
+layer, so API traffic and blocking query work would not affect consumer
+performance measurements.
 
 ## Observability
 

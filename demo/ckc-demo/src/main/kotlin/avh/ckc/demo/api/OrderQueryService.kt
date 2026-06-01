@@ -2,9 +2,11 @@ package avh.ckc.demo.api
 
 import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
+import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
+@Profile("api")
 class OrderQueryService(
     private val brewingStateRepository: SyncBrewingStateRepository
 ) {

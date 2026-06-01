@@ -15,6 +15,7 @@ import kotlin.test.assertSame
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
+        "SERVER_PORT=0",
         "demo.consumers.metrics-implementation=NOOP"
     ]
 )

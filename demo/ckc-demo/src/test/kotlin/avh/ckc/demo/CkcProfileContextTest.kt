@@ -8,6 +8,7 @@ import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
+import avh.ckc.demo.api.OrderHttpService
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -30,7 +31,8 @@ import kotlin.test.assertTrue
 
 @SpringBootTest(
     properties = [
-        "demo.kafka.enabled=false"
+        "demo.kafka.enabled=false",
+        "SERVER_PORT=0"
     ]
 )
 @ActiveProfiles("ckc")
@@ -115,5 +117,10 @@ class CkcProfileContextTest(
                 .tag("consumer_impl", "ckc")
                 .counter()
         )
+    }
+
+    @Test
+    fun `consumer profile does not create order API service`() {
+        assertTrue(applicationContext.getBeansOfType(OrderHttpService::class.java).isEmpty())
     }
 }
