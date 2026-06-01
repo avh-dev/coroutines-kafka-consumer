@@ -105,6 +105,7 @@
 | [INFRA-37](#infra-37) | Wire Kafka consumer fetch settings through Helm and tune lab profiles to 8 KiB fetch minimum with 250 ms max wait.                                 | DONE |
 | [INFRA-38](#infra-38) | Split internal-lab deployment profiles from load-test definitions and configure reusable stubs before each run.                                  | DONE |
 | [INFRA-39](#infra-39) | Add interactive internal-lab audit logging and consumer metrics implementation settings for performance comparisons.                              | DONE |
+| [INFRA-40](#infra-40) | Add an interactive internal-lab CKC worker dispatcher thread setting for suspend-consumer experiments.                                            | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1111,3 +1112,12 @@ _Date: 2026-06-01_
 Add a configurable fixed thread pool shared by suspend CKC demo consumers.
 Keep per-consumer worker concurrency settings independent from the shared physical thread limit.
 Retain `Dispatchers.IO` for the CKC sync profile because its handlers execute blocking service calls.
+
+<a id="infra-40"></a>
+### INFRA-40 - Add interactive CKC worker dispatcher threads
+
+_Date: 2026-06-01_
+
+Expose the suspend CKC shared worker dispatcher thread count through Helm.
+Add an internal-lab runner prompt and CLI override for changing the thread count between runs.
+Persist the previous selection so repeated experiments keep the same physical worker limit by default.

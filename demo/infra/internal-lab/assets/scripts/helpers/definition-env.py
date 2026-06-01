@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Any
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Print shell assignments for an internal-lab deployment and test.")
     parser.add_argument("test_definition")
@@ -15,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--audit-log-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--metrics-implementation", choices=["MICROMETER", "NOOP"], default="MICROMETER")
+    parser.add_argument("--worker-dispatcher-threads", type=positive_int, default=8)
     parser.add_argument("--repo-dir", default=".")
     return parser.parse_args()
 
@@ -180,6 +188,7 @@ def main() -> None:
         "APP_PROFILE": deployment_profile_path.stem,
         "PROCESSING_ENABLED": args.processing_enabled,
         "METRICS_IMPLEMENTATION": args.metrics_implementation,
+        "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),

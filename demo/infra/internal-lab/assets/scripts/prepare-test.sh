@@ -22,9 +22,10 @@ TEST_DEFINITION="${2:-}"
 PROCESSING_ENABLED="${3:-true}"
 AUDIT_LOG_ENABLED="${4:-true}"
 METRICS_IMPLEMENTATION="${5:-MICROMETER}"
+WORKER_DISPATCHER_THREADS="${6:-8}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads]" >&2
   exit 1
 fi
 if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
@@ -37,6 +38,10 @@ if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}"
 fi
 if [[ "${PROCESSING_ENABLED}" != "true" && "${PROCESSING_ENABLED}" != "false" ]]; then
   echo "processing-enabled must be true or false: ${PROCESSING_ENABLED}" >&2
+  exit 1
+fi
+if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
   exit 1
 fi
 
@@ -80,6 +85,7 @@ python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
+  --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
   --repo-dir "${LAB_ROOT}/workspace" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
@@ -114,7 +120,8 @@ helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/de
   -f "${DEPLOYMENT_PROFILE}" \
   --set "env.processingEnabled=${PROCESSING_ENABLED}" \
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
-  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}"
+  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
+  --set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
 "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
@@ -125,6 +132,7 @@ APP_PROFILE='${APP_PROFILE}'
 PROCESSING_ENABLED='${PROCESSING_ENABLED}'
 AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
+WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
 TOPIC_SPECS='${TOPIC_SPECS}'
 EOF
@@ -134,5 +142,6 @@ echo "  app_profile=${APP_PROFILE}"
 echo "  processing_enabled=${PROCESSING_ENABLED}"
 echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
 echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"
+echo "  worker_dispatcher_threads=${WORKER_DISPATCHER_THREADS}"
 echo "  topics=${TOPIC_SPECS}"
 echo "  test_definition=$(basename "${TEST_DEFINITION}" .yaml)"

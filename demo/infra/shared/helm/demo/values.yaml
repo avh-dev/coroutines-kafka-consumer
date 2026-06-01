@@ -21,6 +21,7 @@ env:
   modelBaseUrl: ""
   processingEnabled: true
   metricsImplementation: MICROMETER
+  workerDispatcherThreads: 8
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500

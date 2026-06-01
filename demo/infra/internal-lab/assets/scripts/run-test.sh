@@ -20,12 +20,14 @@ DEPLOYMENT_PROFILE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
 METRICS_IMPLEMENTATION=""
+WORKER_DISPATCHER_THREADS=""
 
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--deployment profile]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
-          [--metrics-implementation MICROMETER|NOOP] [test-definition]
+          [--metrics-implementation MICROMETER|NOOP]
+          [--worker-dispatcher-threads positive-integer] [test-definition]
 
 Selects an internal-lab deployment and test definition, prepares the lab when
 needed, then runs the load-test generator on the lab host.
@@ -41,6 +43,8 @@ Options:
                     Override consumer and load-generator audit logging with true or false.
   --metrics-implementation
                     Select MICROMETER or NOOP consumer metrics.
+  --worker-dispatcher-threads
+                    Set the shared suspend CKC worker dispatcher thread count.
   -h, --help       Show this help.
 EOF
 }
@@ -69,6 +73,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --metrics-implementation)
       METRICS_IMPLEMENTATION="${2:?--metrics-implementation requires MICROMETER or NOOP}"
+      shift 2
+      ;;
+    --worker-dispatcher-threads)
+      WORKER_DISPATCHER_THREADS="${2:?--worker-dispatcher-threads requires a positive integer}"
       shift 2
       ;;
     -h|--help)
@@ -100,21 +108,25 @@ CURRENT_APP_PROFILE=""
 CURRENT_PROCESSING_ENABLED="true"
 CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
+CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
   REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
+  REQUESTED_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS}"
   # shellcheck disable=SC1090
   . "${CURRENT_DEPLOYMENT_PATH}"
   CURRENT_APP_PROFILE="${APP_PROFILE:-}"
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
   CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
+  CURRENT_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-8}"
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
   METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
+  WORKER_DISPATCHER_THREADS="${REQUESTED_WORKER_DISPATCHER_THREADS}"
 fi
 
 select_file() {
@@ -241,6 +253,19 @@ if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATIO
   exit 1
 fi
 
+if [ -z "${WORKER_DISPATCHER_THREADS}" ]; then
+  if [ ! -t 0 ]; then
+    WORKER_DISPATCHER_THREADS="${CURRENT_WORKER_DISPATCHER_THREADS}"
+  else
+    read -r -p "Worker dispatcher threads [${CURRENT_WORKER_DISPATCHER_THREADS}]: " WORKER_DISPATCHER_THREADS
+    WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-${CURRENT_WORKER_DISPATCHER_THREADS}}"
+  fi
+fi
+if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
+
 if [ -z "${TEST_DEFINITION}" ]; then
   if [ ! -t 0 ]; then
     TEST_DEFINITION="${CURRENT_TEST_DEFINITION:?test definition is required without interactive input}"
@@ -266,6 +291,7 @@ echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
+echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
@@ -275,6 +301,7 @@ python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
+  --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
   --repo-dir "${LAB_ROOT}/workspace" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
@@ -295,7 +322,7 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}"
+  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
 else
   "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi

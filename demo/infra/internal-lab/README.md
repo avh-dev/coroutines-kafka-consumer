@@ -156,13 +156,15 @@ Start the interactive runner:
 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
 ```
 
-The runner asks for each setting through a numbered list. Previous selections are
-marked as current and used when Enter is pressed:
+The runner presents fixed choices through numbered lists and prompts for the
+worker thread count directly. Previous selections are marked as current or
+shown as defaults and used when Enter is pressed:
 
 - a Helm deployment profile, defaulting to the currently deployed profile
 - whether business processing is enabled; select `false` for a noop run
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
+- the shared suspend CKC worker dispatcher thread count
 - a load-test definition, defaulting to the previous run
 
 Pass the same choices explicitly for a non-interactive run:
@@ -173,6 +175,7 @@ LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh 
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
+  --worker-dispatcher-threads 8 \
   baseline
 ```
 
@@ -185,7 +188,7 @@ Before starting the load generator, the runner:
 - deletes stale Kafka consumer groups for the demo app
 - deletes and recreates Redpanda topics on the lab host
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
-- applies the selected app Helm profile with processing, audit logging, and consumer metrics implementation overridden from the prompts
+- applies the selected app Helm profile with processing, audit logging, consumer metrics implementation, and suspend CKC worker dispatcher threads overridden from the prompts
 
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
@@ -196,10 +199,14 @@ LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh 
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
+  --worker-dispatcher-threads 8 \
   baseline
 ```
 
 Even with `--skip-prepare`, stub baseline settings are applied before the load generator starts.
+`--worker-dispatcher-threads` limits the shared fixed worker pool only for the
+suspend `ckc` profile. The blocking `ckc-sync` profile continues to use
+`Dispatchers.IO`.
 The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text
