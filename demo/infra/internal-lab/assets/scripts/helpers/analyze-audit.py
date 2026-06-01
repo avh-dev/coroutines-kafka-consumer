@@ -9,6 +9,12 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import BinaryIO
 
+TOPIC_NAMES = {
+    1: "order.events.v1",
+    2: "batch.events.v1",
+    3: "cauldron.events.v1",
+}
+
 
 @dataclass(frozen=True)
 class RecordKey:
@@ -95,6 +101,15 @@ def read_records(host: str, port: int, key: str, batch_size: int) -> list[AuditR
     records: list[AuditRecord] = []
     with socket.create_connection((host, port)) as connection:
         file = connection.makefile("rb")
+        connection.sendall(encode_command("LLEN", key))
+        total = read_response(file)
+        if not isinstance(total, int):
+            raise ValueError(f"Redis LLEN returned an unexpected response: {total!r}")
+        print(f"Reading {total} Redis audit records.", file=sys.stderr)
+        reported_percent = 0
+        if total == 0:
+            print("Read progress: 100%", file=sys.stderr)
+
         start = 0
         while True:
             connection.sendall(encode_command("LRANGE", key, start, start + batch_size - 1))
@@ -102,6 +117,11 @@ def read_records(host: str, port: int, key: str, batch_size: int) -> list[AuditR
             if not isinstance(values, list):
                 raise ValueError(f"Redis LRANGE returned an unexpected response: {values!r}")
             records.extend(parse_record(value) for value in values if isinstance(value, str))
+            read_count = min(len(records), total)
+            percent = 100 if total == 0 else read_count * 100 // total
+            while reported_percent + 10 <= percent:
+                reported_percent += 10
+                print(f"Read progress: {reported_percent}%", file=sys.stderr)
             if len(values) < batch_size:
                 return records
             start += batch_size
@@ -114,14 +134,7 @@ def percentile(values: list[int], percent: float) -> int:
     return values[index]
 
 
-def print_counter(name: str, counter: Counter[int]) -> None:
-    parts = ", ".join(f"{topic_id}={count}" for topic_id, count in sorted(counter.items()))
-    print(f"{name}: {parts if parts else '-'}")
-
-
-def main() -> int:
-    args = parse_args()
-    records = read_records(args.redis_host, args.redis_port, args.redis_key, args.batch_size)
+def print_summary(title: str, records: list[AuditRecord]) -> None:
     published = [record for record in records if record.record_type == "P"]
     processed = [record for record in records if record.record_type == "C"]
 
@@ -154,7 +167,7 @@ def main() -> int:
         if record.kafka_timestamp_ms > 0
     )
 
-    print("Audit summary")
+    print(title)
     print(f"  published_records={len(published)}")
     print(f"  published_unique={len(published_keys)}")
     print(f"  processed_records={len(processed)}")
@@ -163,8 +176,6 @@ def main() -> int:
     print(f"  duplicate_published={duplicate_published}")
     print(f"  duplicate_processed={duplicate_processed}")
     print(f"  processed_without_publish={len(unknown_processed)}")
-    print_counter("  published_by_topic", Counter(record.key.topic_id for record in published_by_key.values()))
-    print_counter("  processed_by_topic", Counter(record.key.topic_id for record in processed))
     print(
         "  publish_to_process_latency_ms="
         f"p50={percentile(latencies, 0.50)} p95={percentile(latencies, 0.95)} "
@@ -175,6 +186,19 @@ def main() -> int:
         f"p50={percentile(kafka_age, 0.50)} p95={percentile(kafka_age, 0.95)} "
         f"p99={percentile(kafka_age, 0.99)} max={kafka_age[-1] if kafka_age else 0}"
     )
+
+
+def main() -> int:
+    args = parse_args()
+    records = read_records(args.redis_host, args.redis_port, args.redis_key, args.batch_size)
+
+    print_summary("Audit summary", records)
+    for topic_id, topic_name in TOPIC_NAMES.items():
+        print()
+        print_summary(
+            f"Topic summary: {topic_name}",
+            [record for record in records if record.key.topic_id == topic_id],
+        )
     return 0
 
 
