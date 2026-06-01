@@ -71,6 +71,7 @@
 | [DEMO-41](#demo-41) | Replace Spring Data Redis with direct Lettuce coroutine and synchronous commands for demo Redis access.                                      | DONE |
 | [DEMO-42](#demo-42) | Add a Reactor-backed Confluent Parallel Consumer profile that runs the suspend demo business path without blocking worker threads.           | DONE |
 | [DEMO-43](#demo-43) | Remove demo Redis state TTL so long-running load tests retain batch and cauldron state until the test runner resets Redis.                     | DONE |
+| [DEMO-44](#demo-44) | Align external demo consumer processing modes with CKC settings and discard stale freshness-first records before business processing.          | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1175,3 +1176,12 @@ _Date: 2026-06-01_
 Store demo Redis state without expiration so long-running load tests retain batch and cauldron state.
 Rely on the existing test-runner Redis reset before each run instead of time-based cleanup.
 Apply the same behavior to synchronous and suspend repository paths.
+
+<a id="demo-44"></a>
+### DEMO-44 - Align external consumer processing modes
+
+_Date: 2026-06-01_
+
+Map CKC processing-mode settings to the corresponding Confluent Parallel Consumer ordering.
+Discard stale records before external-adapter business processing when freshness-first mode is selected.
+Reject processing modes that Spring Kafka cannot model faithfully instead of silently running a different comparison.

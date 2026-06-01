@@ -11,6 +11,8 @@ lab:
 
 env:
   springProfilesActive: spring-kafka
+  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
   orderPollLoopConcurrency: 10
   telemetryPollLoopConcurrency: 50
   batchPollLoopConcurrency: 6

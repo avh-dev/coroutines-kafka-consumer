@@ -77,10 +77,11 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 
 ## CKC Experiment Controls
 
-The `ckc` and `ckc-sync` profiles expose demo-only switches for consumer experiments:
+The consumer profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
-- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc` profile. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
+- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc` and `confluent-parallel-reactor` profiles. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
+- `FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=10` limits record age for external adapters in `FRESHNESS_FIRST` mode. Stale records are acknowledged without running demo business logic or audit writes.
 
 Example:
 

@@ -22,6 +22,7 @@ env:
   processingEnabled: true
   metricsImplementation: MICROMETER
   workerDispatcherThreads: 8
+  freshnessFirstMaxRecordAgeSeconds: 10
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500

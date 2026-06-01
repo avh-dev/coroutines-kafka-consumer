@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.AuditLog
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -20,12 +21,14 @@ class ConfluentParallelTrackingService(
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
-    private val auditLog: AuditLog
+    private val auditLog: AuditLog,
+    private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun processOrderLifecycle(record: ConsumerRecord<String, OrderLifecycleEvent>) {
         try {
+            if (shouldDiscard(properties.consumers.order, record)) return
             if (properties.consumers.processingEnabled) {
                 orderLifecycleService.apply(record.value())
             } else {
@@ -40,6 +43,7 @@ class ConfluentParallelTrackingService(
 
     fun processBatchLifecycle(record: ConsumerRecord<String, BatchLifecycleEvent>) {
         try {
+            if (shouldDiscard(properties.consumers.batch, record)) return
             if (properties.consumers.processingEnabled) {
                 batchLifecycleService.apply(record.value())
             } else {
@@ -54,6 +58,7 @@ class ConfluentParallelTrackingService(
 
     fun processCauldronTelemetry(record: ConsumerRecord<String, CauldronTelemetryEvent>) {
         try {
+            if (shouldDiscard(properties.consumers.telemetry, record)) return
             if (properties.consumers.processingEnabled) {
                 cauldronTelemetryService.recalculate(record.value())
             } else {
@@ -75,4 +80,14 @@ class ConfluentParallelTrackingService(
             auditLog.processed(record)
         }
     }
+
+    private fun shouldDiscard(
+        runtime: DemoApplicationProperties.ConsumerRuntime,
+        record: ConsumerRecord<*, *>
+    ): Boolean =
+        freshnessFirstRecordFilter.shouldDiscard(runtime, record.timestamp()).also { discard ->
+            if (discard) {
+                logger.debug("Discarding stale Confluent Parallel record for topic={}, offset={}", record.topic(), record.offset())
+            }
+        }
 }
