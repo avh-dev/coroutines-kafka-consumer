@@ -44,10 +44,11 @@ dependencies {
     implementation("com.linecorp.armeria:armeria-spring-boot3-actuator-starter:$armeriaVersion")
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("io.lettuce:lettuce-core")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.confluent.parallelconsumer:parallel-consumer-core:$parallelConsumerVersion")
     implementation("org.springframework.kafka:spring-kafka")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -58,6 +59,9 @@ dependencies {
             version { require(coroutinesVersion) }
         }
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8") {
+            version { require(coroutinesVersion) }
+        }
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive") {
             version { require(coroutinesVersion) }
         }
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json") {
