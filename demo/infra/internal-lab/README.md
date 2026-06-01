@@ -171,7 +171,7 @@ Pass the same choices explicitly for a non-interactive run:
 
 ```sh
 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
-  --deployment ckc-sync-local-baseline \
+  --deployment ckc-sync \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
@@ -195,7 +195,7 @@ To rerun only the load generator without resetting Redis, topics, or the app dep
 ```sh
 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
   --skip-prepare \
-  --deployment ckc-sync-local-baseline \
+  --deployment ckc-sync \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
@@ -263,7 +263,7 @@ Dashboard JSON is mounted from `/opt/ckc-internal-lab/workspace/demo/infra/share
 the same path refreshed by `update-lab.sh`. The update script reapplies the Grafana compose service so mount
 changes and refreshed dashboard JSON are visible without manual copying.
 
-## Scaling And HPA
+## Scaling
 
 Manual scaling does not need metrics-server:
 
@@ -272,26 +272,15 @@ kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf scale 
 kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf rollout status deployment/ckc-demo
 ```
 
-`kubectl top` and HPA do need metrics-server:
+`kubectl top` needs metrics-server:
 
 ```sh
 kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml top nodes
 kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf top pods
 ```
 
-Enable the existing HPA profile when autoscaling itself is part of the test:
-
-```sh
-helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
-  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
-  --namespace ckc-perf \
-  -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-hpa.yaml
-
-kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf get hpa ckc-demo -w
-```
-
-For blocking vs non-blocking comparisons, prefer fixed manual replicas first. HPA changes pod count during the run and makes profile comparisons harder unless autoscaling behavior is the subject.
+Internal-lab comparison profiles use fixed replicas. HPA changes pod count during
+the run and makes profile comparisons harder.
 
 ## Comparing Consumer Modes
 
@@ -319,8 +308,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-local-baseline.yaml \
-  --set env.springProfilesActive=ckc
+  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc.yaml
 ```
 
 ```sh
@@ -328,8 +316,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-local-baseline.yaml \
-  --set env.springProfilesActive=spring-kafka
+  -f demo/infra/shared/helm/demo/profiles/internal-lab/spring-kafka.yaml
 ```
 
 Useful Prometheus queries:
