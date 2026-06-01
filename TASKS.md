@@ -68,6 +68,7 @@
 | [DEMO-38](#demo-38) | Add a configurable shared fixed worker dispatcher for suspend CKC demo consumers.                                                           | DONE |
 | [DEMO-39](#demo-39) | Replace the demo application's embedded Tomcat server with Armeria while preserving query and Actuator endpoints.                           | DONE |
 | [DEMO-40](#demo-40) | Add Redis audit analyzer read progress and per-topic result summaries.                                                                      | DONE |
+| [DEMO-41](#demo-41) | Experiment with direct Lettuce coroutine commands for suspend demo Redis access.                                                            | IN_PROGRESS |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1143,3 +1144,12 @@ _Date: 2026-06-01_
 Report Redis audit download progress in ten-percent increments.
 Keep progress on stderr so the persisted summary remains focused on analysis results.
 Print the existing loss, duplicate, and latency measurements for the complete audit and for each demo topic.
+
+<a id="demo-41"></a>
+### DEMO-41 - Experiment with Lettuce coroutine Redis access
+
+_Date: 2026-06-01_
+
+Replace the suspend demo Redis path with direct Lettuce coroutine commands.
+Keep blocking demo profiles on direct synchronous Lettuce commands.
+Preserve Redis data formats and audit completion semantics so the same internal-lab baseline can compare overhead.

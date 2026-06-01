@@ -1,6 +1,12 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.config.DemoRedisCommands
+import io.lettuce.core.ExperimentalLettuceCoroutinesApi
+import io.lettuce.core.api.coroutines.RedisCoroutinesCommands
+import io.lettuce.core.api.coroutines.RedisCoroutinesCommandsImpl
+import io.lettuce.core.api.reactive.RedisReactiveCommands
+import io.lettuce.core.api.sync.RedisCommands
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -10,14 +16,13 @@ import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
-import org.springframework.data.redis.core.ReactiveListOperations
-import org.springframework.data.redis.core.ReactiveRedisTemplate
 import reactor.core.publisher.Mono
 import java.util.concurrent.CompletableFuture
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalLettuceCoroutinesApi::class)
 class AuditLogTest {
     @Test
     fun `encodes processed record as compact Redis audit payload`() {
@@ -58,27 +63,34 @@ class AuditLogTest {
 
     @Test
     fun `disabled audit does not call Redis`() {
-        val redisTemplate = mockRedisTemplate()
+        val redisCommands = mockRedisCommands()
         val properties = DemoApplicationProperties(audit = DemoApplicationProperties.Audit(enabled = false))
 
-        AuditLog(properties, redisTemplate).processed(DemoTopics.ORDER_EVENTS, "order-1", 0, 1, 1_000)
+        AuditLog(properties, redisCommands).processed(DemoTopics.ORDER_EVENTS, "order-1", 0, 1, 1_000)
 
-        verifyNoInteractions(redisTemplate)
+        verifyNoInteractions(redisCommands)
     }
 
     private fun auditLog(write: CompletableFuture<Long>): AuditLog {
-        val redisTemplate = mockRedisTemplate()
-        val listOperations = mockListOperations()
-        `when`(redisTemplate.opsForList()).thenReturn(listOperations)
-        `when`(listOperations.rightPush(anyString(), any(ByteArray::class.java))).thenReturn(Mono.fromFuture(write))
-        return AuditLog(DemoApplicationProperties(), redisTemplate)
+        val redisCommands = mockRedisCommands()
+        val syncCommands = mockSyncCommands()
+        val reactiveCommands = mockReactiveCommands()
+        `when`(redisCommands.sync()).thenReturn(syncCommands)
+        `when`(redisCommands.coroutines()).thenReturn(RedisCoroutinesCommandsImpl(reactiveCommands))
+        `when`(syncCommands.rpush(anyString(), any(ByteArray::class.java))).thenAnswer { write.join() }
+        `when`(reactiveCommands.rpush(anyString(), any(ByteArray::class.java))).thenReturn(Mono.fromFuture(write))
+        return AuditLog(DemoApplicationProperties(), redisCommands)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun mockRedisTemplate(): ReactiveRedisTemplate<String, ByteArray> =
-        mock(ReactiveRedisTemplate::class.java) as ReactiveRedisTemplate<String, ByteArray>
+    private fun mockRedisCommands(): DemoRedisCommands =
+        mock(DemoRedisCommands::class.java)
 
     @Suppress("UNCHECKED_CAST")
-    private fun mockListOperations(): ReactiveListOperations<String, ByteArray> =
-        mock(ReactiveListOperations::class.java) as ReactiveListOperations<String, ByteArray>
+    private fun mockSyncCommands(): RedisCommands<String, ByteArray> =
+        mock(RedisCommands::class.java) as RedisCommands<String, ByteArray>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun mockReactiveCommands(): RedisReactiveCommands<String, ByteArray> =
+        mock(RedisReactiveCommands::class.java) as RedisReactiveCommands<String, ByteArray>
+
 }

@@ -1,48 +1,46 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.config.DemoApplicationProperties
-import kotlinx.coroutines.future.await
+import avh.ckc.demo.config.DemoRedisCommands
+import io.lettuce.core.ExperimentalLettuceCoroutinesApi
 import org.apache.kafka.clients.consumer.ConsumerRecord
-import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
-import java.util.concurrent.CompletionStage
 
+@OptIn(ExperimentalLettuceCoroutinesApi::class)
 @Component
 class AuditLog(
     properties: DemoApplicationProperties,
-    private val redisTemplate: ReactiveRedisTemplate<String, ByteArray>
+    private val redisCommands: DemoRedisCommands
 ) {
     private val enabled = properties.audit.enabled
 
     suspend fun processedSuspending(record: ConsumerRecord<*, *>) {
-        append(record).await()
+        if (enabled) {
+            redisCommands.coroutines().rpush(AUDIT_KEY, encodeProcessedRecord(record))
+        }
     }
 
     fun processed(record: ConsumerRecord<*, *>) {
-        append(record).toCompletableFuture().join()
+        if (enabled) {
+            redisCommands.sync().rpush(AUDIT_KEY, encodeProcessedRecord(record))
+        }
     }
 
     fun processed(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long) {
-        append(topic, key, partition, offset, kafkaTimestampMs).toCompletableFuture().join()
+        if (enabled) {
+            redisCommands.sync().rpush(AUDIT_KEY, encodeAuditRecord("C", topic, partition, offset, kafkaTimestampMs, key))
+        }
     }
 
-    private fun append(record: ConsumerRecord<*, *>): CompletionStage<Long?> =
-        append(
+    private fun encodeProcessedRecord(record: ConsumerRecord<*, *>): ByteArray =
+        encodeAuditRecord(
+            type = "C",
             topic = record.topic(),
-            key = record.key()?.toString(),
+            messageKey = record.key()?.toString(),
             partition = record.partition(),
             offset = record.offset(),
             kafkaTimestampMs = record.timestamp()
         )
-
-    private fun append(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long): CompletionStage<Long?> {
-        if (!enabled) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null)
-        }
-        return redisTemplate.opsForList()
-            .rightPush(AUDIT_KEY, encodeAuditRecord("C", topic, partition, offset, kafkaTimestampMs, key))
-            .toFuture()
-    }
 }
 
 internal fun encodeAuditRecord(
