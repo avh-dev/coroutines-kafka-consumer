@@ -72,6 +72,7 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 The `ckc` and `ckc-sync` profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
+- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc` profile. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
 
 Example:
 

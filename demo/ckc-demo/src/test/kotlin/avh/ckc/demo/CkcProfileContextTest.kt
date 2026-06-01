@@ -10,6 +10,9 @@ import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
@@ -37,7 +40,10 @@ class CkcProfileContextTest(
     @Autowired private val metricsProperties: MetricsProperties,
     @Autowired
     @Qualifier("consumerMetrics")
-    private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>
+    private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
+    @Autowired
+    @Qualifier("ckcWorkerDispatcher")
+    private val workerDispatcher: ExecutorCoroutineDispatcher
 ) {
     @Test
     fun contextLoads() {
@@ -73,6 +79,18 @@ class CkcProfileContextTest(
             true,
             metricsProperties.distribution.percentilesHistogram["ckc.demo.model.call.duration"]
         )
+    }
+
+    @Test
+    fun `ckc profile creates shared named worker dispatcher`() {
+        assertEquals(1, applicationContext.getBeansOfType(ExecutorCoroutineDispatcher::class.java).size)
+        val threadName = runBlocking {
+            withContext(workerDispatcher) {
+                Thread.currentThread().name
+            }
+        }
+
+        assertTrue(threadName.startsWith("ckc-worker-"))
     }
 
     @Test

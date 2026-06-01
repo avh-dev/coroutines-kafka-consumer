@@ -51,6 +51,7 @@ data class DemoApplicationProperties(
     data class Consumers(
         var processingEnabled: Boolean = true,
         var metricsImplementation: MetricsImplementation = MetricsImplementation.MICROMETER,
+        var workerDispatcherThreads: Int = 8,
         var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
