@@ -66,6 +66,7 @@
 | [DEMO-36](#demo-36) | Add CKC pause and resume metrics for observing demo consumer backpressure.                                                                 | DONE |
 | [DEMO-37](#demo-37) | Remove the remaining Ktor demo model-client path and keep Armeria as the only suspend HTTP transport.                                      | DONE |
 | [DEMO-38](#demo-38) | Add a configurable shared fixed worker dispatcher for suspend CKC demo consumers.                                                           | DONE |
+| [DEMO-39](#demo-39) | Replace the demo application's embedded Tomcat server with Armeria while preserving query and Actuator endpoints.                           | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1121,3 +1122,13 @@ _Date: 2026-06-01_
 Expose the suspend CKC shared worker dispatcher thread count through Helm.
 Add an internal-lab runner prompt and CLI override for changing the thread count between runs.
 Persist the previous selection so repeated experiments keep the same physical worker limit by default.
+
+<a id="demo-39"></a>
+### DEMO-39 - Replace Tomcat with Armeria
+
+_Date: 2026-06-01_
+
+Replace the demo application's embedded Tomcat server with Armeria to reduce thread overhead during load tests.
+Serve the existing order query API through an Armeria annotated service.
+Keep health and Prometheus Actuator endpoints available on the existing port and paths.
+Limit consumer-side Armeria server threads and make the reference query API opt-in through the `api` profile.

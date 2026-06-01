@@ -1,4 +1,6 @@
 spring:
+  main:
+    web-application-type: none
   profiles:
     default: ckc
   data:
@@ -8,6 +10,17 @@ spring:
   kafka:
     listener:
       auto-startup: false
+
+armeria:
+  worker-group: ${ARMERIA_WORKER_THREADS:1}
+  blocking-task-executor: ${ARMERIA_BLOCKING_THREADS:1}
+  ports:
+    - port: ${SERVER_PORT:8080}
+      protocols:
+        - HTTP
+  internal-services:
+    include: actuator
+    port: ${SERVER_PORT:8080}
 
 demo:
   kafka:
