@@ -5,7 +5,6 @@ val publishedArtifactNames = mapOf(
     "ckc-micrometer" to "coroutines-kafka-consumer-micrometer",
     "ckc-experiments" to "coroutines-kafka-consumer-experiments",
     "ckc-demo-contracts" to "coroutines-kafka-consumer-demo-contracts",
-    "ckc-demo-audit" to "coroutines-kafka-consumer-demo-audit",
     "ckc-demo" to "coroutines-kafka-consumer-demo",
     "ckc-demo-load-test" to "coroutines-kafka-consumer-demo-load-test",
     "ckc-demo-stubs" to "coroutines-kafka-consumer-demo-stubs",

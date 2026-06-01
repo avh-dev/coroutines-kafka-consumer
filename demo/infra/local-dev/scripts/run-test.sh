@@ -149,6 +149,10 @@ main() {
   trap stop_started_processes EXIT INT TERM
 
   echo
+  echo "Resetting local Redis."
+  docker exec ckc-local-redis redis-cli FLUSHALL
+
+  echo
   echo "Recreating local topics."
   "${SCRIPT_DIR}/create-topics.sh"
 

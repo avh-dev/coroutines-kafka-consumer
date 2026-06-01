@@ -38,14 +38,7 @@ data class DemoApplicationProperties(
     )
 
     data class Audit(
-        var enabled: Boolean = true,
-        var directory: String = ".demo-audit",
-        var filePrefix: String = "",
-        var queueCapacity: Int = 65_536,
-        var flushRecords: Int = 1_024,
-        var flushIntervalMs: Long = 50,
-        var fsyncIntervalMs: Long = 1_000,
-        var maxSegmentBytes: Long = 256L * 1024L * 1024L
+        var enabled: Boolean = true
     )
 
     data class Consumers(

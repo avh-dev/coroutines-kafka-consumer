@@ -342,9 +342,7 @@ fi
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
 RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
-PUBLISHED_AUDIT_DIR="${RUN_AUDIT_DIR}/published"
-PROCESSED_AUDIT_DIR="${RUN_AUDIT_DIR}/processed"
-mkdir -p "${PUBLISHED_AUDIT_DIR}" "${PROCESSED_AUDIT_DIR}"
+mkdir -p "${RUN_AUDIT_DIR}"
 
 BOOTSTRAP_SERVERS="127.0.0.1:9092" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
@@ -371,8 +369,8 @@ DIAGNOSTICS_BLOB_SIZE="${DIAGNOSTICS_BLOB_SIZE}" \
 TELEMETRY_SOURCE_MODE="${TELEMETRY_SOURCE_MODE}" \
 PUBLISH_ENABLED="${PUBLISH_ENABLED}" \
 AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}" \
-AUDIT_LOG_DIR="${PUBLISHED_AUDIT_DIR}" \
-AUDIT_LOG_FILE_PREFIX="published-${RUN_ID}" \
+REDIS_HOST="127.0.0.1" \
+REDIS_PORT="6379" \
 LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
 nohup "${LOAD_TEST_BIN}" > "${LOG_PATH}" 2>&1 &
 
@@ -458,10 +456,7 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
 fi
 
 echo
-echo "Collecting processed audit files from lab host."
-mkdir -p "${LAB_ROOT}/audit/current/processed"
-(cd "${LAB_ROOT}/audit/current/processed" && tar -cf - -- *.tsv 2>/dev/null) \
-  | tar -xf - -C "${PROCESSED_AUDIT_DIR}" 2>/dev/null || true
+echo "Analyzing Redis audit records."
 python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
-  --published-dir "${PUBLISHED_AUDIT_DIR}" \
-  --processed-dir "${PROCESSED_AUDIT_DIR}" | tee "${RUN_AUDIT_DIR}/summary.txt"
+  --redis-host "127.0.0.1" \
+  --redis-port "6379" | tee "${RUN_AUDIT_DIR}/summary.txt"

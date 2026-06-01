@@ -1,60 +1,70 @@
 package avh.ckc.demo
 
-import avh.ckc.demo.audit.FileAuditLogConfig
-import avh.ckc.demo.audit.FileBackedAuditLog
 import avh.ckc.demo.config.DemoApplicationProperties
-import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.future.await
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
-import kotlin.io.path.Path
+import java.util.concurrent.CompletionStage
 
 @Component
 class AuditLog(
-    properties: DemoApplicationProperties
+    properties: DemoApplicationProperties,
+    private val redisTemplate: ReactiveRedisTemplate<String, ByteArray>
 ) {
-    private val delegate: FileBackedAuditLog? =
-        if (properties.audit.enabled) {
-            FileBackedAuditLog(
-                FileAuditLogConfig(
-                    directory = Path(properties.audit.directory),
-                    filePrefix = properties.audit.filePrefix.ifBlank { defaultFilePrefix() },
-                    queueCapacity = properties.audit.queueCapacity,
-                    flushRecords = properties.audit.flushRecords,
-                    flushIntervalMs = properties.audit.flushIntervalMs,
-                    fsyncIntervalMs = properties.audit.fsyncIntervalMs,
-                    maxSegmentBytes = properties.audit.maxSegmentBytes
-                ),
-                threadName = "ckc-demo-audit-writer"
-            )
-        } else {
-            null
-        }
+    private val enabled = properties.audit.enabled
+
+    suspend fun processedSuspending(record: ConsumerRecord<*, *>) {
+        append(record).await()
+    }
 
     fun processed(record: ConsumerRecord<*, *>) {
-        processed(
+        append(record).toCompletableFuture().join()
+    }
+
+    fun processed(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long) {
+        append(topic, key, partition, offset, kafkaTimestampMs).toCompletableFuture().join()
+    }
+
+    private fun append(record: ConsumerRecord<*, *>): CompletionStage<Long?> =
+        append(
             topic = record.topic(),
-            key = record.key()?.toString().orEmpty(),
+            key = record.key()?.toString(),
             partition = record.partition(),
             offset = record.offset(),
             kafkaTimestampMs = record.timestamp()
         )
-    }
 
-    fun processed(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long) {
-        delegate?.processed(
-            topic = topic,
-            key = key.orEmpty(),
-            partition = partition,
-            offset = offset,
-            kafkaTimestampMs = kafkaTimestampMs
-        )
-    }
-
-    @PreDestroy
-    fun close() {
-        delegate?.close()
+    private fun append(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long): CompletionStage<Long?> {
+        if (!enabled) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null)
+        }
+        return redisTemplate.opsForList()
+            .rightPush(AUDIT_KEY, encodeAuditRecord("C", topic, partition, offset, kafkaTimestampMs, key))
+            .toFuture()
     }
 }
 
-private fun defaultFilePrefix(): String =
-    "processed-${System.getenv("HOSTNAME") ?: ProcessHandle.current().pid()}"
+internal fun encodeAuditRecord(
+    type: String,
+    topic: String,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    messageKey: String?
+): ByteArray =
+    "$type\t${auditTopicId(topic)}\t$partition\t$offset\t$kafkaTimestampMs\t${System.currentTimeMillis()}\t${sanitizeAuditKey(messageKey)}"
+        .encodeToByteArray()
+
+private fun auditTopicId(topic: String): Int =
+    when (topic) {
+        DemoTopics.ORDER_EVENTS -> 1
+        DemoTopics.BATCH_EVENTS -> 2
+        DemoTopics.CAULDRON_EVENTS -> 3
+        else -> error("No audit topic id configured for topic '$topic'")
+    }
+
+private fun sanitizeAuditKey(key: String?): String =
+    key.orEmpty().replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
+
+private const val AUDIT_KEY = "audit"

@@ -26,13 +26,6 @@ env:
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500
   auditLogEnabled: true
-  auditLogDir: .demo-audit
-  auditLogFilePrefix: ""
-  auditQueueCapacity: 65536
-  auditFlushRecords: 1024
-  auditFlushIntervalMs: 50
-  auditFsyncIntervalMs: 1000
-  auditMaxSegmentBytes: "268435456"
   orderProcessingMode: AT_LEAST_ONCE_UNORDERED
   orderWorkerConcurrency: 2
   orderPollLoopConcurrency: 1
@@ -47,11 +40,6 @@ env:
   telemetryWorkChannelCapacity: 256
 
 resources: {}
-
-auditVolume:
-  enabled: false
-  hostPath: ""
-  mountPath: /var/lib/ckc-audit
 
 probes:
   readiness:
