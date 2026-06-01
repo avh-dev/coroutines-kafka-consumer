@@ -14,7 +14,8 @@ Internal-lab tests live under `internal-lab/` and contain only:
 - reusable load-test runtime settings
 
 Internal-lab deployment settings are stored directly in local Helm profiles under
-`demo/infra/shared/helm/demo/profiles`. The `lab.kafkaTopics` block associates topic
+`demo/infra/shared/helm/demo/profiles/internal-lab`. AWS deployment profiles live under
+`demo/infra/shared/helm/demo/profiles/aws`. The `lab.kafkaTopics` block associates topic
 partition counts with app scaling settings without affecting rendered Kubernetes resources.
 Noop runs use the runtime Helm override `--set env.processingEnabled=false`.
 

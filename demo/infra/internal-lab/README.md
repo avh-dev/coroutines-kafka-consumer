@@ -286,7 +286,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/ckc-hpa.yaml
+  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-hpa.yaml
 
 kubectl --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml -n ckc-perf get hpa ckc-demo -w
 ```
@@ -319,7 +319,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/ckc-local-baseline.yaml \
+  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-local-baseline.yaml \
   --set env.springProfilesActive=ckc
 ```
 
@@ -328,7 +328,7 @@ helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/ckc-local-baseline.yaml \
+  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc-local-baseline.yaml \
   --set env.springProfilesActive=spring-kafka
 ```
 

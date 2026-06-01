@@ -502,7 +502,7 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
     demo_chart = charts_dir / "demo"
     demo_value_files = [
         demo_chart / "values.yaml",
-        require_profile_file(demo_chart / "profiles", app_profile),
+        require_profile_file(demo_chart / "profiles" / "aws", app_profile),
     ]
     helm_upgrade_install(
         "ckc-demo",

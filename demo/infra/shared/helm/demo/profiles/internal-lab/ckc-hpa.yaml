@@ -1,0 +1,20 @@
+replicaCount: 2
+
+env:
+  springProfilesActive: ckc
+  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  telemetryProcessingMode: FRESHNESS_FIRST
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
