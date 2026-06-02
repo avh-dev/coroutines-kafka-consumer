@@ -1217,3 +1217,7 @@ _Date: 2026-06-02_
 Expand Grafana Parallel Consumer selectors to include blocking and Reactor-backed Confluent profiles.
 Keep native PC metric tags distinct so historical runs remain attributable to the selected Spring profile.
 Show CKC ordering-queue current and maximum values next to the existing runtime pressure panels.
+Aggregate application CKC, Parallel Consumer, model, pod-resource, and JVM series across pods by default and provide an optional per-pod dashboard view.
+Apply the shared duration statistic selector to successful record-age panels, using average outside the max view.
+Restart Grafana during internal-lab updates so synchronized dashboard definitions are reloaded immediately.
+Collapse dashboard sections by default while keeping the shorter profile timeline visible on initial load.

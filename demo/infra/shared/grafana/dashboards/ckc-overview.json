@@ -67,7 +67,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 24,
         "x": 0,
         "y": 1
@@ -99,7 +99,960 @@
       "type": "state-timeline"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 1,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "id": 6,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (event_type, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_processed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}}"
+            }
+          ],
+          "title": "Order Events Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (event_type, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}} / {{error}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_failed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}} failed"
+            }
+          ],
+          "title": "Order Events Failure Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "id": 8,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(1000 * sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{event_type}} {{pod}} avg",
+              "refId": "A"
+            },
+            {
+              "expr": "(1000 * max by (event_type, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{event_type}} {{pod}} max",
+              "refId": "B"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{event_type}} {{pod}} p50",
+              "refId": "C"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{event_type}} {{pod}} p95",
+              "refId": "D"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{event_type}} {{pod}} p99",
+              "refId": "E"
+            },
+            {
+              "expr": "(1000 * sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "confluent-parallel pc {{pod}} avg",
+              "refId": "F"
+            },
+            {
+              "expr": "(1000 * max by (${pod_grouping}) (pc_user_function_processing_time_seconds_max{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "confluent-parallel pc {{pod}} max",
+              "refId": "G"
+            }
+          ],
+          "title": "Order Events Processing Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "id": 9,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}} avg"
+            },
+            {
+              "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "refId": "C",
+              "legendFormat": "{{event_type}} {{pod}} max"
+            }
+          ],
+          "title": "Order Events Successful Record Age",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Order Events",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 7
+          },
+          "id": 65,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (event_type, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_processed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}}"
+            }
+          ],
+          "title": "Batch Events Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 7
+          },
+          "id": 66,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (event_type, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}} / {{error}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_failed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}} failed"
+            }
+          ],
+          "title": "Batch Events Failure Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 15
+          },
+          "id": 67,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(1000 * sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{event_type}} {{pod}} avg",
+              "refId": "A"
+            },
+            {
+              "expr": "(1000 * max by (event_type, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{event_type}} {{pod}} max",
+              "refId": "B"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{event_type}} {{pod}} p50",
+              "refId": "C"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{event_type}} {{pod}} p95",
+              "refId": "D"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{event_type}} {{pod}} p99",
+              "refId": "E"
+            },
+            {
+              "expr": "(1000 * sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_count{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "confluent-parallel pc {{pod}} avg",
+              "refId": "F"
+            },
+            {
+              "expr": "(1000 * max by (${pod_grouping}) (pc_user_function_processing_time_seconds_max{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "confluent-parallel pc {{pod}} max",
+              "refId": "G"
+            }
+          ],
+          "title": "Batch Events Processing Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 15
+          },
+          "id": 68,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "refId": "A",
+              "legendFormat": "{{event_type}} {{pod}} avg"
+            },
+            {
+              "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"batch_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "refId": "C",
+              "legendFormat": "{{event_type}} {{pod}} max"
+            }
+          ],
+          "title": "Batch Events Successful Record Age",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Batch Events",
+      "type": "row",
+      "id": 64
+    },
+    {
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 10,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "id": 15,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (topic, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{topic}} {{pod}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_processed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}}"
+            }
+          ],
+          "title": "Cauldron Events Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "id": 16,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (topic, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{topic}} {{pod}} / {{error}}"
+            },
+            {
+              "expr": "sum by (${pod_grouping}) (rate(pc_failed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "confluent-parallel pc {{pod}} failed"
+            }
+          ],
+          "title": "Cauldron Events Failure Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "id": 17,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(1000 * sum by (topic, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{topic}} {{pod}} avg",
+              "refId": "A"
+            },
+            {
+              "expr": "(1000 * max by (topic, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{topic}} {{pod}} max",
+              "refId": "B"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{topic}} {{pod}} p50",
+              "refId": "C"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{topic}} {{pod}} p95",
+              "refId": "D"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{topic}} {{pod}} p99",
+              "refId": "E"
+            },
+            {
+              "expr": "(1000 * sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "confluent-parallel pc {{pod}} avg",
+              "refId": "F"
+            },
+            {
+              "expr": "(1000 * max by (${pod_grouping}) (pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "confluent-parallel pc {{pod}} max",
+              "refId": "G"
+            }
+          ],
+          "title": "Cauldron Events Processing Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "id": 18,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "refId": "A",
+              "legendFormat": "{{topic}} {{pod}} avg"
+            },
+            {
+              "expr": "(max by (topic, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"cauldron_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "refId": "C",
+              "legendFormat": "{{topic}} {{pod}} max"
+            }
+          ],
+          "title": "Cauldron Events Successful Record Age",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Cauldron Events",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 9
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (model, operation, outcome, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval]))",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{outcome}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Model Call Throughput",
+          "type": "timeseries",
+          "id": 70
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 9
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(1000 * sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_sum[$__rate_interval])) / clamp_min(sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} avg",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(1000 * max by (model, operation, transport, ${pod_grouping}) (ckc_demo_model_call_duration_seconds_max)) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} max",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p50",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p95",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p99",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+          "title": "Model Call Duration",
+          "type": "timeseries",
+          "id": 71
+        }
+      ],
+      "title": "Model Calls",
+      "type": "row",
+      "id": 69
+    },
+    {
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -110,1670 +1063,722 @@
         "x": 0,
         "y": 9
       },
-      "id": 1,
-      "panels": [],
-      "title": "Order Events",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 10
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{event_type}}"
-        },
-        {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc"
-        }
-      ],
-      "title": "Order Events Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 10
-      },
-      "id": 7,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{event_type}} / {{error}}"
-        },
-        {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc failed"
-        }
-      ],
-      "title": "Order Events Failure Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 18
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "(1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "{{event_type}} avg",
-          "refId": "A"
-        },
-        {
-          "expr": "(1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "{{event_type}} max",
-          "refId": "B"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-          "legendFormat": "{{event_type}} p50",
-          "refId": "C"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-          "legendFormat": "{{event_type}} p95",
-          "refId": "D"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-          "legendFormat": "{{event_type}} p99",
-          "refId": "E"
-        },
-        {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "confluent-parallel pc avg",
-          "refId": "F"
-        },
-        {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "confluent-parallel pc max",
-          "refId": "G"
-        }
-      ],
-      "title": "Order Events Processing Duration",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 18
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{event_type}} avg"
-        },
-        {
-          "expr": "max by (event_type) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})",
-          "refId": "C",
-          "legendFormat": "{{event_type}} max"
-        }
-      ],
-      "title": "Order Events Successful Record Age",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 26
-      },
-      "panels": [],
-      "title": "Batch Events",
-      "type": "row",
-      "id": 64
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 27
-      },
-      "id": 65,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type) (rate(ckc_record_processed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{event_type}}"
-        },
-        {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc"
-        }
-      ],
-      "title": "Batch Events Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 27
-      },
-      "id": 66,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type, error) (rate(ckc_record_failed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{event_type}} / {{error}}"
-        },
-        {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc failed"
-        }
-      ],
-      "title": "Batch Events Failure Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 35
-      },
-      "id": 67,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "(1000 * sum by (event_type) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "{{event_type}} avg",
-          "refId": "A"
-        },
-        {
-          "expr": "(1000 * max by (event_type) (ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "{{event_type}} max",
-          "refId": "B"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-          "legendFormat": "{{event_type}} p50",
-          "refId": "C"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-          "legendFormat": "{{event_type}} p95",
-          "refId": "D"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-          "legendFormat": "{{event_type}} p99",
-          "refId": "E"
-        },
-        {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "confluent-parallel pc avg",
-          "refId": "F"
-        },
-        {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "confluent-parallel pc max",
-          "refId": "G"
-        }
-      ],
-      "title": "Batch Events Processing Duration",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 35
-      },
-      "id": 68,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (event_type) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{event_type}} avg"
-        },
-        {
-          "expr": "max by (event_type) (ckc_record_age_max{consumer_id=\"batch_events\", error=\"none\"})",
-          "refId": "C",
-          "legendFormat": "{{event_type}} max"
-        }
-      ],
-      "title": "Batch Events Successful Record Age",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 43
-      },
-      "id": 10,
-      "panels": [],
-      "title": "Cauldron Events",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 44
-      },
-      "id": 15,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (topic) (rate(ckc_record_processed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{topic}}"
-        },
-        {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc"
-        }
-      ],
-      "title": "Cauldron Events Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 44
-      },
-      "id": 16,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (topic, error) (rate(ckc_record_failed_total{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{topic}} / {{error}}"
-        },
-        {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "B",
-          "legendFormat": "confluent-parallel pc failed"
-        }
-      ],
-      "title": "Cauldron Events Failure Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 52
-      },
-      "id": 17,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "(1000 * sum by (topic) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "{{topic}} avg",
-          "refId": "A"
-        },
-        {
-          "expr": "(1000 * max by (topic) (ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "{{topic}} max",
-          "refId": "B"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-          "legendFormat": "{{topic}} p50",
-          "refId": "C"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-          "legendFormat": "{{topic}} p95",
-          "refId": "D"
-        },
-        {
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-          "legendFormat": "{{topic}} p99",
-          "refId": "E"
-        },
-        {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "confluent-parallel pc avg",
-          "refId": "F"
-        },
-        {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "confluent-parallel pc max",
-          "refId": "G"
-        }
-      ],
-      "title": "Cauldron Events Processing Duration",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 52
-      },
-      "id": 18,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (topic) (rate(ckc_record_age_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic) (rate(ckc_record_age_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{topic}} avg"
-        },
-        {
-          "expr": "max by (topic) (ckc_record_age_max{consumer_id=\"cauldron_events\", error=\"none\"})",
-          "refId": "C",
-          "legendFormat": "{{topic}} max"
-        }
-      ],
-      "title": "Cauldron Events Successful Record Age",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 60
-      },
-      "panels": [],
-      "title": "Model Calls",
-      "type": "row",
-      "id": 69
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 61
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (model, operation, outcome) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval]))",
-          "legendFormat": "{{model}} / {{operation}} / {{outcome}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Model Call Throughput",
-      "type": "timeseries",
-      "id": 70
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 61
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1000 * sum by (model, operation, transport) (rate(ckc_demo_model_call_duration_seconds_sum[$__rate_interval])) / clamp_min(sum by (model, operation, transport) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-          "legendFormat": "{{model}} / {{operation}} / {{transport}} avg",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1000 * max by (model, operation, transport) (ckc_demo_model_call_duration_seconds_max)) and on() (vector(${duration_percentile}) == -2)",
-          "legendFormat": "{{model}} / {{operation}} / {{transport}} max",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1000 * histogram_quantile(0.50, sum by (le, model, operation, transport) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-          "legendFormat": "{{model}} / {{operation}} / {{transport}} p50",
-          "range": true,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1000 * histogram_quantile(0.95, sum by (le, model, operation, transport) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-          "legendFormat": "{{model}} / {{operation}} / {{transport}} p95",
-          "range": true,
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "(1000 * histogram_quantile(0.99, sum by (le, model, operation, transport) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-          "legendFormat": "{{model}} / {{operation}} / {{transport}} p99",
-          "range": true,
-          "refId": "E"
-        }
-      ],
-      "title": "Model Call Duration",
-      "type": "timeseries",
-      "id": 71
-    },
-    {
-      "collapsed": false,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 69
-      },
       "id": 19,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 10
+          },
+          "id": 24,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} active"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} configured"
+            }
+          ],
+          "title": "CKC Active Workers",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 10
+          },
+          "id": 25,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} size"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} capacity"
+            },
+            {
+              "expr": "max by (consumer_id, ${pod_grouping}) (ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "C",
+              "legendFormat": "{{consumer_id}} {{pod}} max observed"
+            }
+          ],
+          "title": "CKC Queue Pressure",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 18
+          },
+          "id": 61,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}), 1)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "CKC Worker Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 18
+          },
+          "id": 62,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}), 1)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} current"
+            }
+          ],
+          "title": "CKC Work Queue Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 26
+          },
+          "id": 26,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, attempt, error, ${pod_grouping}) (rate(ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / attempt={{attempt}} / {{error}}"
+            }
+          ],
+          "title": "CKC Retry Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 26
+          },
+          "id": 27,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "1000 * sum by (consumer_id, ${pod_grouping}) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} avg"
+            }
+          ],
+          "title": "CKC Poll Duration",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 34
+          },
+          "id": 28,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "CKC Polled Records Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 34
+          },
+          "id": 29,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, success, ${pod_grouping}) (rate(ckc_commit_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / success={{success}}"
+            }
+          ],
+          "title": "CKC Commit Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 42
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "legendFormat": "{{consumer_id}} {{pod}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "CKC Drop Throughput",
+          "type": "timeseries",
+          "id": 81
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 42
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (consumer_id, partition, ${pod_grouping}) (ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "legendFormat": "{{consumer_id}} {{pod}} / partition {{partition}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "CKC OffsetTracker Capacity",
+          "type": "timeseries",
+          "id": 82
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 50
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (consumer_id, action, ${pod_grouping}) (rate(ckc_pause_resume_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{action}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "CKC Pause / Resume Events",
+          "type": "timeseries",
+          "id": 83
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 50
+          },
+          "id": 84,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} size"
+            },
+            {
+              "expr": "max by (consumer_id, ${pod_grouping}) (ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} max observed"
+            }
+          ],
+          "title": "CKC Ordering Queue Pressure",
+          "type": "timeseries"
+        }
+      ],
       "title": "CKC Runtime",
       "type": "row"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 70
-      },
-      "id": 24,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} active"
-        },
-        {
-          "expr": "ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} configured"
-        }
-      ],
-      "title": "CKC Active Workers",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 70
-      },
-      "id": 25,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} size"
-        },
-        {
-          "expr": "ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} capacity"
-        },
-        {
-          "expr": "ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "C",
-          "legendFormat": "{{consumer_id}} max observed"
-        }
-      ],
-      "title": "CKC Queue Pressure",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 78
-      },
-      "id": 61,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"} / clamp_min(ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}, 1)",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "CKC Worker Utilization",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 78
-      },
-      "id": 62,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"} / clamp_min(ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}, 1)",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} current"
-        }
-      ],
-      "title": "CKC Work Queue Utilization",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 86
-      },
-      "id": 26,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id, attempt, error) (rate(ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / attempt={{attempt}} / {{error}}"
-        }
-      ],
-      "title": "CKC Retry Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 86
-      },
-      "id": 27,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (consumer_id) (rate(ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} avg"
-        }
-      ],
-      "title": "CKC Poll Duration",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 94
-      },
-      "id": 28,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (rate(ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "CKC Polled Records Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 94
-      },
-      "id": 29,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id, success) (rate(ckc_commit_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / success={{success}}"
-        }
-      ],
-      "title": "CKC Commit Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 102
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (consumer_id) (rate(ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-          "legendFormat": "{{consumer_id}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "CKC Drop Throughput",
-      "type": "timeseries",
-      "id": 81
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 102
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "legendFormat": "{{consumer_id}} / partition {{partition}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "CKC OffsetTracker Capacity",
-      "type": "timeseries",
-      "id": 82
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 110
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (consumer_id, action) (rate(ckc_pause_resume_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-          "legendFormat": "{{consumer_id}} / {{action}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "CKC Pause / Resume Events",
-      "type": "timeseries",
-      "id": 83
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 110
-      },
-      "id": 84,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} size"
-        },
-        {
-          "expr": "ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} max observed"
-        }
-      ],
-      "title": "CKC Ordering Queue Pressure",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1782,581 +1787,582 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 10
       },
       "id": 45,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 11
+          },
+          "id": 46,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_inflight_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Inflight Records",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 11
+          },
+          "id": 47,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_waiting_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Waiting Records",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit",
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 19
+          },
+          "id": 48,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, ${pod_grouping}) (pc_dynamic_load_factor{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Dynamic Load Factor",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 19
+          },
+          "id": 49,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, pcinstance, ${pod_grouping}) (pc_status{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{pcinstance}}"
+            }
+          ],
+          "title": "PC Status",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 27
+          },
+          "id": 52,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_incomplete_offsets_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} total"
+            },
+            {
+              "expr": "sum by (consumer_id, topic, ${pod_grouping}) (pc_partition_incomplete_offsets{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} partitions"
+            }
+          ],
+          "title": "PC Incomplete Offsets",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 27
+          },
+          "id": 53,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_seen_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} seen"
+            },
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_completed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} completed"
+            },
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_latest_committed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "C",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} committed"
+            }
+          ],
+          "title": "PC Partition Offset Progress",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 35
+          },
+          "id": 54,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_shards{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} shards"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_shards_size{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} shard size"
+            }
+          ],
+          "title": "PC Shards",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 35
+          },
+          "id": 59,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_partitions_number{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} partitions"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_partitions_paused{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} paused"
+            }
+          ],
+          "title": "PC Partitions",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 43
+          },
+          "id": 55,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "1000 * sum by (consumer_id, ${pod_grouping}) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} avg"
+            }
+          ],
+          "title": "PC Offset Encoding Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 43
+          },
+          "id": 56,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, encoding, ${pod_grouping}) (rate(pc_offsets_encoding_usage_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{encoding}}"
+            }
+          ],
+          "title": "PC Offset Encoding Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 51
+          },
+          "id": 57,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, ${pod_grouping}) (pc_metadata_space_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Offset Metadata Space Used",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 51
+          },
+          "id": 58,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, ${pod_grouping}) (pc_payload_ratio_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Offset Payload Ratio Used",
+          "type": "timeseries"
+        }
+      ],
       "title": "Confluent Parallel Consumer",
       "type": "row"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 119
-      },
-      "id": 46,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (pc_inflight_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "PC Inflight Records",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 119
-      },
-      "id": 47,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (pc_waiting_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "PC Waiting Records",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percentunit",
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 127
-      },
-      "id": 48,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "avg by (consumer_id) (pc_dynamic_load_factor{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "PC Dynamic Load Factor",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 127
-      },
-      "id": 49,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "avg by (consumer_id, pcinstance) (pc_status{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / {{pcinstance}}"
-        }
-      ],
-      "title": "PC Status",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 135
-      },
-      "id": 52,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (pc_incomplete_offsets_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} total"
-        },
-        {
-          "expr": "sum by (consumer_id, topic) (pc_partition_incomplete_offsets{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} / {{topic}} partitions"
-        }
-      ],
-      "title": "PC Incomplete Offsets",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 135
-      },
-      "id": 53,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "max by (consumer_id, topic) (pc_partition_highest_seen_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / {{topic}} seen"
-        },
-        {
-          "expr": "max by (consumer_id, topic) (pc_partition_highest_completed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} / {{topic}} completed"
-        },
-        {
-          "expr": "max by (consumer_id, topic) (pc_partition_latest_committed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "C",
-          "legendFormat": "{{consumer_id}} / {{topic}} committed"
-        }
-      ],
-      "title": "PC Partition Offset Progress",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 143
-      },
-      "id": 54,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (pc_shards{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} shards"
-        },
-        {
-          "expr": "sum by (consumer_id) (pc_shards_size{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} shard size"
-        }
-      ],
-      "title": "PC Shards",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 143
-      },
-      "id": 59,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id) (pc_partitions_number{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} partitions"
-        },
-        {
-          "expr": "sum by (consumer_id) (pc_partitions_paused{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "B",
-          "legendFormat": "{{consumer_id}} paused"
-        }
-      ],
-      "title": "PC Partitions",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 151
-      },
-      "id": 55,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} avg"
-        }
-      ],
-      "title": "PC Offset Encoding Time",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 151
-      },
-      "id": 56,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}} / {{encoding}}"
-        }
-      ],
-      "title": "PC Offset Encoding Usage",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 159
-      },
-      "id": 57,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "avg by (consumer_id) (pc_metadata_space_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "PC Offset Metadata Space Used",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 159
-      },
-      "id": 58,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "avg by (consumer_id) (pc_payload_ratio_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_id}}"
-        }
-      ],
-      "title": "PC Offset Payload Ratio Used",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2365,369 +2371,371 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 167
+        "y": 11
       },
       "id": 30,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 12
+          },
+          "id": 32,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
+              "refId": "A",
+              "legendFormat": "{{consumergroup}} / {{topic}}"
+            }
+          ],
+          "title": "Uncommitted Offset Lag by Topic",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "id": 34,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_group}} / {{topic}}"
+            },
+            {
+              "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "refId": "B",
+              "legendFormat": "rolling {{consumer_group}} / {{topic}}"
+            }
+          ],
+          "title": "MSK CloudWatch Time Lag",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "id": 33,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_group}} / {{topic}}"
+            },
+            {
+              "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "refId": "B",
+              "legendFormat": "sum {{consumer_group}} / {{topic}}"
+            }
+          ],
+          "title": "MSK CloudWatch Offset Lag (Uncommitted)",
+          "type": "timeseries"
+        }
+      ],
       "title": "Kafka Offset Lag",
       "type": "row"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 168
-      },
-      "id": 32,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
-          "refId": "A",
-          "legendFormat": "{{consumergroup}} / {{topic}}"
-        }
-      ],
-      "title": "Uncommitted Offset Lag by Topic",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 176
-      },
-      "id": 34,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_group}} / {{topic}}"
-        },
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "B",
-          "legendFormat": "rolling {{consumer_group}} / {{topic}}"
-        }
-      ],
-      "title": "MSK CloudWatch Time Lag",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 176
-      },
-      "id": 33,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "A",
-          "legendFormat": "{{consumer_group}} / {{topic}}"
-        },
-        {
-          "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
-          "refId": "B",
-          "legendFormat": "sum {{consumer_group}} / {{topic}}"
-        }
-      ],
-      "title": "MSK CloudWatch Offset Lag (Uncommitted)",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 184
+        "y": 12
       },
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__rate_interval]))",
+              "legendFormat": "demo {{pod}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Demo Pod CPU",
+          "type": "timeseries",
+          "id": 73
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "bytes",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\"})",
+              "legendFormat": "demo {{pod}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Demo Pod Memory",
+          "type": "timeseries",
+          "id": 74
+        }
+      ],
       "title": "Pod CPU",
       "type": "row",
       "id": 72
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "mcores",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 185
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "1000 * sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__rate_interval]))",
-          "legendFormat": "demo pods total",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Demo Pod CPU Total",
-      "type": "timeseries",
-      "id": 73
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "mcores",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 185
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "1000 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__rate_interval]))",
-          "legendFormat": "{{pod}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Demo Pod CPU by Pod",
-      "type": "timeseries",
-      "id": 74
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2736,618 +2744,621 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 193
+        "y": 13
       },
       "id": 35,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "id": 39,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "1000 * sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_sum[$__rate_interval])) / clamp_min(sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{job}} {{pod}} / {{gc}}"
+            }
+          ],
+          "title": "Average GC Pause",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "id": 37,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job, area, ${pod_grouping}) (jvm_memory_used_bytes)",
+              "refId": "A",
+              "legendFormat": "{{job}} {{pod}} / {{area}} used"
+            },
+            {
+              "expr": "sum by (job, area, ${pod_grouping}) (clamp_min(jvm_memory_max_bytes, 0))",
+              "refId": "B",
+              "legendFormat": "{{job}} {{pod}} / {{area}} max"
+            }
+          ],
+          "title": "JVM Memory",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "id": 40,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{job}} {{pod}} / {{gc}}"
+            }
+          ],
+          "title": "GC Pause Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "id": 38,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job, ${pod_grouping}) (jvm_threads_live_threads)",
+              "refId": "A",
+              "legendFormat": "{{job}} {{pod}} live"
+            },
+            {
+              "expr": "sum by (job, ${pod_grouping}) (jvm_threads_daemon_threads)",
+              "refId": "B",
+              "legendFormat": "{{job}} {{pod}} daemon"
+            }
+          ],
+          "title": "JVM Threads",
+          "type": "timeseries"
+        }
+      ],
       "title": "Java Runtime",
       "type": "row"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 194
-      },
-      "id": 39,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "1000 * sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_sum[$__rate_interval])) / clamp_min(sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[$__rate_interval])), 1e-9)",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{gc}}"
-        }
-      ],
-      "title": "Average GC Pause",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 194
-      },
-      "id": 37,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (job, instance, area) (jvm_memory_used_bytes)",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{area}} used"
-        },
-        {
-          "expr": "sum by (job, instance, area) (clamp_min(jvm_memory_max_bytes, 0))",
-          "refId": "B",
-          "legendFormat": "{{job}} / {{area}} max"
-        }
-      ],
-      "title": "JVM Memory",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 202
-      },
-      "id": 40,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum by (job, instance, gc) (rate(jvm_gc_pause_seconds_count[$__rate_interval]))",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{gc}}"
-        }
-      ],
-      "title": "GC Pause Rate",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 202
-      },
-      "id": 38,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "expr": "jvm_threads_live_threads",
-          "refId": "A",
-          "legendFormat": "{{job}} / {{instance}} live"
-        },
-        {
-          "expr": "jvm_threads_daemon_threads",
-          "refId": "B",
-          "legendFormat": "{{job}} / {{instance}} daemon"
-        }
-      ],
-      "title": "JVM Threads",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 219
+        "y": 14
       },
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 15
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redpanda\"}[$__rate_interval]))",
+              "legendFormat": "redpanda",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Redpanda CPU",
+          "type": "timeseries",
+          "id": 76
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 15
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=\"redpanda\", memtype=\"resident\"})",
+              "legendFormat": "redpanda",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Redpanda Memory",
+          "type": "timeseries",
+          "id": 77
+        }
+      ],
       "title": "Host Services: Kafka (Redpanda)",
       "type": "row",
       "id": 75
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "mcores",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 220
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redpanda\"}[$__rate_interval]))",
-          "legendFormat": "redpanda",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Redpanda CPU",
-      "type": "timeseries",
-      "id": 76
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 220
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=\"redpanda\", memtype=\"resident\"})",
-          "legendFormat": "redpanda",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Redpanda Memory",
-      "type": "timeseries",
-      "id": 77
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 228
+        "y": 15
       },
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redis\"}[$__rate_interval]))",
+              "legendFormat": "redis",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Redis CPU",
+          "type": "timeseries",
+          "id": 79
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=\"redis\", memtype=\"resident\"})",
+              "legendFormat": "redis",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Redis Memory",
+          "type": "timeseries",
+          "id": 80
+        }
+      ],
       "title": "Host Services: Redis",
       "type": "row",
       "id": 78
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "mcores",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 229
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redis\"}[$__rate_interval]))",
-          "legendFormat": "redis",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Redis CPU",
-      "type": "timeseries",
-      "id": 79
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 229
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=\"redis\", memtype=\"resident\"})",
-          "legendFormat": "redis",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Redis Memory",
-      "type": "timeseries",
-      "id": 80
     }
   ],
   "refresh": "10s",
@@ -3399,6 +3410,34 @@
           }
         ],
         "query": "avg : -1,max : -2,p50 : 0.50,p95 : 0.95,p99 : 0.99",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "aggregate",
+          "value": "__name__"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Application pods",
+        "multi": false,
+        "name": "pod_grouping",
+        "options": [
+          {
+            "selected": true,
+            "text": "aggregate",
+            "value": "__name__"
+          },
+          {
+            "selected": false,
+            "text": "by pod",
+            "value": "pod"
+          }
+        ],
+        "query": "aggregate : __name__,by pod : pod",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
