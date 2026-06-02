@@ -115,6 +115,7 @@
 | [INFRA-40](#infra-40) | Add an interactive internal-lab CKC worker dispatcher thread setting for suspend-consumer experiments.                                            | DONE |
 | [INFRA-41](#infra-41) | Group demo Helm deployment profiles by environment and keep AWS and internal-lab runners scoped to their own profile directories.                   | DONE |
 | [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
+| [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1221,3 +1222,12 @@ Aggregate application CKC, Parallel Consumer, model, pod-resource, and JVM serie
 Apply the shared duration statistic selector to successful record-age panels, using average outside the max view.
 Restart Grafana during internal-lab updates so synchronized dashboard definitions are reloaded immediately.
 Collapse dashboard sections by default while keeping the shorter profile timeline visible on initial load.
+
+<a id="infra-43"></a>
+### INFRA-43 - Update internal-lab images incrementally
+
+_Date: 2026-06-02_
+
+Avoid synchronizing unchanged Docker build contexts during routine lab updates.
+Rebuild only images whose service-specific fingerprints changed or are missing from k3s.
+Restart demo stubs only when their image changes, while preserving first-time deployment behavior.
