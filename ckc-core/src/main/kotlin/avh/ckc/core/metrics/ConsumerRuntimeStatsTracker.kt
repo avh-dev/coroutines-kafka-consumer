@@ -27,6 +27,12 @@ internal class ConsumerRuntimeStatsTracker(
     /** High-water mark for [workQueueSizeRef]. */
     private val maxObservedWorkQueueSizeRef = AtomicInteger(0)
 
+    /** Records waiting behind an in-flight ordering key or partition. */
+    private val orderingQueueSizeRef = AtomicInteger(0)
+
+    /** High-water mark for [orderingQueueSizeRef]. */
+    private val maxObservedOrderingQueueSizeRef = AtomicInteger(0)
+
     override val activeWorkerCount: Int
         get() = activeWorkerCountRef.get()
 
@@ -35,6 +41,12 @@ internal class ConsumerRuntimeStatsTracker(
 
     override val maxObservedWorkQueueSize: Int
         get() = maxObservedWorkQueueSizeRef.get()
+
+    override val orderingQueueSize: Int
+        get() = orderingQueueSizeRef.get()
+
+    override val maxObservedOrderingQueueSize: Int
+        get() = maxObservedOrderingQueueSizeRef.get()
 
     /**
      * Records successful enqueue into the worker queue and updates the high-water mark.
@@ -61,6 +73,27 @@ internal class ConsumerRuntimeStatsTracker(
      */
     fun onWorkDequeued() {
         workQueueSizeRef.updateAndGet { current ->
+            if (current > 0) current - 1 else 0
+        }
+    }
+
+    /** Records that accepted ordered work is waiting behind an in-flight record. */
+    fun onOrderingWorkQueued() {
+        val queueSize = orderingQueueSizeRef.incrementAndGet()
+        while (true) {
+            val currentMax = maxObservedOrderingQueueSizeRef.get()
+            if (queueSize <= currentMax) {
+                return
+            }
+            if (maxObservedOrderingQueueSizeRef.compareAndSet(currentMax, queueSize)) {
+                return
+            }
+        }
+    }
+
+    /** Records dispatch or cancellation cleanup of work previously waiting on ordering. */
+    fun onOrderingWorkDequeued() {
+        orderingQueueSizeRef.updateAndGet { current ->
             if (current > 0) current - 1 else 0
         }
     }

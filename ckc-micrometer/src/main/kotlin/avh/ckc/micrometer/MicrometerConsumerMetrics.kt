@@ -123,6 +123,8 @@ open class MicrometerConsumerMetrics(
             runtimeMeters += gauge("work.queue.size", stats) { it.workQueueSize.toDouble() }
             runtimeMeters += gauge("work.queue.capacity", stats) { it.workQueueCapacity.toDouble() }
             runtimeMeters += gauge("work.queue.max", stats) { it.maxObservedWorkQueueSize.toDouble() }
+            runtimeMeters += gauge("ordering.queue.size", stats) { it.orderingQueueSize.toDouble() }
+            runtimeMeters += gauge("ordering.queue.max", stats) { it.maxObservedOrderingQueueSize.toDouble() }
         }
 
         override fun unbindRuntimeMetrics() {

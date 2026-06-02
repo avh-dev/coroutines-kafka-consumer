@@ -144,6 +144,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
                     val state = current ?: KeyState()
                     if (state.inFlight) {
                         state.queue.addLast(record)
+                        runtimeStats.onOrderingWorkQueued()
                     } else {
                         state.inFlight = true
                         dispatch = workItem
@@ -198,6 +199,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
                 null
             } else {
                 next = queued
+                runtimeStats.onOrderingWorkDequeued()
                 state
             }
         }
@@ -223,6 +225,7 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
                 if (state != null) {
                     repeat(state.queue.size) {
                         admissionBudget.release()
+                        runtimeStats.onOrderingWorkDequeued()
                     }
                     state.queue.clear()
                 }

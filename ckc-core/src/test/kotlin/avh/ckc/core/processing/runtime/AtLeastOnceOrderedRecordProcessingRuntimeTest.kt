@@ -2,6 +2,7 @@ package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.awaitFor
 import avh.ckc.core.metrics.ConsumerMetrics
@@ -166,14 +167,52 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             runtime.stop()
         }
 
+    @Test
+    fun `when records wait behind hot key then ordering queue stats expose current and maximum contention`() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val metrics = RecordingMetrics<String, String>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            metrics = metrics,
+            handler = KafkaRecordHandler { record ->
+                if (record.offset() == 1L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                }
+            }
+        )
+
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "hot-key")))
+        withTimeout(2_000) { firstStarted.await() }
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, key = "hot-key")))
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 3L, key = "hot-key")))
+
+        val stats = metrics.boundRuntimeStats.single()
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            stats.takeIf { it.orderingQueueSize == 2 }
+        }
+        assertEquals(2, stats.maxObservedOrderingQueueSize)
+
+        releaseFirst.complete(Unit)
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            stats.takeIf { it.orderingQueueSize == 0 && it.workQueueSize == 0 }
+        }
+        runtime.stop()
+
+        assertEquals(2, stats.maxObservedOrderingQueueSize)
+    }
+
     private fun orderedRuntime(
         ordering: AtLeastOnceOrderedRecordProcessingRuntime.Ordering,
         workerConcurrency: Int,
         workChannelCapacity: Int,
+        metrics: ConsumerMetrics<String, String> = noopMetrics(),
         handler: KafkaRecordHandler<String, String>
     ): AtLeastOnceOrderedRecordProcessingRuntime<String, String> {
-        @Suppress("UNCHECKED_CAST")
-        val metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
         return AtLeastOnceOrderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
@@ -187,4 +226,8 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             processedRecordTracker = NoopProcessedRecordTracker
         )
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun noopMetrics(): ConsumerMetrics<String, String> =
+        ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
 }
