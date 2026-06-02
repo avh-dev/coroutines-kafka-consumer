@@ -114,6 +114,7 @@
 | [INFRA-39](#infra-39) | Add interactive internal-lab audit logging and consumer metrics implementation settings for performance comparisons.                              | DONE |
 | [INFRA-40](#infra-40) | Add an interactive internal-lab CKC worker dispatcher thread setting for suspend-consumer experiments.                                            | DONE |
 | [INFRA-41](#infra-41) | Group demo Helm deployment profiles by environment and keep AWS and internal-lab runners scoped to their own profile directories.                   | DONE |
+| [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1207,3 +1208,16 @@ _Date: 2026-06-02_
 Expose current and maximum ordered-runtime queue sizes separately from the shared admission queue.
 Count only records waiting behind an in-flight key or partition so low-contention traffic is visible directly.
 Publish the gauges through the Micrometer adapter with stable zero values for unordered runtimes.
+
+<a id="infra-42"></a>
+### INFRA-42 - Show Reactor Parallel Consumer metrics
+
+_Date: 2026-06-02_
+
+Expand Grafana Parallel Consumer selectors to include blocking and Reactor-backed Confluent profiles.
+Keep native PC metric tags distinct so historical runs remain attributable to the selected Spring profile.
+Show CKC ordering-queue current and maximum values next to the existing runtime pressure panels.
+Aggregate application CKC, Parallel Consumer, model, pod-resource, and JVM series across pods by default and provide an optional per-pod dashboard view.
+Apply the shared duration statistic selector to successful record-age panels, using average outside the max view.
+Restart Grafana during internal-lab updates so synchronized dashboard definitions are reloaded immediately.
+Collapse dashboard sections by default while keeping the shorter profile timeline visible on initial load.

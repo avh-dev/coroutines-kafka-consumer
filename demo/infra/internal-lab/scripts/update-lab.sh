@@ -169,6 +169,7 @@ printf '%s\n' "${IMAGE_FINGERPRINT}" | ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT
 
 ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh '${LAB_ROOT}/build-context/demo/build/install/ckc-demo/bin/'* '${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs/bin/'* '${LAB_ROOT}/runtime/load-test/bin/'*"
 ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' up -d --no-deps grafana"
+ssh "root@${LAB_HOST}" "docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' restart grafana"
 
 REBUILD_ARGS=()
 if [[ "${FORCE_REBUILD}" -eq 1 ]]; then
