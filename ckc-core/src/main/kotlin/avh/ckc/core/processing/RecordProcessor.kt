@@ -42,6 +42,7 @@ internal class RecordProcessor<K, V>(
                 }
 
                 processingFailureHandler.handle(record, error)
+                onRecordProcessed(record)
                 metrics.onRecordFailed(
                     key = key,
                     value = value,

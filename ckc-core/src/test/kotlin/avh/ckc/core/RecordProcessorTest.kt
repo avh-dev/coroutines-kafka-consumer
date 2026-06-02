@@ -1,6 +1,7 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -51,6 +52,7 @@ class RecordProcessorTest {
     fun `when handler fails with non retriable error then processing failure handler is invoked`() = runBlocking {
         val recovered = CompletableDeferred<Pair<Long?, String>>()
         val metrics = RecordingMetrics<Long, Long>()
+        var processedRecordOffset: Long? = null
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler {
                 throw IllegalStateException("boom")
@@ -58,13 +60,16 @@ class RecordProcessorTest {
             metrics = metrics,
             processingFailureHandler = ProcessingFailureHandler { record, error ->
                 recovered.complete(record.key() to "${record.offset()}:${error.message}")
-            }
+            },
+            onRecordProcessed = { processedRecordOffset = it.offset() }
         )
 
         processor.process(ConsumerRecord("topic-a", 0, 12L, 0L, 0L))
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
+        assertEquals(12L, processedRecordOffset)
         assertEquals(1, metrics.failed.size)
+        assertEquals(0, metrics.processed.size)
         assertEquals("boom", metrics.failed.single().error.message)
         assertEquals(0L, metrics.failed.single().key)
         assertEquals(0L, metrics.failed.single().value)
@@ -121,13 +126,15 @@ class RecordProcessorTest {
 
     @Test
     fun `when processing failure handler throws then error is rethrown`() = runBlocking {
+        var processedRecordOffset: Long? = null
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler {
                 throw IllegalStateException("boom")
             },
             processingFailureHandler = ProcessingFailureHandler { _, _ ->
                 throw UnsupportedOperationException("dlt failed")
-            }
+            },
+            onRecordProcessed = { processedRecordOffset = it.offset() }
         )
 
         val error = assertThrows(UnsupportedOperationException::class.java) {
@@ -137,6 +144,7 @@ class RecordProcessorTest {
         }
 
         assertEquals("dlt failed", error.message)
+        assertEquals(null, processedRecordOffset)
     }
 
     @Test
@@ -154,6 +162,24 @@ class RecordProcessorTest {
         processor.process(record)
 
         assertEquals(25L, processedRecordOffset)
+    }
+
+    @Test
+    fun `when failed record is skipped then later offsets can advance commit frontier`() = runBlocking {
+        val tracker = OffsetTracker(lastCommitedOffset = -1)
+        val processor = createRecordProcessor<Long, Long>(
+            handler = KafkaRecordHandler { record ->
+                if (record.offset() == 0L) {
+                    throw IllegalStateException("skip first")
+                }
+            },
+            onRecordProcessed = { tracker.markProcessed(it.offset()) }
+        )
+
+        processor.process(ConsumerRecord("topic-a", 0, 0L, 0L, 0L))
+        processor.process(ConsumerRecord("topic-a", 0, 1L, 0L, 1L))
+
+        assertEquals(1L, tracker.advanceCommitOffset())
     }
 
     private fun <K, V> createRecordProcessor(
