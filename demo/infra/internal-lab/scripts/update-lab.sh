@@ -37,6 +37,8 @@ PY
 }
 
 image_fingerprint() {
+  local service="$1"
+
   if ! command -v sha256sum >/dev/null 2>&1; then
     echo "sha256sum is required to calculate the lab image fingerprint." >&2
     exit 1
@@ -45,21 +47,33 @@ image_fingerprint() {
   (
     cd "${REPO_ROOT}"
     {
-      printf '%s\n' "internal-lab-image-fingerprint-v2"
+      printf '%s\n' "internal-lab-image-fingerprint-v3-${service}"
       for path in \
         settings.gradle.kts \
         build.gradle.kts \
         gradle.properties \
-        gradle/wrapper/gradle-wrapper.properties \
-        ckc-core \
-        ckc-micrometer \
-        demo/ckc-demo-contracts \
-        demo/ckc-demo \
-        demo/ckc-demo-stubs
+        gradle/wrapper/gradle-wrapper.properties
       do
+        sha256sum "${path}"
+      done
+
+      case "${service}" in
+        demo)
+          paths=(ckc-core ckc-micrometer demo/ckc-demo-contracts demo/ckc-demo)
+          ;;
+        demo-stubs)
+          paths=(demo/ckc-demo-stubs)
+          ;;
+        *)
+          echo "Unknown image service: ${service}" >&2
+          exit 1
+          ;;
+      esac
+
+      for path in "${paths[@]}"; do
         if [[ -f "${path}" ]]; then
           sha256sum "${path}"
-        elif [[ -d "${path}" ]]; then
+        else
           find "${path}" \
             -type f \
             ! -path '*/build/*' \
@@ -69,16 +83,16 @@ image_fingerprint() {
             | xargs -0 sha256sum
         fi
       done
-      for path in \
-        demo/ckc-demo/build/install/ckc-demo \
-        demo/ckc-demo-stubs/build/install/ckc-demo-stubs
-      do
-        if [[ -d "${path}" ]]; then
-          find "${path}" -type f -print0 | sort -z | xargs -0 sha256sum
-        fi
-      done
     } | sha256sum | awk '{ print $1 }'
   )
+}
+
+remote_image_is_current() {
+  local service="$1"
+  local fingerprint="$2"
+
+  ssh "root@${LAB_HOST}" \
+    "test \"\$(cat '${LAB_ROOT}/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}' && k3s ctr images list -q | grep -Fxq 'docker.io/ckc-perf/${service}:latest'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -144,11 +158,6 @@ sync_file() {
   scp "${source_path}" "root@${LAB_HOST}:${target_path}"
 }
 
-cd "${REPO_ROOT}"
-./gradlew :ckc-demo:installDist :ckc-demo-stubs:installDist :ckc-demo-load-test:installDist
-
-IMAGE_FINGERPRINT="$(image_fingerprint)"
-
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/workspace' '${LAB_ROOT}/build-context/demo/build/install' '${LAB_ROOT}/build-context/demo-stubs/build/install' '${LAB_ROOT}/runtime/load-test' '${LAB_ROOT}/images'"
 ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
@@ -156,30 +165,69 @@ LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
 
+DEMO_FINGERPRINT="$(image_fingerprint demo)"
+DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
+DEMO_IMAGE_CHANGED=0
+DEMO_STUBS_IMAGE_CHANGED=0
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}"; then
+  DEMO_IMAGE_CHANGED=1
+fi
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo-stubs "${DEMO_STUBS_FINGERPRINT}"; then
+  DEMO_STUBS_IMAGE_CHANGED=1
+fi
+
+cd "${REPO_ROOT}"
+GRADLE_TASKS=(:ckc-demo-load-test:installDist)
+if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
+  GRADLE_TASKS+=(:ckc-demo:installDist)
+fi
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
+  GRADLE_TASKS+=(:ckc-demo-stubs:installDist)
+fi
+./gradlew "${GRADLE_TASKS[@]}"
+
 sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets" "${LAB_ROOT}/assets"
 sync_path "${REPO_ROOT}/demo/infra/shared" "${LAB_ROOT}/workspace/demo/infra/shared"
 ssh "root@${LAB_HOST}" "cp '${LAB_ROOT}/assets/compose/docker-compose.host-services.yml' '${LAB_ROOT}/docker-compose.host-services.yml'"
 
-sync_file "${REPO_ROOT}/demo/ckc-demo/Dockerfile" "${LAB_ROOT}/build-context/demo/Dockerfile"
-sync_file "${REPO_ROOT}/demo/ckc-demo-stubs/Dockerfile" "${LAB_ROOT}/build-context/demo-stubs/Dockerfile"
-sync_path "${REPO_ROOT}/demo/ckc-demo/build/install/ckc-demo" "${LAB_ROOT}/build-context/demo/build/install/ckc-demo"
-sync_path "${REPO_ROOT}/demo/ckc-demo-stubs/build/install/ckc-demo-stubs" "${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs"
+if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_file "${REPO_ROOT}/demo/ckc-demo/Dockerfile" "${LAB_ROOT}/build-context/demo/Dockerfile"
+  sync_path "${REPO_ROOT}/demo/ckc-demo/build/install/ckc-demo" "${LAB_ROOT}/build-context/demo/build/install/ckc-demo"
+fi
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_file "${REPO_ROOT}/demo/ckc-demo-stubs/Dockerfile" "${LAB_ROOT}/build-context/demo-stubs/Dockerfile"
+  sync_path "${REPO_ROOT}/demo/ckc-demo-stubs/build/install/ckc-demo-stubs" "${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs"
+fi
 sync_path "${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test" "${LAB_ROOT}/runtime/load-test"
-printf '%s\n' "${IMAGE_FINGERPRINT}" | ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/images/images.fingerprint.next'"
 
-ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh '${LAB_ROOT}/build-context/demo/build/install/ckc-demo/bin/'* '${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs/bin/'* '${LAB_ROOT}/runtime/load-test/bin/'*"
+ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh '${LAB_ROOT}/runtime/load-test/bin/'*"
+if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
+  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/build-context/demo/build/install/ckc-demo/bin/'*"
+fi
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
+  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs/bin/'*"
+fi
 ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' up -d --no-deps grafana"
 ssh "root@${LAB_HOST}" "docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' restart grafana"
 
 REBUILD_ARGS=()
-if [[ "${FORCE_REBUILD}" -eq 1 ]]; then
-  REBUILD_ARGS+=(--force)
+if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
+  REBUILD_ARGS+=("demo=${DEMO_FINGERPRINT}")
+fi
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
+  REBUILD_ARGS+=("demo-stubs=${DEMO_STUBS_FINGERPRINT}")
+fi
+if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
+  ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/rebuild-images.sh' ${REBUILD_ARGS[*]}"
+fi
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
+  ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/deploy-stubs.sh' --restart"
+else
+  ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/deploy-stubs.sh'"
 fi
 
-ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/rebuild-images.sh' '${IMAGE_FINGERPRINT}' ${REBUILD_ARGS[*]}"
-ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/deploy-stubs.sh' --restart"
-
 echo "Internal lab is updated."
-echo "  fingerprint=${IMAGE_FINGERPRINT}"
+echo "  demo image changed=${DEMO_IMAGE_CHANGED}"
+echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  runtime=${LAB_ROOT}/runtime/load-test"
 echo "  lab scripts=${LAB_ROOT}/assets/scripts"
