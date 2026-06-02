@@ -8,6 +8,10 @@ image:
 service:
   port: 8080
 
+env:
+  redisHost: localhost
+  redisPort: 6379
+
 resources: {}
 
 hpa:

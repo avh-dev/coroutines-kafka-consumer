@@ -24,11 +24,13 @@ java {
 
 val serializationVersion = "1.7.1"
 val armeriaVersion = "1.39.0"
+val lettuceVersion = "6.4.2.RELEASE"
 val junitVersion = "5.10.2"
 
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("com.linecorp.armeria:armeria")
+    implementation("io.lettuce:lettuce-core")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json")
 
     testImplementation(kotlin("test-junit5"))
@@ -38,6 +40,9 @@ dependencies {
     constraints {
         implementation("com.linecorp.armeria:armeria") {
             version { require(armeriaVersion) }
+        }
+        implementation("io.lettuce:lettuce-core") {
+            version { require(lettuceVersion) }
         }
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json") {
             version { require(serializationVersion) }

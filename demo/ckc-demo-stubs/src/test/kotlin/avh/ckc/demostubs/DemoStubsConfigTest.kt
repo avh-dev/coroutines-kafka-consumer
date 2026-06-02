@@ -10,6 +10,8 @@ class DemoStubsConfigTest {
 
         assertEquals(8080, config.port)
         assertEquals(4, config.workers)
+        assertEquals("localhost", config.redisHost)
+        assertEquals(6379, config.redisPort)
         assertEquals(
             DemoStubsSettings(
                 eta = ModelLatencySettings(40, 80, 160, 300),
@@ -21,9 +23,17 @@ class DemoStubsConfigTest {
     }
 
     @Test
-    fun `workers can be overridden`() {
-        val config = DemoStubsConfig.fromEnvironment(mapOf("STUB_WORKERS" to "16"))
+    fun `environment settings can be overridden`() {
+        val config = DemoStubsConfig.fromEnvironment(
+            mapOf(
+                "STUB_WORKERS" to "16",
+                "REDIS_HOST" to "redis.example",
+                "REDIS_PORT" to "6380"
+            )
+        )
 
         assertEquals(16, config.workers)
+        assertEquals("redis.example", config.redisHost)
+        assertEquals(6380, config.redisPort)
     }
 }
