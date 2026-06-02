@@ -155,7 +155,7 @@
           "legendFormat": "{{event_type}}"
         },
         {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc"
         }
@@ -203,7 +203,7 @@
           "legendFormat": "{{event_type}} / {{error}}"
         },
         {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc failed"
         }
@@ -271,12 +271,12 @@
           "refId": "E"
         },
         {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "confluent-parallel pc avg",
           "refId": "F"
         },
         {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_events\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"order_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "confluent-parallel pc max",
           "refId": "G"
         }
@@ -385,7 +385,7 @@
           "legendFormat": "{{event_type}}"
         },
         {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"batch_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc"
         }
@@ -433,7 +433,7 @@
           "legendFormat": "{{event_type}} / {{error}}"
         },
         {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"batch_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc failed"
         }
@@ -501,12 +501,12 @@
           "refId": "E"
         },
         {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"batch_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"batch_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "confluent-parallel pc avg",
           "refId": "F"
         },
         {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"batch_events\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"batch_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "confluent-parallel pc max",
           "refId": "G"
         }
@@ -619,7 +619,7 @@
           "legendFormat": "{{topic}}"
         },
         {
-          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_processed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc"
         }
@@ -667,7 +667,7 @@
           "legendFormat": "{{topic}} / {{error}}"
         },
         {
-          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum (rate(pc_failed_records_total{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "confluent-parallel pc failed"
         }
@@ -735,12 +735,12 @@
           "refId": "E"
         },
         {
-          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+          "expr": "(1000 * sum(rate(pc_user_function_processing_time_seconds_sum{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum(rate(pc_user_function_processing_time_seconds_count{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
           "legendFormat": "confluent-parallel pc avg",
           "refId": "F"
         },
         {
-          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_events\", spring_profile=\"confluent-parallel\"})) and on() (vector(${duration_percentile}) == -2)",
+          "expr": "(1000 * max(pc_user_function_processing_time_seconds_max{consumer_id=\"cauldron_events\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})) and on() (vector(${duration_percentile}) == -2)",
           "legendFormat": "confluent-parallel pc max",
           "refId": "G"
         }
@@ -1687,7 +1687,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 110
       },
@@ -1721,6 +1721,56 @@
       "title": "CKC Pause / Resume Events",
       "type": "timeseries",
       "id": 83
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 110
+      },
+      "id": 84,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
+          "refId": "A",
+          "legendFormat": "{{consumer_id}} size"
+        },
+        {
+          "expr": "ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"}",
+          "refId": "B",
+          "legendFormat": "{{consumer_id}} max observed"
+        }
+      ],
+      "title": "CKC Ordering Queue Pressure",
+      "type": "timeseries"
     },
     {
       "collapsed": false,
@@ -1776,7 +1826,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (pc_inflight_records{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_inflight_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -1821,7 +1871,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (pc_waiting_records{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_waiting_records{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -1867,7 +1917,7 @@
       },
       "targets": [
         {
-          "expr": "avg by (consumer_id) (pc_dynamic_load_factor{spring_profile=\"confluent-parallel\"})",
+          "expr": "avg by (consumer_id) (pc_dynamic_load_factor{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -1912,7 +1962,7 @@
       },
       "targets": [
         {
-          "expr": "avg by (consumer_id, pcinstance) (pc_status{spring_profile=\"confluent-parallel\"})",
+          "expr": "avg by (consumer_id, pcinstance) (pc_status{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / {{pcinstance}}"
         }
@@ -1957,12 +2007,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (pc_incomplete_offsets_total{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_incomplete_offsets_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}} total"
         },
         {
-          "expr": "sum by (consumer_id, topic) (pc_partition_incomplete_offsets{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id, topic) (pc_partition_incomplete_offsets{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "B",
           "legendFormat": "{{consumer_id}} / {{topic}} partitions"
         }
@@ -2007,17 +2057,17 @@
       },
       "targets": [
         {
-          "expr": "max by (consumer_id, topic) (pc_partition_highest_seen_offset{spring_profile=\"confluent-parallel\"})",
+          "expr": "max by (consumer_id, topic) (pc_partition_highest_seen_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / {{topic}} seen"
         },
         {
-          "expr": "max by (consumer_id, topic) (pc_partition_highest_completed_offset{spring_profile=\"confluent-parallel\"})",
+          "expr": "max by (consumer_id, topic) (pc_partition_highest_completed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "B",
           "legendFormat": "{{consumer_id}} / {{topic}} completed"
         },
         {
-          "expr": "max by (consumer_id, topic) (pc_partition_latest_committed_offset{spring_profile=\"confluent-parallel\"})",
+          "expr": "max by (consumer_id, topic) (pc_partition_latest_committed_offset{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "C",
           "legendFormat": "{{consumer_id}} / {{topic}} committed"
         }
@@ -2062,12 +2112,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (pc_shards{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_shards{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}} shards"
         },
         {
-          "expr": "sum by (consumer_id) (pc_shards_size{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_shards_size{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "B",
           "legendFormat": "{{consumer_id}} shard size"
         }
@@ -2112,12 +2162,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id) (pc_partitions_number{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_partitions_number{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}} partitions"
         },
         {
-          "expr": "sum by (consumer_id) (pc_partitions_paused{spring_profile=\"confluent-parallel\"})",
+          "expr": "sum by (consumer_id) (pc_partitions_paused{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "B",
           "legendFormat": "{{consumer_id}} paused"
         }
@@ -2162,7 +2212,7 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=\"confluent-parallel\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=\"confluent-parallel\"}[$__rate_interval])), 1e-9)",
+          "expr": "1000 * sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_sum{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id) (rate(pc_offsets_encoding_time_seconds_count{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
           "refId": "A",
           "legendFormat": "{{consumer_id}} avg"
         }
@@ -2207,7 +2257,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=\"confluent-parallel\"}[$__rate_interval]))",
+          "expr": "sum by (consumer_id, encoding) (rate(pc_offsets_encoding_usage_total{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{consumer_id}} / {{encoding}}"
         }
@@ -2252,7 +2302,7 @@
       },
       "targets": [
         {
-          "expr": "avg by (consumer_id) (pc_metadata_space_used{spring_profile=\"confluent-parallel\"})",
+          "expr": "avg by (consumer_id) (pc_metadata_space_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
@@ -2297,7 +2347,7 @@
       },
       "targets": [
         {
-          "expr": "avg by (consumer_id) (pc_payload_ratio_used{spring_profile=\"confluent-parallel\"})",
+          "expr": "avg by (consumer_id) (pc_payload_ratio_used{spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
           "refId": "A",
           "legendFormat": "{{consumer_id}}"
         }
