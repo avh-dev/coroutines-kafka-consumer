@@ -29,6 +29,7 @@
 | [CORE-24](#core-24) | Add bounded at-least-once ordered processing modes for key and partition ordering.                                                                                                                       | DONE |
 | [CORE-25](#core-25) | Delegate deserialization to Kafka poll loops and remove the custom worker-side deserialization pipeline.                                                                                                 | DONE |
 | [CORE-26](#core-26) | Add ordering-queue gauges so key and partition contention are observable independently from the shared admission queue.                                                                                   | DONE |
+| [CORE-27](#core-27) | Advance tracked offsets after terminal processing failures are handled successfully so skipped or DLT records do not block later commits.                                                               | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1209,6 +1210,15 @@ _Date: 2026-06-02_
 Expose current and maximum ordered-runtime queue sizes separately from the shared admission queue.
 Count only records waiting behind an in-flight key or partition so low-contention traffic is visible directly.
 Publish the gauges through the Micrometer adapter with stable zero values for unordered runtimes.
+
+<a id="core-27"></a>
+### CORE-27 - Advance offsets after handled processing failures
+
+_Date: 2026-06-02_
+
+Treat a successfully handled terminal processing failure as a completed record for offset tracking.
+Preserve at-least-once behavior when the failure handler itself fails by leaving the offset unprocessed.
+Add regression coverage for skipped records and failing terminal handlers.
 
 <a id="infra-42"></a>
 ### INFRA-42 - Show Reactor Parallel Consumer metrics
