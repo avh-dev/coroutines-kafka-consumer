@@ -495,6 +495,7 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
             "image.repository": f"{registry}/demo-stubs",
             "image.tag": "latest",
             "image.pullPolicy": image_pull_policy,
+            "env.redisHost": as_str(lab_context.get("redis_host"), ""),
         },
     )
 

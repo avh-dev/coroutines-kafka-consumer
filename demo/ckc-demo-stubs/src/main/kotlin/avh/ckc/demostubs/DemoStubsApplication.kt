@@ -18,7 +18,6 @@ import kotlinx.serialization.json.Json
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -26,7 +25,9 @@ fun main() {
     val config = DemoStubsConfig.fromEnvironment()
     val json = Json { ignoreUnknownKeys = true }
     val delaySampler = DelaySampler(Random.Default)
-    val settings = AtomicReference(DemoStubsSettings.baseline())
+    val settings = DemoStubsSettingsState(
+        RedisDemoStubsSettingsStore("redis://${config.redisHost}:${config.redisPort}", json)
+    )
     val workerGroup = EventLoopGroups.newEventLoopGroup(config.workers, "demo-stubs-armeria-worker")
     val server = Server.builder()
         .http(config.port)
@@ -38,12 +39,17 @@ fun main() {
             when (request.method()) {
                 HttpMethod.GET -> jsonResponse(json.encodeToString(DemoStubsSettings.serializer(), settings.get()))
                 HttpMethod.POST -> aggregate(request) { aggregated ->
-                    try {
-                        val update = json.decodeFromString(DemoStubsSettings.serializer(), aggregated.contentUtf8())
-                        settings.set(update)
-                        jsonResponse(json.encodeToString(DemoStubsSettings.serializer(), update))
+                    val update = try {
+                        json.decodeFromString(DemoStubsSettings.serializer(), aggregated.contentUtf8())
                     } catch (_: Exception) {
-                        jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
+                        return@aggregate jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
+                    }
+                    try {
+                        settings.update(update)
+                        jsonResponse(json.encodeToString(DemoStubsSettings.serializer(), update))
+                    } catch (error: Exception) {
+                        System.err.println("Failed to persist demo-stubs settings in Redis: ${error.message}")
+                        jsonResponse("""{"error":"settings persistence failed"}""", HttpStatus.SERVICE_UNAVAILABLE)
                     }
                 }
 
@@ -105,7 +111,11 @@ fun main() {
     )
 
     Runtime.getRuntime().addShutdownHook(Thread {
-        server.stop().join()
+        try {
+            server.stop().join()
+        } finally {
+            settings.close()
+        }
     })
     server.start().join()
     Thread.currentThread().join()

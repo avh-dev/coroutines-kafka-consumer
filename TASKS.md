@@ -74,6 +74,7 @@
 | [DEMO-42](#demo-42) | Add a Reactor-backed Confluent Parallel Consumer profile that runs the suspend demo business path without blocking worker threads.           | DONE |
 | [DEMO-43](#demo-43) | Remove demo Redis state TTL so long-running load tests retain batch and cauldron state until the test runner resets Redis.                     | DONE |
 | [DEMO-44](#demo-44) | Align external demo consumer processing modes with CKC settings and discard stale freshness-first records before business processing.          | DONE |
+| [DEMO-45](#demo-45) | Persist demo-stubs runtime settings in Redis so configured latency profiles survive pod restarts during resiliency tests.                       | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1241,3 +1242,13 @@ _Date: 2026-06-02_
 Avoid synchronizing unchanged Docker build contexts during routine lab updates.
 Rebuild only images whose service-specific fingerprints changed or are missing from k3s.
 Restart demo stubs only when their image changes, while preserving first-time deployment behavior.
+
+<a id="demo-45"></a>
+### DEMO-45 - Persist demo-stubs settings in Redis
+
+_Date: 2026-06-02_
+
+Persist the active demo-stubs latency and failure profile under a fixed Redis key.
+Restore the last configured profile when a stubs pod starts so resiliency tests keep stable model behavior.
+Publish settings updates through Redis so every live stubs pod applies endpoint changes without a restart.
+Use the existing lab Redis service and retain baseline defaults when no saved profile exists.
