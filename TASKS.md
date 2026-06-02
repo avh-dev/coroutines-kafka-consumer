@@ -28,6 +28,7 @@
 | [CORE-23](#core-23) | Reorganize polling state packages and rename the Kafka consumer config adapter for clearer package boundaries.                                                                                         | DONE |
 | [CORE-24](#core-24) | Add bounded at-least-once ordered processing modes for key and partition ordering.                                                                                                                       | DONE |
 | [CORE-25](#core-25) | Delegate deserialization to Kafka poll loops and remove the custom worker-side deserialization pipeline.                                                                                                 | DONE |
+| [CORE-26](#core-26) | Add ordering-queue gauges so key and partition contention are observable independently from the shared admission queue.                                                                                   | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1197,3 +1198,12 @@ Keep environment runners scoped to their own profiles so interactive selection d
 Duplicate shared smoke and HPA presets where both environments need an independently discoverable profile.
 Replace obsolete demo-stubs latency-named profiles with fixed `internal-lab` and `aws-hpa` deployment presets.
 Reduce internal-lab demo profiles to concise consumer-oriented names and remove unused HPA and alternate CKC presets.
+
+<a id="core-26"></a>
+### CORE-26 - Add ordering queue metrics
+
+_Date: 2026-06-02_
+
+Expose current and maximum ordered-runtime queue sizes separately from the shared admission queue.
+Count only records waiting behind an in-flight key or partition so low-contention traffic is visible directly.
+Publish the gauges through the Micrometer adapter with stable zero values for unordered runtimes.

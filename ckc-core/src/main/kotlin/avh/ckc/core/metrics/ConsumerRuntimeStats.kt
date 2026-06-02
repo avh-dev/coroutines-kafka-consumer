@@ -21,4 +21,10 @@ interface ConsumerRuntimeStats {
 
     /** Largest work queue size observed since the consumer started. */
     val maxObservedWorkQueueSize: Int
+
+    /** Current number of records waiting behind an in-flight ordering key or partition. */
+    val orderingQueueSize: Int
+
+    /** Largest ordering queue size observed since the consumer started. */
+    val maxObservedOrderingQueueSize: Int
 }

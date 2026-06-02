@@ -204,7 +204,9 @@ class MicrometerConsumerMetricsTest {
             activeWorkerCount = 2,
             workQueueSize = 7,
             workQueueCapacity = 128,
-            maxObservedWorkQueueSize = 11
+            maxObservedWorkQueueSize = 11,
+            orderingQueueSize = 5,
+            maxObservedOrderingQueueSize = 6
         )
         val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>(consumerId = "telemetry")
 
@@ -215,14 +217,20 @@ class MicrometerConsumerMetricsTest {
         assertEquals(7.0, registry.get("ckc.work.queue.size").tag("consumer_id", "telemetry").gauge().value())
         assertEquals(128.0, registry.get("ckc.work.queue.capacity").tag("consumer_id", "telemetry").gauge().value())
         assertEquals(11.0, registry.get("ckc.work.queue.max").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(5.0, registry.get("ckc.ordering.queue.size").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(6.0, registry.get("ckc.ordering.queue.max").tag("consumer_id", "telemetry").gauge().value())
 
         stats.activeWorkerCount = 3
         stats.workQueueSize = 9
         stats.maxObservedWorkQueueSize = 13
+        stats.orderingQueueSize = 1
+        stats.maxObservedOrderingQueueSize = 8
 
         assertEquals(3.0, registry.get("ckc.workers.active").tag("consumer_id", "telemetry").gauge().value())
         assertEquals(9.0, registry.get("ckc.work.queue.size").tag("consumer_id", "telemetry").gauge().value())
         assertEquals(13.0, registry.get("ckc.work.queue.max").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(1.0, registry.get("ckc.ordering.queue.size").tag("consumer_id", "telemetry").gauge().value())
+        assertEquals(8.0, registry.get("ckc.ordering.queue.max").tag("consumer_id", "telemetry").gauge().value())
 
         metrics.unbindRuntimeMetrics()
 
@@ -432,7 +440,9 @@ class MicrometerConsumerMetricsTest {
         override var activeWorkerCount: Int,
         override var workQueueSize: Int,
         override val workQueueCapacity: Int,
-        override var maxObservedWorkQueueSize: Int
+        override var maxObservedWorkQueueSize: Int,
+        override var orderingQueueSize: Int,
+        override var maxObservedOrderingQueueSize: Int
     ) : ConsumerRuntimeStats
 
     private class MutablePartitionStats(
