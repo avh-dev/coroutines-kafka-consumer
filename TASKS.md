@@ -75,6 +75,7 @@
 | [DEMO-43](#demo-43) | Remove demo Redis state TTL so long-running load tests retain batch and cauldron state until the test runner resets Redis.                     | DONE |
 | [DEMO-44](#demo-44) | Align external demo consumer processing modes with CKC settings and discard stale freshness-first records before business processing.          | DONE |
 | [DEMO-45](#demo-45) | Persist demo-stubs runtime settings in Redis so configured latency profiles survive pod restarts during resiliency tests.                       | DONE |
+| [DEMO-46](#demo-46) | Replace Redis-backed demo audit writes with compact TCP audit logging that carries run and writer identity for Fluent Bit ingestion.            | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -118,6 +119,7 @@
 | [INFRA-41](#infra-41) | Group demo Helm deployment profiles by environment and keep AWS and internal-lab runners scoped to their own profile directories.                   | DONE |
 | [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
 | [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
+| [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1252,3 +1254,21 @@ Persist the active demo-stubs latency and failure profile under a fixed Redis ke
 Restore the last configured profile when a stubs pod starts so resiliency tests keep stable model behavior.
 Publish settings updates through Redis so every live stubs pod applies endpoint changes without a restart.
 Use the existing lab Redis service and retain baseline defaults when no saved profile exists.
+
+<a id="demo-46"></a>
+### DEMO-46 - Replace Redis audit with TCP audit logging
+
+_Date: 2026-06-03_
+
+Replace Redis audit writes in the demo application and load-test generator with compact line-based TCP audit logging.
+Include the test run id and stable writer identity in every audit record so downstream collection stays stateless.
+Keep audit failures visible enough to invalidate a run instead of silently dropping experiment data.
+
+<a id="infra-44"></a>
+### INFRA-44 - Add dedicated Fluent Bit audit ingestion
+
+_Date: 2026-06-03_
+
+Run a dedicated Fluent Bit audit collector alongside internal-lab host services and prepare the same ingestion model for AWS EKS.
+Archive compact audit records per run without reusing Redis as a temporary store.
+Fail internal-lab runs fast when the audit collector is unavailable or cannot keep up with the generated load.

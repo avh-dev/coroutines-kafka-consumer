@@ -41,6 +41,10 @@ demo:
     base-url: ${MODEL_BASE_URL:http://127.0.0.1:18080}
   audit:
     enabled: ${AUDIT_LOG_ENABLED:true}
+    host: ${AUDIT_TCP_HOST:127.0.0.1}
+    port: ${AUDIT_TCP_PORT:5170}
+    run-id: ${AUDIT_RUN_ID:local}
+    writer-id: ${AUDIT_WRITER_ID:${HOSTNAME:demo}}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}

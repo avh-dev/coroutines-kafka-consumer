@@ -1,78 +1,65 @@
 package avh.ckc.loadtest.kafka
 
-import io.lettuce.core.RedisClient
-import io.lettuce.core.RedisFuture
-import io.lettuce.core.api.StatefulRedisConnection
+import avh.ckc.demo.audit.AuditLineWriter
+import avh.ckc.demo.audit.TcpAuditClient
+import avh.ckc.demo.audit.encodeAuditRecord
+import avh.ckc.demo.audit.sanitizeAuditComponent
+import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.runtime.ShardContext
 import org.apache.kafka.clients.producer.RecordMetadata
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
 
 class LoadTestAuditLog private constructor(
-    private val client: RedisClient,
-    private val connection: StatefulRedisConnection<String, String>
+    private val writer: AuditLineWriter,
+    private val runId: String,
+    private val writerId: String
 ) : AutoCloseable {
-    private val outstanding = ConcurrentHashMap.newKeySet<RedisFuture<Long>>()
-    private val failure = AtomicReference<Throwable>()
-
-    fun published(metadata: RecordMetadata, key: String, eventType: String) {
-        append(encodeAuditRecord("P", metadata.topic(), metadata.partition(), metadata.offset(), metadata.timestamp(), key))
+    fun published(metadata: RecordMetadata, key: String) {
+        append(
+            encodeAuditRecord(
+                type = "P",
+                runId = runId,
+                writerId = writerId,
+                topic = metadata.topic(),
+                partition = metadata.partition(),
+                offset = metadata.offset(),
+                kafkaTimestampMs = metadata.timestamp(),
+                messageKey = key
+            )
+        )
     }
 
-    fun generated(topic: String, key: String, eventType: String) {
-        append(encodeAuditRecord("P", topic, -1, -1, System.currentTimeMillis(), key))
+    fun generated(topic: String, key: String) {
+        append(
+            encodeAuditRecord(
+                type = "P",
+                runId = runId,
+                writerId = writerId,
+                topic = topic,
+                partition = -1,
+                offset = -1,
+                kafkaTimestampMs = System.currentTimeMillis(),
+                messageKey = key
+            )
+        )
     }
 
     override fun close() {
-        try {
-            outstanding.toList().forEach { it.get() }
-            failure.get()?.let { throw IllegalStateException("Redis audit write failed", it) }
-        } finally {
-            connection.close()
-            client.shutdown()
-        }
+        writer.close()
     }
 
     private fun append(record: String) {
-        failure.get()?.let { throw IllegalStateException("Redis audit write failed", it) }
-        val future = connection.async().rpush(AUDIT_KEY, record)
-        outstanding += future
-        future.whenComplete { _, error ->
-            outstanding -= future
-            if (error != null) {
-                failure.compareAndSet(null, error)
-            }
-        }
+        writer.write(record)
     }
 
     companion object {
-        fun fromEnvironment(environment: Map<String, String> = System.getenv()): LoadTestAuditLog {
-            val host = environment["REDIS_HOST"] ?: "localhost"
-            val port = environment["REDIS_PORT"]?.toIntOrNull() ?: 6379
-            val client = RedisClient.create("redis://$host:$port")
-            return LoadTestAuditLog(client, client.connect())
-        }
+        fun fromConfig(config: LoadTestConfig, shardContext: ShardContext): LoadTestAuditLog =
+            LoadTestAuditLog(
+                writer = TcpAuditClient(config.auditHost, config.auditPort),
+                runId = config.auditRunId,
+                writerId = writerId(shardContext)
+            )
     }
 }
 
-internal fun encodeAuditRecord(
-    type: String,
-    topic: String,
-    partition: Int,
-    offset: Long,
-    kafkaTimestampMs: Long,
-    messageKey: String?
-): String =
-    "$type\t${auditTopicId(topic)}\t$partition\t$offset\t$kafkaTimestampMs\t${System.currentTimeMillis()}\t${sanitizeAuditKey(messageKey)}"
-
-private fun auditTopicId(topic: String): Int =
-    when (topic) {
-        "order.events.v1" -> 1
-        "batch.events.v1" -> 2
-        "cauldron.events.v1" -> 3
-        else -> error("No audit topic id configured for topic '$topic'")
-    }
-
-private fun sanitizeAuditKey(key: String?): String =
-    key.orEmpty().replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
-
-private const val AUDIT_KEY = "audit"
+internal fun writerId(shardContext: ShardContext): String =
+    sanitizeAuditComponent("loadtest-shard-${shardContext.shardIndex}", "loadtest")

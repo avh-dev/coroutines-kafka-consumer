@@ -38,7 +38,11 @@ data class DemoApplicationProperties(
     )
 
     data class Audit(
-        var enabled: Boolean = true
+        var enabled: Boolean = true,
+        var host: String = "127.0.0.1",
+        var port: Int = 5170,
+        var runId: String = "local",
+        var writerId: String = "demo"
     )
 
     data class Consumers(
