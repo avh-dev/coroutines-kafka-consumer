@@ -30,10 +30,12 @@ lab host
     metrics-server for kubectl top and HPA
     ckc-external-kafka Service + Endpoints -> host Redpanda
     ckc-external-redis Service + Endpoints -> host Redis
+    ckc-external-audit Service + Endpoints -> host Fluent Bit TCP collector
 
   Docker Compose
     Redpanda -> host:9092
     Redis -> host:6379
+    Fluent Bit -> host:5170 TCP audit ingest, localhost:2020 health
     Grafana -> host:3000 on all interfaces
     process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
 
@@ -86,7 +88,7 @@ The installer:
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
-- starts host Redpanda, Redis, and Grafana
+- starts host Redpanda, Redis, Fluent Bit, and Grafana
 - provisions Grafana datasource and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
 - verifies `kubectl`, Grafana, Prometheus, and the Redpanda Kafka API from the local machine
@@ -213,19 +215,29 @@ The script exports `load_test` settings as environment variables for `ckc-demo-l
 /opt/ckc-internal-lab/logs/
 ```
 
-High-volume publish and processed audit records are appended to the host Redis
-`audit` list. For each run, `run-test.sh` stores the calculated report under:
+High-volume publish and processed audit records are streamed over TCP into the
+host Fluent Bit collector. Fluent Bit appends the raw audit lines into:
+
+```text
+/opt/ckc-internal-lab/audit/live/audit.log
+```
+
+For each run, `run-test.sh` extracts that run's records and stores the archived
+copy plus the calculated report under:
 
 ```text
 /opt/ckc-internal-lab/audit/<run-id>/
 ```
 
 The runner prints and saves `summary.txt` with published, processed, missing,
-duplicate, and latency counts calculated from the Redis audit list.
+duplicate, and latency counts calculated from the archived audit lines.
 
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
-and stay there briefly before analyzing the Redis audit list. Override the
+and stay there briefly before extracting and analyzing the archived audit log.
+When audit logging is enabled, the runner also fails fast if the Fluent Bit
+collector health endpoint is unavailable before the test starts or during the
+load run. Override the lag wait with:
 wait with:
 
 ```sh
@@ -249,6 +261,7 @@ Prometheus: http://$LAB_HOST:30090
 Grafana:    http://$LAB_HOST:3000
 Kafka API:  $LAB_HOST:9092
 Redis:      $LAB_HOST:6379
+Audit TCP:  $LAB_HOST:5170
 ```
 
 Grafana credentials are `admin` / `admin`.
@@ -359,6 +372,7 @@ ssh "root@${LAB_HOST}" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Po
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redis redis-cli PING"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers=localhost:9092 topic list"
 ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:9308/metrics | grep kafka_consumergroup_lag | head"
+ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:2020/api/v1/health"
 ```
 
 ## Benchmark Stability

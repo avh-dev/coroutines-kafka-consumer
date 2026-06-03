@@ -119,7 +119,7 @@
 | [INFRA-41](#infra-41) | Group demo Helm deployment profiles by environment and keep AWS and internal-lab runners scoped to their own profile directories.                   | DONE |
 | [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
 | [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
-| [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | IN_PROGRESS |
+| [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |

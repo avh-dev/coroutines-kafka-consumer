@@ -47,6 +47,29 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ckc-external-audit
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: audit-tcp
+      port: 5170
+      targetPort: 5170
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-audit
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_NODE_IP__
+    ports:
+      - name: audit-tcp
+        port: 5170
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ckc-external-kafka-exporter
   namespace: ckc-perf
 spec:

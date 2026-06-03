@@ -30,14 +30,16 @@ kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
 kubectl -n ckc-perf rollout status deployment/ckc-prometheus --timeout=5m
 
 mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/provisioning/dashboards"
+mkdir -p "${LAB_ROOT}/audit/live"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${ASSETS_DIR}/grafana/provisioning/datasources/prometheus.yml" \
   > "${LAB_ROOT}/grafana/provisioning/datasources/prometheus.yml"
 cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
 cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
 cp "${ASSETS_DIR}/compose/process-exporter.yml" "${LAB_ROOT}/process-exporter.yml"
+cp "${ASSETS_DIR}/compose/fluent-bit.yaml" "${LAB_ROOT}/fluent-bit.yaml"
 
-for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
+for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -46,12 +48,18 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis grafana process-exporter
+LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis fluent-bit grafana process-exporter
 LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
 
 if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9308/metrics' >/dev/null; do sleep 2; done"; then
   echo "Kafka exporter did not become ready within 30 seconds; continuing because it is observability-only." >&2
   docker logs --tail 50 ckc-internal-kafka-exporter >&2 || true
+fi
+
+if ! timeout 30 sh -c "until [ \"\$(curl -fsS 'http://127.0.0.1:2020/api/v1/health' || true)\" = 'ok' ]; do sleep 2; done"; then
+  echo "Fluent Bit audit collector did not become ready within 30 seconds." >&2
+  docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+  exit 1
 fi
 
 echo "Base lab is ready."
@@ -60,3 +68,4 @@ echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  kafka:      ${LAB_NODE_IP}:9092"
 echo "  redis:      ${LAB_NODE_IP}:6379"
+echo "  audit-tcp:  ${LAB_NODE_IP}:5170"

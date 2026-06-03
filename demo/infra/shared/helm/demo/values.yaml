@@ -17,6 +17,9 @@ env:
   bootstrapServers: ""
   redisHost: ""
   redisPort: 6379
+  auditTcpHost: ""
+  auditTcpPort: 5170
+  auditRunId: local
   javaToolOptions: ""
   modelBaseUrl: ""
   processingEnabled: true

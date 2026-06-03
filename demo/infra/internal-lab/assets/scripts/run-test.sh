@@ -7,9 +7,14 @@ LAB_ENV="${LAB_ROOT}/config/lab.env"
 LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/pids"
 AUDIT_DIR="${LAB_ROOT}/audit"
+AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
+AUDIT_ARCHIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/shared/helm/demo/profiles/internal-lab"
 TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
+AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
+AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
+AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
 RUN_PREPARE=1
 WAIT_FOR_CONSUMER_DRAIN="${WAIT_FOR_CONSUMER_DRAIN:-1}"
 CONSUMER_DRAIN_TIMEOUT_SECONDS="${CONSUMER_DRAIN_TIMEOUT_SECONDS:-900}"
@@ -308,6 +313,7 @@ python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
 . "${ENV_FILE}"
 
 mkdir -p "${LOG_DIR}" "${PID_DIR}"
+RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 
 PID_PATH="${PID_DIR}/load-test.pid"
 if [ -f "${PID_PATH}" ]; then
@@ -322,7 +328,7 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
+  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
 else
   "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
@@ -339,10 +345,18 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
-RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
 RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
-mkdir -p "${RUN_AUDIT_DIR}"
+mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
+
+audit_collector_ready() {
+  [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ]
+}
+
+if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
+  echo "Audit collector is not ready on http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health." >&2
+  exit 1
+fi
 
 BOOTSTRAP_SERVERS="127.0.0.1:9092" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
@@ -369,8 +383,9 @@ DIAGNOSTICS_BLOB_SIZE="${DIAGNOSTICS_BLOB_SIZE}" \
 TELEMETRY_SOURCE_MODE="${TELEMETRY_SOURCE_MODE}" \
 PUBLISH_ENABLED="${PUBLISH_ENABLED}" \
 AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}" \
-REDIS_HOST="127.0.0.1" \
-REDIS_PORT="6379" \
+AUDIT_TCP_HOST="${AUDIT_TCP_HOST}" \
+AUDIT_TCP_PORT="${AUDIT_TCP_PORT}" \
+AUDIT_RUN_ID="${RUN_ID}" \
 LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
 nohup "${LOAD_TEST_BIN}" > "${LOG_PATH}" 2>&1 &
 
@@ -426,9 +441,16 @@ trap stop_process INT TERM
 while true; do
   if ! kill -0 "${PID}" >/dev/null 2>&1; then
     rm -f "${PID_PATH}"
-    wait "${PID}" || true
+    LOAD_TEST_EXIT_CODE=0
+    wait "${PID}" || LOAD_TEST_EXIT_CODE=$?
     echo "Load test finished."
     break
+  fi
+
+  if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
+    echo "Audit collector became unhealthy during the run." >&2
+    stop_process
+    exit 1
   fi
 
   if stop_requested; then
@@ -444,6 +466,11 @@ done
 
 trap - INT TERM
 
+if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
+  echo "Load test exited with status ${LOAD_TEST_EXIT_CODE}." >&2
+  exit "${LOAD_TEST_EXIT_CODE}"
+fi
+
 if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
@@ -456,7 +483,20 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
 fi
 
 echo
-echo "Analyzing Redis audit records."
-python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
-  --redis-host "127.0.0.1" \
-  --redis-port "6379" | tee "${RUN_AUDIT_DIR}/summary.txt"
+if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+  if [ ! -f "${AUDIT_ARCHIVE_FILE}" ]; then
+    echo "Audit archive file was not found: ${AUDIT_ARCHIVE_FILE}" >&2
+    exit 1
+  fi
+  awk -F '\t' -v run_id="${RUN_ID}" '$2 == run_id { print }' "${AUDIT_ARCHIVE_FILE}" > "${RUN_AUDIT_DIR}/audit.log"
+  if [ ! -s "${RUN_AUDIT_DIR}/audit.log" ]; then
+    echo "No audit records were archived for run ${RUN_ID}." >&2
+    exit 1
+  fi
+
+  echo "Analyzing archived audit records."
+  python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
+    --input-file "${RUN_AUDIT_DIR}/audit.log" | tee "${RUN_AUDIT_DIR}/summary.txt"
+else
+  echo "Audit logging disabled; skipping audit analysis."
+fi
