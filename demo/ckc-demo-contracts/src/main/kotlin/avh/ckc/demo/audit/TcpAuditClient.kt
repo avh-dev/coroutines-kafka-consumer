@@ -52,7 +52,7 @@ class TcpAuditClient(
     override fun write(line: String) {
         failure.get()?.let { throw IllegalStateException("TCP audit write failed", it) }
         try {
-            output.write(line.toByteArray(UTF_8))
+            output.write(encodeMessageEnvelope(line).toByteArray(UTF_8))
             output.write('\n'.code)
         } catch (error: Throwable) {
             failure.compareAndSet(null, error)
@@ -77,3 +77,28 @@ class TcpAuditClient(
         closeError?.let { throw IllegalStateException("TCP audit close failed", it) }
     }
 }
+
+private fun encodeMessageEnvelope(line: String): String =
+    buildString(line.length + 16) {
+        append("{\"message\":\"")
+        line.forEach { char ->
+            when (char) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (char.code < 0x20) {
+                        append("\\u")
+                        append(char.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(char)
+                    }
+                }
+            }
+        }
+        append("\"}")
+    }

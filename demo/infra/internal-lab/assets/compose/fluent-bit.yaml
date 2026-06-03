@@ -14,8 +14,7 @@ pipeline:
       port: 5170
       chunk_size: 256
       buffer_size: 1024
-      format: none
-      separator: LF
+      format: json
 
   outputs:
     - name: file
@@ -23,5 +22,5 @@ pipeline:
       path: /var/log/ckc-audit
       file: audit.log
       format: template
-      template: '{log}\n'
+      template: '{message}'
       mkdir: on

@@ -6,17 +6,17 @@ import avh.ckc.demo.audit.TcpAuditClient
 import avh.ckc.demo.audit.encodeAuditRecord
 import avh.ckc.demo.config.DemoApplicationProperties
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 
 @Component
-class AuditLog private constructor(
-    properties: DemoApplicationProperties,
+class AuditLog : AutoCloseable {
+    private val enabled: Boolean
+    private val runId: String
+    private val writerId: String
     private val writer: AuditLineWriter
-) : AutoCloseable {
-    private val enabled = properties.audit.enabled
-    private val runId = properties.audit.runId
-    private val writerId = properties.audit.writerId
 
+    @Autowired
     constructor(properties: DemoApplicationProperties) : this(
         properties = properties,
         writer = LazyAuditLineWriter { TcpAuditClient(properties.audit.host, properties.audit.port) }
@@ -26,7 +26,12 @@ class AuditLog private constructor(
         properties: DemoApplicationProperties,
         writer: AuditLineWriter,
         unused: Unit = Unit
-    ) : this(properties, writer)
+    ) {
+        this.enabled = properties.audit.enabled
+        this.runId = properties.audit.runId
+        this.writerId = properties.audit.writerId
+        this.writer = writer
+    }
 
     suspend fun processedSuspending(record: ConsumerRecord<*, *>) {
         if (enabled) {

@@ -486,6 +486,7 @@ echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   if [ ! -f "${AUDIT_ARCHIVE_FILE}" ]; then
     echo "Audit archive file was not found: ${AUDIT_ARCHIVE_FILE}" >&2
+    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
     exit 1
   fi
   awk -F '\t' -v run_id="${RUN_ID}" '$2 == run_id { print }' "${AUDIT_ARCHIVE_FILE}" > "${RUN_AUDIT_DIR}/audit.log"
