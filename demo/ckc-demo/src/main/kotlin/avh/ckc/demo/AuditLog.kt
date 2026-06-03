@@ -1,68 +1,90 @@
 package avh.ckc.demo
 
+import avh.ckc.demo.audit.AuditLineWriter
+import avh.ckc.demo.audit.LazyAuditLineWriter
+import avh.ckc.demo.audit.TcpAuditClient
+import avh.ckc.demo.audit.encodeAuditRecord
 import avh.ckc.demo.config.DemoApplicationProperties
-import avh.ckc.demo.config.DemoRedisCommands
-import io.lettuce.core.ExperimentalLettuceCoroutinesApi
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 
-@OptIn(ExperimentalLettuceCoroutinesApi::class)
 @Component
-class AuditLog(
-    properties: DemoApplicationProperties,
-    private val redisCommands: DemoRedisCommands
-) {
-    private val enabled = properties.audit.enabled
+class AuditLog : AutoCloseable {
+    private val enabled: Boolean
+    private val runId: String
+    private val writerId: String
+    private val writer: AuditLineWriter
+
+    @Autowired
+    constructor(properties: DemoApplicationProperties) : this(
+        properties = properties,
+        writer = LazyAuditLineWriter { TcpAuditClient(properties.audit.host, properties.audit.port) }
+    )
+
+    internal constructor(
+        properties: DemoApplicationProperties,
+        writer: AuditLineWriter,
+        unused: Unit = Unit
+    ) {
+        this.enabled = properties.audit.enabled
+        this.runId = properties.audit.runId
+        this.writerId = properties.audit.writerId
+        this.writer = writer
+    }
 
     suspend fun processedSuspending(record: ConsumerRecord<*, *>) {
         if (enabled) {
-            redisCommands.coroutines().rpush(AUDIT_KEY, encodeProcessedRecord(record))
+            writer.write(
+                encodeAuditRecord(
+                    type = "C",
+                    runId = runId,
+                    writerId = writerId,
+                    topic = record.topic(),
+                    messageKey = record.key()?.toString(),
+                    partition = record.partition(),
+                    offset = record.offset(),
+                    kafkaTimestampMs = record.timestamp()
+                )
+            )
         }
     }
 
     fun processed(record: ConsumerRecord<*, *>) {
         if (enabled) {
-            redisCommands.sync().rpush(AUDIT_KEY, encodeProcessedRecord(record))
+            writer.write(
+                encodeAuditRecord(
+                    type = "C",
+                    runId = runId,
+                    writerId = writerId,
+                    topic = record.topic(),
+                    messageKey = record.key()?.toString(),
+                    partition = record.partition(),
+                    offset = record.offset(),
+                    kafkaTimestampMs = record.timestamp()
+                )
+            )
         }
     }
 
     fun processed(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long) {
         if (enabled) {
-            redisCommands.sync().rpush(AUDIT_KEY, encodeAuditRecord("C", topic, partition, offset, kafkaTimestampMs, key))
+            writer.write(
+                encodeAuditRecord(
+                    type = "C",
+                    runId = runId,
+                    writerId = writerId,
+                    topic = topic,
+                    partition = partition,
+                    offset = offset,
+                    kafkaTimestampMs = kafkaTimestampMs,
+                    messageKey = key
+                )
+            )
         }
     }
 
-    private fun encodeProcessedRecord(record: ConsumerRecord<*, *>): ByteArray =
-        encodeAuditRecord(
-            type = "C",
-            topic = record.topic(),
-            messageKey = record.key()?.toString(),
-            partition = record.partition(),
-            offset = record.offset(),
-            kafkaTimestampMs = record.timestamp()
-        )
-}
-
-internal fun encodeAuditRecord(
-    type: String,
-    topic: String,
-    partition: Int,
-    offset: Long,
-    kafkaTimestampMs: Long,
-    messageKey: String?
-): ByteArray =
-    "$type\t${auditTopicId(topic)}\t$partition\t$offset\t$kafkaTimestampMs\t${System.currentTimeMillis()}\t${sanitizeAuditKey(messageKey)}"
-        .encodeToByteArray()
-
-private fun auditTopicId(topic: String): Int =
-    when (topic) {
-        DemoTopics.ORDER_EVENTS -> 1
-        DemoTopics.BATCH_EVENTS -> 2
-        DemoTopics.CAULDRON_EVENTS -> 3
-        else -> error("No audit topic id configured for topic '$topic'")
+    override fun close() {
+        writer.close()
     }
-
-private fun sanitizeAuditKey(key: String?): String =
-    key.orEmpty().replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
-
-private const val AUDIT_KEY = "audit"
+}

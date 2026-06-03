@@ -37,6 +37,12 @@ spec:
               value: {{ .Values.env.redisHost | quote }}
             - name: SPRING_DATA_REDIS_PORT
               value: {{ .Values.env.redisPort | quote }}
+            - name: AUDIT_TCP_HOST
+              value: {{ .Values.env.auditTcpHost | quote }}
+            - name: AUDIT_TCP_PORT
+              value: {{ .Values.env.auditTcpPort | quote }}
+            - name: AUDIT_RUN_ID
+              value: {{ .Values.env.auditRunId | quote }}
 {{- if .Values.env.javaToolOptions }}
             - name: JAVA_TOOL_OPTIONS
               value: {{ .Values.env.javaToolOptions | quote }}

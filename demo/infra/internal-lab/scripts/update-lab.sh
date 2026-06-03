@@ -207,8 +207,7 @@ fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/build-context/demo-stubs/build/install/ckc-demo-stubs/bin/'*"
 fi
-ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' up -d --no-deps grafana"
-ssh "root@${LAB_HOST}" "docker compose -f '${LAB_ROOT}/docker-compose.host-services.yml' restart grafana"
+ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
 
 REBUILD_ARGS=()
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then

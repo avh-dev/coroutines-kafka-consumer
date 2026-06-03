@@ -17,6 +17,9 @@ env:
   bootstrapServers: ckc-external-kafka.ckc-perf.svc.cluster.local:9092
   redisHost: ckc-external-redis.ckc-perf.svc.cluster.local
   redisPort: 6379
+  auditTcpHost: ckc-external-audit.ckc-perf.svc.cluster.local
+  auditTcpPort: 5170
+  auditRunId: local
   javaToolOptions: "-Xms256m -Xmx256m -XX:+UseSerialGC"
   modelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
   auditLogEnabled: true

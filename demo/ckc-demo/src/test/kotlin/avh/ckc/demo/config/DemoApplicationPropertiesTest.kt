@@ -27,6 +27,10 @@ class DemoApplicationPropertiesTest {
         assertEquals(256, properties.consumers.telemetry.workChannelCapacity)
         assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
         assertEquals(true, properties.audit.enabled)
+        assertEquals("127.0.0.1", properties.audit.host)
+        assertEquals(5170, properties.audit.port)
+        assertEquals("local", properties.audit.runId)
+        assertEquals("demo", properties.audit.writerId)
     }
 
     @Test
@@ -48,7 +52,11 @@ class DemoApplicationPropertiesTest {
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
                 "demo.consumers.telemetry.work-channel-capacity" to "512",
                 "demo.consumers.telemetry.processing-mode" to "freshness-first",
-                "demo.audit.enabled" to "false"
+                "demo.audit.enabled" to "false",
+                "demo.audit.host" to "audit-host",
+                "demo.audit.port" to "5511",
+                "demo.audit.run-id" to "run-9",
+                "demo.audit.writer-id" to "demo-pod-1"
             )
         )
 
@@ -68,6 +76,10 @@ class DemoApplicationPropertiesTest {
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)
         assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
         assertEquals(false, properties.audit.enabled)
+        assertEquals("audit-host", properties.audit.host)
+        assertEquals(5511, properties.audit.port)
+        assertEquals("run-9", properties.audit.runId)
+        assertEquals("demo-pod-1", properties.audit.writerId)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =

@@ -11,6 +11,9 @@ class LoadTestConfigTest {
         val config = LoadTestConfig.fromEnvironment(emptyMap())
 
         assertTrue(config.auditLogEnabled)
+        assertEquals("127.0.0.1", config.auditHost)
+        assertEquals(5170, config.auditPort)
+        assertEquals("local", config.auditRunId)
         assertEquals(Runtime.getRuntime().availableProcessors().coerceAtLeast(1), config.generatorWorkers)
     }
 
@@ -39,6 +42,9 @@ class LoadTestConfigTest {
                 "STATS_LOG_INTERVAL_SECONDS" to "9",
                 "TELEMETRY_SOURCE_MODE" to "FIXED_FLEET",
                 "PUBLISH_ENABLED" to "false",
+                "AUDIT_TCP_HOST" to "audit-host",
+                "AUDIT_TCP_PORT" to "5511",
+                "TEST_RUN_ID" to "run-12",
                 "LOAD_TEST_WORKERS" to "4"
             )
         )
@@ -57,6 +63,9 @@ class LoadTestConfigTest {
         assertEquals(9, config.statsLogInterval.seconds)
         assertEquals(TelemetrySourceMode.FIXED_FLEET, config.telemetrySourceMode)
         assertEquals(false, config.publishEnabled)
+        assertEquals("audit-host", config.auditHost)
+        assertEquals(5511, config.auditPort)
+        assertEquals("run-12", config.auditRunId)
         assertEquals(4, config.generatorWorkers)
     }
 }

@@ -23,6 +23,7 @@ PROCESSING_ENABLED="${3:-true}"
 AUDIT_LOG_ENABLED="${4:-true}"
 METRICS_IMPLEMENTATION="${5:-MICROMETER}"
 WORKER_DISPATCHER_THREADS="${6:-8}"
+AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
   echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads]" >&2
@@ -117,6 +118,7 @@ helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/de
   -f "${DEPLOYMENT_PROFILE}" \
   --set "env.processingEnabled=${PROCESSING_ENABLED}" \
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
+  --set "env.auditRunId=${AUDIT_RUN_ID}" \
   --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
   --set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}"
 

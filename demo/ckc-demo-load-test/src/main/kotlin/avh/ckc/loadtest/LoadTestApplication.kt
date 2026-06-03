@@ -36,7 +36,7 @@ fun main() = runBlocking {
     )
     println("workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} baseTpsPerJvm=${config.baseTps}")
 
-    LoadTestProducers(config).use { producers ->
+    LoadTestProducers(config, shardContext).use { producers ->
         runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers)
     }
 }

@@ -50,6 +50,23 @@ services:
       timeout: 5s
       retries: 18
 
+  fluent-bit:
+    image: cr.fluentbit.io/fluent/fluent-bit:4.2.3
+    container_name: ckc-internal-fluent-bit
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:5170:5170"
+      - "127.0.0.1:2020:2020"
+    command: ["-c", "/fluent-bit/etc/fluent-bit.yaml"]
+    volumes:
+      - ./fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
+      - ./audit/live:/var/log/ckc-audit
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
   grafana:
     image: grafana/grafana:11.6.0
     container_name: ckc-internal-grafana

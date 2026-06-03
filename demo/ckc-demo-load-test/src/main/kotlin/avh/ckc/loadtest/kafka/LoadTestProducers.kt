@@ -7,6 +7,7 @@ import avh.ckc.demo.serialization.BatchLifecycleEventSerializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.runtime.ShardContext
 import org.apache.kafka.clients.producer.Callback
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -29,7 +30,8 @@ interface LoadTestPublisher {
 
 class LoadTestProducers(
     private val config: LoadTestConfig,
-    private val auditLog: LoadTestAuditLog? = if (config.auditLogEnabled) LoadTestAuditLog.fromEnvironment() else null
+    shardContext: ShardContext,
+    private val auditLog: LoadTestAuditLog? = if (config.auditLogEnabled) LoadTestAuditLog.fromConfig(config, shardContext) else null
 ) : LoadTestPublisher, AutoCloseable {
     private val lifecycleSent = AtomicLong(0)
     private val lifecycleAcked = AtomicLong(0)
@@ -54,9 +56,8 @@ class LoadTestProducers(
 
     override fun sendOrder(key: String, event: OrderLifecycleEvent) {
         val sent = lifecycleSent.incrementAndGet()
-        val eventType = event.eventType.name
         if (!config.publishEnabled) {
-            recordDryRun(config.orderEventsTopic, key, eventType, lifecycleAcked)
+            recordDryRun(config.orderEventsTopic, key, lifecycleAcked)
             maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
             return
         }
@@ -65,7 +66,6 @@ class LoadTestProducers(
             callback(
                 stream = "order",
                 key = key,
-                eventType = eventType,
                 sentCounter = lifecycleAcked,
                 failureCounter = lifecycleFailed
             )
@@ -75,9 +75,8 @@ class LoadTestProducers(
 
     override fun sendBatch(key: String, event: BatchLifecycleEvent) {
         val sent = batchSent.incrementAndGet()
-        val eventType = event.eventType.name
         if (!config.publishEnabled) {
-            recordDryRun(config.batchEventsTopic, key, eventType, batchAcked)
+            recordDryRun(config.batchEventsTopic, key, batchAcked)
             maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
             return
         }
@@ -86,7 +85,6 @@ class LoadTestProducers(
             callback(
                 stream = "batch",
                 key = key,
-                eventType = eventType,
                 sentCounter = batchAcked,
                 failureCounter = batchFailed
             )
@@ -96,9 +94,8 @@ class LoadTestProducers(
 
     override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
         val sent = telemetrySent.incrementAndGet()
-        val eventType = "CAULDRON_TELEMETRY"
         if (!config.publishEnabled) {
-            recordDryRun(config.cauldronEventsTopic, key, eventType, telemetryAcked)
+            recordDryRun(config.cauldronEventsTopic, key, telemetryAcked)
             maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
             return
         }
@@ -107,7 +104,6 @@ class LoadTestProducers(
             callback(
                 stream = "telemetry",
                 key = key,
-                eventType = eventType,
                 sentCounter = telemetryAcked,
                 failureCounter = telemetryFailed
             )
@@ -147,9 +143,9 @@ class LoadTestProducers(
         }
     }
 
-    private fun recordDryRun(topic: String, key: String, eventType: String, ackedCounter: AtomicLong) {
+    private fun recordDryRun(topic: String, key: String, ackedCounter: AtomicLong) {
         ackedCounter.incrementAndGet()
-        auditLog?.generated(topic, key, eventType)
+        auditLog?.generated(topic, key)
     }
 
     private fun producerProperties(valueSerializerClass: Class<*>): Map<String, Any> = mapOf(
@@ -166,7 +162,6 @@ class LoadTestProducers(
     private fun callback(
         stream: String,
         key: String,
-        eventType: String,
         sentCounter: AtomicLong,
         failureCounter: AtomicLong
     ): Callback =
@@ -181,7 +176,7 @@ class LoadTestProducers(
 
             val acked = sentCounter.incrementAndGet()
             val recordMetadata = metadata!!
-            auditLog?.published(recordMetadata, key, eventType)
+            auditLog?.published(recordMetadata, key)
             if (acked <= 5 || acked % 500 == 0L) {
                 println(
                     "load-test publish ack stream=$stream key=$key " +
