@@ -92,8 +92,8 @@ services:
       - --kafka.server=kafka:29092
       - --web.listen-address=:9308
       - --topic.filter=^(order|batch|cauldron)\.events\.v1$
-      - --group.filter=^potion-tracking-.*$
-      - --offset.show-all=true
+      - --group.filter=^(potion-tracking|spring-kafka)-.*$
+      - --offset.show-all
     depends_on:
       kafka:
         condition: service_healthy

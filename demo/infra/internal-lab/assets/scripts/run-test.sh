@@ -480,7 +480,7 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo "Waiting for demo consumer lag to drain before audit collection."
   python3 "${LAB_ROOT}/assets/scripts/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
-    --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons" \
+    --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}"

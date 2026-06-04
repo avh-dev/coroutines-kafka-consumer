@@ -123,6 +123,7 @@
 | [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
 | [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | DONE |
 | [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | IN_PROGRESS |
+| [INFRA-46](#infra-46) | Fix internal-lab Redpanda observability and drain-wait scripts so Kafka lag checks work cleanly after the broker migration.                        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1304,3 +1305,14 @@ _Date: 2026-06-04_
 Update the internal-lab audit analyzer to understand the compact `P`, `C`, and `F` payload formats now emitted by the demo app and load-test.
 Drop dependence on per-record run and writer identifiers by cleaning the shared live audit log before each test run and archiving only fresh records.
 Keep the existing Fluent Bit JSON-over-TCP collector and internal-lab orchestration, but align the file parsing and summary outputs with the new payload contract.
+
+<a id="infra-46"></a>
+### INFRA-46 - Fix internal-lab Redpanda script compatibility
+
+_Date: 2026-06-04_
+
+Fix the internal-lab Kafka exporter startup flags so the observability container starts cleanly against the current exporter image.
+Reduce noisy exporter readiness failures during `update-lab.sh` while keeping lag metrics optional for test execution.
+Keep `run-test.sh` drain waiting functional on Redpanda by preserving or tightening the existing `rpk`-based fallback when Prometheus lag metrics are unavailable.
+Persist internal-lab Prometheus TSDB on the lab host and avoid unconditional Prometheus restarts during routine lab updates.
+Split internal-lab update fingerprints so test-definition and Helm-only changes can skip unnecessary Gradle builds, base redeploys, and stubs restarts.

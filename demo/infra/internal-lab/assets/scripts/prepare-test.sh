@@ -107,7 +107,7 @@ fi
 
 LAB_ROOT="${LAB_ROOT}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
-CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons" \
+CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
   "${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh"
 
 "${LAB_ROOT}/assets/scripts/deploy-stubs.sh"
