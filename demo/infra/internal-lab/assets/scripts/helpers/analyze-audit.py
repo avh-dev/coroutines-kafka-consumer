@@ -25,12 +25,10 @@ class RecordKey:
 @dataclass(frozen=True)
 class AuditRecord:
     record_type: str
-    run_id: str
-    writer_id: str
     key: RecordKey
-    kafka_timestamp_ms: int
     audit_timestamp_ms: int
     message_key: str
+    kafka_timestamp_ms: int | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,21 +38,34 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_record(value: str) -> AuditRecord:
-    parts = value.rstrip("\n").split("\t", 8)
-    if len(parts) != 9:
-        raise ValueError(f"expected 9 audit fields, got {len(parts)}: {value!r}")
-    record_type, run_id, writer_id, topic_id, partition, offset, kafka_ts, audit_ts, message_key = parts
-    if record_type not in {"P", "C"}:
-        raise ValueError(f"unexpected audit record type: {record_type}")
-    return AuditRecord(
-        record_type=record_type,
-        run_id=run_id,
-        writer_id=writer_id,
-        key=RecordKey(int(topic_id), int(partition), int(offset)),
-        kafka_timestamp_ms=int(kafka_ts),
-        audit_timestamp_ms=int(audit_ts),
-        message_key=message_key,
-    )
+    parts = value.rstrip("\n").split("|")
+    record_type = parts[0] if parts else ""
+
+    if record_type == "P":
+        if len(parts) != 7:
+            raise ValueError(f"expected 7 publish audit fields, got {len(parts)}: {value!r}")
+        _, topic_id, partition, offset, kafka_ts, audit_ts, message_key = parts
+        return AuditRecord(
+            record_type=record_type,
+            key=RecordKey(int(topic_id), int(partition), int(offset)),
+            kafka_timestamp_ms=int(kafka_ts),
+            audit_timestamp_ms=int(audit_ts),
+            message_key=message_key,
+        )
+
+    if record_type in {"C", "F"}:
+        if len(parts) != 6:
+            raise ValueError(f"expected 6 consumer audit fields, got {len(parts)}: {value!r}")
+        _, topic_id, partition, offset, audit_ts, message_key = parts
+        return AuditRecord(
+            record_type=record_type,
+            key=RecordKey(int(topic_id), int(partition), int(offset)),
+            kafka_timestamp_ms=None,
+            audit_timestamp_ms=int(audit_ts),
+            message_key=message_key,
+        )
+
+    raise ValueError(f"unexpected audit record type: {record_type}")
 
 
 def read_records(paths: list[str]) -> list[AuditRecord]:
@@ -80,9 +91,18 @@ def percentile(values: list[int], percent: float) -> int:
     return values[index]
 
 
+def format_percentiles(values: list[int]) -> str:
+    return (
+        f"p50={percentile(values, 0.50)} p95={percentile(values, 0.95)} "
+        f"p99={percentile(values, 0.99)} max={values[-1] if values else 0}"
+    )
+
+
 def print_summary(title: str, records: list[AuditRecord]) -> None:
     published = [record for record in records if record.record_type == "P"]
     processed = [record for record in records if record.record_type == "C"]
+    failed = [record for record in records if record.record_type == "F"]
+    terminal = processed + failed
 
     published_by_key: dict[RecordKey, AuditRecord] = {}
     duplicate_published = 0
@@ -95,22 +115,48 @@ def print_summary(title: str, records: list[AuditRecord]) -> None:
             published_by_key[record.key] = record
 
     processed_counts = Counter(record.key for record in processed)
+    failed_counts = Counter(record.key for record in failed)
     processed_unique = set(processed_counts)
+    failed_unique = set(failed_counts)
+    terminal_unique = processed_unique | failed_unique
     published_keys = set(published_by_key)
 
-    missing = published_keys - processed_unique
-    unknown_processed = processed_unique - published_keys
+    missing_terminal = published_keys - terminal_unique
+    processed_without_publish = processed_unique - published_keys
+    failed_without_publish = failed_unique - published_keys
+    conflicting_terminal = processed_unique & failed_unique
     duplicate_processed = sum(count - 1 for count in processed_counts.values() if count > 1)
+    duplicate_failed = sum(count - 1 for count in failed_counts.values() if count > 1)
 
-    latencies = sorted(
+    process_latency = sorted(
         record.audit_timestamp_ms - published_by_key[record.key].audit_timestamp_ms
         for record in processed
         if record.key in published_by_key
     )
-    kafka_age = sorted(
-        record.audit_timestamp_ms - record.kafka_timestamp_ms
+    failure_latency = sorted(
+        record.audit_timestamp_ms - published_by_key[record.key].audit_timestamp_ms
+        for record in failed
+        if record.key in published_by_key
+    )
+    terminal_latency = sorted(
+        record.audit_timestamp_ms - published_by_key[record.key].audit_timestamp_ms
+        for record in terminal
+        if record.key in published_by_key
+    )
+    kafka_to_process_age = sorted(
+        record.audit_timestamp_ms - published_by_key[record.key].kafka_timestamp_ms
         for record in processed
-        if record.kafka_timestamp_ms > 0
+        if record.key in published_by_key and published_by_key[record.key].kafka_timestamp_ms is not None
+    )
+    kafka_to_failure_age = sorted(
+        record.audit_timestamp_ms - published_by_key[record.key].kafka_timestamp_ms
+        for record in failed
+        if record.key in published_by_key and published_by_key[record.key].kafka_timestamp_ms is not None
+    )
+    kafka_to_terminal_age = sorted(
+        record.audit_timestamp_ms - published_by_key[record.key].kafka_timestamp_ms
+        for record in terminal
+        if record.key in published_by_key and published_by_key[record.key].kafka_timestamp_ms is not None
     )
 
     print(title)
@@ -118,20 +164,22 @@ def print_summary(title: str, records: list[AuditRecord]) -> None:
     print(f"  published_unique={len(published_keys)}")
     print(f"  processed_records={len(processed)}")
     print(f"  processed_unique={len(processed_unique)}")
-    print(f"  missing_processed={len(missing)}")
+    print(f"  failed_records={len(failed)}")
+    print(f"  failed_unique={len(failed_unique)}")
+    print(f"  terminal_unique={len(terminal_unique)}")
+    print(f"  missing_terminal={len(missing_terminal)}")
     print(f"  duplicate_published={duplicate_published}")
     print(f"  duplicate_processed={duplicate_processed}")
-    print(f"  processed_without_publish={len(unknown_processed)}")
-    print(
-        "  publish_to_process_latency_ms="
-        f"p50={percentile(latencies, 0.50)} p95={percentile(latencies, 0.95)} "
-        f"p99={percentile(latencies, 0.99)} max={latencies[-1] if latencies else 0}"
-    )
-    print(
-        "  kafka_to_process_age_ms="
-        f"p50={percentile(kafka_age, 0.50)} p95={percentile(kafka_age, 0.95)} "
-        f"p99={percentile(kafka_age, 0.99)} max={kafka_age[-1] if kafka_age else 0}"
-    )
+    print(f"  duplicate_failed={duplicate_failed}")
+    print(f"  processed_without_publish={len(processed_without_publish)}")
+    print(f"  failed_without_publish={len(failed_without_publish)}")
+    print(f"  conflicting_terminal_outcomes={len(conflicting_terminal)}")
+    print(f"  publish_to_process_latency_ms={format_percentiles(process_latency)}")
+    print(f"  publish_to_failure_latency_ms={format_percentiles(failure_latency)}")
+    print(f"  publish_to_terminal_latency_ms={format_percentiles(terminal_latency)}")
+    print(f"  kafka_to_process_age_ms={format_percentiles(kafka_to_process_age)}")
+    print(f"  kafka_to_failure_age_ms={format_percentiles(kafka_to_failure_age)}")
+    print(f"  kafka_to_terminal_age_ms={format_percentiles(kafka_to_terminal_age)}")
 
 
 def main() -> int:

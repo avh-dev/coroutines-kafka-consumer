@@ -121,6 +121,7 @@
 | [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
 | [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
 | [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | DONE |
+| [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1284,3 +1285,12 @@ _Date: 2026-06-03_
 Run a dedicated Fluent Bit audit collector alongside internal-lab host services and prepare the same ingestion model for AWS EKS.
 Archive compact audit records per run without reusing Redis as a temporary store.
 Fail internal-lab runs fast when the audit collector is unavailable or cannot keep up with the generated load.
+
+<a id="infra-45"></a>
+### INFRA-45 - Update compact audit archive and analyzer flow
+
+_Date: 2026-06-04_
+
+Update the internal-lab audit analyzer to understand the compact `P`, `C`, and `F` payload formats now emitted by the demo app and load-test.
+Drop dependence on per-record run and writer identifiers by cleaning the shared live audit log before each test run and archiving only fresh records.
+Keep the existing Fluent Bit JSON-over-TCP collector and internal-lab orchestration, but align the file parsing and summary outputs with the new payload contract.
