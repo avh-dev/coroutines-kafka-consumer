@@ -76,6 +76,7 @@
 | [DEMO-44](#demo-44) | Align external demo consumer processing modes with CKC settings and discard stale freshness-first records before business processing.          | DONE |
 | [DEMO-45](#demo-45) | Persist demo-stubs runtime settings in Redis so configured latency profiles survive pod restarts during resiliency tests.                       | DONE |
 | [DEMO-46](#demo-46) | Replace Redis-backed demo audit writes with compact TCP audit logging that carries run and writer identity for Fluent Bit ingestion.            | DONE |
+| [DEMO-47](#demo-47) | Replace the demo app and load-test custom TCP audit senders with Logback TCP appenders, add failure audit records, and shrink the Fluent Bit JSON audit payload. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1263,6 +1264,17 @@ _Date: 2026-06-03_
 Replace Redis audit writes in the demo application and load-test generator with compact line-based TCP audit logging.
 Include the test run id and stable writer identity in every audit record so downstream collection stays stateless.
 Keep audit failures visible enough to invalidate a run instead of silently dropping experiment data.
+
+<a id="demo-47"></a>
+### DEMO-47 - Switch demo audit transport to Logback TCP appenders
+
+_Date: 2026-06-03_
+
+Replace the demo application's and load-test generator's custom TCP audit senders with Logback-managed TCP appenders.
+Keep the current Fluent Bit JSON-over-TCP ingestion contract so internal-lab audit collection stays unchanged during the transport swap.
+Remove the remaining self-managed socket audit transport code once both sender paths use the shared logging-based contract.
+Add `F` audit records for terminal processing failures across CKC, Spring Kafka, and Confluent demo consumer paths.
+Shrink audit payloads by removing run and writer identifiers from each line, using `|` separators, and splitting publish and consumer record schemas.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

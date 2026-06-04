@@ -1,90 +1,96 @@
 package avh.ckc.demo
 
-import avh.ckc.demo.audit.AuditLineWriter
-import avh.ckc.demo.audit.LazyAuditLineWriter
-import avh.ckc.demo.audit.TcpAuditClient
-import avh.ckc.demo.audit.encodeAuditRecord
+import avh.ckc.demo.audit.auditTopicId
 import avh.ckc.demo.config.DemoApplicationProperties
 import org.apache.kafka.clients.consumer.ConsumerRecord
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.stereotype.Component
+import org.slf4j.LoggerFactory
 
-@Component
-class AuditLog : AutoCloseable {
-    private val enabled: Boolean
-    private val runId: String
-    private val writerId: String
-    private val writer: AuditLineWriter
+private const val AUDIT_TCP_LOGGER = "AUDIT_TCP"
+private val auditLogger = LoggerFactory.getLogger(AUDIT_TCP_LOGGER)
 
-    @Autowired
-    constructor(properties: DemoApplicationProperties) : this(
-        properties = properties,
-        writer = LazyAuditLineWriter { TcpAuditClient(properties.audit.host, properties.audit.port) }
+fun logProcessed(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+    logRecord(
+        type = "C",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit
     )
-
-    internal constructor(
-        properties: DemoApplicationProperties,
-        writer: AuditLineWriter,
-        unused: Unit = Unit
-    ) {
-        this.enabled = properties.audit.enabled
-        this.runId = properties.audit.runId
-        this.writerId = properties.audit.writerId
-        this.writer = writer
-    }
-
-    suspend fun processedSuspending(record: ConsumerRecord<*, *>) {
-        if (enabled) {
-            writer.write(
-                encodeAuditRecord(
-                    type = "C",
-                    runId = runId,
-                    writerId = writerId,
-                    topic = record.topic(),
-                    messageKey = record.key()?.toString(),
-                    partition = record.partition(),
-                    offset = record.offset(),
-                    kafkaTimestampMs = record.timestamp()
-                )
-            )
-        }
-    }
-
-    fun processed(record: ConsumerRecord<*, *>) {
-        if (enabled) {
-            writer.write(
-                encodeAuditRecord(
-                    type = "C",
-                    runId = runId,
-                    writerId = writerId,
-                    topic = record.topic(),
-                    messageKey = record.key()?.toString(),
-                    partition = record.partition(),
-                    offset = record.offset(),
-                    kafkaTimestampMs = record.timestamp()
-                )
-            )
-        }
-    }
-
-    fun processed(topic: String, key: String?, partition: Int, offset: Long, kafkaTimestampMs: Long) {
-        if (enabled) {
-            writer.write(
-                encodeAuditRecord(
-                    type = "C",
-                    runId = runId,
-                    writerId = writerId,
-                    topic = topic,
-                    partition = partition,
-                    offset = offset,
-                    kafkaTimestampMs = kafkaTimestampMs,
-                    messageKey = key
-                )
-            )
-        }
-    }
-
-    override fun close() {
-        writer.close()
-    }
 }
+
+fun logFailed(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+    logRecord(
+        type = "F",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit
+    )
+}
+
+fun logProcessed(
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    logRecord(
+        type = "C",
+        topic = topic,
+        key = key,
+        partition = partition,
+        offset = offset,
+        kafkaTimestampMs = kafkaTimestampMs,
+        audit = audit
+    )
+}
+
+fun logFailed(
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    logRecord(
+        type = "F",
+        topic = topic,
+        key = key,
+        partition = partition,
+        offset = offset,
+        kafkaTimestampMs = kafkaTimestampMs,
+        audit = audit
+    )
+}
+
+private fun logRecord(
+    type: String,
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    if (!audit.enabled) {
+        return
+    }
+    auditLogger.info(encodeConsumerAuditRecord(type, topic, partition, offset, key))
+}
+
+internal fun encodeConsumerAuditRecord(
+    type: String,
+    topic: String,
+    partition: Int,
+    offset: Long,
+    key: String?,
+    auditTimestampMs: Long = System.currentTimeMillis()
+): String =
+    "$type|${auditTopicId(topic)}|$partition|$offset|$auditTimestampMs|${key.orEmpty()}"

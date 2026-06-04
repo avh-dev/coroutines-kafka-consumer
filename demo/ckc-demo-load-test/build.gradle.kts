@@ -30,6 +30,8 @@ dependencies {
     implementation(project(":ckc-demo-contracts"))
     implementation(kotlin("stdlib"))
     implementation("com.google.protobuf:protobuf-java")
+    implementation("ch.qos.logback:logback-classic:1.5.25")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.1")
     implementation("org.apache.kafka:kafka-clients")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json")

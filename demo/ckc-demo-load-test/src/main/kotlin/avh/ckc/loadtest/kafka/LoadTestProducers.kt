@@ -138,7 +138,6 @@ class LoadTestProducers(
                 batchProducer.close()
                 telemetryProducer.close()
             }
-            auditLog?.close()
             logSnapshot("close")
         }
     }

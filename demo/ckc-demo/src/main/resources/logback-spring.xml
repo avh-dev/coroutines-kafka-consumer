@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <springProperty scope="context" name="auditTcpHost" source="demo.audit.host" defaultValue="127.0.0.1"/>
+    <springProperty scope="context" name="auditTcpPort" source="demo.audit.port" defaultValue="5170"/>
+
+    <appender name="AUDIT_TCP" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+        <destination>${auditTcpHost}:${auditTcpPort}</destination>
+        <reconnectionDelay>1 second</reconnectionDelay>
+        <connectionTimeout>5 seconds</connectionTimeout>
+        <writeBufferSize>8192</writeBufferSize>
+        <writeTimeout>5 seconds</writeTimeout>
+        <keepAliveDuration>30 seconds</keepAliveDuration>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <pattern>
+                    <pattern>{"message":"%message"}</pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+
+    <logger name="AUDIT_TCP" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT_TCP"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

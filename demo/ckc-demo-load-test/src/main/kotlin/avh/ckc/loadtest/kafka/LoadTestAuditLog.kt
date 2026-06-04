@@ -1,65 +1,55 @@
 package avh.ckc.loadtest.kafka
 
-import avh.ckc.demo.audit.AuditLineWriter
-import avh.ckc.demo.audit.TcpAuditClient
-import avh.ckc.demo.audit.encodeAuditRecord
-import avh.ckc.demo.audit.sanitizeAuditComponent
+import avh.ckc.demo.audit.auditTopicId
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.runtime.ShardContext
 import org.apache.kafka.clients.producer.RecordMetadata
+import org.slf4j.LoggerFactory
 
-class LoadTestAuditLog private constructor(
-    private val writer: AuditLineWriter,
-    private val runId: String,
-    private val writerId: String
-) : AutoCloseable {
+private const val AUDIT_TCP_LOGGER = "AUDIT_TCP"
+private val auditLogger = LoggerFactory.getLogger(AUDIT_TCP_LOGGER)
+
+class LoadTestAuditLog private constructor() {
     fun published(metadata: RecordMetadata, key: String) {
         append(
-            encodeAuditRecord(
-                type = "P",
-                runId = runId,
-                writerId = writerId,
+            encodePublishedAuditRecord(
                 topic = metadata.topic(),
                 partition = metadata.partition(),
                 offset = metadata.offset(),
                 kafkaTimestampMs = metadata.timestamp(),
-                messageKey = key
+                key = key
             )
         )
     }
 
     fun generated(topic: String, key: String) {
         append(
-            encodeAuditRecord(
-                type = "P",
-                runId = runId,
-                writerId = writerId,
+            encodePublishedAuditRecord(
                 topic = topic,
                 partition = -1,
                 offset = -1,
                 kafkaTimestampMs = System.currentTimeMillis(),
-                messageKey = key
+                key = key
             )
         )
     }
 
-    override fun close() {
-        writer.close()
-    }
-
     private fun append(record: String) {
-        writer.write(record)
+        auditLogger.info(record)
     }
 
     companion object {
         fun fromConfig(config: LoadTestConfig, shardContext: ShardContext): LoadTestAuditLog =
-            LoadTestAuditLog(
-                writer = TcpAuditClient(config.auditHost, config.auditPort),
-                runId = config.auditRunId,
-                writerId = writerId(shardContext)
-            )
+            LoadTestAuditLog()
     }
 }
 
-internal fun writerId(shardContext: ShardContext): String =
-    sanitizeAuditComponent("loadtest-shard-${shardContext.shardIndex}", "loadtest")
+internal fun encodePublishedAuditRecord(
+    topic: String,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    key: String,
+    auditTimestampMs: Long = System.currentTimeMillis()
+): String =
+    "P|${auditTopicId(topic)}|$partition|$offset|$kafkaTimestampMs|$auditTimestampMs|$key"

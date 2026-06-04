@@ -2,7 +2,6 @@ package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.demo.AuditLog
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -52,7 +51,6 @@ class CkcProfileConfiguration {
         orderLifecycleService: SuspendOrderLifecycleService,
         batchLifecycleService: SuspendBatchLifecycleService,
         cauldronTelemetryService: SuspendCauldronTelemetryService,
-        auditLog: AuditLog,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
@@ -63,7 +61,6 @@ class CkcProfileConfiguration {
             orderHandler = { _, event -> orderLifecycleService.apply(event) },
             batchHandler = { _, event -> batchLifecycleService.apply(event) },
             telemetryHandler = { _, telemetry -> cauldronTelemetryService.recalculate(telemetry) },
-            auditLog,
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
@@ -81,7 +78,6 @@ class CkcSyncProfileConfiguration {
         orderLifecycleService: SyncOrderLifecycleService,
         batchLifecycleService: SyncBatchLifecycleService,
         cauldronTelemetryService: SyncCauldronTelemetryService,
-        auditLog: AuditLog,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
@@ -91,7 +87,6 @@ class CkcSyncProfileConfiguration {
             orderHandler = { _, event -> orderLifecycleService.apply(event) },
             batchHandler = { _, event -> batchLifecycleService.apply(event) },
             telemetryHandler = { _, telemetry -> cauldronTelemetryService.recalculate(telemetry) },
-            auditLog,
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
@@ -104,7 +99,6 @@ private class CkcConsumerRuntime(
     private val orderHandler: suspend (String?, OrderLifecycleEvent) -> Unit,
     private val batchHandler: suspend (String?, BatchLifecycleEvent) -> Unit,
     private val telemetryHandler: suspend (String?, CauldronTelemetryEvent) -> Unit,
-    private val auditLog: AuditLog,
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
@@ -125,7 +119,7 @@ private class CkcConsumerRuntime(
         orderConsumer = DemoConsumers.orderConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId),
             orderConsumerMetrics,
-            auditLog,
+            properties.audit,
             properties.consumers.order,
             processingDispatcher,
             properties.consumers.processingEnabled
@@ -134,7 +128,7 @@ private class CkcConsumerRuntime(
         batchConsumer = DemoConsumers.batchConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId),
             batchConsumerMetrics,
-            auditLog,
+            properties.audit,
             properties.consumers.batch,
             processingDispatcher,
             properties.consumers.processingEnabled
@@ -143,7 +137,7 @@ private class CkcConsumerRuntime(
         telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId),
             consumerMetrics,
-            auditLog,
+            properties.audit,
             properties.consumers.telemetry,
             processingDispatcher,
             properties.consumers.processingEnabled
