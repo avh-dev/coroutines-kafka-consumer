@@ -358,6 +358,10 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
   exit 1
 fi
 
+if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+  : > "${AUDIT_ARCHIVE_FILE}"
+fi
+
 BOOTSTRAP_SERVERS="127.0.0.1:9092" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
 JOB_COMPLETION_INDEX="${JOB_COMPLETION_INDEX:-0}" \
@@ -489,7 +493,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
     docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
     exit 1
   fi
-  awk -F '\t' -v run_id="${RUN_ID}" '$2 == run_id { print }' "${AUDIT_ARCHIVE_FILE}" > "${RUN_AUDIT_DIR}/audit.log"
+  cp "${AUDIT_ARCHIVE_FILE}" "${RUN_AUDIT_DIR}/audit.log"
   if [ ! -s "${RUN_AUDIT_DIR}/audit.log" ]; then
     echo "No audit records were archived for run ${RUN_ID}." >&2
     exit 1
