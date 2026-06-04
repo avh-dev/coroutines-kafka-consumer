@@ -48,6 +48,7 @@ dependencies {
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.confluent.parallelconsumer:parallel-consumer-core:$parallelConsumerVersion")
     implementation("io.confluent.parallelconsumer:parallel-consumer-reactor:$parallelConsumerVersion")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.1")
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")

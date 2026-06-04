@@ -1,8 +1,9 @@
 package avh.ckc.demo.consumer.confluent
 
-import avh.ckc.demo.AuditLog
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
+import avh.ckc.demo.logFailed
+import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -21,7 +22,6 @@ class ConfluentParallelTrackingService(
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
-    private val auditLog: AuditLog,
     private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -37,6 +37,7 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel order event received for key={}, order={}", record.key(), record.value().orderId)
         } catch (error: Throwable) {
+            auditFailed(record)
             throw error
         }
     }
@@ -52,6 +53,7 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel batch event received for key={}, batch={}", record.key(), record.value().batchId)
         } catch (error: Throwable) {
+            auditFailed(record)
             throw error
         }
     }
@@ -67,6 +69,7 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel cauldron event received for key={}, cauldron={}", record.key(), record.value().cauldronId)
         } catch (error: Throwable) {
+            auditFailed(record)
             throw error
         }
     }
@@ -77,7 +80,13 @@ class ConfluentParallelTrackingService(
 
     private fun auditProcessed(record: ConsumerRecord<*, *>) {
         if (properties.audit.enabled) {
-            auditLog.processed(record)
+            logProcessed(record, properties.audit)
+        }
+    }
+
+    private fun auditFailed(record: ConsumerRecord<*, *>) {
+        if (properties.audit.enabled) {
+            logFailed(record, properties.audit)
         }
     }
 

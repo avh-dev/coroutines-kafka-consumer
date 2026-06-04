@@ -3,9 +3,10 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.coroutinesKafkaConsumer
-import avh.ckc.demo.AuditLog
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.logFailed
+import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -21,7 +22,7 @@ object DemoConsumers {
     fun orderConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
-        auditLog: AuditLog,
+        audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -41,6 +42,9 @@ object DemoConsumers {
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
+            onProcessingFailure { record, _ ->
+                logFailed(record, audit)
+            }
             handle { record ->
                 val value = record.value()
                 if (value != null) {
@@ -49,7 +53,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processedSuspending(record)
+                    logProcessed(record, audit)
                 }
             }
         }
@@ -58,7 +62,7 @@ object DemoConsumers {
     fun batchConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        auditLog: AuditLog,
+        audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -78,6 +82,9 @@ object DemoConsumers {
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
+            onProcessingFailure { record, _ ->
+                logFailed(record, audit)
+            }
             handle { record ->
                 val value = record.value()
                 if (value != null) {
@@ -86,7 +93,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processedSuspending(record)
+                    logProcessed(record, audit)
                 }
             }
         }
@@ -95,7 +102,7 @@ object DemoConsumers {
     fun telemetryConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
-        auditLog: AuditLog,
+        audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -115,6 +122,9 @@ object DemoConsumers {
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
             this.metrics = metrics
+            onProcessingFailure { record, _ ->
+                logFailed(record, audit)
+            }
             handle { record ->
                 val value = record.value()
                 if (value != null) {
@@ -123,7 +133,7 @@ object DemoConsumers {
                     } else {
                         latencyOnlyDelay()
                     }
-                    auditLog.processedSuspending(record)
+                    logProcessed(record, audit)
                 }
             }
         }
