@@ -14,8 +14,12 @@ import urllib.request
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wait until internal-lab Kafka consumer lag drains to zero.")
     parser.add_argument("--prometheus-url")
-    parser.add_argument("--group-regex", default="potion-tracking-.*")
-    parser.add_argument("--groups", default="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons")
+    parser.add_argument("--group-regex", default="(potion-tracking|spring-kafka)-.*")
+    parser.add_argument(
+        "--groups",
+        default="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,"
+        "spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry",
+    )
     parser.add_argument("--ssh-target")
     parser.add_argument("--broker", default="localhost:9092")
     parser.add_argument("--redpanda-container", default="ckc-perf-redpanda")

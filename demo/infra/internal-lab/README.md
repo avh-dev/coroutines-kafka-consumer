@@ -45,6 +45,7 @@ lab host
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
+Prometheus stores its TSDB on the lab host under `/opt/ckc-internal-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history.
 
 ## Install
 
@@ -88,6 +89,7 @@ The installer:
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
+- keeps Prometheus history on a persistent lab-host directory and reloads Prometheus config during updates when possible instead of restarting it unconditionally
 - starts host Redpanda, Redis, Fluent Bit, and Grafana
 - provisions Grafana datasource and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
@@ -124,18 +126,20 @@ After it finishes, run a fresh install from the local machine:
 
 ## Update Lab
 
-Build the JVM runtime distributions locally, sync changed artifacts to the lab, and rebuild/reload images on the lab host when the fingerprint changed:
+Build and sync only the lab pieces whose fingerprints changed, then rebuild or redeploy only the affected runtime parts on the lab host:
 
 ```sh
 ./demo/infra/internal-lab/scripts/update-lab.sh
 ```
 
-This keeps uncommitted local code changes testable without making the lab host run Gradle or read from Git. The update step syncs:
+This keeps uncommitted local code changes testable without making the lab host run Gradle or read from Git. The update step tracks independent fingerprints for:
 
-- `ckc-demo`, `ckc-demo-stubs`, and `ckc-demo-load-test` `installDist` outputs
-- Dockerfiles used by the lab-side image builds
-- shared Helm charts, test definitions, and helper scripts
+- `ckc-demo` and `ckc-demo-stubs` image build inputs
+- the `ckc-demo-load-test` runtime distribution
+- shared Helm charts, Grafana dashboards, test definitions, and helper scripts
 - internal-lab assets and host scripts
+
+This means a `test-definition` or Helm-only change usually skips Gradle, image rebuilds, and the base lab redeploy. Changes to Grafana or internal-lab k8s or compose assets still reapply the base lab, and demo-stubs chart changes still re-run the stubs deployment.
 
 Force a rebuild even when the fingerprint matches:
 
@@ -235,10 +239,12 @@ duplicate, and latency counts calculated from the archived audit lines.
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
 and stay there briefly before extracting and analyzing the archived audit log.
+If the Kafka exporter metrics are temporarily unavailable, the runner falls back
+to `rpk group describe` against the host Redpanda broker so drain waiting still
+works after the Kafka-to-Redpanda migration.
 When audit logging is enabled, the runner also fails fast if the Fluent Bit
 collector health endpoint is unavailable before the test starts or during the
 load run. Override the lag wait with:
-wait with:
 
 ```sh
 CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh

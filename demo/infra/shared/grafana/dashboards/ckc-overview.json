@@ -2412,7 +2412,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"potion-tracking-.*\"})",
+              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"(potion-tracking|spring-kafka)-.*\"}) or sum by (consumergroup, topic) (clamp_min(kafka_topic_partition_current_offset{topic=~\"(order|batch|cauldron)\\\\.events\\\\.v1\"} - on (topic, partition) group_right(consumergroup) label_replace(label_replace(label_replace(redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\"(potion-tracking|spring-kafka)-.*\"}, \"consumergroup\", \"$1\", \"redpanda_group\", \"(.*)\"), \"topic\", \"$1\", \"redpanda_topic\", \"(.*)\"), \"partition\", \"$1\", \"redpanda_partition\", \"(.*)\"), 0))",
               "refId": "A",
               "legendFormat": "{{consumergroup}} / {{topic}}"
             }

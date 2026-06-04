@@ -93,6 +93,29 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ckc-external-redpanda-admin
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: admin
+      port: 9644
+      targetPort: 9644
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-redpanda-admin
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_NODE_IP__
+    ports:
+      - name: admin
+        port: 9644
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ckc-external-process-exporter
   namespace: ckc-perf
 spec:

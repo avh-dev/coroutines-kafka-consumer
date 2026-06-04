@@ -5,7 +5,7 @@ set -eu
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 TOPIC_SPECS="${TOPIC_SPECS:-order.events.v1:4,batch.events.v1:4,cauldron.events.v1:4}"
-CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons}"
+CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry}"
 REDPANDA_CONTAINER="${REDPANDA_CONTAINER:-ckc-perf-redpanda}"
 BOOTSTRAP_SERVER="localhost:9092"
 
