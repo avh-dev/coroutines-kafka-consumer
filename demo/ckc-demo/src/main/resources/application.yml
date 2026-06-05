@@ -33,6 +33,7 @@ demo:
       fetch-min-bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
       fetch-max-wait-ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
       max-poll-records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
+      commit-interval-ms: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}
   topics:
     order-events: order.events.v1
     batch-events: batch.events.v1

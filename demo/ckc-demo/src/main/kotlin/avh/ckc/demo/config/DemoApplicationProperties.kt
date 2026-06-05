@@ -24,7 +24,8 @@ data class DemoApplicationProperties(
     data class KafkaConsumer(
         var fetchMinBytes: Int = 1,
         var fetchMaxWaitMs: Int = 500,
-        var maxPollRecords: Int = 500
+        var maxPollRecords: Int = 500,
+        var commitIntervalMs: Int = 5_000
     )
 
     data class Topics(

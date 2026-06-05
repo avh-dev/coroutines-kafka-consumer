@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.listener.ContainerProperties
 
 @Configuration(proxyBeanMethods = false)
 @Profile("spring-kafka")
@@ -27,6 +28,7 @@ class SpringKafkaProfileConfiguration {
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties, properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             )
         )
@@ -39,6 +41,7 @@ class SpringKafkaProfileConfiguration {
         ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.order.pollLoopConcurrency)
+            configureTimeBasedCommits(properties)
         }
 
     @Bean
@@ -46,6 +49,7 @@ class SpringKafkaProfileConfiguration {
         DefaultKafkaConsumerFactory(
             commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
             )
         )
@@ -58,6 +62,7 @@ class SpringKafkaProfileConfiguration {
         ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.batch.pollLoopConcurrency)
+            configureTimeBasedCommits(properties)
         }
 
     @Bean
@@ -95,6 +100,14 @@ class SpringKafkaProfileConfiguration {
     private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
         ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,
         ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
-        ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords
+        ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords,
+        ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG to consumer.commitIntervalMs
     )
+
+    private fun ConcurrentKafkaListenerContainerFactory<*, *>.configureTimeBasedCommits(
+        properties: DemoApplicationProperties
+    ) {
+        containerProperties.ackMode = ContainerProperties.AckMode.TIME
+        containerProperties.ackTime = properties.kafka.consumer.commitIntervalMs.toLong()
+    }
 }

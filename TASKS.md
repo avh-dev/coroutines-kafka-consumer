@@ -78,6 +78,7 @@
 | [DEMO-46](#demo-46) | Replace Redis-backed demo audit writes with compact TCP audit logging that carries run and writer identity for Fluent Bit ingestion.            | DONE |
 | [DEMO-47](#demo-47) | Replace the demo app and load-test custom TCP audit senders with Logback TCP appenders, add failure audit records, and shrink the Fluent Bit JSON audit payload. | DONE |
 | [DEMO-48](#demo-48) | Add an internal demo crash endpoint that flushes the TCP audit logger before forcing a hard JVM halt. | IN_PROGRESS |
+| [DEMO-49](#demo-49) | Align Spring Kafka demo offset commit cadence with the Kafka auto-commit interval instead of committing after every poll. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1288,6 +1289,15 @@ _Date: 2026-06-04_
 Add an internal demo HTTP endpoint that forces the application to die on demand for resiliency experiments.
 Flush and stop the dedicated `AUDIT_TCP` Logback appender before halting the JVM so in-flight audit lines have a chance to leave the process.
 Keep the shutdown path intentionally hard by using a direct JVM halt instead of a normal Spring shutdown.
+
+<a id="demo-49"></a>
+### DEMO-49 - Align Spring Kafka commit cadence
+
+_Date: 2026-06-05_
+
+Configure Spring Kafka lifecycle listeners to use time-based commits instead of the default batch-after-poll acknowledgement.
+Keep the default interval aligned with Kafka's `auto.commit.interval.ms` default so lifecycle and telemetry streams are comparable.
+Make the auto-commit split explicit: lifecycle streams use Spring-managed commits, while telemetry keeps Kafka auto-commit.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion
