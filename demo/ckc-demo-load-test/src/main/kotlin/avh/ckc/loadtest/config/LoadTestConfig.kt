@@ -1,6 +1,5 @@
 package avh.ckc.loadtest.config
 
-import avh.ckc.loadtest.runtime.defaultGeneratorWorkers
 import java.time.Duration
 
 data class LoadTestConfig(
@@ -19,7 +18,6 @@ data class LoadTestConfig(
     val minBrewingSteps: Int,
     val maxBrewingSteps: Int,
     val maxBurst: Int,
-    val fakeEntityPrefix: String,
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
     val telemetrySourceMode: TelemetrySourceMode,
@@ -44,7 +42,6 @@ data class LoadTestConfig(
         require(minBrewingSteps > 0) { "minBrewingSteps must be positive" }
         require(maxBrewingSteps >= minBrewingSteps) { "maxBrewingSteps must be >= minBrewingSteps" }
         require(maxBurst > 0) { "maxBurst must be positive" }
-        require(fakeEntityPrefix.isNotBlank()) { "fakeEntityPrefix must not be blank" }
         require(!statsLogInterval.isNegative && !statsLogInterval.isZero) { "statsLogInterval must be positive" }
         require(diagnosticsBlobSize >= 0) { "diagnosticsBlobSize must be non-negative" }
         require(auditHost.isNotBlank()) { "auditHost must not be blank" }
@@ -72,7 +69,6 @@ data class LoadTestConfig(
                 minBrewingSteps = environment["MIN_BREWING_STEPS"]?.toIntOrNull() ?: 5,
                 maxBrewingSteps = environment["MAX_BREWING_STEPS"]?.toIntOrNull() ?: 10,
                 maxBurst = environment["MAX_BURST"]?.toIntOrNull() ?: 1000,
-                fakeEntityPrefix = environment["FAKE_ENTITY_PREFIX"] ?: "fake",
                 statsLogInterval = Duration.ofSeconds(environment["STATS_LOG_INTERVAL_SECONDS"]?.toLongOrNull() ?: 30L),
                 diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,
                 telemetrySourceMode = environment["TELEMETRY_SOURCE_MODE"]
@@ -92,3 +88,5 @@ enum class TelemetrySourceMode {
     ACTIVE_BATCHES,
     FIXED_FLEET
 }
+
+private fun defaultGeneratorWorkers(): Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)

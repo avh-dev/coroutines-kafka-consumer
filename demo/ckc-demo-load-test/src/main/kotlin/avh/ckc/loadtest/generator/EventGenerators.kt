@@ -1,7 +1,10 @@
- package avh.ckc.loadtest.generator
+package avh.ckc.loadtest.generator
 
+import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.config.TelemetrySourceMode
+import avh.ckc.loadtest.domain.ActiveBatch
+import avh.ckc.loadtest.domain.CauldronTelemetryFactory
 import avh.ckc.loadtest.domain.LoadTestEventFactory
 import avh.ckc.loadtest.domain.SimulatedBatch
 import avh.ckc.loadtest.domain.SimulationState
@@ -22,7 +25,9 @@ enum class TrafficTopic {
 }
 
 data class EmitResult(
-    val real: Boolean
+    val emitted: Boolean,
+    val delegated: Int = 0,
+    val blocked: Boolean = false
 )
 
 fun eventGenerators(
@@ -31,212 +36,303 @@ fun eventGenerators(
     factory: LoadTestEventFactory,
     publisher: LoadTestPublisher
 ): List<EventGenerator> {
-    val averageBrewingSteps = (config.minBrewingSteps + config.maxBrewingSteps) / 2.0
-    return listOf(
-        object : EventGenerator {
-            override val name = "order_created"
-            override val topic = TrafficTopic.ORDER
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val order = state.createOrder(now)
-                publisher.sendOrder(order.orderId, factory.orderCreated(order, now))
-                return EmitResult(real = true)
-            }
-        },
-        object : EventGenerator {
-            override val name = "order_batch_assigned"
-            override val topic = TrafficTopic.ORDER
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val order = state.takeOrderForBatchAssigned()
-                val real = order != null
-                val value = order ?: state.fakeOrder(now)
-                publisher.sendOrder(value.orderId, factory.orderBatchAssigned(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : EventGenerator {
-            override val name = "order_waiting_for_bottling"
-            override val topic = TrafficTopic.ORDER
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val order = state.takeOrderForWaitingForBottling()
-                val real = order != null
-                val value = order ?: state.fakeOrder(now)
-                if (real) {
-                    state.addOrderReadyForCompletion(value)
-                }
-                publisher.sendOrder(value.orderId, factory.orderWaitingForBottling(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : EventGenerator {
-            override val name = "order_completed"
-            override val topic = TrafficTopic.ORDER
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val order = state.takeOrderForCompleted()
-                val real = order != null
-                val value = order ?: state.fakeOrder(now)
-                if (real) {
-                    state.markOrderCompleted(value)
-                }
-                publisher.sendOrder(value.orderId, factory.orderCompleted(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : EventGenerator {
-            override val name = "batch_created"
-            override val topic = TrafficTopic.BATCH
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val batch = state.createBatch(
-                    now = now,
-                    orderCount = ordersPerBatch(config, now),
-                    brewingSteps = brewingSteps(config, now)
-                )
-                val real = batch != null
-                val value = batch ?: state.fakeBatch(now)
-                publisher.sendBatch(value.batchId, factory.batchCreated(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : BatchTransitionGenerator("batch_reagents_preparation_started", state, factory, publisher) {
-            override fun take(): SimulatedBatch? = state.takeCreatedBatch()
-            override fun move(batch: SimulatedBatch) = state.addPreparingBatch(batch)
-            override fun event(batch: SimulatedBatch, now: Instant) = factory.batchReagentsPreparationStarted(batch, now)
-        },
-        object : BatchTransitionGenerator("batch_reagents_prepared", state, factory, publisher) {
-            override fun take(): SimulatedBatch? = state.takePreparingBatch()
-            override fun move(batch: SimulatedBatch) = state.addPreparedBatch(batch)
-            override fun event(batch: SimulatedBatch, now: Instant) = factory.batchReagentsPrepared(batch, now)
-        },
-        object : BatchTransitionGenerator("batch_cauldron_requested", state, factory, publisher) {
-            override fun take(): SimulatedBatch? = state.takePreparedBatch()
-            override fun move(batch: SimulatedBatch) = state.addWaitingForCauldronBatch(batch)
-            override fun event(batch: SimulatedBatch, now: Instant) = factory.batchCauldronRequested(batch, now)
-        },
-        object : EventGenerator {
-            override val name = "batch_cauldron_assigned"
-            override val topic = TrafficTopic.BATCH
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val waiting = state.takeWaitingForCauldronBatch()
-                val assigned = waiting?.let(state::assignCauldron)
-                if (waiting != null && assigned == null) {
-                    state.addWaitingForCauldronBatch(waiting)
-                }
-                val real = assigned != null
-                val value = assigned ?: state.fakeBatch(now, cauldron = true)
-                publisher.sendBatch(value.batchId, factory.batchCauldronAssigned(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : BatchTransitionGenerator("batch_brewing_started", state, factory, publisher) {
-            override fun take(): SimulatedBatch? = state.takeCauldronAssignedBatch()
-            override fun move(batch: SimulatedBatch) = state.addBrewingBatch(batch)
-            override fun event(batch: SimulatedBatch, now: Instant) = factory.batchBrewingStarted(batch, now)
-        },
-        object : EventGenerator {
-            override val name = "batch_brewing_step_completed"
-            override val topic = TrafficTopic.BATCH
-            override val weight = averageBrewingSteps
-            override fun emit(now: Instant): EmitResult {
-                val batch = state.takeBrewingBatchForStep()
-                val real = batch != null
-                val value = batch ?: state.fakeBatch(now, cauldron = true)
-                publisher.sendBatch(value.batchId, factory.batchBrewingStepCompleted(value, now))
-                if (real) {
-                    state.markBrewingStepCompleted(value)
-                }
-                return EmitResult(real)
-            }
-        },
-        object : EventGenerator {
-            override val name = "batch_brewing_completed"
-            override val topic = TrafficTopic.BATCH
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val batch = state.takeBrewingCompletedBatch()
-                val real = batch != null
-                val value = batch ?: state.fakeBatch(now, cauldron = true)
-                if (real) {
-                    state.markOrderWaitingForBottling(value)
-                    state.addWaitingForBottlingBatch(value)
-                }
-                publisher.sendBatch(value.batchId, factory.batchBrewingCompleted(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : BatchTransitionGenerator("batch_bottling_started", state, factory, publisher) {
-            override fun take(): SimulatedBatch? = state.takeWaitingForBottlingBatch()
-            override fun move(batch: SimulatedBatch) = state.addBottlingBatch(batch)
-            override fun event(batch: SimulatedBatch, now: Instant) = factory.batchBottlingStarted(batch, now)
-        },
-        object : EventGenerator {
-            override val name = "batch_bottling_completed"
-            override val topic = TrafficTopic.BATCH
-            override val weight = 1.0
-            override fun emit(now: Instant): EmitResult {
-                val batch = state.takeBottlingBatchForCompleted()
-                val real = batch != null
-                val value = batch ?: state.fakeBatch(now)
-                publisher.sendBatch(value.batchId, factory.batchBottlingCompleted(value, now))
-                return EmitResult(real)
-            }
-        },
-        object : EventGenerator {
-            override val name = "cauldron_telemetry"
-            override val topic = TrafficTopic.CAULDRON
-            override val weight = 1.0
-            private val telemetryFactory = avh.ckc.loadtest.domain.CauldronTelemetryFactory(config.diagnosticsBlobSize)
-            override fun emit(now: Instant): EmitResult {
-                val value = when (config.telemetrySourceMode) {
-                    TelemetrySourceMode.ACTIVE_BATCHES -> state.takeActiveBatchForTelemetry()
-                        ?: state.fakeBatch(now, cauldron = true)
-                    TelemetrySourceMode.FIXED_FLEET -> state.takeFixedFleetBatchForTelemetry(now)
-                }
-                val real = config.telemetrySourceMode == TelemetrySourceMode.FIXED_FLEET ||
-                    !value.batchId.startsWith("${config.fakeEntityPrefix}-")
-                val active = avh.ckc.loadtest.domain.ActiveBatch(
-                    batchId = value.batchId,
-                    cauldronId = value.cauldronId.orEmpty(),
-                    potion = value.potion,
-                    orders = value.orders,
-                    startedAt = value.createdAt,
-                    completesAt = now,
-                    telemetrySequence = value.telemetrySequence
-                )
-                publisher.sendTelemetry(active.cauldronId, telemetryFactory.create(active, now))
-                return EmitResult(real)
-            }
-        }
+    val context = DelegatingGenerationContext(
+        config = config,
+        state = state,
+        factory = factory,
+        publisher = publisher
     )
+    return context.generators()
 }
 
-abstract class BatchTransitionGenerator(
-    override val name: String,
+private class DelegatingGenerationContext(
+    private val config: LoadTestConfig,
     private val state: SimulationState,
     private val factory: LoadTestEventFactory,
     private val publisher: LoadTestPublisher
-) : EventGenerator {
-    override val topic = TrafficTopic.BATCH
-    override val weight = 1.0
+) {
+    private val averageBrewingSteps = (config.minBrewingSteps + config.maxBrewingSteps) / 2.0
+    private val telemetryFactory = CauldronTelemetryFactory(config.diagnosticsBlobSize)
+    private val maxDelegationDepth = config.maxBrewingSteps + config.maxOrdersPerBatch + 16
 
-    abstract fun take(): SimulatedBatch?
-    abstract fun move(batch: SimulatedBatch)
-    abstract fun event(batch: SimulatedBatch, now: Instant): avh.ckc.demo.proto.BatchLifecycleEvent
+    fun generators(): List<EventGenerator> = listOf(
+        simple("order_created", TrafficTopic.ORDER) { now -> emitOrderCreated(now) },
+        simple("order_batch_assigned", TrafficTopic.ORDER) { now -> emitOrderBatchAssigned(now, depth = 0) },
+        simple("order_waiting_for_bottling", TrafficTopic.ORDER) { now -> emitOrderWaitingForBottling(now, depth = 0) },
+        simple("order_completed", TrafficTopic.ORDER) { now -> emitOrderCompleted(now, depth = 0) },
+        simple("batch_created", TrafficTopic.BATCH) { now -> emitBatchCreated(now, depth = 0) },
+        simple("batch_reagents_preparation_started", TrafficTopic.BATCH) { now ->
+            emitBatchTransition(now, depth = 0, prerequisite = ::emitBatchCreated, take = state::takeCreatedBatch, move = state::addPreparingBatch) {
+                batch, eventTime -> factory.batchReagentsPreparationStarted(batch, eventTime)
+            }
+        },
+        simple("batch_reagents_prepared", TrafficTopic.BATCH) { now ->
+            emitBatchTransition(now, depth = 0, prerequisite = ::emitBatchReagentsPreparationStarted, take = state::takePreparingBatch, move = state::addPreparedBatch) {
+                batch, eventTime -> factory.batchReagentsPrepared(batch, eventTime)
+            }
+        },
+        simple("batch_cauldron_requested", TrafficTopic.BATCH) { now -> emitBatchCauldronRequested(now, depth = 0) },
+        simple("batch_cauldron_assigned", TrafficTopic.BATCH) { now -> emitBatchCauldronAssigned(now, depth = 0) },
+        simple("batch_brewing_started", TrafficTopic.BATCH) { now -> emitBatchBrewingStarted(now, depth = 0) },
+        simple("batch_brewing_step_completed", TrafficTopic.BATCH, averageBrewingSteps) { now ->
+            emitBatchBrewingStepCompleted(now, depth = 0)
+        },
+        simple("batch_brewing_completed", TrafficTopic.BATCH) { now -> emitBatchBrewingCompleted(now, depth = 0) },
+        simple("batch_bottling_started", TrafficTopic.BATCH) { now -> emitBatchBottlingStarted(now, depth = 0) },
+        simple("batch_bottling_completed", TrafficTopic.BATCH) { now -> emitBatchBottlingCompleted(now, depth = 0) },
+        simple("cauldron_telemetry", TrafficTopic.CAULDRON) { now -> emitCauldronTelemetry(now, depth = 0) }
+    )
 
-    override fun emit(now: Instant): EmitResult {
-        val batch = take()
-        val real = batch != null
-        val value = batch ?: state.fakeBatch(now)
-        if (real) {
-            move(value)
-        }
-        publisher.sendBatch(value.batchId, event(value, now))
-        return EmitResult(real)
+    private fun simple(
+        name: String,
+        topic: TrafficTopic,
+        weight: Double = 1.0,
+        emit: (Instant) -> EmitResult
+    ): EventGenerator = object : EventGenerator {
+        override val name = name
+        override val topic = topic
+        override val weight = weight
+        override fun emit(now: Instant): EmitResult = emit(now)
     }
+
+    private fun emitOrderCreated(now: Instant): EmitResult {
+        val order = state.createOrder(now)
+        publisher.sendOrder(order.orderId, factory.orderCreated(order, now))
+        return EmitResult(emitted = true)
+    }
+
+    private fun emitOrderBatchAssigned(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var order = state.takeOrderForBatchAssigned()
+        if (order == null) {
+            val prerequisite = emitBatchCreated(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            order = state.takeOrderForBatchAssigned()
+        }
+        order ?: return blocked(delegated)
+        publisher.sendOrder(order.orderId, factory.orderBatchAssigned(order, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitOrderWaitingForBottling(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var order = state.takeOrderForWaitingForBottling()
+        if (order == null) {
+            val prerequisite = emitBatchBrewingCompleted(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            order = state.takeOrderForWaitingForBottling()
+        }
+        order ?: return blocked(delegated)
+        state.addOrderReadyForCompletion(order)
+        publisher.sendOrder(order.orderId, factory.orderWaitingForBottling(order, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitOrderCompleted(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var order = state.takeOrderForCompleted()
+        if (order == null) {
+            val prerequisite = emitOrderWaitingForBottling(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            order = state.takeOrderForCompleted()
+        }
+        order ?: return blocked(delegated)
+        state.markOrderCompleted(order)
+        publisher.sendOrder(order.orderId, factory.orderCompleted(order, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchCreated(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        val orderCount = ordersPerBatch(config, now)
+        var delegated = 0
+        var batch = state.createBatch(now, orderCount, brewingSteps(config, now))
+        while (batch == null && delegated < orderCount) {
+            val prerequisite = emitOrderCreated(now)
+            delegated += prerequisite.totalEmitted()
+            batch = state.createBatch(now, orderCount, brewingSteps(config, now))
+        }
+        batch ?: return blocked(delegated)
+        publisher.sendBatch(batch.batchId, factory.batchCreated(batch, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchReagentsPreparationStarted(now: Instant, depth: Int): EmitResult =
+        emitBatchTransition(now, depth, ::emitBatchCreated, state::takeCreatedBatch, state::addPreparingBatch) { batch, eventTime ->
+            factory.batchReagentsPreparationStarted(batch, eventTime)
+        }
+
+    private fun emitBatchReagentsPrepared(now: Instant, depth: Int): EmitResult =
+        emitBatchTransition(now, depth, ::emitBatchReagentsPreparationStarted, state::takePreparingBatch, state::addPreparedBatch) { batch, eventTime ->
+            factory.batchReagentsPrepared(batch, eventTime)
+        }
+
+    private fun emitBatchCauldronRequested(now: Instant, depth: Int): EmitResult =
+        emitBatchTransition(now, depth, ::emitBatchReagentsPrepared, state::takePreparedBatch, state::addWaitingForCauldronBatch) { batch, eventTime ->
+            factory.batchCauldronRequested(batch, eventTime)
+        }
+
+    private fun emitBatchCauldronAssigned(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var waiting = state.takeWaitingForCauldronBatch()
+        if (waiting == null) {
+            val prerequisite = emitBatchCauldronRequested(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            waiting = state.takeWaitingForCauldronBatch()
+        }
+        waiting ?: return blocked(delegated)
+        var assigned = state.assignCauldron(waiting)
+        if (assigned == null) {
+            state.addWaitingForCauldronBatch(waiting)
+            val prerequisite = emitBatchBrewingCompleted(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            waiting = state.takeWaitingForCauldronBatch()
+            assigned = waiting?.let(state::assignCauldron)
+        }
+        if (waiting != null && assigned == null) {
+            state.addWaitingForCauldronBatch(waiting)
+        }
+        assigned ?: return blocked(delegated)
+        publisher.sendBatch(assigned.batchId, factory.batchCauldronAssigned(assigned, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchBrewingStarted(now: Instant, depth: Int): EmitResult =
+        emitBatchTransition(now, depth, ::emitBatchCauldronAssigned, state::takeCauldronAssignedBatch, state::addBrewingBatch) { batch, eventTime ->
+            factory.batchBrewingStarted(batch, eventTime)
+        }
+
+    private fun emitBatchBrewingStepCompleted(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var batch = state.takeBrewingBatchForStep()
+        if (batch == null) {
+            val prerequisite = emitBatchBrewingStarted(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            batch = state.takeBrewingBatchForStep()
+        }
+        batch ?: return blocked(delegated)
+        publisher.sendBatch(batch.batchId, factory.batchBrewingStepCompleted(batch, now))
+        state.markBrewingStepCompleted(batch)
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchBrewingCompleted(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var batch = state.takeBrewingCompletedBatch()
+        var attempts = 0
+        while (batch == null && attempts < config.maxBrewingSteps) {
+            val prerequisite = emitBatchBrewingStepCompleted(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            batch = state.takeBrewingCompletedBatch()
+            attempts++
+        }
+        batch ?: return blocked(delegated)
+        state.markOrderWaitingForBottling(batch)
+        state.addWaitingForBottlingBatch(batch)
+        publisher.sendBatch(batch.batchId, factory.batchBrewingCompleted(batch, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchBottlingStarted(now: Instant, depth: Int): EmitResult =
+        emitBatchTransition(now, depth, ::emitBatchBrewingCompleted, state::takeWaitingForBottlingBatch, state::addBottlingBatch) { batch, eventTime ->
+            factory.batchBottlingStarted(batch, eventTime)
+        }
+
+    private fun emitBatchBottlingCompleted(now: Instant, depth: Int): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var batch = state.takeBottlingBatchForCompleted()
+        if (batch == null) {
+            val prerequisite = emitBatchBottlingStarted(now, depth + 1)
+            delegated += prerequisite.totalEmitted()
+            if (!prerequisite.emitted) return blocked(delegated)
+            repeat(config.maxOrdersPerBatch) {
+                if (batch == null) {
+                    val orderCompleted = emitOrderCompleted(now, depth + 1)
+                    delegated += orderCompleted.totalEmitted()
+                    batch = state.takeBottlingBatchForCompleted()
+                }
+            }
+        }
+        batch ?: return blocked(delegated)
+        publisher.sendBatch(batch.batchId, factory.batchBottlingCompleted(batch, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitBatchTransition(
+        now: Instant,
+        depth: Int,
+        prerequisite: (Instant, Int) -> EmitResult,
+        take: () -> SimulatedBatch?,
+        move: (SimulatedBatch) -> Unit,
+        event: (SimulatedBatch, Instant) -> BatchLifecycleEvent
+    ): EmitResult {
+        checkDepth(depth) ?: return blocked()
+        var delegated = 0
+        var batch = take()
+        if (batch == null) {
+            val prerequisiteResult = prerequisite(now, depth + 1)
+            delegated += prerequisiteResult.totalEmitted()
+            if (!prerequisiteResult.emitted) return blocked(delegated)
+            batch = take()
+        }
+        batch ?: return blocked(delegated)
+        move(batch)
+        publisher.sendBatch(batch.batchId, event(batch, now))
+        return EmitResult(emitted = true, delegated = delegated)
+    }
+
+    private fun emitCauldronTelemetry(now: Instant, depth: Int): EmitResult {
+        val value = when (config.telemetrySourceMode) {
+            TelemetrySourceMode.ACTIVE_BATCHES -> {
+                var batch = state.takeActiveBatchForTelemetry()
+                var delegated = 0
+                if (batch == null) {
+                    val prerequisite = emitBatchBrewingStarted(now, depth + 1)
+                    delegated += prerequisite.totalEmitted()
+                    if (!prerequisite.emitted) return blocked(delegated)
+                    batch = state.takeActiveBatchForTelemetry()
+                }
+                batch ?: return blocked(delegated)
+                publishTelemetry(batch, now)
+                return EmitResult(emitted = true, delegated = delegated)
+            }
+            TelemetrySourceMode.FIXED_FLEET -> state.takeFixedFleetBatchForTelemetry(now)
+        }
+        publishTelemetry(value, now)
+        return EmitResult(emitted = true)
+    }
+
+    private fun publishTelemetry(batch: SimulatedBatch, now: Instant) {
+        val active = ActiveBatch(
+            batchId = batch.batchId,
+            cauldronId = batch.cauldronId.orEmpty(),
+            potion = batch.potion,
+            orders = batch.orders,
+            startedAt = batch.createdAt,
+            completesAt = now,
+            telemetrySequence = batch.telemetrySequence
+        )
+        publisher.sendTelemetry(active.cauldronId, telemetryFactory.create(active, now))
+    }
+
+    private fun checkDepth(depth: Int): Unit? = Unit.takeIf { depth <= maxDelegationDepth }
+
+    private fun blocked(delegated: Int = 0): EmitResult = EmitResult(emitted = false, delegated = delegated, blocked = true)
+
+    private fun EmitResult.totalEmitted(): Int = delegated + if (emitted) 1 else 0
 }
 
 private fun ordersPerBatch(config: LoadTestConfig, now: Instant): Int {

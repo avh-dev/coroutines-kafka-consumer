@@ -38,7 +38,6 @@ class LoadTestConfigTest {
                 "MIN_BREWING_STEPS" to "5",
                 "MAX_BREWING_STEPS" to "8",
                 "MAX_BURST" to "77",
-                "FAKE_ENTITY_PREFIX" to "fake-test",
                 "STATS_LOG_INTERVAL_SECONDS" to "9",
                 "TELEMETRY_SOURCE_MODE" to "FIXED_FLEET",
                 "PUBLISH_ENABLED" to "false",
@@ -59,7 +58,6 @@ class LoadTestConfigTest {
         assertEquals(5, config.minBrewingSteps)
         assertEquals(8, config.maxBrewingSteps)
         assertEquals(77, config.maxBurst)
-        assertEquals("fake-test", config.fakeEntityPrefix)
         assertEquals(9, config.statsLogInterval.seconds)
         assertEquals(TelemetrySourceMode.FIXED_FLEET, config.telemetrySourceMode)
         assertEquals(false, config.publishEnabled)

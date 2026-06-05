@@ -41,7 +41,6 @@ data class ActiveBatch(
 
 class SimulationState(
     private val cauldronCount: Int,
-    private val fakePrefix: String,
     private val identity: GeneratorIdentity
 ) {
     private val recipes = listOf(
@@ -72,11 +71,10 @@ class SimulationState(
     private var fixedFleetCursor = 0
     private var realOrderSequence = 0L
     private var realBatchSequence = 0L
-    private var fakeSequence = 0L
 
     @Synchronized
     fun createOrder(now: Instant): PendingOrder {
-        val order = newOrder(real = true, now = now)
+        val order = newOrder(now)
         createdOrders.addLast(order)
         return order
     }
@@ -249,28 +247,6 @@ class SimulationState(
     }
 
     @Synchronized
-    fun fakeOrder(now: Instant, batchId: String? = null): PendingOrder {
-        val order = newOrder(real = false, now = now.minusSeconds(300))
-        return order.copy(batchId = batchId ?: fakeBatchId())
-    }
-
-    @Synchronized
-    fun fakeBatch(now: Instant, cauldron: Boolean = false): SimulatedBatch {
-        val recipe = recipe(fakeSequence)
-        val batchId = fakeBatchId()
-        val cauldronId = if (cauldron) fakeCauldronId() else null
-        return SimulatedBatch(
-            batchId = batchId,
-            cauldronId = cauldronId,
-            potion = recipe,
-            orders = listOf(fakeOrder(now.minusSeconds(240), batchId)),
-            createdAt = now.minusSeconds(240),
-            brewingStepsTotal = 1,
-            brewingStepsCompleted = 1
-        )
-    }
-
-    @Synchronized
     fun snapshot(): SimulationSnapshot =
         SimulationSnapshot(
             createdOrders = createdOrders.size,
@@ -289,12 +265,11 @@ class SimulationState(
             activeCauldrons = activeCauldrons.cardinality()
         )
 
-    private fun newOrder(real: Boolean, now: Instant): PendingOrder {
-        val sequence = if (real) ++realOrderSequence else ++fakeSequence
-        val prefix = if (real) "order" else "$fakePrefix-order"
+    private fun newOrder(now: Instant): PendingOrder {
+        val sequence = ++realOrderSequence
         val recipe = recipe(sequence)
         return PendingOrder(
-            orderId = identity.entityId(prefix, sequence, width = 10),
+            orderId = identity.entityId("order", sequence, width = 10),
             customerId = identity.entityId("customer", sequence, width = 8),
             potion = recipe,
             createdAt = now
@@ -322,10 +297,6 @@ class SimulationState(
     }
 
     private fun cauldronId(index: Int): String = identity.entityId("cauldron", (index + 1).toLong(), width = 4)
-
-    private fun fakeBatchId(): String = identity.entityId("$fakePrefix-batch", ++fakeSequence, width = 10)
-
-    private fun fakeCauldronId(): String = identity.entityId("$fakePrefix-cauldron", ++fakeSequence, width = 10)
 
     private fun cauldronIndex(cauldronId: String?): Int? =
         cauldronId?.substringAfterLast('-')?.toIntOrNull()?.minus(1)

@@ -405,8 +405,6 @@ spec:
               value: "{as_int(load_test.get("max_brewing_steps"), 10)}"
             - name: MAX_BURST
               value: "{as_int(load_test.get("max_burst"), 1000)}"
-            - name: FAKE_ENTITY_PREFIX
-              value: {yaml_string(as_str(load_test.get("fake_entity_prefix"), "fake"))}
             - name: STATS_LOG_INTERVAL_SECONDS
               value: "{as_int(load_test.get("stats_log_interval_seconds"), 30)}"
             - name: DIAGNOSTICS_BLOB_SIZE

@@ -7,13 +7,17 @@ import java.util.concurrent.atomic.AtomicLong
 class TrafficStats {
     private val counters = ConcurrentHashMap<String, GeneratorCounters>()
 
-    fun record(generatorName: String, real: Boolean) {
+    fun record(generatorName: String, result: EmitResult) {
         val counter = counters.computeIfAbsent(generatorName) { GeneratorCounters() }
         counter.total.incrementAndGet()
-        if (real) {
-            counter.real.incrementAndGet()
-        } else {
-            counter.fake.incrementAndGet()
+        if (result.emitted) {
+            counter.emitted.incrementAndGet()
+        }
+        if (result.blocked) {
+            counter.blocked.incrementAndGet()
+        }
+        if (result.delegated > 0) {
+            counter.delegated.addAndGet(result.delegated.toLong())
         }
     }
 
@@ -21,7 +25,8 @@ class TrafficStats {
         val generatorStats = counters.entries
             .sortedBy { it.key }
             .joinToString(" ") { (name, counter) ->
-                "$name(total=${counter.total.get()},real=${counter.real.get()},fake=${counter.fake.get()})"
+                "$name(total=${counter.total.get()},emitted=${counter.emitted.get()}," +
+                    "delegated=${counter.delegated.get()},blocked=${counter.blocked.get()})"
             }
         return "stats $generatorStats queues(" +
             "orders.created=${snapshot.createdOrders},orders.assigned=${snapshot.assignedOrders}," +
@@ -35,7 +40,8 @@ class TrafficStats {
 
     private class GeneratorCounters {
         val total = AtomicLong()
-        val real = AtomicLong()
-        val fake = AtomicLong()
+        val emitted = AtomicLong()
+        val delegated = AtomicLong()
+        val blocked = AtomicLong()
     }
 }

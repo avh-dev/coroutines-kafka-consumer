@@ -36,7 +36,7 @@ class RateControlledGeneratorRunner(
             if (emitCount > 0) {
                 repeat(emitCount) {
                     val result = generator.emit(clock())
-                    stats.record(generator.name, result.real)
+                    stats.record(generator.name, result)
                 }
                 permits -= emitCount
                 if (permits >= 1.0) {

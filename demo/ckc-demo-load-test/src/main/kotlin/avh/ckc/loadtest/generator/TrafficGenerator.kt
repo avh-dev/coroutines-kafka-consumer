@@ -22,7 +22,7 @@ class TrafficGenerator(
     totalWorkers: Int = 1
 ) {
     private val identity = GeneratorIdentity.from(shardContext, workerIndex, totalWorkers)
-    private val state = SimulationState(config.cauldronCount, config.fakeEntityPrefix, identity)
+    private val state = SimulationState(config.cauldronCount, identity)
     private val stats = TrafficStats()
 
     suspend fun run(flushOnCompletion: Boolean = true) = coroutineScope {

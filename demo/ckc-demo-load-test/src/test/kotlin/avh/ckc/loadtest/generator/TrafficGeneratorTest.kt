@@ -37,7 +37,6 @@ class TrafficGeneratorTest {
             minBrewingSteps = 5,
             maxBrewingSteps = 8,
             maxBurst = 100,
-            fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
             telemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
@@ -61,7 +60,7 @@ class TrafficGeneratorTest {
     }
 
     @Test
-    fun `uses fake telemetry fallback when no active cauldron exists`() = runBlocking {
+    fun `delegates active telemetry warmup when no active cauldron exists`() = runBlocking {
         val publisher = RecordingPublisher()
         val config = LoadTestConfig(
             bootstrapServers = "localhost:9092",
@@ -79,7 +78,6 @@ class TrafficGeneratorTest {
             minBrewingSteps = 5,
             maxBrewingSteps = 5,
             maxBurst = 100,
-            fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
             telemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
@@ -97,7 +95,9 @@ class TrafficGeneratorTest {
         }
 
         assertTrue(publisher.telemetryKeys.isNotEmpty())
-        assertTrue(publisher.telemetryKeys.all { it.startsWith("fake-cauldron-") })
+        assertTrue(publisher.batchSent > 0)
+        assertTrue(publisher.orderSent > 0)
+        assertTrue(publisher.telemetryKeys.all { it.startsWith("cauldron-") })
     }
 
     @Test
@@ -119,7 +119,6 @@ class TrafficGeneratorTest {
             minBrewingSteps = 5,
             maxBrewingSteps = 5,
             maxBurst = 100,
-            fakeEntityPrefix = "fake",
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
             telemetrySourceMode = TelemetrySourceMode.FIXED_FLEET,
