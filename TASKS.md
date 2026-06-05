@@ -128,6 +128,7 @@
 | [INFRA-46](#infra-46) | Fix internal-lab Redpanda observability and drain-wait scripts so Kafka lag checks work cleanly after the broker migration.                        | DONE |
 | [INFRA-47](#infra-47) | Split internal-lab audit archives into completed chunks and analyze audit data incrementally while local lab tests are running.                    | DONE |
 | [INFRA-48](#infra-48) | Restore the internal-lab Redpanda CPU dashboard panel using native Redpanda public metrics.                                                       | DONE |
+| [INFRA-49](#infra-49) | Clamp the Redpanda CPU dashboard query so public-metrics counter spikes cannot display physically impossible millicore values.                    | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1359,3 +1360,12 @@ _Date: 2026-06-05_
 Diagnose the empty Redpanda CPU panel in the internal-lab Grafana dashboard.
 Replace the process-exporter-based CPU and memory queries with Redpanda's native public metrics.
 Keep the CPU panel unit in millicores and the memory panel in bytes so they remain comparable with the existing host service panels.
+
+<a id="infra-49"></a>
+### INFRA-49 - Clamp Redpanda CPU panel
+
+_Date: 2026-06-05_
+
+Clamp the Redpanda CPU dashboard query to the internal-lab Redpanda shard capacity.
+Prevent native public-metrics counter spikes from rendering impossible CPU values in Grafana.
+Keep the panel in millicores so normal readings stay comparable with the other host-service CPU panels.
