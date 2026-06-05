@@ -3136,7 +3136,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=\"redpanda\", memtype=\"resident\"})",
+              "expr": "sum(redpanda_memory_allocated_memory{job=\"ckc-redpanda-public-metrics\"})",
               "legendFormat": "redpanda",
               "range": true,
               "refId": "A"

@@ -364,7 +364,8 @@ Host-managed Redpanda and Redis run outside Kubernetes. Redpanda CPU is scraped 
 ```promql
 1000 * sum(rate(redpanda_cpu_busy_seconds_total{job="ckc-redpanda-public-metrics"}[30s]))
 1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname="redis"}[30s]))
-sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname=~"redpanda|redis", memtype="resident"})
+sum(redpanda_memory_allocated_memory{job="ckc-redpanda-public-metrics"})
+sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname="redis", memtype="resident"})
 ```
 
 ## Verification

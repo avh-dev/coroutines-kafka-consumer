@@ -1346,5 +1346,5 @@ Kept the AWS audit path untouched until the local lab flow has stabilized.
 _Date: 2026-06-05_
 
 Diagnose the empty Redpanda CPU panel in the internal-lab Grafana dashboard.
-Replace the process-exporter-based query with Redpanda's native public CPU busy metric.
-Keep the panel unit in millicores so it remains comparable with the existing host service CPU panels.
+Replace the process-exporter-based CPU and memory queries with Redpanda's native public metrics.
+Keep the CPU panel unit in millicores and the memory panel in bytes so they remain comparable with the existing host service panels.
