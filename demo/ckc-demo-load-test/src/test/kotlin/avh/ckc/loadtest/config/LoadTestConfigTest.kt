@@ -37,6 +37,9 @@ class LoadTestConfigTest {
                 "MAX_ORDERS_PER_BATCH" to "9",
                 "MIN_BREWING_STEPS" to "5",
                 "MAX_BREWING_STEPS" to "8",
+                "BREWING_STEP_BURST_EVERY" to "7",
+                "MIN_BREWING_STEP_BURST" to "3",
+                "MAX_BREWING_STEP_BURST" to "6",
                 "MAX_BURST" to "77",
                 "STATS_LOG_INTERVAL_SECONDS" to "9",
                 "TELEMETRY_SOURCE_MODE" to "FIXED_FLEET",
@@ -57,6 +60,9 @@ class LoadTestConfigTest {
         assertEquals(9, config.maxOrdersPerBatch)
         assertEquals(5, config.minBrewingSteps)
         assertEquals(8, config.maxBrewingSteps)
+        assertEquals(7, config.brewingStepBurstEvery)
+        assertEquals(3, config.minBrewingStepBurst)
+        assertEquals(6, config.maxBrewingStepBurst)
         assertEquals(77, config.maxBurst)
         assertEquals(9, config.statsLogInterval.seconds)
         assertEquals(TelemetrySourceMode.FIXED_FLEET, config.telemetrySourceMode)

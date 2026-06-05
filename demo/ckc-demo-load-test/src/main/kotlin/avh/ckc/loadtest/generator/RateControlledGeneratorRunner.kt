@@ -34,11 +34,13 @@ class RateControlledGeneratorRunner(
 
             val emitCount = floor(permits).toInt().coerceAtMost(config.maxBurst)
             if (emitCount > 0) {
-                repeat(emitCount) {
+                var consumedPermits = 0
+                while (consumedPermits < emitCount) {
                     val result = generator.emit(clock())
                     stats.record(generator.name, result)
+                    consumedPermits += result.emittedCount.coerceAtLeast(1)
                 }
-                permits -= emitCount
+                permits -= consumedPermits
                 if (permits >= 1.0) {
                     continue
                 }

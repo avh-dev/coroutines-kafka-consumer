@@ -26,9 +26,16 @@ enum class TrafficTopic {
 
 data class EmitResult(
     val emitted: Boolean,
+    val emittedCount: Int = if (emitted) 1 else 0,
     val delegated: Int = 0,
     val blocked: Boolean = false
-)
+) {
+    init {
+        require(emittedCount >= 0) { "emittedCount must be non-negative" }
+        require(!emitted || emittedCount > 0) { "emitted results must have a positive emittedCount" }
+        require(emitted || emittedCount == 0) { "non-emitted results must have a zero emittedCount" }
+    }
+}
 
 fun eventGenerators(
     config: LoadTestConfig,
@@ -54,6 +61,7 @@ private class DelegatingGenerationContext(
     private val averageBrewingSteps = (config.minBrewingSteps + config.maxBrewingSteps) / 2.0
     private val telemetryFactory = CauldronTelemetryFactory(config.diagnosticsBlobSize)
     private val maxDelegationDepth = config.maxBrewingSteps + config.maxOrdersPerBatch + 16
+    private var brewingStepEmitAttempts = 0L
 
     fun generators(): List<EventGenerator> = listOf(
         simple("order_created", TrafficTopic.ORDER) { now -> emitOrderCreated(now) },
@@ -220,10 +228,14 @@ private class DelegatingGenerationContext(
             if (!prerequisite.emitted) return blocked(delegated)
             batch = state.takeBrewingBatchForStep()
         }
-        batch ?: return blocked(delegated)
-        publisher.sendBatch(batch.batchId, factory.batchBrewingStepCompleted(batch, now))
-        state.markBrewingStepCompleted(batch)
-        return EmitResult(emitted = true, delegated = delegated)
+        var activeBatch = batch ?: return blocked(delegated)
+        val burstSize = brewingStepBurstSize(now)
+            .coerceAtMost(activeBatch.brewingStepsTotal - activeBatch.brewingStepsCompleted)
+        repeat(burstSize) {
+            publisher.sendBatch(activeBatch.batchId, factory.batchBrewingStepCompleted(activeBatch, now))
+            activeBatch = state.markBrewingStepCompleted(activeBatch)
+        }
+        return EmitResult(emitted = true, emittedCount = burstSize, delegated = delegated)
     }
 
     private fun emitBatchBrewingCompleted(now: Instant, depth: Int): EmitResult {
@@ -332,7 +344,16 @@ private class DelegatingGenerationContext(
 
     private fun blocked(delegated: Int = 0): EmitResult = EmitResult(emitted = false, delegated = delegated, blocked = true)
 
-    private fun EmitResult.totalEmitted(): Int = delegated + if (emitted) 1 else 0
+    private fun brewingStepBurstSize(now: Instant): Int {
+        brewingStepEmitAttempts++
+        if (config.brewingStepBurstEvery == 0 || brewingStepEmitAttempts % config.brewingStepBurstEvery != 0L) {
+            return 1
+        }
+        val range = config.maxBrewingStepBurst - config.minBrewingStepBurst + 1
+        return config.minBrewingStepBurst + ((now.toEpochMilli() / 31).floorMod(range))
+    }
+
+    private fun EmitResult.totalEmitted(): Int = delegated + emittedCount
 }
 
 private fun ordersPerBatch(config: LoadTestConfig, now: Instant): Int {
