@@ -7,14 +7,14 @@ lab:
     - name: batch.events.v1
       partitions: 6
     - name: cauldron.events.v1
-      partitions: 75
+      partitions: 87
 
 env:
   springProfilesActive: spring-kafka
   orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
   batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
   orderPollLoopConcurrency: 2
-  telemetryPollLoopConcurrency: 25
+  telemetryPollLoopConcurrency: 29
   batchPollLoopConcurrency: 2
 
 
