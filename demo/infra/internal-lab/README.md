@@ -359,10 +359,11 @@ sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"potion-tr
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
 
-Host-managed Redpanda and Redis run outside Kubernetes, so their CPU and memory are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
+Host-managed Redpanda and Redis run outside Kubernetes. Redpanda CPU is scraped from Redpanda public metrics; Redis CPU and host-service memory are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
 
 ```promql
-100 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname=~"redpanda|redis"}[30s]))
+1000 * sum(rate(redpanda_cpu_busy_seconds_total{job="ckc-redpanda-public-metrics"}[30s]))
+1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname="redis"}[30s]))
 sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname=~"redpanda|redis", memtype="resident"})
 ```
 

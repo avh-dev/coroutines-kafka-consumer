@@ -126,6 +126,7 @@
 | [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | IN_PROGRESS |
 | [INFRA-46](#infra-46) | Fix internal-lab Redpanda observability and drain-wait scripts so Kafka lag checks work cleanly after the broker migration.                        | DONE |
 | [INFRA-47](#infra-47) | Split internal-lab audit archives into completed chunks and analyze audit data incrementally while local lab tests are running.                    | DONE |
+| [INFRA-48](#infra-48) | Restore the internal-lab Redpanda CPU dashboard panel using native Redpanda public metrics.                                                       | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1338,3 +1339,12 @@ The archiver writes completed gzip chunks under the live audit directory and res
 The audit analyzer now supports chunk directories, gzip input, watch mode, stop-file finalization, and visible run-test progress during test execution.
 Filtered internal-lab Redpanda lag fallback series so the dashboard does not show blank consumer-group legends.
 Kept the AWS audit path untouched until the local lab flow has stabilized.
+
+<a id="infra-48"></a>
+### INFRA-48 - Restore Redpanda CPU dashboard panel
+
+_Date: 2026-06-05_
+
+Diagnose the empty Redpanda CPU panel in the internal-lab Grafana dashboard.
+Replace the process-exporter-based query with Redpanda's native public CPU busy metric.
+Keep the panel unit in millicores so it remains comparable with the existing host service CPU panels.
