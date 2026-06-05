@@ -36,6 +36,7 @@ lab host
     Redpanda -> host:9092
     Redis -> host:6379
     Fluent Bit -> host:5170 TCP audit ingest, localhost:2020 health
+    audit-archiver -> completed gzip audit chunks under /opt/ckc-internal-lab/audit/live/chunks
     Grafana -> host:3000 on all interfaces
     process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
 
@@ -220,14 +221,16 @@ The script exports `load_test` settings as environment variables for `ckc-demo-l
 ```
 
 High-volume publish and processed audit records are streamed over TCP into the
-host Fluent Bit collector. Fluent Bit appends the raw audit lines into:
+host Fluent Bit collector. Fluent Bit forwards parsed records to the local
+audit archiver, which writes completed gzip chunks into:
 
 ```text
-/opt/ckc-internal-lab/audit/live/audit.log
+/opt/ckc-internal-lab/audit/live/chunks/*.log.gz
 ```
 
-For each run, `run-test.sh` extracts that run's records and stores the archived
-copy plus the calculated report under:
+For each run, `run-test.sh` resets the live chunk directory before the load
+generator starts, runs the analyzer in watch mode while the test is still
+running, then stores the completed chunks plus the calculated report under:
 
 ```text
 /opt/ckc-internal-lab/audit/<run-id>/
@@ -235,10 +238,14 @@ copy plus the calculated report under:
 
 The runner prints and saves `summary.txt` with published, processed, missing,
 duplicate, and latency counts calculated from the archived audit lines.
+Analyzer progress is saved to `analyzer-progress.log` in the same run
+directory. While the run is active, `run-test.sh` also prints audit progress
+when the analyzer finishes another chunk.
 
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
-and stay there briefly before extracting and analyzing the archived audit log.
+and stay there briefly before stopping the live analyzer and printing the final
+audit summary.
 If the Kafka exporter metrics are temporarily unavailable, the runner falls back
 to `rpk group describe` against the host Redpanda broker so drain waiting still
 works after the Kafka-to-Redpanda migration.

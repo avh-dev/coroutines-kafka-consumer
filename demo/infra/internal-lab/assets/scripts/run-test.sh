@@ -8,7 +8,7 @@ LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/pids"
 AUDIT_DIR="${LAB_ROOT}/audit"
 AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
-AUDIT_ARCHIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
+AUDIT_CHUNK_DIR="${AUDIT_LIVE_DIR}/chunks"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/shared/helm/demo/profiles/internal-lab"
 TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
@@ -347,10 +347,16 @@ fi
 
 LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
 RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
-mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
+RUN_AUDIT_CHUNK_DIR="${RUN_AUDIT_DIR}/chunks"
+AUDIT_ANALYZER_STOP_FILE="${RUN_AUDIT_DIR}/analyzer.stop"
+AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
+AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.txt"
+LAST_AUDIT_PROGRESS_LINE=""
+mkdir -p "${RUN_AUDIT_DIR}" "${RUN_AUDIT_CHUNK_DIR}" "${AUDIT_CHUNK_DIR}"
 
 audit_collector_ready() {
-  [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ]
+  [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ] &&
+  [ "$(docker inspect -f '{{.State.Health.Status}}' ckc-internal-audit-archiver 2>/dev/null || true)" = "healthy" ]
 }
 
 if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
@@ -359,7 +365,25 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
 fi
 
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
-  : > "${AUDIT_ARCHIVE_FILE}"
+  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit audit-archiver >/dev/null
+  rm -f "${AUDIT_CHUNK_DIR}"/*.log "${AUDIT_CHUNK_DIR}"/*.log.gz "${AUDIT_CHUNK_DIR}"/*.part
+  rm -f "${AUDIT_ANALYZER_STOP_FILE}" "${AUDIT_ANALYZER_PROGRESS_FILE}" "${AUDIT_ANALYZER_SUMMARY_FILE}"
+  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 60 audit-archiver fluent-bit
+  if ! audit_collector_ready; then
+    echo "Audit collector is not ready after resetting audit archive services." >&2
+    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+    docker logs --tail 50 ckc-internal-audit-archiver >&2 || true
+    exit 1
+  fi
+  python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
+    --input-dir "${AUDIT_CHUNK_DIR}" \
+    --pending-dir "${AUDIT_CHUNK_DIR}" \
+    --watch \
+    --stop-file "${AUDIT_ANALYZER_STOP_FILE}" \
+    --require-records \
+    > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
+    2> "${AUDIT_ANALYZER_PROGRESS_FILE}" &
+  AUDIT_ANALYZER_PID="$!"
 fi
 
 BOOTSTRAP_SERVERS="127.0.0.1:9092" \
@@ -425,6 +449,48 @@ stop_process() {
   rm -f "${PID_PATH}"
 }
 
+stop_audit_analyzer() {
+  if [ -n "${AUDIT_ANALYZER_PID:-}" ] && kill -0 "${AUDIT_ANALYZER_PID}" >/dev/null 2>&1; then
+    touch "${AUDIT_ANALYZER_STOP_FILE}" >/dev/null 2>&1 || true
+    wait "${AUDIT_ANALYZER_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+report_audit_progress() {
+  local progress_line=""
+
+  if [ "${AUDIT_LOG_ENABLED}" != "true" ] || [ ! -f "${AUDIT_ANALYZER_PROGRESS_FILE}" ]; then
+    return
+  fi
+
+  progress_line="$(grep -F "Audit analyzer progress:" "${AUDIT_ANALYZER_PROGRESS_FILE}" 2>/dev/null | tail -n 1 || true)"
+  if [ -n "${progress_line}" ] && [ "${progress_line}" != "${LAST_AUDIT_PROGRESS_LINE}" ]; then
+    LAST_AUDIT_PROGRESS_LINE="${progress_line}"
+    echo "Audit progress: ${progress_line#Audit analyzer progress: }"
+  fi
+}
+
+start_audit_progress_reporter() {
+  if [ "${AUDIT_LOG_ENABLED}" != "true" ]; then
+    return
+  fi
+
+  (
+    while true; do
+      report_audit_progress
+      sleep 1
+    done
+  ) &
+  AUDIT_PROGRESS_REPORTER_PID="$!"
+}
+
+stop_audit_progress_reporter() {
+  if [ -n "${AUDIT_PROGRESS_REPORTER_PID:-}" ] && kill -0 "${AUDIT_PROGRESS_REPORTER_PID}" >/dev/null 2>&1; then
+    kill "${AUDIT_PROGRESS_REPORTER_PID}" >/dev/null 2>&1 || true
+    wait "${AUDIT_PROGRESS_REPORTER_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
 stop_requested() {
   key=""
 
@@ -454,6 +520,7 @@ while true; do
   if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
     echo "Audit collector became unhealthy during the run." >&2
     stop_process
+    stop_audit_analyzer
     exit 1
   fi
 
@@ -462,6 +529,8 @@ while true; do
     stop_process
     break
   fi
+
+  report_audit_progress
 
   if [ ! -t 0 ]; then
     sleep 1
@@ -472,36 +541,45 @@ trap - INT TERM
 
 if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
   echo "Load test exited with status ${LOAD_TEST_EXIT_CODE}." >&2
+  stop_audit_analyzer
   exit "${LOAD_TEST_EXIT_CODE}"
 fi
 
 if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
+  start_audit_progress_reporter
+  DRAIN_WAIT_EXIT_CODE=0
   python3 "${LAB_ROOT}/assets/scripts/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
     --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
-    --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}"
+    --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"
+  stop_audit_progress_reporter
+  if [ "${DRAIN_WAIT_EXIT_CODE}" -ne 0 ]; then
+    stop_audit_analyzer
+    exit "${DRAIN_WAIT_EXIT_CODE}"
+  fi
 fi
 
 echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
-  if [ ! -f "${AUDIT_ARCHIVE_FILE}" ]; then
-    echo "Audit archive file was not found: ${AUDIT_ARCHIVE_FILE}" >&2
+  echo "Finalizing incremental audit analysis."
+  touch "${AUDIT_ANALYZER_STOP_FILE}"
+  if ! wait "${AUDIT_ANALYZER_PID}"; then
+    echo "Audit analysis failed. Progress log: ${AUDIT_ANALYZER_PROGRESS_FILE}" >&2
+    cat "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2 || true
+    exit 1
+  fi
+  if ! find "${AUDIT_CHUNK_DIR}" -maxdepth 1 -type f -name '*.log.gz' -print -quit | grep -q .; then
+    echo "No completed audit chunks were archived for run ${RUN_ID}." >&2
     docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+    docker logs --tail 50 ckc-internal-audit-archiver >&2 || true
     exit 1
   fi
-  cp "${AUDIT_ARCHIVE_FILE}" "${RUN_AUDIT_DIR}/audit.log"
-  if [ ! -s "${RUN_AUDIT_DIR}/audit.log" ]; then
-    echo "No audit records were archived for run ${RUN_ID}." >&2
-    exit 1
-  fi
-
-  echo "Analyzing archived audit records."
-  python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
-    --input-file "${RUN_AUDIT_DIR}/audit.log" | tee "${RUN_AUDIT_DIR}/summary.txt"
+  cp "${AUDIT_CHUNK_DIR}"/*.log.gz "${RUN_AUDIT_CHUNK_DIR}/"
+  cat "${AUDIT_ANALYZER_SUMMARY_FILE}"
 else
   echo "Audit logging disabled; skipping audit analysis."
 fi

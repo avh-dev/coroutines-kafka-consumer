@@ -17,10 +17,9 @@ pipeline:
       format: json
 
   outputs:
-    - name: file
+    - name: tcp
       match: '*'
-      path: /var/log/ckc-audit
-      file: audit.log
-      format: template
-      template: '{message}'
-      mkdir: on
+      host: audit-archiver
+      port: 5171
+      format: json_lines
+      json_date_key: false

@@ -124,6 +124,7 @@
 | [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | DONE |
 | [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | IN_PROGRESS |
 | [INFRA-46](#infra-46) | Fix internal-lab Redpanda observability and drain-wait scripts so Kafka lag checks work cleanly after the broker migration.                        | DONE |
+| [INFRA-47](#infra-47) | Split internal-lab audit archives into completed chunks and analyze audit data incrementally while local lab tests are running.                    | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1316,3 +1317,14 @@ Reduce noisy exporter readiness failures during `update-lab.sh` while keeping la
 Keep `run-test.sh` drain waiting functional on Redpanda by preserving or tightening the existing `rpk`-based fallback when Prometheus lag metrics are unavailable.
 Persist internal-lab Prometheus TSDB on the lab host and avoid unconditional Prometheus restarts during routine lab updates.
 Split internal-lab update fingerprints so test-definition and Helm-only changes can skip unnecessary Gradle builds, base redeploys, and stubs restarts.
+
+<a id="infra-47"></a>
+### INFRA-47 - Add chunked local audit archive analysis
+
+_Date: 2026-06-05_
+
+Routed internal-lab Fluent Bit audit records into a local audit archiver instead of one long-lived file.
+The archiver writes completed gzip chunks under the live audit directory and resets cleanly before each run.
+The audit analyzer now supports chunk directories, gzip input, watch mode, stop-file finalization, and visible run-test progress during test execution.
+Filtered internal-lab Redpanda lag fallback series so the dashboard does not show blank consumer-group legends.
+Kept the AWS audit path untouched until the local lab flow has stabilized.

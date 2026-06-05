@@ -60,12 +60,33 @@ services:
     command: ["-c", "/fluent-bit/etc/fluent-bit.yaml"]
     volumes:
       - ./fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
-      - ./audit/live:/var/log/ckc-audit
+    depends_on:
+      audit-archiver:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           cpus: "1.0"
           memory: 1G
+
+  audit-archiver:
+    image: python:3.13-alpine
+    container_name: ckc-internal-audit-archiver
+    restart: unless-stopped
+    command: ["python", "/app/archive-audit.py", "--output-dir", "/audit/chunks"]
+    volumes:
+      - ./assets/scripts/helpers/archive-audit.py:/app/archive-audit.py:ro
+      - ./audit/live:/audit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 5171), 2); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   grafana:
     image: grafana/grafana:11.6.0
