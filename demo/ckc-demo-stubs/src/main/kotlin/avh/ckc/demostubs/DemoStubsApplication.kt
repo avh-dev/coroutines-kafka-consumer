@@ -104,6 +104,38 @@ fun main() {
                 }
             }
         }
+        .service("/brewing-registry/steps") { ctx, request ->
+            if (request.method() != HttpMethod.POST) {
+                methodNotAllowed()
+            } else {
+                aggregate(request) { aggregated ->
+                    try {
+                        val registryRequest = json.decodeFromString(
+                            BrewingStepRegistryRequest.serializer(),
+                            aggregated.contentUtf8()
+                        )
+                        val currentSettings = settings.get()
+                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.registry)) {
+                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
+                                jsonResponse(
+                                    """{"error":"registry temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
+                                    HttpStatus.SERVICE_UNAVAILABLE
+                                )
+                            } else {
+                                jsonResponse(
+                                    json.encodeToString(
+                                        BrewingStepRegistryResponse.serializer(),
+                                        acceptBrewingStep(registryRequest)
+                                    )
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {
+                        jsonResponse("""{"error":"bad request"}""", HttpStatus.BAD_REQUEST)
+                    }
+                }
+            }
+        }
         .build()
 
     println(
@@ -194,6 +226,13 @@ private fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse {
     )
 }
 
+private fun acceptBrewingStep(request: BrewingStepRegistryRequest): BrewingStepRegistryResponse =
+    BrewingStepRegistryResponse(
+        receiptId = "acr-${request.batchId}-${request.stepNumber}-${abs(request.regulatoryTraceId.hashCode()).toString(16)}",
+        acceptedAt = java.time.Instant.now().toString(),
+        registryShard = "acr-shard-${(abs(request.batchId.hashCode()) % 8 + 1).toString().padStart(2, '0')}"
+    )
+
 @Serializable
 data class ArcaneEtaRequest(
     @SerialName("batch_id") val batchId: String,
@@ -232,4 +271,21 @@ data class OrderFlavourResponse(
     @SerialName("palette") val palette: String,
     @SerialName("eta_correction_factor") val etaCorrectionFactor: Double,
     @SerialName("moon_phase") val moonPhase: String
+)
+
+@Serializable
+data class BrewingStepRegistryRequest(
+    @SerialName("batch_id") val batchId: String,
+    @SerialName("cauldron_id") val cauldronId: String,
+    @SerialName("step_number") val stepNumber: Int,
+    @SerialName("step_code") val stepCode: String,
+    @SerialName("completed_at") val completedAt: String,
+    @SerialName("regulatory_trace_id") val regulatoryTraceId: String
+)
+
+@Serializable
+data class BrewingStepRegistryResponse(
+    @SerialName("receipt_id") val receiptId: String,
+    @SerialName("accepted_at") val acceptedAt: String,
+    @SerialName("registry_shard") val registryShard: String
 )

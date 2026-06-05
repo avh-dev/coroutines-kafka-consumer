@@ -31,6 +31,10 @@ class DemoApplicationPropertiesTest {
         assertEquals(5170, properties.audit.port)
         assertEquals("local", properties.audit.runId)
         assertEquals("demo", properties.audit.writerId)
+        assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)
+        assertEquals("", properties.model.etaBaseUrl)
+        assertEquals("", properties.model.flavourBaseUrl)
+        assertEquals("http://127.0.0.1:18080", properties.registry.baseUrl)
     }
 
     @Test
@@ -56,7 +60,11 @@ class DemoApplicationPropertiesTest {
                 "demo.audit.host" to "audit-host",
                 "demo.audit.port" to "5511",
                 "demo.audit.run-id" to "run-9",
-                "demo.audit.writer-id" to "demo-pod-1"
+                "demo.audit.writer-id" to "demo-pod-1",
+                "demo.model.base-url" to "http://models.example",
+                "demo.model.eta-base-url" to "http://eta.example",
+                "demo.model.flavour-base-url" to "http://flavour.example",
+                "demo.registry.base-url" to "http://registry.example"
             )
         )
 
@@ -80,6 +88,10 @@ class DemoApplicationPropertiesTest {
         assertEquals(5511, properties.audit.port)
         assertEquals("run-9", properties.audit.runId)
         assertEquals("demo-pod-1", properties.audit.writerId)
+        assertEquals("http://models.example", properties.model.baseUrl)
+        assertEquals("http://eta.example", properties.model.etaBaseUrl)
+        assertEquals("http://flavour.example", properties.model.flavourBaseUrl)
+        assertEquals("http://registry.example", properties.registry.baseUrl)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =

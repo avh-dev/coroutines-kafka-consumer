@@ -12,6 +12,11 @@ stubs:
     delay_p95_ms: 40
     delay_p99_ms: 80
     delay_p100_ms: 120
+  registry:
+    delay_p90_ms: 2
+    delay_p95_ms: 3
+    delay_p99_ms: 4
+    delay_p100_ms: 5
 
 load_test:
   shards: 1

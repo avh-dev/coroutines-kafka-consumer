@@ -40,6 +40,10 @@ demo:
     cauldron-events: cauldron.events.v1
   model:
     base-url: ${MODEL_BASE_URL:http://127.0.0.1:18080}
+    eta-base-url: ${ETA_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
+    flavour-base-url: ${FLAVOUR_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
+  registry:
+    base-url: ${REGISTRY_BASE_URL:http://127.0.0.1:18080}
   audit:
     enabled: ${AUDIT_LOG_ENABLED:true}
     host: ${AUDIT_TCP_HOST:127.0.0.1}

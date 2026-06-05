@@ -1,6 +1,7 @@
 package avh.ckc.demo.repository
 
 import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.BrewingStepReceipt
 import avh.ckc.demo.model.EtaContext
 import avh.ckc.demo.model.OrderFlavour
 import avh.ckc.demo.model.Order
@@ -46,6 +47,10 @@ class RedisSyncBrewingStateRepository(
     override fun saveOrderFlavour(state: OrderFlavour) {
         store.saveOrderFlavour(state)
     }
+
+    override fun saveBrewingStepReceipt(receipt: BrewingStepReceipt) {
+        store.saveBrewingStepReceipt(receipt)
+    }
 }
 
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
@@ -85,6 +90,10 @@ class RedisSuspendBrewingStateRepository(
 
     override suspend fun saveOrderFlavour(state: OrderFlavour) {
         store.saveOrderFlavourSuspending(state)
+    }
+
+    override suspend fun saveBrewingStepReceipt(receipt: BrewingStepReceipt) {
+        store.saveBrewingStepReceiptSuspending(receipt)
     }
 }
 
@@ -128,6 +137,10 @@ class RedisBrewingStateStore(
         saveJson(orderFlavourKey(state.orderId), OrderFlavour.serializer(), state)
     }
 
+    fun saveBrewingStepReceipt(receipt: BrewingStepReceipt) {
+        saveJson(brewingStepReceiptKey(receipt.batchId, receipt.stepNumber), BrewingStepReceipt.serializer(), receipt)
+    }
+
     suspend fun findOrderSuspending(orderId: String): Order? =
         loadJsonSuspending(orderKey(orderId), Order.serializer())
 
@@ -161,6 +174,14 @@ class RedisBrewingStateStore(
 
     suspend fun saveOrderFlavourSuspending(state: OrderFlavour) {
         saveJsonSuspending(orderFlavourKey(state.orderId), OrderFlavour.serializer(), state)
+    }
+
+    suspend fun saveBrewingStepReceiptSuspending(receipt: BrewingStepReceipt) {
+        saveJsonSuspending(
+            brewingStepReceiptKey(receipt.batchId, receipt.stepNumber),
+            BrewingStepReceipt.serializer(),
+            receipt
+        )
     }
 
     private fun <T> loadJson(key: String, serializer: KSerializer<T>): T? =
@@ -200,5 +221,8 @@ class RedisBrewingStateStore(
     private fun etaContextKey(batchId: String): String = "eta-context:$batchId"
 
     private fun orderFlavourKey(orderId: String): String = "order-flavour:$orderId"
+
+    private fun brewingStepReceiptKey(batchId: String, stepNumber: Int): String =
+        "brewing-step-receipt:$batchId:$stepNumber"
 
 }

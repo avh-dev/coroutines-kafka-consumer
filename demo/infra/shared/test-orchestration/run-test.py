@@ -520,6 +520,9 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
             "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
             "env.redisHost": as_str(lab_context.get("redis_host"), ""),
             "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+            "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+            "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+            "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         },
     )
 

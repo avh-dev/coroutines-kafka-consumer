@@ -175,12 +175,27 @@ def main() -> None:
             "delayP100Ms": required_int(values, "delay_p100_ms", name),
         }
 
+    def optional_latency_settings(name: str, defaults: dict[str, int]) -> dict[str, int]:
+        values = stubs.get(name, {})
+        if not isinstance(values, dict) or not values:
+            return defaults
+        return {
+            "delayP90Ms": int(values.get("delay_p90_ms", defaults["delayP90Ms"])),
+            "delayP95Ms": int(values.get("delay_p95_ms", defaults["delayP95Ms"])),
+            "delayP99Ms": int(values.get("delay_p99_ms", defaults["delayP99Ms"])),
+            "delayP100Ms": int(values.get("delay_p100_ms", defaults["delayP100Ms"])),
+        }
+
     if "error_rate_percent" not in stubs:
         raise ValueError(f"Test definition must define stubs.error_rate_percent: {definition_path}")
 
     stub_settings = {
         "eta": latency_settings("eta"),
         "flavour": latency_settings("flavour"),
+        "registry": optional_latency_settings(
+            "registry",
+            {"delayP90Ms": 2, "delayP95Ms": 3, "delayP99Ms": 4, "delayP100Ms": 5},
+        ),
         "errorRatePercent": int(stubs["error_rate_percent"]),
     }
 

@@ -3,6 +3,9 @@ package avh.ckc.demo.service.batch
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.BatchLifecycleEventType
 import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.BrewingStepReceipt
+import avh.ckc.demo.registry.BrewingStepRegistryRequest
+import avh.ckc.demo.registry.BrewingStepRegistryResponse
 import avh.ckc.demo.repository.SuspendBrewingStateRepository
 import avh.ckc.demo.repository.SyncBrewingStateRepository
 
@@ -52,4 +55,34 @@ internal suspend fun updateActiveBatch(event: BatchLifecycleEvent, repository: S
 
         else -> Unit
     }
+}
+
+internal fun registryRequest(event: BatchLifecycleEvent): BrewingStepRegistryRequest {
+    val step = event.batchBrewingStepCompleted
+    return BrewingStepRegistryRequest(
+        batchId = event.batchId,
+        cauldronId = event.cauldronId,
+        stepNumber = step.stepNumber,
+        stepCode = step.stepCode,
+        completedAt = step.completedAt,
+        regulatoryTraceId = event.metadata.regulatoryTraceId
+    )
+}
+
+internal fun brewingStepReceipt(
+    event: BatchLifecycleEvent,
+    response: BrewingStepRegistryResponse
+): BrewingStepReceipt {
+    val step = event.batchBrewingStepCompleted
+    return BrewingStepReceipt(
+        batchId = event.batchId,
+        cauldronId = event.cauldronId,
+        stepNumber = step.stepNumber,
+        stepCode = step.stepCode,
+        receiptId = response.receiptId,
+        acceptedAt = response.acceptedAt,
+        registryShard = response.registryShard,
+        regulatoryTraceId = event.metadata.regulatoryTraceId,
+        updatedAt = event.metadata.occurredAt
+    )
 }

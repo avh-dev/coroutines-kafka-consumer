@@ -49,6 +49,12 @@ spec:
 {{- end }}
             - name: MODEL_BASE_URL
               value: {{ .Values.env.modelBaseUrl | quote }}
+            - name: ETA_MODEL_BASE_URL
+              value: {{ .Values.env.etaModelBaseUrl | quote }}
+            - name: FLAVOUR_MODEL_BASE_URL
+              value: {{ .Values.env.flavourModelBaseUrl | quote }}
+            - name: REGISTRY_BASE_URL
+              value: {{ .Values.env.registryBaseUrl | quote }}
             - name: DEMO_CONSUMER_PROCESSING_ENABLED
               value: {{ .Values.env.processingEnabled | quote }}
             - name: METRICS_IMPLEMENTATION

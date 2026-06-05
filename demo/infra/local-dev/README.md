@@ -76,6 +76,7 @@ demo/infra/local-dev/scripts/stubs.sh baseline
 Demo stubs exposes:
 - `POST /eta`
 - `POST /flavour`
+- `POST /brewing-registry/steps`
 - `GET /settings`
 - `POST /settings`
 - `GET /health`
