@@ -2,6 +2,7 @@ package avh.ckc.demo.repository
 
 import avh.ckc.demo.config.DemoRedisCommands
 import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.BrewingStepReceipt
 import io.lettuce.core.ExperimentalLettuceCoroutinesApi
 import io.lettuce.core.api.coroutines.RedisCoroutinesCommandsImpl
 import io.lettuce.core.api.reactive.RedisReactiveCommands
@@ -52,6 +53,21 @@ class RedisBrewingStateStoreTest {
         verifyNoMoreInteractions(reactiveCommands)
     }
 
+    @Test
+    fun `sync brewing step receipt writes do not expire`() {
+        val redisCommands = mockRedisCommands()
+        val syncCommands = mockSyncCommands()
+        `when`(redisCommands.sync()).thenReturn(syncCommands)
+
+        RedisBrewingStateStore(redisCommands).saveBrewingStepReceipt(sampleReceipt())
+
+        verify(syncCommands).set(
+            eq("brewing-step-receipt:batch-1:3"),
+            any(ByteArray::class.java)
+        )
+        verifyNoMoreInteractions(syncCommands)
+    }
+
     private fun sampleBatch(): Batch =
         Batch(
             batchId = "batch-1",
@@ -60,6 +76,19 @@ class RedisBrewingStateStoreTest {
             cauldronId = "cauldron-1",
             status = "BREWING",
             orderIds = listOf("order-1"),
+            updatedAt = "2026-06-01T12:00:00Z"
+        )
+
+    private fun sampleReceipt(): BrewingStepReceipt =
+        BrewingStepReceipt(
+            batchId = "batch-1",
+            cauldronId = "cauldron-1",
+            stepNumber = 3,
+            stepCode = "PHOENIX_ASH_FOLD",
+            receiptId = "acr-batch-1-3",
+            acceptedAt = "2026-06-01T12:00:01Z",
+            registryShard = "acr-shard-01",
+            regulatoryTraceId = "mrb-test",
             updatedAt = "2026-06-01T12:00:00Z"
         )
 

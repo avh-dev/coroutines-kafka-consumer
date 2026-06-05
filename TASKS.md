@@ -81,6 +81,7 @@
 | [DEMO-49](#demo-49) | Align Spring Kafka demo offset commit cadence with the Kafka auto-commit interval instead of committing after every poll. | DONE |
 | [DEMO-50](#demo-50) | Rework the demo load-test generator to resolve missing state through delegated prerequisite event generation instead of fake fallback entities. | DONE |
 | [DEMO-51](#demo-51) | Add configurable same-key brewing-step bursts to the demo load-test generator so ordered-by-key contention is observable. | DONE |
+| [DEMO-52](#demo-52) | Add a legacy brewing-step registry HTTP acknowledgement path and persist registry receipts before completing step records. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1321,6 +1322,15 @@ _Date: 2026-06-05_
 Add configurable same-key burst generation for `BATCH_BREWING_STEP_COMPLETED` load-test events.
 Keep each burst within the remaining brewing steps for the selected batch so lifecycle state remains valid.
 Count burst messages in generator diagnostics so reported emitted traffic matches producer output.
+
+<a id="demo-52"></a>
+### DEMO-52 - Add brewing-step registry receipts
+
+_Date: 2026-06-05_
+
+Add a legacy HTTP registry acknowledgement for `BATCH_BREWING_STEP_COMPLETED` processing.
+Persist registry receipt data so step processing has a realistic external acceptance gate before audit completion.
+Keep the registry endpoint configurable separately from existing model endpoints while allowing local stubs to serve all dependencies.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

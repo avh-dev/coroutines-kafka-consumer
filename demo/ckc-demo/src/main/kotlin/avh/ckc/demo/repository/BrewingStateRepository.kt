@@ -1,6 +1,7 @@
 package avh.ckc.demo.repository
 
 import avh.ckc.demo.model.Batch
+import avh.ckc.demo.model.BrewingStepReceipt
 import avh.ckc.demo.model.EtaContext
 import avh.ckc.demo.model.OrderFlavour
 import avh.ckc.demo.model.Order
@@ -25,6 +26,8 @@ interface SyncBrewingStateRepository {
     fun findOrderFlavour(orderId: String): OrderFlavour?
 
     fun saveOrderFlavour(state: OrderFlavour)
+
+    fun saveBrewingStepReceipt(receipt: BrewingStepReceipt)
 }
 
 interface SuspendBrewingStateRepository {
@@ -47,4 +50,6 @@ interface SuspendBrewingStateRepository {
     suspend fun findOrderFlavour(orderId: String): OrderFlavour?
 
     suspend fun saveOrderFlavour(state: OrderFlavour)
+
+    suspend fun saveBrewingStepReceipt(receipt: BrewingStepReceipt)
 }

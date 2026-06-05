@@ -13,6 +13,8 @@ Internal-lab tests live under `internal-lab/` and contain only:
 - mandatory demo stub baseline settings applied through `POST /settings`
 - reusable load-test runtime settings
 
+The stubs block has separate latency profiles for ETA model calls, order flavour model calls, and the legacy brewing registry acknowledgement used by completed brewing-step processing.
+
 Internal-lab deployment settings are stored directly in local Helm profiles under
 `demo/infra/shared/helm/demo/profiles/internal-lab`. AWS deployment profiles live under
 `demo/infra/shared/helm/demo/profiles/aws`. The `lab.kafkaTopics` block associates topic

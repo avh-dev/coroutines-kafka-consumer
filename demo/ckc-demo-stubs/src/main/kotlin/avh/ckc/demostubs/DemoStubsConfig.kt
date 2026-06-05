@@ -28,6 +28,7 @@ data class DemoStubsConfig(
 data class DemoStubsSettings(
     val eta: ModelLatencySettings,
     val flavour: ModelLatencySettings,
+    val registry: ModelLatencySettings = ModelLatencySettings.registryBaseline(),
     val errorRatePercent: Int
 ) {
     init {
@@ -39,6 +40,7 @@ data class DemoStubsSettings(
             DemoStubsSettings(
                 eta = ModelLatencySettings.baseline(),
                 flavour = ModelLatencySettings.baseline(),
+                registry = ModelLatencySettings.registryBaseline(),
                 errorRatePercent = 0
             )
     }
@@ -65,6 +67,14 @@ data class ModelLatencySettings(
                 delayP95Ms = 80,
                 delayP99Ms = 160,
                 delayP100Ms = 300
+            )
+
+        fun registryBaseline(): ModelLatencySettings =
+            ModelLatencySettings(
+                delayP90Ms = 2,
+                delayP95Ms = 3,
+                delayP99Ms = 4,
+                delayP100Ms = 5
             )
     }
 }

@@ -22,6 +22,9 @@ env:
   auditRunId: local
   javaToolOptions: ""
   modelBaseUrl: ""
+  etaModelBaseUrl: ""
+  flavourModelBaseUrl: ""
+  registryBaseUrl: ""
   processingEnabled: true
   metricsImplementation: MICROMETER
   workerDispatcherThreads: 8

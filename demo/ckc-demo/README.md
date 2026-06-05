@@ -8,7 +8,8 @@ The demo uses a potion workshop domain:
 - batch events track reagent preparation, cauldron assignment, brewing steps, and bottling;
 - high-frequency cauldron events carry telemetry only for active brewing batches;
 - cauldron telemetry triggers an external REST call to an arcane ETA model and a small CPU-bound normalization step;
-- order creation triggers an order flavour model whose result is stored separately in Redis.
+- order creation triggers an order flavour model whose result is stored separately in Redis;
+- completed brewing steps are acknowledged by a legacy brewing registry, and the returned receipt is stored before the record is considered processed.
 
 The application is intended for functional checks and for comparing consumer implementations under the same workload:
 
@@ -22,10 +23,13 @@ The application is intended for functional checks and for comparing consumer imp
 
 - protobuf payloads in Kafka via `:ckc-demo-contracts`
 - Redis-backed order and batch state
-- external ETA and order flavour model stubs via `:ckc-demo-stubs`
+- external ETA, order flavour, and legacy brewing registry stubs via `:ckc-demo-stubs`
 - Prometheus metrics endpoint at `/actuator/prometheus`
 - Armeria HTTP server for the query API, health checks, and Prometheus scrapes
 - optional reference read API for current order state at `/api/orders/{orderId}` under the `api` profile
+
+External HTTP dependencies use separate base URL settings: `ETA_MODEL_BASE_URL`, `FLAVOUR_MODEL_BASE_URL`, and `REGISTRY_BASE_URL`.
+Local and lab defaults point all three at `ckc-demo-stubs`, but the application keeps separate clients so production-like deployments can route them to distinct services.
 
 ## Local Environment
 

@@ -9,6 +9,7 @@ data class DemoApplicationProperties(
     var kafka: Kafka = Kafka(),
     var topics: Topics = Topics(),
     var model: Model = Model(),
+    var registry: Registry = Registry(),
     var audit: Audit = Audit(),
     var consumers: Consumers = Consumers()
 ) {
@@ -35,6 +36,12 @@ data class DemoApplicationProperties(
     )
 
     data class Model(
+        var baseUrl: String = "http://127.0.0.1:18080",
+        var etaBaseUrl: String = "",
+        var flavourBaseUrl: String = ""
+    )
+
+    data class Registry(
         var baseUrl: String = "http://127.0.0.1:18080"
     )
 

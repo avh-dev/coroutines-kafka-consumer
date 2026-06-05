@@ -9,8 +9,13 @@ import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.JdkSyncOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.registry.ArmeriaSuspendBrewingStepRegistryClient
+import avh.ckc.demo.registry.JdkSyncBrewingStepRegistryClient
+import avh.ckc.demo.registry.SuspendBrewingStepRegistryClient
+import avh.ckc.demo.registry.SyncBrewingStepRegistryClient
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -28,20 +33,30 @@ class ModelClientConfiguration {
         properties: DemoApplicationProperties,
         modelCallMetrics: ModelCallMetrics
     ): SyncArcaneEtaModelClient =
-        JdkSyncArcaneEtaModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
+        JdkSyncArcaneEtaModelClient(URI.create(properties.etaModelBaseUrl()), modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc", "confluent-parallel-reactor")
-    fun armeriaModelWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.model.baseUrl)
+    fun armeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.etaModelBaseUrl())
+
+    @Bean
+    @Profile("ckc", "confluent-parallel-reactor")
+    fun armeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.flavourModelBaseUrl())
+
+    @Bean
+    @Profile("ckc", "confluent-parallel-reactor")
+    fun armeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.registry.baseUrl)
 
     @Bean
     @Profile("ckc", "confluent-parallel-reactor")
     fun armeriaSuspendArcaneEtaModelClient(
-        armeriaModelWebClient: WebClient,
+        @Qualifier("armeriaEtaModelWebClient") armeriaEtaModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
     ): SuspendArcaneEtaModelClient =
-        ArmeriaSuspendArcaneEtaModelClient(armeriaModelWebClient, modelCallMetrics = modelCallMetrics)
+        ArmeriaSuspendArcaneEtaModelClient(armeriaEtaModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
@@ -49,13 +64,35 @@ class ModelClientConfiguration {
         properties: DemoApplicationProperties,
         modelCallMetrics: ModelCallMetrics
     ): SyncOrderFlavourModelClient =
-        JdkSyncOrderFlavourModelClient(URI.create(properties.model.baseUrl), modelCallMetrics = modelCallMetrics)
+        JdkSyncOrderFlavourModelClient(URI.create(properties.flavourModelBaseUrl()), modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc", "confluent-parallel-reactor")
     fun armeriaSuspendOrderFlavourModelClient(
-        armeriaModelWebClient: WebClient,
+        @Qualifier("armeriaFlavourModelWebClient") armeriaFlavourModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
     ): SuspendOrderFlavourModelClient =
-        ArmeriaSuspendOrderFlavourModelClient(armeriaModelWebClient, modelCallMetrics = modelCallMetrics)
+        ArmeriaSuspendOrderFlavourModelClient(armeriaFlavourModelWebClient, modelCallMetrics = modelCallMetrics)
+
+    @Bean
+    @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
+    fun syncBrewingStepRegistryClient(
+        properties: DemoApplicationProperties,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncBrewingStepRegistryClient =
+        JdkSyncBrewingStepRegistryClient(URI.create(properties.registry.baseUrl), modelCallMetrics = modelCallMetrics)
+
+    @Bean
+    @Profile("ckc", "confluent-parallel-reactor")
+    fun armeriaSuspendBrewingStepRegistryClient(
+        @Qualifier("armeriaRegistryWebClient") armeriaRegistryWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SuspendBrewingStepRegistryClient =
+        ArmeriaSuspendBrewingStepRegistryClient(armeriaRegistryWebClient, modelCallMetrics = modelCallMetrics)
+
+    private fun DemoApplicationProperties.etaModelBaseUrl(): String =
+        model.etaBaseUrl.ifBlank { model.baseUrl }
+
+    private fun DemoApplicationProperties.flavourModelBaseUrl(): String =
+        model.flavourBaseUrl.ifBlank { model.baseUrl }
 }

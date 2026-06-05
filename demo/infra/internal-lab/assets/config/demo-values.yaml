@@ -22,6 +22,9 @@ env:
   auditRunId: local
   javaToolOptions: "-Xms256m -Xmx256m -XX:+UseSerialGC"
   modelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
+  etaModelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
+  flavourModelBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
+  registryBaseUrl: http://ckc-demo-stubs.ckc-perf.svc.cluster.local:8080
   auditLogEnabled: true
   orderWorkerConcurrency: 50
   orderPollLoopConcurrency: 1

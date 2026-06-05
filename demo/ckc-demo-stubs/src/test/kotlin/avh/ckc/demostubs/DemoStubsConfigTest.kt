@@ -16,6 +16,7 @@ class DemoStubsConfigTest {
             DemoStubsSettings(
                 eta = ModelLatencySettings(40, 80, 160, 300),
                 flavour = ModelLatencySettings(40, 80, 160, 300),
+                registry = ModelLatencySettings(2, 3, 4, 5),
                 errorRatePercent = 0
             ),
             DemoStubsSettings.baseline()

@@ -58,6 +58,7 @@ class DemoStubsSettingsStateTest {
         DemoStubsSettings(
             eta = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
             flavour = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
+            registry = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
             errorRatePercent = 0
         )
 
