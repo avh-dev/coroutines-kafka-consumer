@@ -11,7 +11,7 @@ class TrafficStats {
         val counter = counters.computeIfAbsent(generatorName) { GeneratorCounters() }
         counter.total.incrementAndGet()
         if (result.emitted) {
-            counter.emitted.incrementAndGet()
+            counter.emitted.addAndGet(result.emittedCount.toLong())
         }
         if (result.blocked) {
             counter.blocked.incrementAndGet()

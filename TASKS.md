@@ -77,9 +77,10 @@
 | [DEMO-45](#demo-45) | Persist demo-stubs runtime settings in Redis so configured latency profiles survive pod restarts during resiliency tests.                       | DONE |
 | [DEMO-46](#demo-46) | Replace Redis-backed demo audit writes with compact TCP audit logging that carries run and writer identity for Fluent Bit ingestion.            | DONE |
 | [DEMO-47](#demo-47) | Replace the demo app and load-test custom TCP audit senders with Logback TCP appenders, add failure audit records, and shrink the Fluent Bit JSON audit payload. | DONE |
-| [DEMO-48](#demo-48) | Add an internal demo crash endpoint that flushes the TCP audit logger before forcing a hard JVM halt. | IN_PROGRESS |
+| [DEMO-48](#demo-48) | Add an internal demo crash endpoint that flushes the TCP audit logger before forcing a hard JVM halt. | DONE |
 | [DEMO-49](#demo-49) | Align Spring Kafka demo offset commit cadence with the Kafka auto-commit interval instead of committing after every poll. | DONE |
 | [DEMO-50](#demo-50) | Rework the demo load-test generator to resolve missing state through delegated prerequisite event generation instead of fake fallback entities. | DONE |
+| [DEMO-51](#demo-51) | Add configurable same-key brewing-step bursts to the demo load-test generator so ordered-by-key contention is observable. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1311,6 +1312,15 @@ Replace fake fallback entities in the demo load-test generator with bounded prer
 Keep the string-based load profile and existing per-topic traffic split while letting requested events emit real upstream events when state is cold.
 Report generator outcomes as emitted, delegated, and blocked instead of real versus fake.
 Remove the obsolete fake entity prefix configuration from load-test config and local/internal-lab launch paths.
+
+<a id="demo-51"></a>
+### DEMO-51 - Add brewing-step key bursts
+
+_Date: 2026-06-05_
+
+Add configurable same-key burst generation for `BATCH_BREWING_STEP_COMPLETED` load-test events.
+Keep each burst within the remaining brewing steps for the selected batch so lifecycle state remains valid.
+Count burst messages in generator diagnostics so reported emitted traffic matches producer output.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

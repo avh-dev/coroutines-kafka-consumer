@@ -17,6 +17,9 @@ data class LoadTestConfig(
     val maxOrdersPerBatch: Int,
     val minBrewingSteps: Int,
     val maxBrewingSteps: Int,
+    val brewingStepBurstEvery: Int,
+    val minBrewingStepBurst: Int,
+    val maxBrewingStepBurst: Int,
     val maxBurst: Int,
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
@@ -41,6 +44,9 @@ data class LoadTestConfig(
         require(maxOrdersPerBatch >= minOrdersPerBatch) { "maxOrdersPerBatch must be >= minOrdersPerBatch" }
         require(minBrewingSteps > 0) { "minBrewingSteps must be positive" }
         require(maxBrewingSteps >= minBrewingSteps) { "maxBrewingSteps must be >= minBrewingSteps" }
+        require(brewingStepBurstEvery >= 0) { "brewingStepBurstEvery must be non-negative" }
+        require(minBrewingStepBurst > 0) { "minBrewingStepBurst must be positive" }
+        require(maxBrewingStepBurst >= minBrewingStepBurst) { "maxBrewingStepBurst must be >= minBrewingStepBurst" }
         require(maxBurst > 0) { "maxBurst must be positive" }
         require(!statsLogInterval.isNegative && !statsLogInterval.isZero) { "statsLogInterval must be positive" }
         require(diagnosticsBlobSize >= 0) { "diagnosticsBlobSize must be non-negative" }
@@ -68,6 +74,9 @@ data class LoadTestConfig(
                 maxOrdersPerBatch = environment["MAX_ORDERS_PER_BATCH"]?.toIntOrNull() ?: 8,
                 minBrewingSteps = environment["MIN_BREWING_STEPS"]?.toIntOrNull() ?: 5,
                 maxBrewingSteps = environment["MAX_BREWING_STEPS"]?.toIntOrNull() ?: 10,
+                brewingStepBurstEvery = environment["BREWING_STEP_BURST_EVERY"]?.toIntOrNull() ?: 1,
+                minBrewingStepBurst = environment["MIN_BREWING_STEP_BURST"]?.toIntOrNull() ?: 5,
+                maxBrewingStepBurst = environment["MAX_BREWING_STEP_BURST"]?.toIntOrNull() ?: 10,
                 maxBurst = environment["MAX_BURST"]?.toIntOrNull() ?: 1000,
                 statsLogInterval = Duration.ofSeconds(environment["STATS_LOG_INTERVAL_SECONDS"]?.toLongOrNull() ?: 30L),
                 diagnosticsBlobSize = environment["DIAGNOSTICS_BLOB_SIZE"]?.toIntOrNull() ?: 512,

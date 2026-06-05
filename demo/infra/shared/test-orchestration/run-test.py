@@ -403,6 +403,12 @@ spec:
               value: "{as_int(load_test.get("min_brewing_steps"), 5)}"
             - name: MAX_BREWING_STEPS
               value: "{as_int(load_test.get("max_brewing_steps"), 10)}"
+            - name: BREWING_STEP_BURST_EVERY
+              value: "{as_int(load_test.get("brewing_step_burst_every"), 1)}"
+            - name: MIN_BREWING_STEP_BURST
+              value: "{as_int(load_test.get("min_brewing_step_burst"), 5)}"
+            - name: MAX_BREWING_STEP_BURST
+              value: "{as_int(load_test.get("max_brewing_step_burst"), 10)}"
             - name: MAX_BURST
               value: "{as_int(load_test.get("max_burst"), 1000)}"
             - name: STATS_LOG_INTERVAL_SECONDS

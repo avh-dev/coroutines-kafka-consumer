@@ -116,7 +116,7 @@ class LoadTestEventFactory(
     fun batchBrewingStepCompleted(batch: SimulatedBatch, now: Instant): BatchLifecycleEvent {
         val stepNumber = batch.brewingStepsCompleted + 1
         val template = brewingStepTemplates[(stepNumber - 1) % brewingStepTemplates.size]
-        return batchEvent(batch, BatchLifecycleEventType.BATCH_BREWING_STEP_COMPLETED, now) {
+        return batchEvent(batch, BatchLifecycleEventType.BATCH_BREWING_STEP_COMPLETED, now, eventIdSuffix = "-step-$stepNumber") {
             setBatchBrewingStepCompleted(
                 BatchBrewingStepCompletedPayload.newBuilder()
                     .setStepNumber(stepNumber)
@@ -168,10 +168,11 @@ class LoadTestEventFactory(
         batch: SimulatedBatch,
         eventType: BatchLifecycleEventType,
         now: Instant,
+        eventIdSuffix: String = "",
         payloadSetter: BatchLifecycleEvent.Builder.() -> Unit
     ): BatchLifecycleEvent =
         BatchLifecycleEvent.newBuilder()
-            .setMetadata(metadata("evt-${batch.batchId}-${eventType.name.lowercase()}-${now.epochSecond}", now))
+            .setMetadata(metadata("evt-${batch.batchId}-${eventType.name.lowercase()}-${now.epochSecond}$eventIdSuffix", now))
             .setBatchId(batch.batchId)
             .setPotionId(batch.potion.potionId)
             .setRecipeId(batch.potion.recipeId)

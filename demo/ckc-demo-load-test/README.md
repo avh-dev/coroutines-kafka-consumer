@@ -39,6 +39,7 @@ Rules:
 - generated entity ids include both identity dimensions, for example `order-1-5-00021212`
 - `ORDER_EVENT_PERCENT`, `BATCH_EVENT_PERCENT`, and `CAULDRON_TELEMETRY_PERCENT` split that total event budget across topics
 - event generators use state queues when a suitable simulated entity exists and delegate prerequisite event generation while the state is warming up
+- `BREWING_STEP_BURST_EVERY`, `MIN_BREWING_STEP_BURST`, and `MAX_BREWING_STEP_BURST` emit same-key `BATCH_BREWING_STEP_COMPLETED` bursts, capped by remaining batch brewing steps, so ordered-by-key contention is observable without increasing total TPS
 - `TELEMETRY_SOURCE_MODE=FIXED_FLEET` prepares one active synthetic batch per configured cauldron and emits telemetry round-robin across the fixed cauldron fleet
 - the default `TELEMETRY_SOURCE_MODE=ACTIVE_BATCHES` keeps cauldron telemetry tied to batches that are active in the simulated business pipeline
 - `PUBLISH_ENABLED=false` keeps generation and audit output enabled but skips Kafka sends for local debugging
