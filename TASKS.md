@@ -133,6 +133,7 @@
 | [INFRA-49](#infra-49) | Clamp the Redpanda CPU dashboard query so public-metrics counter spikes cannot display physically impossible millicore values.                    | DONE |
 | [INFRA-50](#infra-50) | Add audit analyzer checks for terminal processing order by partition and by message key.                                                          | DONE |
 | [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and set short rolling retention for load-test Kafka topics.                                      | DONE |
+| [INFRA-52](#infra-52) | Use process-exporter CPU metrics for the internal-lab Redpanda dashboard panel to avoid native busy-counter stop spikes.                         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1410,3 +1411,12 @@ Investigate why chunked internal-lab audit analysis still grows memory without b
 Change the analyzer from full-record retention to bounded aggregation: close and evict records after both publish and terminal outcomes are accounted for.
 Keep only open records for a short timeout window and preserve aggregate counters, latency buckets, duplicate counts, conflict counts, and order checks.
 Set internal-lab load-test topics to short rolling retention, about five minutes by default, so multi-hour runs do not retain obsolete Kafka data.
+
+<a id="infra-52"></a>
+### INFRA-52 - Use process-exporter Redpanda CPU metrics
+
+_Date: 2026-06-06_
+
+Switch the internal-lab Redpanda CPU dashboard panel from native `redpanda_cpu_busy_seconds_total` to process-exporter CPU accounting.
+Keep Redpanda and Redis host-service CPU panels based on the same metric family so stop-time native counter spikes do not hide normal CPU load.
+Restart process-exporter after host services are up so the Redpanda process group is present before Grafana uses it.

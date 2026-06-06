@@ -3039,7 +3039,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "clamp_max(1000 * sum(clamp_min(rate(redpanda_cpu_busy_seconds_total{job=\"ckc-redpanda-public-metrics\"}[$__rate_interval]), 0)), 2000)",
+              "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redpanda\"}[$__rate_interval]))",
               "legendFormat": "redpanda",
               "range": true,
               "refId": "A"
