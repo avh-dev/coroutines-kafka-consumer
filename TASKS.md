@@ -126,12 +126,13 @@
 | [INFRA-42](#infra-42) | Show native Parallel Consumer metrics for both blocking and Reactor-backed Confluent demo profiles in Grafana.                                      | DONE |
 | [INFRA-43](#infra-43) | Update internal-lab images incrementally and restart demo stubs only when their image changes.                                                       | DONE |
 | [INFRA-44](#infra-44) | Add dedicated Fluent Bit audit ingestion, archive wiring, and fail-fast test orchestration for internal-lab and future EKS runs.                   | DONE |
-| [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | IN_PROGRESS |
+| [INFRA-45](#infra-45) | Update the internal-lab audit archive and analyzer flow for compact `P/C/F` records, including fresh live-log cleanup before each run.             | DONE |
 | [INFRA-46](#infra-46) | Fix internal-lab Redpanda observability and drain-wait scripts so Kafka lag checks work cleanly after the broker migration.                        | DONE |
 | [INFRA-47](#infra-47) | Split internal-lab audit archives into completed chunks and analyze audit data incrementally while local lab tests are running.                    | DONE |
 | [INFRA-48](#infra-48) | Restore the internal-lab Redpanda CPU dashboard panel using native Redpanda public metrics.                                                       | DONE |
 | [INFRA-49](#infra-49) | Clamp the Redpanda CPU dashboard query so public-metrics counter spikes cannot display physically impossible millicore values.                    | DONE |
 | [INFRA-50](#infra-50) | Add audit analyzer checks for terminal processing order by partition and by message key.                                                          | DONE |
+| [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and set short rolling retention for load-test Kafka topics.                                      | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1399,3 +1400,13 @@ _Date: 2026-06-05_
 Expand the internal-lab audit analyzer with terminal processing order checks.
 Report out-of-order terminal records by Kafka partition and by `(topic, partition, message key)`.
 Keep the checks usable for comparing CKC and Confluent ordered-by-key and ordered-by-partition modes.
+
+<a id="infra-51"></a>
+### INFRA-51 - Optimize audit analyzer memory use
+
+_Date: 2026-06-06_
+
+Investigate why chunked internal-lab audit analysis still grows memory without bound.
+Change the analyzer from full-record retention to bounded aggregation: close and evict records after both publish and terminal outcomes are accounted for.
+Keep only open records for a short timeout window and preserve aggregate counters, latency buckets, duplicate counts, conflict counts, and order checks.
+Set internal-lab load-test topics to short rolling retention, about five minutes by default, so multi-hour runs do not retain obsolete Kafka data.

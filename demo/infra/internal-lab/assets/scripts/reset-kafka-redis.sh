@@ -8,6 +8,9 @@ TOPIC_SPECS="${TOPIC_SPECS:-order.events.v1:4,batch.events.v1:4,cauldron.events.
 CONSUMER_GROUPS="${CONSUMER_GROUPS:-potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry}"
 REDPANDA_CONTAINER="${REDPANDA_CONTAINER:-ckc-perf-redpanda}"
 BOOTSTRAP_SERVER="localhost:9092"
+TOPIC_RETENTION_MS="${TOPIC_RETENTION_MS:-300000}"
+TOPIC_SEGMENT_MS="${TOPIC_SEGMENT_MS:-60000}"
+TOPIC_RETENTION_BYTES="${TOPIC_RETENTION_BYTES:-}"
 
 if [ -f "${LAB_ENV}" ]; then
   # shellcheck disable=SC1090
@@ -41,7 +44,16 @@ sleep 5
 for spec in ${TOPIC_SPECS}; do
   topic="${spec%:*}"
   partitions="${spec##*:}"
-  rpk topic create "${topic}" -p "${partitions}" -r 1
+  if [ -n "${TOPIC_RETENTION_BYTES}" ]; then
+    rpk topic create "${topic}" -p "${partitions}" -r 1 \
+      -c "retention.ms=${TOPIC_RETENTION_MS}" \
+      -c "segment.ms=${TOPIC_SEGMENT_MS}" \
+      -c "retention.bytes=${TOPIC_RETENTION_BYTES}"
+  else
+    rpk topic create "${topic}" -p "${partitions}" -r 1 \
+      -c "retention.ms=${TOPIC_RETENTION_MS}" \
+      -c "segment.ms=${TOPIC_SEGMENT_MS}"
+  fi
 done
 unset IFS
 
