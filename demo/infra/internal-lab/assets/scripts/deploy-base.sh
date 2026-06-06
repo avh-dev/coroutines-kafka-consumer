@@ -74,6 +74,11 @@ docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis audit-archiver fluent-bit grafana process-exporter
 docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
 docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
+docker restart ckc-internal-process-exporter >/dev/null
+if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/null | grep -F 'namedprocess_namegroup_num_procs{groupname=\"redpanda\"}' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Process exporter did not expose the Redpanda process group within 30 seconds; continuing because it is observability-only." >&2
+  docker logs --tail 50 ckc-internal-process-exporter >&2 || true
+fi
 LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
 
 if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9308/metrics' >/dev/null 2>&1; do sleep 2; done"; then
