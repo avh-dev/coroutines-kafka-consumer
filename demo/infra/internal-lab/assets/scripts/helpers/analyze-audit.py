@@ -200,6 +200,8 @@ class AuditStats:
     kafka_to_failure_age: LatencyHistogram = field(default_factory=LatencyHistogram)
     kafka_to_terminal_age: LatencyHistogram = field(default_factory=LatencyHistogram)
     watermark_ms: int = 0
+    last_eviction_ms: int = 0
+    eviction_interval_ms: int = 1_000
 
     @property
     def open_records(self) -> int:
@@ -211,7 +213,9 @@ class AuditStats:
 
     def add(self, record: AuditRecord) -> None:
         self.watermark_ms = max(self.watermark_ms, record.audit_timestamp_ms)
-        self._evict_expired(self.watermark_ms - self.open_record_ttl_ms)
+        if self.watermark_ms - self.last_eviction_ms >= self.eviction_interval_ms:
+            self._evict_expired(self.watermark_ms - self.open_record_ttl_ms)
+            self.last_eviction_ms = self.watermark_ms
 
         if record.record_type == "P":
             self._add_published(record)
