@@ -35,6 +35,43 @@ class AuditRecord:
 
 
 @dataclass
+class ProcessingOrderStats:
+    terminal_records: int = 0
+    processed_records: int = 0
+    failed_records: int = 0
+    out_of_order_terminal: int = 0
+    out_of_order_processed: int = 0
+    out_of_order_failed: int = 0
+    last_offset_by_partition: dict[tuple[int, int], int] = field(default_factory=dict)
+    last_offset_by_key: dict[tuple[int, int, str], int] = field(default_factory=dict)
+
+    def add_partition_order(self, record: AuditRecord) -> None:
+        self._add(record, self.last_offset_by_partition, (record.key.topic_id, record.key.partition))
+
+    def add_key_order(self, record: AuditRecord) -> None:
+        self._add(record, self.last_offset_by_key, (record.key.topic_id, record.key.partition, record.message_key))
+
+    def _add(self, record: AuditRecord, last_offsets: dict[object, int], group: object) -> None:
+        self.terminal_records += 1
+        if record.record_type == "C":
+            self.processed_records += 1
+        elif record.record_type == "F":
+            self.failed_records += 1
+
+        last_offset = last_offsets.get(group)
+        if last_offset is not None and record.key.offset < last_offset:
+            self.out_of_order_terminal += 1
+            if record.record_type == "C":
+                self.out_of_order_processed += 1
+            elif record.record_type == "F":
+                self.out_of_order_failed += 1
+            return
+
+        if last_offset is None or record.key.offset > last_offset:
+            last_offsets[group] = record.key.offset
+
+
+@dataclass
 class AuditStats:
     published_records: int = 0
     processed_records: int = 0
@@ -45,6 +82,9 @@ class AuditStats:
     failed_counts: Counter[RecordKey] = field(default_factory=Counter)
     processed_by_key: dict[RecordKey, list[AuditRecord]] = field(default_factory=dict)
     failed_by_key: dict[RecordKey, list[AuditRecord]] = field(default_factory=dict)
+    terminal_seen_for_ordering: set[RecordKey] = field(default_factory=set)
+    partition_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
+    key_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
     process_latency: list[int] = field(default_factory=list)
     failure_latency: list[int] = field(default_factory=list)
     terminal_latency: list[int] = field(default_factory=list)
@@ -69,6 +109,7 @@ class AuditStats:
 
         if record.record_type == "C":
             self.processed_records += 1
+            self._add_terminal_order(record)
             self.processed_counts[record.key] += 1
             self.processed_by_key.setdefault(record.key, []).append(record)
             published = self.published_by_key.get(record.key)
@@ -78,11 +119,21 @@ class AuditStats:
 
         if record.record_type == "F":
             self.failed_records += 1
+            self._add_terminal_order(record)
             self.failed_counts[record.key] += 1
             self.failed_by_key.setdefault(record.key, []).append(record)
             published = self.published_by_key.get(record.key)
             if published is not None:
                 self._add_failed_latency(record, published)
+
+    def _add_terminal_order(self, record: AuditRecord) -> None:
+        if record.key.partition < 0 or record.key.offset < 0:
+            return
+        if record.key in self.terminal_seen_for_ordering:
+            return
+        self.terminal_seen_for_ordering.add(record.key)
+        self.partition_order.add_partition_order(record)
+        self.key_order.add_key_order(record)
 
     def _add_processed_latency(self, record: AuditRecord, published: AuditRecord) -> None:
         latency = record.audit_timestamp_ms - published.audit_timestamp_ms
@@ -245,6 +296,15 @@ def format_percentiles(values: list[int]) -> str:
     )
 
 
+def print_order_summary(label: str, stats: ProcessingOrderStats) -> None:
+    print(
+        f"  {label}_order_terminal_records={stats.terminal_records} "
+        f"out_of_order_terminal={stats.out_of_order_terminal} "
+        f"out_of_order_processed={stats.out_of_order_processed} "
+        f"out_of_order_failed={stats.out_of_order_failed}"
+    )
+
+
 def print_summary(title: str, stats: AuditStats) -> None:
     processed_unique = set(stats.processed_counts)
     failed_unique = set(stats.failed_counts)
@@ -273,6 +333,9 @@ def print_summary(title: str, stats: AuditStats) -> None:
     print(f"  processed_without_publish={len(processed_without_publish)}")
     print(f"  failed_without_publish={len(failed_without_publish)}")
     print(f"  conflicting_terminal_outcomes={len(conflicting_terminal)}")
+    print("  processing_order_scope=topic_id+partition for partition order; topic_id+partition+message_key for key order")
+    print_order_summary("partition", stats.partition_order)
+    print_order_summary("key", stats.key_order)
     print(f"  publish_to_process_latency_ms={format_percentiles(stats.process_latency)}")
     print(f"  publish_to_failure_latency_ms={format_percentiles(stats.failure_latency)}")
     print(f"  publish_to_terminal_latency_ms={format_percentiles(stats.terminal_latency)}")
