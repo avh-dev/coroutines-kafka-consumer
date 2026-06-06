@@ -132,7 +132,7 @@
 | [INFRA-48](#infra-48) | Restore the internal-lab Redpanda CPU dashboard panel using native Redpanda public metrics.                                                       | DONE |
 | [INFRA-49](#infra-49) | Clamp the Redpanda CPU dashboard query so public-metrics counter spikes cannot display physically impossible millicore values.                    | DONE |
 | [INFRA-50](#infra-50) | Add audit analyzer checks for terminal processing order by partition and by message key.                                                          | DONE |
-| [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and review Kafka committed-offset cleanup settings.                                               | IN_PROGRESS |
+| [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and set short rolling retention for load-test Kafka topics.                                      | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
