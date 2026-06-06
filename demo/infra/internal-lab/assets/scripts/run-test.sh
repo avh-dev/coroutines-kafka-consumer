@@ -380,6 +380,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
     --pending-dir "${AUDIT_CHUNK_DIR}" \
     --watch \
     --stop-file "${AUDIT_ANALYZER_STOP_FILE}" \
+    --no-topic-summaries \
     --require-records \
     > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
     2> "${AUDIT_ANALYZER_PROGRESS_FILE}" &
