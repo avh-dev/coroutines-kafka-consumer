@@ -131,6 +131,7 @@
 | [INFRA-47](#infra-47) | Split internal-lab audit archives into completed chunks and analyze audit data incrementally while local lab tests are running.                    | DONE |
 | [INFRA-48](#infra-48) | Restore the internal-lab Redpanda CPU dashboard panel using native Redpanda public metrics.                                                       | DONE |
 | [INFRA-49](#infra-49) | Clamp the Redpanda CPU dashboard query so public-metrics counter spikes cannot display physically impossible millicore values.                    | DONE |
+| [INFRA-50](#infra-50) | Add audit analyzer checks for terminal processing order by partition and by message key.                                                          | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1389,3 +1390,12 @@ _Date: 2026-06-05_
 Clamp the Redpanda CPU dashboard query to the internal-lab Redpanda shard capacity.
 Prevent native public-metrics counter spikes from rendering impossible CPU values in Grafana.
 Keep the panel in millicores so normal readings stay comparable with the other host-service CPU panels.
+
+<a id="infra-50"></a>
+### INFRA-50 - Add audit processing order analysis
+
+_Date: 2026-06-05_
+
+Expand the internal-lab audit analyzer with terminal processing order checks.
+Report out-of-order terminal records by Kafka partition and by `(topic, partition, message key)`.
+Keep the checks usable for comparing CKC and Confluent ordered-by-key and ordered-by-partition modes.
