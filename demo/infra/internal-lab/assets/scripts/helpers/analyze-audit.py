@@ -6,9 +6,10 @@ import argparse
 import gzip
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TextIO
+from typing import NamedTuple, TextIO
 
 TOPIC_NAMES = {
     1: "order.events.v1",
@@ -38,14 +39,13 @@ LATENCY_BUCKETS_MS = [
 ]
 
 
-@dataclass(frozen=True)
-class RecordKey:
+class RecordKey(NamedTuple):
     topic_id: int
     partition: int
     offset: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AuditRecord:
     record_type: str
     key: RecordKey
@@ -54,13 +54,13 @@ class AuditRecord:
     kafka_timestamp_ms: int | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class LastOffsetState:
     offset: int
     updated_ms: int
 
 
-@dataclass
+@dataclass(slots=True)
 class ProcessingOrderStats:
     terminal_records: int = 0
     processed_records: int = 0
@@ -70,18 +70,25 @@ class ProcessingOrderStats:
     out_of_order_failed: int = 0
     last_offset_by_partition: dict[tuple[int, int], LastOffsetState] = field(default_factory=dict)
     last_offset_by_key: dict[tuple[int, int, str], LastOffsetState] = field(default_factory=dict)
+    key_expiry_queue: deque[tuple[int, tuple[int, int, str]]] = field(default_factory=deque)
 
     def add_partition_order(self, record: AuditRecord) -> None:
-        self._add(record, self.last_offset_by_partition, (record.key.topic_id, record.key.partition))
+        self._add(record, self.last_offset_by_partition, (record.key.topic_id, record.key.partition), False)
 
     def add_key_order(self, record: AuditRecord) -> None:
-        self._add(record, self.last_offset_by_key, (record.key.topic_id, record.key.partition, record.message_key))
+        self._add(record, self.last_offset_by_key, (record.key.topic_id, record.key.partition, record.message_key), True)
 
     def evict_before(self, cutoff_ms: int) -> None:
-        self._evict(self.last_offset_by_key, cutoff_ms)
+        self._evict_key_order(cutoff_ms)
         # Partition state is tiny and keeping it preserves full-run partition-order checks.
 
-    def _add(self, record: AuditRecord, last_offsets: dict[object, LastOffsetState], group: object) -> None:
+    def _add(
+        self,
+        record: AuditRecord,
+        last_offsets: dict[object, LastOffsetState],
+        group: object,
+        track_expiry: bool,
+    ) -> None:
         self.terminal_records += 1
         if record.record_type == "C":
             self.processed_records += 1
@@ -99,16 +106,22 @@ class ProcessingOrderStats:
 
         if last is None or record.key.offset > last.offset:
             last_offsets[group] = LastOffsetState(record.key.offset, record.audit_timestamp_ms)
+            if track_expiry:
+                self.key_expiry_queue.append((record.audit_timestamp_ms, group))
         elif last is not None:
             last.updated_ms = record.audit_timestamp_ms
+            if track_expiry:
+                self.key_expiry_queue.append((record.audit_timestamp_ms, group))
 
-    def _evict(self, states: dict[object, LastOffsetState], cutoff_ms: int) -> None:
-        stale = [group for group, state in states.items() if state.updated_ms < cutoff_ms]
-        for group in stale:
-            del states[group]
+    def _evict_key_order(self, cutoff_ms: int) -> None:
+        while self.key_expiry_queue and self.key_expiry_queue[0][0] < cutoff_ms:
+            updated_ms, group = self.key_expiry_queue.popleft()
+            state = self.last_offset_by_key.get(group)
+            if state is not None and state.updated_ms == updated_ms:
+                del self.last_offset_by_key[group]
 
 
-@dataclass
+@dataclass(slots=True)
 class LatencyHistogram:
     buckets: list[int] = field(default_factory=lambda: [0] * (len(LATENCY_BUCKETS_MS) + 1))
     count: int = 0
@@ -143,7 +156,7 @@ class LatencyHistogram:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class RecordState:
     first_seen_ms: int
     last_seen_ms: int
@@ -161,7 +174,7 @@ class RecordState:
         return self.published is not None and self.has_terminal()
 
 
-@dataclass
+@dataclass(slots=True)
 class ClosedRecordState:
     closed_ms: int
     published: AuditRecord | None
@@ -169,7 +182,7 @@ class ClosedRecordState:
     failed_seen: bool
 
 
-@dataclass
+@dataclass(slots=True)
 class AuditStats:
     open_record_ttl_ms: int
     published_records: int = 0
@@ -191,6 +204,8 @@ class AuditStats:
     max_recent_closed_records: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
+    open_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
+    recent_closed_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
     partition_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
     key_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
     process_latency: LatencyHistogram = field(default_factory=LatencyHistogram)
@@ -247,6 +262,7 @@ class AuditStats:
 
         state.published = record
         state.last_seen_ms = record.audit_timestamp_ms
+        self.open_expiry_queue.append((state.last_seen_ms, record.key))
         self.published_unique += 1
         if state.processed is not None:
             self._add_processed_latency(state.processed, record)
@@ -269,6 +285,7 @@ class AuditStats:
 
         state = self._state(record)
         state.last_seen_ms = record.audit_timestamp_ms
+        self.open_expiry_queue.append((state.last_seen_ms, record.key))
 
         if record.record_type == "C":
             if state.processed is None:
@@ -326,6 +343,7 @@ class AuditStats:
         if state is None:
             state = RecordState(first_seen_ms=record.audit_timestamp_ms, last_seen_ms=record.audit_timestamp_ms)
             self.open_by_key[record.key] = state
+            self.open_expiry_queue.append((state.last_seen_ms, record.key))
         return state
 
     def _add_terminal_unique(self, record: AuditRecord, state: RecordState) -> None:
@@ -346,14 +364,19 @@ class AuditStats:
             processed_seen=state.processed is not None,
             failed_seen=state.failed is not None,
         )
+        self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
     def _evict_expired(self, cutoff_ms: int) -> None:
-        stale_open = [key for key, state in self.open_by_key.items() if state.last_seen_ms < cutoff_ms]
-        for key in stale_open:
-            self._evict_open_record(key)
-        stale_closed = [key for key, state in self.recent_closed_by_key.items() if state.closed_ms < cutoff_ms]
-        for key in stale_closed:
-            del self.recent_closed_by_key[key]
+        while self.open_expiry_queue and self.open_expiry_queue[0][0] < cutoff_ms:
+            last_seen_ms, key = self.open_expiry_queue.popleft()
+            state = self.open_by_key.get(key)
+            if state is not None and state.last_seen_ms == last_seen_ms:
+                self._evict_open_record(key)
+        while self.recent_closed_expiry_queue and self.recent_closed_expiry_queue[0][0] < cutoff_ms:
+            closed_ms, key = self.recent_closed_expiry_queue.popleft()
+            state = self.recent_closed_by_key.get(key)
+            if state is not None and state.closed_ms == closed_ms:
+                del self.recent_closed_by_key[key]
         self.key_order.evict_before(cutoff_ms)
 
     def _evict_open_record(self, key: RecordKey) -> None:
@@ -390,9 +413,13 @@ class AuditStats:
 
 
 class AuditAccumulator:
-    def __init__(self, open_record_ttl_ms: int) -> None:
+    def __init__(self, open_record_ttl_ms: int, topic_summaries: bool) -> None:
         self.all = AuditStats(open_record_ttl_ms=open_record_ttl_ms)
-        self.by_topic = {topic_id: AuditStats(open_record_ttl_ms=open_record_ttl_ms) for topic_id in TOPIC_NAMES}
+        self.by_topic = (
+            {topic_id: AuditStats(open_record_ttl_ms=open_record_ttl_ms) for topic_id in TOPIC_NAMES}
+            if topic_summaries
+            else {}
+        )
         self.record_count = 0
 
     def add(self, record: AuditRecord) -> None:
@@ -419,6 +446,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     parser.add_argument("--idle-seconds", type=float, default=5.0)
     parser.add_argument("--open-record-ttl-seconds", type=float, default=60.0)
+    parser.add_argument("--no-topic-summaries", action="store_true")
     parser.add_argument("--require-records", action="store_true")
     return parser.parse_args()
 
@@ -577,7 +605,10 @@ def main() -> int:
     if args.open_record_ttl_seconds <= 0:
         raise ValueError("--open-record-ttl-seconds must be positive")
 
-    accumulator = AuditAccumulator(open_record_ttl_ms=round(args.open_record_ttl_seconds * 1000))
+    accumulator = AuditAccumulator(
+        open_record_ttl_ms=round(args.open_record_ttl_seconds * 1000),
+        topic_summaries=not args.no_topic_summaries,
+    )
     read_files(args.input_file, accumulator)
     if args.input_dir:
         watch_chunks(args, accumulator)
@@ -588,9 +619,9 @@ def main() -> int:
         raise ValueError("no audit records were read")
 
     print_summary("Audit summary", accumulator.all)
-    for topic_id, topic_name in TOPIC_NAMES.items():
+    for topic_id, topic_stats in accumulator.by_topic.items():
         print()
-        print_summary(f"Topic summary: {topic_name}", accumulator.by_topic[topic_id])
+        print_summary(f"Topic summary: {TOPIC_NAMES[topic_id]}", topic_stats)
     return 0
 
 

@@ -134,6 +134,7 @@
 | [INFRA-50](#infra-50) | Add audit analyzer checks for terminal processing order by partition and by message key.                                                          | DONE |
 | [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and set short rolling retention for load-test Kafka topics.                                      | DONE |
 | [INFRA-52](#infra-52) | Use process-exporter CPU metrics for the internal-lab Redpanda dashboard panel to avoid native busy-counter stop spikes.                         | DONE |
+| [INFRA-53](#infra-53) | Reduce internal-lab audit analyzer CPU cost and benchmark the changes on real optilab audit chunks.                                             | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1420,3 +1421,13 @@ _Date: 2026-06-06_
 Switch the internal-lab Redpanda CPU dashboard panel from native `redpanda_cpu_busy_seconds_total` to process-exporter CPU accounting.
 Keep Redpanda and Redis host-service CPU panels based on the same metric family so stop-time native counter spikes do not hide normal CPU load.
 Restart process-exporter after host services are up so the Redpanda process group is present before Grafana uses it.
+
+<a id="infra-53"></a>
+### INFRA-53 - Reduce audit analyzer CPU cost
+
+_Date: 2026-06-06_
+
+Benchmark the Python audit analyzer on real internal-lab gzip chunks before and after optimization.
+Reduce per-record CPU overhead in the streaming hot path so live analysis does not compete with the load test for a full CPU core.
+Keep the bounded-memory behavior, processing-order checks, duplicate counters, and latency summaries added by the previous analyzer tasks.
+Use a lighter live-run summary mode and tuple-backed record keys after validating the change against 10.85M real audit records on optilab.
