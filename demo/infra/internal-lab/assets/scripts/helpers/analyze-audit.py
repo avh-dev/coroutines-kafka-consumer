@@ -61,6 +61,30 @@ class LastOffsetState:
 
 
 @dataclass(slots=True)
+class ProcessingOrderCounters:
+    terminal_records: int = 0
+    processed_records: int = 0
+    failed_records: int = 0
+    out_of_order_terminal: int = 0
+    out_of_order_processed: int = 0
+    out_of_order_failed: int = 0
+
+    def add(self, record: AuditRecord, out_of_order: bool) -> None:
+        self.terminal_records += 1
+        if record.record_type == "C":
+            self.processed_records += 1
+        elif record.record_type == "F":
+            self.failed_records += 1
+
+        if out_of_order:
+            self.out_of_order_terminal += 1
+            if record.record_type == "C":
+                self.out_of_order_processed += 1
+            elif record.record_type == "F":
+                self.out_of_order_failed += 1
+
+
+@dataclass(slots=True)
 class ProcessingOrderStats:
     terminal_records: int = 0
     processed_records: int = 0
@@ -68,6 +92,7 @@ class ProcessingOrderStats:
     out_of_order_terminal: int = 0
     out_of_order_processed: int = 0
     out_of_order_failed: int = 0
+    by_topic: dict[int, ProcessingOrderCounters] = field(default_factory=dict)
     last_offset_by_partition: dict[tuple[int, int], LastOffsetState] = field(default_factory=dict)
     last_offset_by_key: dict[tuple[int, int, str], LastOffsetState] = field(default_factory=dict)
     key_expiry_queue: deque[tuple[int, tuple[int, int, str]]] = field(default_factory=deque)
@@ -96,7 +121,14 @@ class ProcessingOrderStats:
             self.failed_records += 1
 
         last = last_offsets.get(group)
-        if last is not None and record.key.offset < last.offset:
+        out_of_order = last is not None and record.key.offset < last.offset
+        topic_counters = self.by_topic.get(record.key.topic_id)
+        if topic_counters is None:
+            topic_counters = ProcessingOrderCounters()
+            self.by_topic[record.key.topic_id] = topic_counters
+        topic_counters.add(record, out_of_order)
+
+        if out_of_order:
             self.out_of_order_terminal += 1
             if record.record_type == "C":
                 self.out_of_order_processed += 1
@@ -560,6 +592,16 @@ def print_order_summary(label: str, stats: ProcessingOrderStats) -> None:
         f"out_of_order_processed={stats.out_of_order_processed} "
         f"out_of_order_failed={stats.out_of_order_failed}"
     )
+    for topic_id in sorted(stats.by_topic):
+        topic_stats = stats.by_topic[topic_id]
+        topic_name = TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}")
+        print(
+            f"  {label}_order_topic={topic_name} topic_id={topic_id} "
+            f"terminal_records={topic_stats.terminal_records} "
+            f"out_of_order_terminal={topic_stats.out_of_order_terminal} "
+            f"out_of_order_processed={topic_stats.out_of_order_processed} "
+            f"out_of_order_failed={topic_stats.out_of_order_failed}"
+        )
 
 
 def print_summary(title: str, stats: AuditStats) -> None:
