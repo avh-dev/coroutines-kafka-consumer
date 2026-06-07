@@ -135,6 +135,7 @@
 | [INFRA-51](#infra-51) | Optimize internal-lab audit analyzer memory use and set short rolling retention for load-test Kafka topics.                                      | DONE |
 | [INFRA-52](#infra-52) | Use process-exporter CPU metrics for the internal-lab Redpanda dashboard panel to avoid native busy-counter stop spikes.                         | DONE |
 | [INFRA-53](#infra-53) | Reduce internal-lab audit analyzer CPU cost and benchmark the changes on real optilab audit chunks.                                             | DONE |
+| [INFRA-54](#infra-54) | Restore per-topic audit order summaries while preserving the optimized analyzer path.                                                            | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1431,3 +1432,12 @@ Benchmark the Python audit analyzer on real internal-lab gzip chunks before and 
 Reduce per-record CPU overhead in the streaming hot path so live analysis does not compete with the load test for a full CPU core.
 Keep the bounded-memory behavior, processing-order checks, duplicate counters, and latency summaries added by the previous analyzer tasks.
 Use a lighter live-run summary mode and tuple-backed record keys after validating the change against 10.85M real audit records on optilab.
+
+<a id="infra-54"></a>
+### INFRA-54 - Restore per-topic audit order summaries
+
+_Date: 2026-06-07_
+
+Restore topic-level visibility for audit processing-order checks after the optimized live-run summary hid mixed-topic behavior.
+Track per-topic order counters inside the existing partition/key order pass instead of rebuilding full per-topic audit state.
+Keep the lightweight analyzer mode usable for internal-lab runs while making Freshness First and ordered topics distinguishable in `summary.txt`.
