@@ -16,6 +16,7 @@ The application is intended for functional checks and for comparing consumer imp
 - `ckc` profile uses `coroutines-kafka-consumer` with suspend business services;
 - `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services on `Dispatchers.IO`;
 - `spring-kafka` profile uses `@KafkaListener` as a legacy baseline;
+- `spring-kafka-coroutines-naive` profile uses Spring Kafka batch listeners that enqueue records into bounded channels drained by coroutine workers;
 - `confluent-parallel` profile uses a blocking Confluent Parallel Consumer implementation with key-ordered parallel processing.
 - `confluent-parallel-reactor` profile uses the Reactor Parallel Consumer adapter with the suspend business path.
 
@@ -59,6 +60,12 @@ Run the demo with Spring Kafka listeners:
 ./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=spring-kafka --demo.kafka.enabled=true'
 ```
 
+Run the demo with naive Spring Kafka batch listeners and coroutine workers:
+
+```bash
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=spring-kafka-coroutines-naive --demo.kafka.enabled=true'
+```
+
 Run the demo with Confluent Parallel Consumer:
 
 ```bash
@@ -84,7 +91,7 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 The consumer profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
-- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc` and `confluent-parallel-reactor` profiles. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
+- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc`, `spring-kafka-coroutines-naive`, and `confluent-parallel-reactor` profiles. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
 - `FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=10` limits record age for external adapters in `FRESHNESS_FIRST` mode. Stale records are acknowledged without running demo business logic or audit writes.
 
 Example:

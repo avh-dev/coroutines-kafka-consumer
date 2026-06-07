@@ -82,6 +82,7 @@
 | [DEMO-50](#demo-50) | Rework the demo load-test generator to resolve missing state through delegated prerequisite event generation instead of fake fallback entities. | DONE |
 | [DEMO-51](#demo-51) | Add configurable same-key brewing-step bursts to the demo load-test generator so ordered-by-key contention is observable. | DONE |
 | [DEMO-52](#demo-52) | Add a legacy brewing-step registry HTTP acknowledgement path and persist registry receipts before completing step records. | DONE |
+| [DEMO-53](#demo-53) | Add a naive Spring Kafka batch-listener profile that hands records to coroutine workers through bounded channels. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1336,6 +1337,15 @@ _Date: 2026-06-05_
 Add a legacy HTTP registry acknowledgement for `BATCH_BREWING_STEP_COMPLETED` processing.
 Persist registry receipt data so step processing has a realistic external acceptance gate before audit completion.
 Keep the registry endpoint configurable separately from existing model endpoints while allowing local stubs to serve all dependencies.
+
+<a id="demo-53"></a>
+### DEMO-53 - Add naive Spring Kafka coroutine profile
+
+_Date: 2026-06-07_
+
+Add a separate `spring-kafka-coroutines-naive` profile for comparing a simple Spring Kafka batch-listener admission path with coroutine workers.
+Keep the implementation isolated from CKC runtime code while reusing demo contracts, suspend business services, audit logging, and shared record metrics.
+Use bounded channels and blocking listener-side admission so committed/enqueued records can be lost during graceful shutdown or crash scenarios.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

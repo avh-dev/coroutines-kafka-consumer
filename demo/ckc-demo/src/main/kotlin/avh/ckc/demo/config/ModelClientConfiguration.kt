@@ -36,22 +36,22 @@ class ModelClientConfiguration {
         JdkSyncArcaneEtaModelClient(URI.create(properties.etaModelBaseUrl()), modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.etaModelBaseUrl())
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.flavourModelBaseUrl())
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.registry.baseUrl)
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaSuspendArcaneEtaModelClient(
         @Qualifier("armeriaEtaModelWebClient") armeriaEtaModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
@@ -67,7 +67,7 @@ class ModelClientConfiguration {
         JdkSyncOrderFlavourModelClient(URI.create(properties.flavourModelBaseUrl()), modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaSuspendOrderFlavourModelClient(
         @Qualifier("armeriaFlavourModelWebClient") armeriaFlavourModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
@@ -83,7 +83,7 @@ class ModelClientConfiguration {
         JdkSyncBrewingStepRegistryClient(URI.create(properties.registry.baseUrl), modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("ckc", "confluent-parallel-reactor")
+    @Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     fun armeriaSuspendBrewingStepRegistryClient(
         @Qualifier("armeriaRegistryWebClient") armeriaRegistryWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics

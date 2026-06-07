@@ -41,6 +41,15 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun springKafkaCoroutinesNaiveMicrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
+        MicrometerConsumerMetrics(
+            meterRegistry = meterRegistry,
+            recordTagSchema = recordMetricTagSchema(eventTypeTag)
+        )
+
+    @Bean
     fun consumerProfileInfoMetric(
         meterRegistry: MeterRegistry,
         environment: Environment
@@ -119,6 +128,39 @@ class MetricsConfiguration {
             batchLifecycleTagValueProvider()
         )
 
+    @Bean
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun springKafkaCoroutinesNaiveConsumerMetrics(
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, CauldronTelemetryEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "cauldron_events",
+            cauldronTelemetryTagValueProvider()
+        )
+
+    @Bean
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun springKafkaCoroutinesNaiveOrderConsumerMetrics(
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, OrderLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "order_events",
+            orderLifecycleTagValueProvider()
+        )
+
+    @Bean
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun springKafkaCoroutinesNaiveBatchConsumerMetrics(
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, BatchLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "batch_events",
+            batchLifecycleTagValueProvider()
+        )
+
     @Bean("consumerMetrics")
     @Profile("ckc", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
@@ -149,6 +191,24 @@ class MetricsConfiguration {
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
     fun noopSpringKafkaBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> = noopMetrics()
 
+    @Bean("springKafkaCoroutinesNaiveConsumerMetrics")
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaCoroutinesNaiveTelemetryConsumerMetrics(): ConsumerMetrics<String, CauldronTelemetryEvent> =
+        noopMetrics()
+
+    @Bean("springKafkaCoroutinesNaiveOrderConsumerMetrics")
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaCoroutinesNaiveOrderConsumerMetrics(): ConsumerMetrics<String, OrderLifecycleEvent> =
+        noopMetrics()
+
+    @Bean("springKafkaCoroutinesNaiveBatchConsumerMetrics")
+    @Profile("spring-kafka-coroutines-naive")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopSpringKafkaCoroutinesNaiveBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> =
+        noopMetrics()
+
     private fun cauldronTelemetryTagValueProvider() =
         consumerRecordTagValueProvider<String, CauldronTelemetryEvent> { _, _, _ ->
             set(eventTypeTag, "CAULDRON_TELEMETRY")
@@ -168,6 +228,7 @@ class MetricsConfiguration {
         when {
             environment.acceptsProfiles(Profiles.of("confluent-parallel-reactor")) -> "confluent-parallel-reactor"
             environment.acceptsProfiles(Profiles.of("confluent-parallel")) -> "confluent-parallel"
+            environment.acceptsProfiles(Profiles.of("spring-kafka-coroutines-naive")) -> "spring-kafka-coroutines-naive"
             environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
             environment.acceptsProfiles(Profiles.of("ckc-sync")) -> "ckc-sync"
             environment.acceptsProfiles(Profiles.of("ckc")) -> "ckc"
@@ -177,6 +238,7 @@ class MetricsConfiguration {
     private fun consumerImplementation(profile: String): String =
         when (profile) {
             "confluent-parallel", "confluent-parallel-reactor" -> "confluent_parallel"
+            "spring-kafka-coroutines-naive" -> "spring_kafka_coroutines_naive"
             "spring-kafka" -> "spring_kafka"
             "ckc-sync" -> "ckc"
             "ckc" -> "ckc"

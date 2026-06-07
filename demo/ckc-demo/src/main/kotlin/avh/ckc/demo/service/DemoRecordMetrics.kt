@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka")
+@Profile("spring-kafka", "spring-kafka-coroutines-naive")
 class DemoRecordMetrics {
     fun <V> onProcessed(
         metrics: ConsumerMetrics<String, V>,
