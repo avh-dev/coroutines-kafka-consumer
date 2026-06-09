@@ -141,6 +141,7 @@
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
+| [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
 
 ## Task Details
 
@@ -1115,6 +1116,15 @@ _Date: 2026-05-10_
 Added internal links from the task table to detailed task notes below the table.
 Restored retrospective descriptions by reading git history, changed files, and the current code layout rather than relying only on commit messages.
 Kept the table as the high-level tracker while making `TASKS.md` usable as a chronological project history.
+
+<a id="doc-3"></a>
+### DOC-3 - Add initial OSS README
+
+_Date: 2026-06-09_
+
+Add the first repository-level README for OSS positioning.
+Document what CKC is trying to solve and which Kafka-adjacent projects are not direct benchmark equivalents.
+Capture the kotlin-kafka investigation outcome as a related-project note instead of keeping a misleading demo benchmark profile.
 
 <a id="demo-37"></a>
 ### DEMO-37 - Remove Ktor remnants
