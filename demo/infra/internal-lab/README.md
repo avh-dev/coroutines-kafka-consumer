@@ -229,23 +229,27 @@ audit archiver, which writes completed gzip chunks into:
 ```
 
 For each run, `run-test.sh` resets the live chunk directory before the load
-generator starts, runs the analyzer in watch mode while the test is still
-running, then stores the completed chunks plus the calculated report under:
+generator starts, lets the collector and archiver write completed chunks during
+the run, then stores the completed chunks plus the calculated report under:
 
 ```text
 /opt/ckc-internal-lab/audit/<run-id>/
 ```
 
-The runner prints and saves `summary.txt` with published, processed, missing,
-duplicate, and latency counts calculated from the archived audit lines.
-Analyzer progress is saved to `analyzer-progress.log` in the same run
-directory. While the run is active, `run-test.sh` also prints audit progress
-when the analyzer finishes another chunk.
+The runner prints and saves `summary.yaml` with the selected test settings,
+published, processed, missing, duplicate, and ordering counts calculated from
+the archived audit lines. The report contains aggregate audit totals and the
+same full summary for each topic. Latency is intentionally left to Prometheus
+and Grafana time-series metrics instead of the static audit summary. Analyzer
+stderr is saved to `analyzer-progress.log` in the same run directory. During the
+final analysis step, the runner also prints analyzer progress such as
+`chunks=12/40 records=...` to the terminal.
 
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
-and stay there briefly before stopping the live analyzer and printing the final
-audit summary.
+and stay there briefly before running audit analysis and printing the final
+summary. Audit analysis is intentionally not run in parallel with the load test
+so local CPU contention does not affect benchmark results.
 If the Kafka exporter metrics are temporarily unavailable, the runner falls back
 to `rpk group describe` against the host Redpanda broker so drain waiting still
 works after the Kafka-to-Redpanda migration.
