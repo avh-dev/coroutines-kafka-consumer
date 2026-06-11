@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import sys
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,28 +16,6 @@ TOPIC_NAMES = {
     2: "batch.events.v1",
     3: "cauldron.events.v1",
 }
-
-LATENCY_BUCKETS_MS = [
-    1,
-    2,
-    5,
-    10,
-    20,
-    50,
-    100,
-    200,
-    500,
-    1_000,
-    2_000,
-    5_000,
-    10_000,
-    30_000,
-    60_000,
-    120_000,
-    300_000,
-    600_000,
-]
-
 
 class RecordKey(NamedTuple):
     topic_id: int
@@ -61,38 +39,10 @@ class LastOffsetState:
 
 
 @dataclass(slots=True)
-class ProcessingOrderCounters:
-    terminal_records: int = 0
-    processed_records: int = 0
-    failed_records: int = 0
-    out_of_order_terminal: int = 0
-    out_of_order_processed: int = 0
-    out_of_order_failed: int = 0
-
-    def add(self, record: AuditRecord, out_of_order: bool) -> None:
-        self.terminal_records += 1
-        if record.record_type == "C":
-            self.processed_records += 1
-        elif record.record_type == "F":
-            self.failed_records += 1
-
-        if out_of_order:
-            self.out_of_order_terminal += 1
-            if record.record_type == "C":
-                self.out_of_order_processed += 1
-            elif record.record_type == "F":
-                self.out_of_order_failed += 1
-
-
-@dataclass(slots=True)
 class ProcessingOrderStats:
-    terminal_records: int = 0
-    processed_records: int = 0
-    failed_records: int = 0
-    out_of_order_terminal: int = 0
+    out_of_order: int = 0
     out_of_order_processed: int = 0
     out_of_order_failed: int = 0
-    by_topic: dict[int, ProcessingOrderCounters] = field(default_factory=dict)
     last_offset_by_partition: dict[tuple[int, int], LastOffsetState] = field(default_factory=dict)
     last_offset_by_key: dict[tuple[int, int, str], LastOffsetState] = field(default_factory=dict)
     key_expiry_queue: deque[tuple[int, tuple[int, int, str]]] = field(default_factory=deque)
@@ -114,22 +64,11 @@ class ProcessingOrderStats:
         group: object,
         track_expiry: bool,
     ) -> None:
-        self.terminal_records += 1
-        if record.record_type == "C":
-            self.processed_records += 1
-        elif record.record_type == "F":
-            self.failed_records += 1
-
         last = last_offsets.get(group)
         out_of_order = last is not None and record.key.offset < last.offset
-        topic_counters = self.by_topic.get(record.key.topic_id)
-        if topic_counters is None:
-            topic_counters = ProcessingOrderCounters()
-            self.by_topic[record.key.topic_id] = topic_counters
-        topic_counters.add(record, out_of_order)
 
         if out_of_order:
-            self.out_of_order_terminal += 1
+            self.out_of_order += 1
             if record.record_type == "C":
                 self.out_of_order_processed += 1
             elif record.record_type == "F":
@@ -151,42 +90,6 @@ class ProcessingOrderStats:
             state = self.last_offset_by_key.get(group)
             if state is not None and state.updated_ms == updated_ms:
                 del self.last_offset_by_key[group]
-
-
-@dataclass(slots=True)
-class LatencyHistogram:
-    buckets: list[int] = field(default_factory=lambda: [0] * (len(LATENCY_BUCKETS_MS) + 1))
-    count: int = 0
-    max_value: int = 0
-
-    def add(self, value: int) -> None:
-        self.count += 1
-        self.max_value = max(self.max_value, value)
-        for index, bound in enumerate(LATENCY_BUCKETS_MS):
-            if value <= bound:
-                self.buckets[index] += 1
-                return
-        self.buckets[-1] += 1
-
-    def percentile(self, percent: float) -> int:
-        if self.count == 0:
-            return 0
-        target = max(1, round(self.count * percent))
-        seen = 0
-        for index, bucket_count in enumerate(self.buckets):
-            seen += bucket_count
-            if seen >= target:
-                if index < len(LATENCY_BUCKETS_MS):
-                    return min(LATENCY_BUCKETS_MS[index], self.max_value)
-                return self.max_value
-        return self.max_value
-
-    def format(self) -> str:
-        return (
-            f"p50={self.percentile(0.50)} p95={self.percentile(0.95)} "
-            f"p99={self.percentile(0.99)} max={self.max_value if self.count else 0} count={self.count}"
-        )
-
 
 @dataclass(slots=True)
 class RecordState:
@@ -231,21 +134,12 @@ class AuditStats:
     processed_without_publish: int = 0
     failed_without_publish: int = 0
     conflicting_terminal_outcomes: int = 0
-    evicted_open_records: int = 0
-    max_open_records: int = 0
-    max_recent_closed_records: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
     open_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
     recent_closed_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
     partition_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
     key_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
-    process_latency: LatencyHistogram = field(default_factory=LatencyHistogram)
-    failure_latency: LatencyHistogram = field(default_factory=LatencyHistogram)
-    terminal_latency: LatencyHistogram = field(default_factory=LatencyHistogram)
-    kafka_to_process_age: LatencyHistogram = field(default_factory=LatencyHistogram)
-    kafka_to_failure_age: LatencyHistogram = field(default_factory=LatencyHistogram)
-    kafka_to_terminal_age: LatencyHistogram = field(default_factory=LatencyHistogram)
     watermark_ms: int = 0
     last_eviction_ms: int = 0
     eviction_interval_ms: int = 1_000
@@ -268,9 +162,6 @@ class AuditStats:
             self._add_published(record)
         elif record.record_type in {"C", "F"}:
             self._add_terminal(record)
-
-        self.max_open_records = max(self.max_open_records, len(self.open_by_key))
-        self.max_recent_closed_records = max(self.max_recent_closed_records, len(self.recent_closed_by_key))
 
     def finish(self) -> None:
         for key in list(self.open_by_key):
@@ -296,10 +187,6 @@ class AuditStats:
         state.last_seen_ms = record.audit_timestamp_ms
         self.open_expiry_queue.append((state.last_seen_ms, record.key))
         self.published_unique += 1
-        if state.processed is not None:
-            self._add_processed_latency(state.processed, record)
-        if state.failed is not None:
-            self._add_failed_latency(state.failed, record)
         self._close_if_complete(record.key)
 
     def _add_terminal(self, record: AuditRecord) -> None:
@@ -325,8 +212,6 @@ class AuditStats:
                 state.processed_count = 1
                 self.processed_unique += 1
                 self._add_terminal_unique(record, state)
-                if state.published is not None:
-                    self._add_processed_latency(record, state.published)
             else:
                 state.processed_count += 1
                 self.duplicate_processed += 1
@@ -336,8 +221,6 @@ class AuditStats:
                 state.failed_count = 1
                 self.failed_unique += 1
                 self._add_terminal_unique(record, state)
-                if state.published is not None:
-                    self._add_failed_latency(record, state.published)
             else:
                 state.failed_count += 1
                 self.duplicate_failed += 1
@@ -357,8 +240,6 @@ class AuditStats:
                 self.processed_unique += 1
                 if closed.failed_seen:
                     self.conflicting_terminal_outcomes += 1
-                if closed.published is not None:
-                    self._add_processed_latency(record, closed.published)
         else:
             if closed.failed_seen:
                 self.duplicate_failed += 1
@@ -367,8 +248,6 @@ class AuditStats:
                 self.failed_unique += 1
                 if closed.processed_seen:
                     self.conflicting_terminal_outcomes += 1
-                if closed.published is not None:
-                    self._add_failed_latency(record, closed.published)
 
     def _state(self, record: AuditRecord) -> RecordState:
         state = self.open_by_key.get(record.key)
@@ -413,7 +292,6 @@ class AuditStats:
 
     def _evict_open_record(self, key: RecordKey) -> None:
         state = self.open_by_key.pop(key)
-        self.evicted_open_records += 1
         if state.published is not None and not state.has_terminal():
             self.missing_terminal += 1
         if state.published is None:
@@ -422,36 +300,14 @@ class AuditStats:
             if state.failed is not None:
                 self.failed_without_publish += 1
 
-    def _add_processed_latency(self, record: AuditRecord, published: AuditRecord) -> None:
-        latency = record.audit_timestamp_ms - published.audit_timestamp_ms
-        self.process_latency.add(latency)
-        self.terminal_latency.add(latency)
-        if published.kafka_timestamp_ms is not None:
-            age = record.audit_timestamp_ms - published.kafka_timestamp_ms
-            self.kafka_to_process_age.add(age)
-            self.kafka_to_terminal_age.add(age)
-
-    def _add_failed_latency(self, record: AuditRecord, published: AuditRecord) -> None:
-        latency = record.audit_timestamp_ms - published.audit_timestamp_ms
-        self.failure_latency.add(latency)
-        self.terminal_latency.add(latency)
-        if published.kafka_timestamp_ms is not None:
-            age = record.audit_timestamp_ms - published.kafka_timestamp_ms
-            self.kafka_to_failure_age.add(age)
-            self.kafka_to_terminal_age.add(age)
-
     def _valid_key(self, record: AuditRecord) -> bool:
         return record.key.partition >= 0 and record.key.offset >= 0
 
 
 class AuditAccumulator:
-    def __init__(self, open_record_ttl_ms: int, topic_summaries: bool) -> None:
+    def __init__(self, open_record_ttl_ms: int) -> None:
         self.all = AuditStats(open_record_ttl_ms=open_record_ttl_ms)
-        self.by_topic = (
-            {topic_id: AuditStats(open_record_ttl_ms=open_record_ttl_ms) for topic_id in TOPIC_NAMES}
-            if topic_summaries
-            else {}
-        )
+        self.by_topic = {topic_id: AuditStats(open_record_ttl_ms=open_record_ttl_ms) for topic_id in TOPIC_NAMES}
         self.record_count = 0
 
     def add(self, record: AuditRecord) -> None:
@@ -472,13 +328,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-file", action="append", default=[])
     parser.add_argument("--input-dir")
     parser.add_argument("--glob", default="*.log.gz")
-    parser.add_argument("--watch", action="store_true")
-    parser.add_argument("--stop-file")
-    parser.add_argument("--pending-dir")
-    parser.add_argument("--poll-seconds", type=float, default=1.0)
-    parser.add_argument("--idle-seconds", type=float, default=5.0)
+    parser.add_argument("--metadata-file")
     parser.add_argument("--open-record-ttl-seconds", type=float, default=60.0)
-    parser.add_argument("--no-topic-summaries", action="store_true")
     parser.add_argument("--require-records", action="store_true")
     return parser.parse_args()
 
@@ -546,124 +397,167 @@ def list_chunks(input_dir: Path, glob: str) -> list[Path]:
     return sorted(path for path in input_dir.glob(glob) if path.is_file())
 
 
-def has_pending_parts(pending_dir: Path | None) -> bool:
-    if pending_dir is None or not pending_dir.is_dir():
-        return False
-    return any(pending_dir.glob("*.part"))
-
-
-def watch_chunks(args: argparse.Namespace, accumulator: AuditAccumulator) -> None:
+def read_chunks(args: argparse.Namespace, accumulator: AuditAccumulator) -> None:
     input_dir = Path(args.input_dir)
-    stop_file = Path(args.stop_file) if args.stop_file else None
-    pending_dir = Path(args.pending_dir) if args.pending_dir else input_dir
-    seen: set[Path] = set()
-    last_new_chunk = time.monotonic()
-
-    while True:
-        new_chunks = [path for path in list_chunks(input_dir, args.glob) if path not in seen]
-        if new_chunks:
-            for path in new_chunks:
-                read_path(path, accumulator)
-                seen.add(path)
-            last_new_chunk = time.monotonic()
-            print(
-                "Audit analyzer progress: "
-                f"chunks={len(seen)} records={accumulator.record_count} "
-                f"open_records={accumulator.all.open_records} "
-                f"recent_closed_records={accumulator.all.recent_closed_records}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-        stopped = stop_file is not None and stop_file.exists()
-        idle = time.monotonic() - last_new_chunk >= args.idle_seconds
-        if stopped and idle and not has_pending_parts(pending_dir):
-            break
-
-        if not args.watch and not new_chunks:
-            break
-        time.sleep(args.poll_seconds)
+    chunks = list_chunks(input_dir, args.glob)
+    for index, path in enumerate(chunks, start=1):
+        read_path(path, accumulator)
+        print_analysis_progress(accumulator, index, len(chunks))
 
 
-def print_order_summary(label: str, stats: ProcessingOrderStats) -> None:
-    print(
-        f"  {label}_order_terminal_records={stats.terminal_records} "
-        f"out_of_order_terminal={stats.out_of_order_terminal} "
-        f"out_of_order_processed={stats.out_of_order_processed} "
-        f"out_of_order_failed={stats.out_of_order_failed}"
+def print_analysis_progress(accumulator: AuditAccumulator, processed_chunks: int, expected_chunks: int | None) -> None:
+    chunk_progress = (
+        f"chunks={processed_chunks}/{expected_chunks}"
+        if expected_chunks is not None
+        else f"chunks={processed_chunks}"
     )
-    for topic_id in sorted(stats.by_topic):
-        topic_stats = stats.by_topic[topic_id]
-        topic_name = TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}")
-        print(
-            f"  {label}_order_topic={topic_name} topic_id={topic_id} "
-            f"terminal_records={topic_stats.terminal_records} "
-            f"out_of_order_terminal={topic_stats.out_of_order_terminal} "
-            f"out_of_order_processed={topic_stats.out_of_order_processed} "
-            f"out_of_order_failed={topic_stats.out_of_order_failed}"
-        )
+    print(
+        "Audit analyzer progress: "
+        f"{chunk_progress} records={accumulator.record_count}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
-def print_summary(title: str, stats: AuditStats) -> None:
-    print(title)
-    print(f"  published_records={stats.published_records}")
-    print(f"  published_unique={stats.published_unique}")
-    print(f"  processed_records={stats.processed_records}")
-    print(f"  processed_unique={stats.processed_unique}")
-    print(f"  failed_records={stats.failed_records}")
-    print(f"  failed_unique={stats.failed_unique}")
-    print(f"  terminal_unique={stats.terminal_unique}")
-    print(f"  missing_terminal={stats.missing_terminal}")
-    print(f"  duplicate_published={stats.duplicate_published}")
-    print(f"  duplicate_processed={stats.duplicate_processed}")
-    print(f"  duplicate_failed={stats.duplicate_failed}")
-    print(f"  processed_without_publish={stats.processed_without_publish}")
-    print(f"  failed_without_publish={stats.failed_without_publish}")
-    print(f"  conflicting_terminal_outcomes={stats.conflicting_terminal_outcomes}")
-    print(f"  open_records={stats.open_records}")
-    print(f"  recent_closed_records={stats.recent_closed_records}")
-    print(f"  evicted_open_records={stats.evicted_open_records}")
-    print(f"  max_open_records={stats.max_open_records}")
-    print(f"  max_recent_closed_records={stats.max_recent_closed_records}")
-    print("  processing_order_scope=topic_id+partition for partition order; topic_id+partition+message_key for key order")
-    print_order_summary("partition", stats.partition_order)
-    print_order_summary("key", stats.key_order)
-    print(f"  publish_to_process_latency_ms={stats.process_latency.format()}")
-    print(f"  publish_to_failure_latency_ms={stats.failure_latency.format()}")
-    print(f"  publish_to_terminal_latency_ms={stats.terminal_latency.format()}")
-    print(f"  kafka_to_process_age_ms={stats.kafka_to_process_age.format()}")
-    print(f"  kafka_to_failure_age_ms={stats.kafka_to_failure_age.format()}")
-    print(f"  kafka_to_terminal_age_ms={stats.kafka_to_terminal_age.format()}")
+def ordering_summary(stats: ProcessingOrderStats) -> dict[str, int]:
+    return {
+        "out_of_order": stats.out_of_order,
+        "processed": stats.out_of_order_processed,
+        "failed": stats.out_of_order_failed,
+    }
+
+
+def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, object]:
+    summary: dict[str, object] = {}
+    if topic_id is not None:
+        summary["topic_id"] = topic_id
+    summary.update(
+        {
+            "published": stats.published_unique,
+            "processed": stats.processed_unique,
+            "failed": stats.failed_unique,
+            "terminal": stats.terminal_unique,
+            "missing_terminal": stats.missing_terminal,
+            "duplicates": {
+                "published": stats.duplicate_published,
+                "processed": stats.duplicate_processed,
+                "failed": stats.duplicate_failed,
+            },
+            "without_publish": {
+                "processed": stats.processed_without_publish,
+                "failed": stats.failed_without_publish,
+            },
+            "conflicting_terminal_outcomes": stats.conflicting_terminal_outcomes,
+            "ordering": {
+                "by_partition": ordering_summary(stats.partition_order),
+                "by_key": ordering_summary(stats.key_order),
+            },
+        }
+    )
+    return summary
+
+
+def load_metadata(path_value: str | None) -> dict[str, object]:
+    if not path_value:
+        return {}
+    path = Path(path_value)
+    if not path.is_file():
+        raise ValueError(f"metadata file was not found: {path}")
+    with path.open("r", encoding="utf-8") as file:
+        value = json.load(file)
+    if not isinstance(value, dict):
+        raise ValueError(f"metadata file must contain a JSON object: {path}")
+    return value
+
+
+def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object]) -> dict[str, object]:
+    audit = {
+        "records_read": accumulator.record_count,
+        "totals": stats_summary(accumulator.all),
+        "topics": {
+            TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
+            for topic_id, topic_stats in accumulator.by_topic.items()
+        },
+    }
+    document: dict[str, object] = {"audit": audit}
+    if metadata:
+        document = {"test": metadata, **document}
+    return document
+
+
+def yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    if isinstance(value, int | float):
+        return str(value)
+    text = str(value)
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def print_yaml(value: object, indent: int = 0) -> None:
+    prefix = " " * indent
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if isinstance(nested, dict):
+                print(f"{prefix}{key}:")
+                print_yaml(nested, indent + 2)
+            elif isinstance(nested, list):
+                print(f"{prefix}{key}:")
+                print_yaml(nested, indent + 2)
+            else:
+                print(f"{prefix}{key}: {yaml_scalar(nested)}")
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                keys = list(item)
+                if not keys:
+                    print(f"{prefix}- {{}}")
+                    continue
+                first_key = keys[0]
+                first_value = item[first_key]
+                if isinstance(first_value, (dict, list)):
+                    print(f"{prefix}- {first_key}:")
+                    print_yaml(first_value, indent + 4)
+                else:
+                    print(f"{prefix}- {first_key}: {yaml_scalar(first_value)}")
+                for key in keys[1:]:
+                    nested = item[key]
+                    if isinstance(nested, (dict, list)):
+                        print(f"{prefix}  {key}:")
+                        print_yaml(nested, indent + 4)
+                    else:
+                        print(f"{prefix}  {key}: {yaml_scalar(nested)}")
+            elif isinstance(item, list):
+                print(f"{prefix}-")
+                print_yaml(item, indent + 2)
+            else:
+                print(f"{prefix}- {yaml_scalar(item)}")
+    else:
+        print(f"{prefix}{yaml_scalar(value)}")
 
 
 def main() -> int:
     args = parse_args()
     if not args.input_file and not args.input_dir:
         raise ValueError("at least one --input-file or --input-dir is required")
-    if args.watch and not args.input_dir:
-        raise ValueError("--watch requires --input-dir")
-    if args.watch and not args.stop_file:
-        raise ValueError("--watch requires --stop-file")
     if args.open_record_ttl_seconds <= 0:
         raise ValueError("--open-record-ttl-seconds must be positive")
 
     accumulator = AuditAccumulator(
         open_record_ttl_ms=round(args.open_record_ttl_seconds * 1000),
-        topic_summaries=not args.no_topic_summaries,
     )
     read_files(args.input_file, accumulator)
     if args.input_dir:
-        watch_chunks(args, accumulator)
+        read_chunks(args, accumulator)
     accumulator.finish()
 
     print(f"Read {accumulator.record_count} audit records.", file=sys.stderr, flush=True)
     if args.require_records and accumulator.record_count == 0:
         raise ValueError("no audit records were read")
 
-    print_summary("Audit summary", accumulator.all)
-    for topic_id, topic_stats in accumulator.by_topic.items():
-        print()
-        print_summary(f"Topic summary: {TOPIC_NAMES[topic_id]}", topic_stats)
+    print_yaml(summary_document(accumulator, load_metadata(args.metadata_file)))
     return 0
 
 
