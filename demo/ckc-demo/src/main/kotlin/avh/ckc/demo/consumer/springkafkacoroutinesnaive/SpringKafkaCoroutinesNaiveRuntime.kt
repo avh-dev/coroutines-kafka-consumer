@@ -5,6 +5,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
+import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -17,7 +18,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.context.SmartLifecycle
+import org.springframework.kafka.listener.AbstractMessageListenerContainer
 
 class SpringKafkaCoroutinesNaiveRuntime(
     private val properties: DemoApplicationProperties,
@@ -95,20 +96,13 @@ class SpringKafkaCoroutinesNaiveRuntime(
 
     override fun isAutoStartup(): Boolean = true
 
+    override fun getPhase(): Int = AbstractMessageListenerContainer.DEFAULT_PHASE - 1
+
     private fun <V> enqueue(
         channel: Channel<ConsumerRecord<String, V>>,
         record: ConsumerRecord<String, V>
     ) {
-        try {
-            channel.trySendBlocking(record).getOrThrow()
-        } catch (error: ClosedSendChannelException) {
-            logger.warn(
-                "Dropping record after naive channel closed for topic={}, partition={}, offset={}",
-                record.topic(),
-                record.partition(),
-                record.offset()
-            )
-        }
+        channel.trySendBlocking(record).getOrThrow()
     }
 
     private fun launchWorkers(
@@ -178,6 +172,7 @@ class SpringKafkaCoroutinesNaiveRuntime(
         val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(runtime, context)) {
+                logDropped(record, properties.audit)
                 return
             }
             if (properties.consumers.processingEnabled) {

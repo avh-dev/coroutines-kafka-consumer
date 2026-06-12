@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
+import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -42,7 +43,10 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
-            if (shouldDiscard(properties.consumers.order, context)) return
+            if (shouldDiscard(properties.consumers.order, context)) {
+                auditDropped(context)
+                return
+            }
             if (properties.consumers.processingEnabled) {
                 orderLifecycleService.apply(event)
             } else {
@@ -64,7 +68,10 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
-            if (shouldDiscard(properties.consumers.batch, context)) return
+            if (shouldDiscard(properties.consumers.batch, context)) {
+                auditDropped(context)
+                return
+            }
             if (properties.consumers.processingEnabled) {
                 batchLifecycleService.apply(event)
             } else {
@@ -86,7 +93,10 @@ class SpringKafkaTrackingService(
     ) {
         val startedAt = System.nanoTime()
         try {
-            if (shouldDiscard(properties.consumers.telemetry, context)) return
+            if (shouldDiscard(properties.consumers.telemetry, context)) {
+                auditDropped(context)
+                return
+            }
             if (properties.consumers.processingEnabled) {
                 cauldronTelemetryService.recalculate(event)
             } else {
@@ -112,6 +122,10 @@ class SpringKafkaTrackingService(
 
     private fun auditFailed(context: DemoConsumerRecordContext) {
         logFailed(context.topic, context.key, context.partition, context.offset, context.timestamp, properties.audit)
+    }
+
+    private fun auditDropped(context: DemoConsumerRecordContext) {
+        logDropped(context.topic, context.key, context.partition, context.offset, context.timestamp, properties.audit)
     }
 
     private fun shouldDiscard(

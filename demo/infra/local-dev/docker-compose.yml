@@ -38,6 +38,36 @@ services:
       timeout: 5s
       retries: 12
 
+  fluent-bit:
+    image: cr.fluentbit.io/fluent/fluent-bit:4.2.3
+    container_name: ckc-local-fluent-bit
+    profiles:
+      - audit
+    ports:
+      - "127.0.0.1:5170:5170"
+      - "127.0.0.1:2020:2020"
+    command: ["-c", "/fluent-bit/etc/fluent-bit.yaml"]
+    volumes:
+      - ./fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
+    depends_on:
+      audit-archiver:
+        condition: service_healthy
+
+  audit-archiver:
+    image: python:3.13-alpine
+    container_name: ckc-local-audit-archiver
+    profiles:
+      - audit
+    command: ["python", "/app/archive-audit.py", "--output-dir", "/audit/chunks"]
+    volumes:
+      - ../internal-lab/assets/scripts/helpers/archive-audit.py:/app/archive-audit.py:ro
+      - ../../../.demo-infra/local-dev/audit/live:/audit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 5171), 2); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   prometheus:
     image: prom/prometheus:v3.3.1
     container_name: ckc-local-prometheus

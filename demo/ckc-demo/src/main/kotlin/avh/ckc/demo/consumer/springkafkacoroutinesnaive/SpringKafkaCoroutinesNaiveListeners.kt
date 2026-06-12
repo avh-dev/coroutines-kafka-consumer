@@ -16,6 +16,7 @@ class SpringKafkaCoroutinesNaiveListeners(
     private val runtime: SpringKafkaCoroutinesNaiveRuntime
 ) {
     @KafkaListener(
+
         id = "spring-kafka-coroutines-naive-order-lifecycle",
         topics = ["\${demo.topics.order-events}"],
         containerFactory = "springKafkaCoroutinesNaiveOrderListenerContainerFactory"

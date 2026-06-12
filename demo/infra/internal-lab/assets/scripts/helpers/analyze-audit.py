@@ -98,12 +98,14 @@ class RecordState:
     published: AuditRecord | None = None
     processed: AuditRecord | None = None
     failed: AuditRecord | None = None
+    dropped: AuditRecord | None = None
     processed_count: int = 0
     failed_count: int = 0
+    dropped_count: int = 0
     conflict_counted: bool = False
 
     def has_terminal(self) -> bool:
-        return self.processed is not None or self.failed is not None
+        return self.processed is not None or self.failed is not None or self.dropped is not None
 
     def is_complete(self) -> bool:
         return self.published is not None and self.has_terminal()
@@ -115,6 +117,7 @@ class ClosedRecordState:
     published: AuditRecord | None
     processed_seen: bool
     failed_seen: bool
+    dropped_seen: bool
 
 
 @dataclass(slots=True)
@@ -123,16 +126,20 @@ class AuditStats:
     published_records: int = 0
     processed_records: int = 0
     failed_records: int = 0
+    dropped_records: int = 0
     published_unique: int = 0
     processed_unique: int = 0
     failed_unique: int = 0
+    dropped_unique: int = 0
     terminal_unique: int = 0
     missing_terminal: int = 0
     duplicate_published: int = 0
     duplicate_processed: int = 0
     duplicate_failed: int = 0
+    duplicate_dropped: int = 0
     processed_without_publish: int = 0
     failed_without_publish: int = 0
+    dropped_without_publish: int = 0
     conflicting_terminal_outcomes: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
@@ -160,7 +167,7 @@ class AuditStats:
 
         if record.record_type == "P":
             self._add_published(record)
-        elif record.record_type in {"C", "F"}:
+        elif record.record_type in {"C", "F", "D"}:
             self._add_terminal(record)
 
     def finish(self) -> None:
@@ -192,8 +199,10 @@ class AuditStats:
     def _add_terminal(self, record: AuditRecord) -> None:
         if record.record_type == "C":
             self.processed_records += 1
-        else:
+        elif record.record_type == "F":
             self.failed_records += 1
+        else:
+            self.dropped_records += 1
         if not self._valid_key(record):
             return
 
@@ -215,7 +224,7 @@ class AuditStats:
             else:
                 state.processed_count += 1
                 self.duplicate_processed += 1
-        else:
+        elif record.record_type == "F":
             if state.failed is None:
                 state.failed = record
                 state.failed_count = 1
@@ -224,8 +233,21 @@ class AuditStats:
             else:
                 state.failed_count += 1
                 self.duplicate_failed += 1
+        else:
+            if state.dropped is None:
+                state.dropped = record
+                state.dropped_count = 1
+                self.dropped_unique += 1
+                self._add_terminal_unique(record, state)
+            else:
+                state.dropped_count += 1
+                self.duplicate_dropped += 1
 
-        if state.processed is not None and state.failed is not None and not state.conflict_counted:
+        terminal_outcomes = sum(
+            1 for outcome in (state.processed, state.failed, state.dropped)
+            if outcome is not None
+        )
+        if terminal_outcomes > 1 and not state.conflict_counted:
             state.conflict_counted = True
             self.conflicting_terminal_outcomes += 1
         self._close_if_complete(record.key)
@@ -236,17 +258,28 @@ class AuditStats:
             if closed.processed_seen:
                 self.duplicate_processed += 1
             else:
+                had_other_outcome = closed.failed_seen or closed.dropped_seen
                 closed.processed_seen = True
                 self.processed_unique += 1
-                if closed.failed_seen:
+                if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
-        else:
+        elif record.record_type == "F":
             if closed.failed_seen:
                 self.duplicate_failed += 1
             else:
+                had_other_outcome = closed.processed_seen or closed.dropped_seen
                 closed.failed_seen = True
                 self.failed_unique += 1
-                if closed.processed_seen:
+                if had_other_outcome:
+                    self.conflicting_terminal_outcomes += 1
+        else:
+            if closed.dropped_seen:
+                self.duplicate_dropped += 1
+            else:
+                had_other_outcome = closed.processed_seen or closed.failed_seen
+                closed.dropped_seen = True
+                self.dropped_unique += 1
+                if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
 
     def _state(self, record: AuditRecord) -> RecordState:
@@ -258,11 +291,12 @@ class AuditStats:
         return state
 
     def _add_terminal_unique(self, record: AuditRecord, state: RecordState) -> None:
-        if state.processed is record or state.failed is record:
-            if state.processed_count + state.failed_count == 1:
+        if state.processed is record or state.failed is record or state.dropped is record:
+            if state.processed_count + state.failed_count + state.dropped_count == 1:
                 self.terminal_unique += 1
-                self.partition_order.add_partition_order(record)
-                self.key_order.add_key_order(record)
+                if record.record_type in {"C", "F"}:
+                    self.partition_order.add_partition_order(record)
+                    self.key_order.add_key_order(record)
 
     def _close_if_complete(self, key: RecordKey) -> None:
         state = self.open_by_key.get(key)
@@ -274,6 +308,7 @@ class AuditStats:
             published=state.published,
             processed_seen=state.processed is not None,
             failed_seen=state.failed is not None,
+            dropped_seen=state.dropped is not None,
         )
         self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
@@ -299,6 +334,8 @@ class AuditStats:
                 self.processed_without_publish += 1
             if state.failed is not None:
                 self.failed_without_publish += 1
+            if state.dropped is not None:
+                self.dropped_without_publish += 1
 
     def _valid_key(self, record: AuditRecord) -> bool:
         return record.key.partition >= 0 and record.key.offset >= 0
@@ -350,7 +387,7 @@ def parse_record(value: str) -> AuditRecord:
             message_key=message_key,
         )
 
-    if record_type in {"C", "F"}:
+    if record_type in {"C", "F", "D"}:
         if len(parts) != 6:
             raise ValueError(f"expected 6 consumer audit fields, got {len(parts)}: {value!r}")
         _, topic_id, partition, offset, audit_ts, message_key = parts
@@ -377,6 +414,8 @@ def read_path(path: Path, accumulator: AuditAccumulator) -> int:
     with open_text(path) as file:
         for line in file:
             if not line.strip():
+                continue
+            if line.startswith("S|"):
                 continue
             accumulator.add(parse_record(line))
             count += 1
@@ -436,16 +475,19 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "published": stats.published_unique,
             "processed": stats.processed_unique,
             "failed": stats.failed_unique,
+            "dropped": stats.dropped_unique,
             "terminal": stats.terminal_unique,
             "missing_terminal": stats.missing_terminal,
             "duplicates": {
                 "published": stats.duplicate_published,
                 "processed": stats.duplicate_processed,
                 "failed": stats.duplicate_failed,
+                "dropped": stats.duplicate_dropped,
             },
             "without_publish": {
                 "processed": stats.processed_without_publish,
                 "failed": stats.failed_without_publish,
+                "dropped": stats.dropped_without_publish,
             },
             "conflicting_terminal_outcomes": stats.conflicting_terminal_outcomes,
             "ordering": {

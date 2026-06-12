@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.springkafkacoroutinesnaive
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -14,6 +15,7 @@ import avh.ckc.demo.service.order.SuspendOrderLifecycleService
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -23,6 +25,8 @@ import org.springframework.context.annotation.Profile
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.listener.DefaultErrorHandler
+import org.springframework.util.backoff.FixedBackOff
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -89,7 +93,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, OrderLifecycleEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.order)
+        batchListenerContainerFactory(consumerFactory, properties.consumers.order, properties)
 
     @Bean
     fun springKafkaCoroutinesNaiveBatchConsumerFactory(
@@ -108,7 +112,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, BatchLifecycleEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.batch)
+        batchListenerContainerFactory(consumerFactory, properties.consumers.batch, properties)
 
     @Bean
     fun springKafkaCoroutinesNaiveTelemetryConsumerFactory(
@@ -127,19 +131,29 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, CauldronTelemetryEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, CauldronTelemetryEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.telemetry)
+        batchListenerContainerFactory(consumerFactory, properties.consumers.telemetry, properties)
 
     private fun <V> batchListenerContainerFactory(
         consumerFactory: ConsumerFactory<String, V>,
-        runtime: DemoApplicationProperties.ConsumerRuntime
+        runtime: DemoApplicationProperties.ConsumerRuntime,
+        properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, V> =
         ConcurrentKafkaListenerContainerFactory<String, V>().apply {
             runtime.processingMode.requireSupportedBySpringKafkaCoroutinesNaive()
             this.consumerFactory = consumerFactory
             setBatchListener(true)
             setConcurrency(runtime.pollLoopConcurrency)
+            setCommonErrorHandler(naiveBatchAdmissionErrorHandler(properties))
+            containerProperties.isStopImmediate = true
+            containerProperties.shutdownTimeout = 5_000L
             setAutoStartup(true)
         }
+
+    private fun naiveBatchAdmissionErrorHandler(properties: DemoApplicationProperties): DefaultErrorHandler =
+        DefaultErrorHandler(
+            { record: ConsumerRecord<*, *>, _ -> logDropped(record, properties.audit) },
+            FixedBackOff(0L, 0L)
+        )
 
     private fun commonConsumerProperties(
         properties: DemoApplicationProperties,

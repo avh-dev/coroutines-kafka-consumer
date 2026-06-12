@@ -9,12 +9,28 @@ Services:
 - Redis on `localhost:6379`
 - Prometheus on `http://localhost:9090`
 - Grafana on `http://localhost:3000` (`admin` / `admin`)
+- Fluent Bit audit TCP collector on `localhost:5170` when started with the `audit` Docker Compose profile
 - Demo stubs on `http://localhost:18080` when started through `scripts/stubs.sh`
 
 Start:
 ```sh
 demo/infra/local-dev/scripts/start.sh
 ```
+
+The start script asks whether the local audit collector should be started.
+For non-interactive runs, local audit collection is disabled by default and can be enabled explicitly:
+```sh
+LOCAL_DEV_AUDIT=true demo/infra/local-dev/scripts/start.sh
+```
+
+Start with local audit collection directly through Docker Compose:
+```sh
+docker compose -f demo/infra/local-dev/docker-compose.yml --profile audit up -d
+```
+
+The audit profile starts Fluent Bit and the audit archiver used by internal-lab runs.
+Audit chunks are written under `.demo-infra/local-dev/audit/live/chunks/`.
+The demo app and load-test generator use `127.0.0.1:5170` by default, so no extra audit TCP settings are needed for local runs.
 
 Run a full local test flow:
 ```sh

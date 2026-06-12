@@ -32,6 +32,37 @@ fun logFailed(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Aud
     )
 }
 
+fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+    logRecord(
+        type = "D",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit
+    )
+}
+
+fun logDropped(
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    logRecord(
+        type = "D",
+        topic = topic,
+        key = key,
+        partition = partition,
+        offset = offset,
+        kafkaTimestampMs = kafkaTimestampMs,
+        audit = audit
+    )
+}
+
 fun logProcessed(
     topic: String,
     key: String?,
@@ -68,6 +99,13 @@ fun logFailed(
         kafkaTimestampMs = kafkaTimestampMs,
         audit = audit
     )
+}
+
+fun logAuditShutdownMarker(phase: String, audit: DemoApplicationProperties.Audit) {
+    if (!audit.enabled) {
+        return
+    }
+    auditLogger.info("S|shutdown|$phase|${System.currentTimeMillis()}")
 }
 
 private fun logRecord(

@@ -11,7 +11,15 @@ spring:
     listener:
       auto-startup: false
 
+logging:
+  level:
+    org.springframework.context.support: TRACE
+#    org.springframework.kafka.listener: DEBUG
+#    org.springframework.kafka.config: DEBUG
+
 armeria:
+  graceful-shutdown-quiet-period-millis: 1000
+  graceful-shutdown-timeout-millis: 3000
   worker-group: ${ARMERIA_WORKER_THREADS:1}
   blocking-task-executor: ${ARMERIA_BLOCKING_THREADS:1}
   ports:

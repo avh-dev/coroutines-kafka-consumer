@@ -6,6 +6,7 @@ import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logFailed
+import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -16,6 +17,7 @@ import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 
 object DemoConsumers {
@@ -41,7 +43,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics
+            this.metrics = metrics.withDropAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -81,7 +83,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics
+            this.metrics = metrics.withDropAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -121,7 +123,7 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics
+            this.metrics = metrics.withDropAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -141,5 +143,17 @@ object DemoConsumers {
 
     private suspend fun latencyOnlyDelay() {
         delay((5L..8L).random())
+    }
+
+    private fun <K, V> ConsumerMetrics<K, V>.withDropAudit(
+        audit: DemoApplicationProperties.Audit
+    ): ConsumerMetrics<K, V> {
+        val delegate = this
+        return object : ConsumerMetrics<K, V> by delegate {
+            override fun onRecordDropped(record: ConsumerRecord<K, V>) {
+                delegate.onRecordDropped(record)
+                logDropped(record, audit)
+            }
+        }
     }
 }

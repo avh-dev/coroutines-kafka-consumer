@@ -83,6 +83,7 @@
 | [DEMO-51](#demo-51) | Add configurable same-key brewing-step bursts to the demo load-test generator so ordered-by-key contention is observable. | DONE |
 | [DEMO-52](#demo-52) | Add a legacy brewing-step registry HTTP acknowledgement path and persist registry receipts before completing step records. | DONE |
 | [DEMO-53](#demo-53) | Add a naive Spring Kafka batch-listener profile that hands records to coroutine workers through bounded channels. | DONE |
+| [DEMO-54](#demo-54) | Flush the Logback TCP audit appender in the final graceful-shutdown lifecycle phase, audit freshness-first drops, and surface closed-channel admission failures. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1356,6 +1357,19 @@ _Date: 2026-06-07_
 Add a separate `spring-kafka-coroutines-naive` profile for comparing a simple Spring Kafka batch-listener admission path with coroutine workers.
 Keep the implementation isolated from CKC runtime code while reusing demo contracts, suspend business services, audit logging, and shared record metrics.
 Use bounded channels and blocking listener-side admission so committed/enqueued records can be lost during graceful shutdown or crash scenarios.
+
+<a id="demo-54"></a>
+### DEMO-54 - Flush audit last on graceful shutdown
+
+_Date: 2026-06-11_
+
+Add a demo application lifecycle component that keeps the dedicated TCP audit appender alive until the final Spring shutdown phase.
+Reuse the existing Logback audit flusher so normal graceful shutdown and the internal crash endpoint share the same flush-and-stop path.
+Emit a compact shutdown marker before flushing and log audit appender state so shutdown ordering can be verified from pod logs and packet captures.
+Log freshness-first dropped records as explicit audit terminal outcomes and report them separately in the audit analyzer.
+Let closed-channel admission failures escape the naive Spring Kafka listener instead of swallowing them as successful batch handling.
+Recover naive Spring Kafka batch admission failures without retry backoff, audit recovered records as dropped, and stop listener containers promptly before closing worker channels.
+Add an optional local-dev Docker Compose audit profile that runs Fluent Bit and archives audit chunks under `.demo-infra`.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

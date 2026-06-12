@@ -20,7 +20,9 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.test.context.ActiveProfiles
+import org.springframework.test.util.ReflectionTestUtils
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -30,7 +32,9 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
-        "SERVER_PORT=0"
+        "SERVER_PORT=0",
+        "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
+                "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
     ]
 )
 @ActiveProfiles("spring-kafka-coroutines-naive")
@@ -109,8 +113,21 @@ class SpringKafkaCoroutinesNaiveProfileContextTest(
         assertEquals(false, batchConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(false, telemetryConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(1_234, telemetryConsumerFactory.config()[ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG])
+        assertNaiveBatchAdmissionRecovery(orderContainerFactory)
+        assertNaiveBatchAdmissionRecovery(batchContainerFactory)
+        assertNaiveBatchAdmissionRecovery(telemetryContainerFactory)
     }
 
     private fun ConsumerFactory<*, *>.config(): Map<String, Any> =
         (this as DefaultKafkaConsumerFactory<*, *>).configurationProperties
+
+    private fun assertNaiveBatchAdmissionRecovery(factory: Any) {
+        val containerFactory = factory as org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory<*, *>
+        val errorHandler = ReflectionTestUtils.getField(containerFactory, "commonErrorHandler")
+
+        assertIs<DefaultErrorHandler>(errorHandler)
+        assertEquals(true, errorHandler.isAckAfterHandle)
+        assertEquals(true, containerFactory.containerProperties.isStopImmediate)
+        assertEquals(5_000L, containerFactory.containerProperties.shutdownTimeout)
+    }
 }
