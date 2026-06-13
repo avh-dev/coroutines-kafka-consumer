@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.RecordDropReason
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -25,7 +26,8 @@ data class RecordFailedCall<K, V>(
 )
 
 data class RecordDroppedCall<K, V>(
-    val record: ConsumerRecord<K, V>
+    val record: ConsumerRecord<K, V>,
+    val reason: RecordDropReason
 )
 
 data class RetryCall<K, V>(
@@ -108,8 +110,8 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         failed += RecordFailedCall(key, value, record, recordAgeMillis, error, durationNanos)
     }
 
-    override fun onRecordDropped(record: ConsumerRecord<K, V>) {
-        dropped += RecordDroppedCall(record)
+    override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
+        dropped += RecordDroppedCall(record, reason)
     }
 
     override fun onRetry(key: K?, value: V?, record: ConsumerRecord<K, V>, attempt: Int, error: Throwable) {

@@ -5,6 +5,7 @@ import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.ProcessedRecordTracker
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -46,7 +47,7 @@ internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
             onUndeliveredElement = { record ->
                 runtimeStats.onWorkDequeued()
                 if (acceptingRecords.get()) {
-                    metrics.onRecordDropped(record)
+                    metrics.onRecordDropped(record, RecordDropReason.QUEUE_OVERFLOW)
                 }
             }
         )

@@ -3,6 +3,7 @@ package avh.ckc.micrometer
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.RecordDropReason
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -108,14 +109,38 @@ class MicrometerConsumerMetricsTest {
             commonTags = listOf(Tag.of("app", "test"))
         ).forConsumer<String, TestLifecycleEvent>(consumerId = "telemetry")
 
-        metrics.onRecordDropped(testRecord(topic = "cauldrons", partition = 1))
+        metrics.onRecordDropped(
+            testRecord(topic = "cauldrons", partition = 1),
+            RecordDropReason.QUEUE_OVERFLOW
+        )
 
         assertEquals(
             1.0,
             registry.get("ckc.record.dropped")
                 .tag("topic", "cauldrons")
+                .tag("reason", "queue_overflow")
                 .tag("app", "test")
                 .tag("consumer_id", "telemetry")
+                .counter()
+                .count()
+        )
+    }
+
+    @Test
+    fun `when record is dropped with reason then dropped counter includes reason tag`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = MicrometerConsumerMetrics(registry).forConsumer<String, TestLifecycleEvent>()
+
+        metrics.onRecordDropped(
+            testRecord(topic = "cauldrons", partition = 1),
+            RecordDropReason.NEW_KEY_QUEUE_FULL
+        )
+
+        assertEquals(
+            1.0,
+            registry.get("ckc.record.dropped")
+                .tag("topic", "cauldrons")
+                .tag("reason", "new_key_queue_full")
                 .counter()
                 .count()
         )

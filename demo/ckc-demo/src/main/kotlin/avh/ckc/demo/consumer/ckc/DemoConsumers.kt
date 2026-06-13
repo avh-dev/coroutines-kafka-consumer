@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
@@ -150,8 +151,8 @@ object DemoConsumers {
     ): ConsumerMetrics<K, V> {
         val delegate = this
         return object : ConsumerMetrics<K, V> by delegate {
-            override fun onRecordDropped(record: ConsumerRecord<K, V>) {
-                delegate.onRecordDropped(record)
+            override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
+                delegate.onRecordDropped(record, reason)
                 logDropped(record, audit)
             }
         }
