@@ -35,7 +35,22 @@ enum class ProcessingMode {
      *
      * This mode intentionally trades reliability for throughput.
      */
-    FRESHNESS_FIRST
+    FRESHNESS_FIRST,
+
+    /**
+     * Freshness-first processing that keeps at most one queued record per deserialized Kafka key.
+     *
+     * If a newer record arrives for a key that is already waiting in the local queue, it replaces the older
+     * queued record. If the bounded queue already contains the maximum number of distinct waiting keys, records
+     * for new keys are dropped instead of applying backpressure.
+     *
+     * [CoroutinesKafkaConsumerBuilder.workChannelCapacity] limits queued distinct keys in this mode.
+     *
+     * Records with a null Kafka key share a single freshness lane.
+     *
+     * This mode intentionally trades reliability for freshness and throughput.
+     */
+    FRESHNESS_FIRST_BY_KEY
 }
 
 internal fun ProcessingMode.tracksProcessedOffsets(): Boolean =
@@ -43,5 +58,6 @@ internal fun ProcessingMode.tracksProcessedOffsets(): Boolean =
         ProcessingMode.AT_LEAST_ONCE_UNORDERED,
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> true
-        ProcessingMode.FRESHNESS_FIRST -> false
+        ProcessingMode.FRESHNESS_FIRST,
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> false
     }

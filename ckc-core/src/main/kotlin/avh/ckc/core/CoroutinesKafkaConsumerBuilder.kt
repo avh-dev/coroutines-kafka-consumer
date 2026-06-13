@@ -38,6 +38,10 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
     /**
      * Capacity of the internal work channel between poll loops and workers.
+     *
+     * In [ProcessingMode.FRESHNESS_FIRST_BY_KEY], this limits queued distinct keys rather than total buffered
+     * Kafka records. Existing queued keys can still be replaced by newer records without consuming additional
+     * capacity.
      */
     var workChannelCapacity: Int = 1024
 

@@ -28,6 +28,9 @@ class ExternalConsumerProcessingModesTest {
             ParallelConsumerOptions.ProcessingOrder.UNORDERED,
             ProcessingMode.FRESHNESS_FIRST.toConfluentProcessingOrder()
         )
+        assertFailsWith<IllegalArgumentException> {
+            ProcessingMode.FRESHNESS_FIRST_BY_KEY.toConfluentProcessingOrder()
+        }
     }
 
     @Test
@@ -46,6 +49,9 @@ class ExternalConsumerProcessingModesTest {
         assertFailsWith<IllegalArgumentException> {
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY.requireSupportedBySpringKafka()
         }
+        assertFailsWith<IllegalArgumentException> {
+            ProcessingMode.FRESHNESS_FIRST_BY_KEY.requireSupportedBySpringKafka()
+        }
     }
 
     @Test
@@ -55,12 +61,16 @@ class ExternalConsumerProcessingModesTest {
         )
         val filter = FreshnessFirstRecordFilter(properties)
         val freshnessFirst = DemoApplicationProperties.ConsumerRuntime(processingMode = ProcessingMode.FRESHNESS_FIRST)
+        val freshnessFirstByKey = DemoApplicationProperties.ConsumerRuntime(
+            processingMode = ProcessingMode.FRESHNESS_FIRST_BY_KEY
+        )
         val ordered = DemoApplicationProperties.ConsumerRuntime(
             processingMode = ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION
         )
 
         assertFalse(filter.shouldDiscard(freshnessFirst, recordTimestamp = 90_000, nowMillis = 100_000))
         assertTrue(filter.shouldDiscard(freshnessFirst, recordTimestamp = 89_999, nowMillis = 100_000))
+        assertTrue(filter.shouldDiscard(freshnessFirstByKey, recordTimestamp = 89_999, nowMillis = 100_000))
         assertFalse(filter.shouldDiscard(ordered, recordTimestamp = 1, nowMillis = 100_000))
         assertFalse(filter.shouldDiscard(freshnessFirst, recordTimestamp = 0, nowMillis = 100_000))
     }

@@ -518,7 +518,8 @@ private class PollLoopFixture(
             ProcessingMode.AT_LEAST_ONCE_UNORDERED,
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> BufferOverflow.SUSPEND
-            ProcessingMode.FRESHNESS_FIRST -> BufferOverflow.DROP_OLDEST
+            ProcessingMode.FRESHNESS_FIRST,
+            ProcessingMode.FRESHNESS_FIRST_BY_KEY -> BufferOverflow.DROP_OLDEST
         }
     )
     private val recordSink = object : PolledRecordSink<ByteArray, ByteArray> {

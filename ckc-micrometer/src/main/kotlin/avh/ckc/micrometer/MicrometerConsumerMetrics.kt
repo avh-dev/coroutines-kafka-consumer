@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.RecordDropReason
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge
@@ -15,7 +16,7 @@ import io.micrometer.core.instrument.Timer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
 
-private val reservedRecordTagKeys = setOf("topic", "error", "attempt", "success")
+private val reservedRecordTagKeys = setOf("topic", "error", "attempt", "success", "reason")
 
 /**
  * Definition of a custom record tag that may appear on record-level metrics.
@@ -188,8 +189,14 @@ open class MicrometerConsumerMetrics(
             counter("record.failed", tags).increment()
         }
 
-        override fun onRecordDropped(record: ConsumerRecord<K, V>) {
-            counter("record.dropped", tags("topic" to record.topic())).increment()
+        override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
+            counter(
+                "record.dropped",
+                tags(
+                    "topic" to record.topic(),
+                    "reason" to reason.name.lowercase()
+                )
+            ).increment()
         }
 
         override fun onRetry(

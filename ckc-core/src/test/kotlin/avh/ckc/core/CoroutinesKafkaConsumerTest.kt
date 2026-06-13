@@ -8,6 +8,7 @@ import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +57,13 @@ class CoroutinesKafkaConsumerTest {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST)
 
         assertInstanceOf(FreshnessFirstUnorderedRecordProcessingRuntime::class.java, runtime)
+    }
+
+    @Test
+    fun `when processing mode is FRESHNESS_FIRST_BY_KEY then default factory creates freshness first by key runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_BY_KEY)
+
+        assertInstanceOf(FreshnessFirstByKeyRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
