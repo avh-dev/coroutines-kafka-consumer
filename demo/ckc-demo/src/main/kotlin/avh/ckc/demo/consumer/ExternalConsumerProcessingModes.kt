@@ -11,6 +11,8 @@ internal fun ProcessingMode.toConfluentProcessingOrder(): ParallelConsumerOption
         ProcessingMode.FRESHNESS_FIRST -> ParallelConsumerOptions.ProcessingOrder.UNORDERED
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY -> ParallelConsumerOptions.ProcessingOrder.KEY
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> ParallelConsumerOptions.ProcessingOrder.PARTITION
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
+            throw IllegalArgumentException("Processing mode $this is not supported by the confluent demo profile")
     }
 
 internal fun ProcessingMode.requireSupportedBySpringKafka(): ProcessingMode =
@@ -18,7 +20,8 @@ internal fun ProcessingMode.requireSupportedBySpringKafka(): ProcessingMode =
         ProcessingMode.FRESHNESS_FIRST,
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> this
         ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY ->
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
             throw IllegalArgumentException("Processing mode $this is not supported by the spring-kafka demo profile")
     }
 
@@ -31,7 +34,9 @@ class FreshnessFirstRecordFilter(
         recordTimestamp: Long,
         nowMillis: Long = System.currentTimeMillis()
     ): Boolean {
-        if (runtime.processingMode != ProcessingMode.FRESHNESS_FIRST || recordTimestamp <= 0L) {
+        val freshnessFirstMode = runtime.processingMode == ProcessingMode.FRESHNESS_FIRST ||
+                runtime.processingMode == ProcessingMode.FRESHNESS_FIRST_BY_KEY
+        if (!freshnessFirstMode || recordTimestamp <= 0L) {
             return false
         }
         val maxRecordAgeSeconds = properties.consumers.freshnessFirstMaxRecordAgeSeconds

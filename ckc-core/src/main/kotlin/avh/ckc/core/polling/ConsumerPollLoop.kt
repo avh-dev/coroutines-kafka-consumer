@@ -33,8 +33,8 @@ import kotlin.time.toKotlinDuration
  * Processing modes:
  * - AT_LEAST_ONCE_UNORDERED: non-blocking dispatch via `trySend` + `pause/resume`
  *   with bounded local stash and explicit contiguous commits.
- * - FRESHNESS_FIRST: suspending `send`, intended for setups relying on
- *   channel-level dropping and auto-commit.
+ * - FRESHNESS_FIRST modes: best-effort dispatch, intended for setups relying on
+ *   runtime-level dropping and auto-commit.
  *
  * Invariants (AT_LEAST_ONCE_UNORDERED):
  * - Poll loop never suspends on dispatch.
@@ -250,7 +250,8 @@ internal class ConsumerPollLoop<K, V>(
             ProcessingMode.AT_LEAST_ONCE_UNORDERED,
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
             ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> consumerLoopAtLeastOnceUnordered(consumer)
-            ProcessingMode.FRESHNESS_FIRST -> consumerLoopFreshnessFirst(consumer)
+            ProcessingMode.FRESHNESS_FIRST,
+            ProcessingMode.FRESHNESS_FIRST_BY_KEY -> consumerLoopFreshnessFirst(consumer)
         }
     } catch (_: CancellationException) {
         log.info("Kafka consumer loop #$id cancelled")

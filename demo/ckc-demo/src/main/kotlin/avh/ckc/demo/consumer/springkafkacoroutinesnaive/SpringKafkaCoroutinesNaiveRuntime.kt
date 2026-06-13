@@ -231,7 +231,8 @@ internal fun ProcessingMode.requireSupportedBySpringKafkaCoroutinesNaive(): Proc
         ProcessingMode.AT_LEAST_ONCE_UNORDERED,
         ProcessingMode.FRESHNESS_FIRST -> this
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION ->
+        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION,
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
             throw IllegalArgumentException(
                 "Processing mode $this is not supported by the spring-kafka-coroutines-naive demo profile"
             )

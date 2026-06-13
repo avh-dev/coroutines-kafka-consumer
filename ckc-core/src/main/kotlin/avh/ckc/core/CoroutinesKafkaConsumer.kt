@@ -13,6 +13,7 @@ import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -117,7 +118,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         ProcessingMode.AT_LEAST_ONCE_UNORDERED,
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
         ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> PartitionProcessedRecordTracker(partitionRegistry)
-        ProcessingMode.FRESHNESS_FIRST -> NoopProcessedRecordTracker
+        ProcessingMode.FRESHNESS_FIRST,
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> NoopProcessedRecordTracker
     }
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
@@ -176,9 +178,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerProperties.containsKey(VALUE_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$VALUE_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
-        if (processingMode == ProcessingMode.FRESHNESS_FIRST) {
+        if (processingMode == ProcessingMode.FRESHNESS_FIRST || processingMode == ProcessingMode.FRESHNESS_FIRST_BY_KEY) {
             require(consumerConfigAdapter.getBoolean(ENABLE_AUTO_COMMIT_CONFIG) == true) {
-                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when processingMode=FRESHNESS_FIRST"
+                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when processingMode=$processingMode"
             }
         }
     }
@@ -351,6 +353,18 @@ internal fun <K, V> defaultProcessingRuntime(
         )
 
         ProcessingMode.FRESHNESS_FIRST -> FreshnessFirstUnorderedRecordProcessingRuntime(
+            workerConcurrency = workerConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            processingDispatcher = processingDispatcher,
+            scope = parentScope,
+            metrics = metrics,
+            handler = handler,
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
+            processedRecordTracker = processedRecordTracker
+        )
+
+        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> FreshnessFirstByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             processingDispatcher = processingDispatcher,
