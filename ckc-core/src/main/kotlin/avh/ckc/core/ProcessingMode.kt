@@ -44,6 +44,8 @@ enum class ProcessingMode {
      * queued record. If the bounded queue already contains the maximum number of distinct waiting keys, records
      * for new keys are dropped instead of applying backpressure.
      *
+     * [CoroutinesKafkaConsumerBuilder.workChannelCapacity] limits queued distinct keys in this mode.
+     *
      * Records with a null Kafka key share a single freshness lane.
      *
      * This mode intentionally trades reliability for freshness and throughput.

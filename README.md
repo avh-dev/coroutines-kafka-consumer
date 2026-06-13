@@ -14,8 +14,43 @@ The core problem is not just polling Kafka from coroutines. The hard part is all
 - at-least-once processing ordered by Kafka message key;
 - at-least-once processing ordered by topic partition;
 - freshness-first processing for telemetry-style workloads where stale buffered records may be discarded intentionally;
+- freshness-first-by-key processing where only the latest queued record for each key is retained;
 - safe offset advancement when records complete out of order;
 - runtime metrics that explain throughput, latency, backpressure, and offset progress.
+
+## Processing Modes
+
+CKC supports tracked at-least-once modes and lossy freshness-first modes.
+
+`AT_LEAST_ONCE_UNORDERED`, `AT_LEAST_ONCE_ORDERED_BY_KEY`, and
+`AT_LEAST_ONCE_ORDERED_BY_PARTITION` track processed offsets and commit only the
+safe contiguous frontier.
+
+`FRESHNESS_FIRST` and `FRESHNESS_FIRST_BY_KEY` intentionally trade reliability
+for throughput and freshness. They require Kafka auto-commit and do not use CKC
+offset tracking. Dropped records are not processed by the current consumer
+instance and may be redelivered only if partition ownership changes before Kafka
+commits past them.
+
+`FRESHNESS_FIRST_BY_KEY` is intended for finite-key telemetry streams, such as
+sensor, vehicle, courier, or device state updates. The runtime keeps at most one
+queued record per deserialized Kafka key. When a newer record arrives for a key
+that is already waiting, it replaces the older queued record. Records with a
+null Kafka key share one freshness lane.
+
+For `FRESHNESS_FIRST_BY_KEY`, `workChannelCapacity` limits the number of
+distinct keys that may wait in the runtime queue at the same time. It is not a
+total Kafka-record buffer size. Set it at or above the expected concurrently
+active key cardinality per consumer instance, with headroom for bursts. If the
+capacity is full and a record for a new key arrives, CKC drops that incoming
+record instead of applying backpressure.
+
+Drop metrics include a `reason` tag. `replaced_by_newer_key_record` is expected
+during same-key bursts in `FRESHNESS_FIRST_BY_KEY`; `new_key_queue_full` means
+the queued key-lane capacity is saturated and should normally stay near zero.
+If `new_key_queue_full` appears regularly, increase `workChannelCapacity`,
+reduce active keys per consumer instance, increase worker throughput, or split
+the workload.
 
 ## Why Offset Tracking Matters
 

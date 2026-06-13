@@ -472,9 +472,9 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /**
-     * FRESHNESS_FIRST mode:
-     * - Minimal mode; uses best-effort dispatch into a dropping queue.
-     * - Intended to be paired with a channel that drops and with client internal auto-commit.
+     * Freshness-first modes:
+     * - Minimal poll-loop mode; uses best-effort dispatch into a runtime that may drop records.
+     * - Intended to be paired with client internal auto-commit.
      */
     private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<K, V>) {
         while (currentCoroutineContext().isActive) {
