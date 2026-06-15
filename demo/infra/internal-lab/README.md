@@ -114,7 +114,7 @@ assets are present on the lab host, then run the destructive lab-side cleanup:
 ./demo/infra/internal-lab/scripts/update-lab.sh
 source .demo-infra/internal-lab/lab.env
 ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/uninstall-server.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/uninstall-server.sh
 ```
 
 The cleanup removes k3s, internal-lab Docker containers/images, Helm, Java 21,
@@ -160,7 +160,7 @@ ssh "root@${LAB_HOST}"
 Start the interactive runner:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
 ```
 
 The runner presents fixed choices through numbered lists and prompts for the
@@ -177,7 +177,7 @@ shown as defaults and used when Enter is pressed:
 Pass the same choices explicitly for a non-interactive run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
   --deployment ckc-sync \
   --processing-enabled false \
   --audit-log-enabled false \
@@ -200,7 +200,7 @@ Before starting the load generator, the runner:
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh \
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
   --skip-prepare \
   --deployment ckc-sync \
   --processing-enabled false \
@@ -258,8 +258,8 @@ collector health endpoint is unavailable before the test starts or during the
 load run. Override the lag wait with:
 
 ```sh
-CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh --skip-drain-wait
+CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh --skip-drain-wait
 ```
 
 It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
@@ -326,7 +326,7 @@ Keep these constant between runs:
 Reset state and deploy the same profile before every run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
@@ -400,9 +400,9 @@ Recommended before serious runs:
 
 ```sh
 source .demo-infra/internal-lab/lab.env
-ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/tune-host.sh"
+ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/tune-host.sh"
 ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/scripts/run-test.sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
 ```
 
 Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.

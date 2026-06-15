@@ -67,8 +67,8 @@ LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
-ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/scripts/'*.sh && LAB_NODE_IP='${LAB_NODE_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/scripts/install-server.sh'"
-ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/scripts/deploy-base.sh'"
+ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/assets/bin/'*.sh '${LAB_ROOT}/assets/libexec/'*.sh && LAB_NODE_IP='${LAB_NODE_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/assets/libexec/install-server.sh'"
+ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' ASSETS_DIR='${LAB_ROOT}/assets' '${LAB_ROOT}/assets/libexec/deploy-base.sh'"
 
 scp "root@${LAB_HOST}:/etc/rancher/k3s/k3s.yaml" "${KUBECONFIG_PATH}"
 python - "${KUBECONFIG_PATH}" "${LAB_HOST}" <<'PY'

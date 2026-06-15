@@ -139,6 +139,7 @@
 | [INFRA-52](#infra-52) | Use process-exporter CPU metrics for the internal-lab Redpanda dashboard panel to avoid native busy-counter stop spikes.                         | DONE |
 | [INFRA-53](#infra-53) | Reduce internal-lab audit analyzer CPU cost and benchmark the changes on real optilab audit chunks.                                             | DONE |
 | [INFRA-54](#infra-54) | Restore full per-topic YAML audit summaries while keeping audit analysis off the load-test critical path.                                        | DONE |
+| [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1489,3 +1490,13 @@ Restore full per-topic audit summaries in internal-lab runs, including published
 Move internal-lab audit analysis out of the load-test runtime path: collect chunks during the run, then run the analyzer once after the generator exits and consumer lag drains.
 Replace the legacy text report with `summary.yaml`, remove online-analysis flags from the analyzer path, and keep ordering output focused on out-of-order counters only.
 Include the selected run configuration in the YAML report and remove static latency summaries so delivery correctness stays the focus.
+
+<a id="infra-55"></a>
+### INFRA-55 - Refactor lab infrastructure entrypoints
+
+_Date: 2026-06-15_
+
+Refactor demo infrastructure so local scripts only create, update, or connect to target lab hosts.
+Move long-running test execution behind target-host entrypoints that can be run from `tmux`.
+Split environment-owned Helm assets while keeping shared orchestration and audit-analysis logic reusable.
+Remove the PowerShell script surface and keep Windows usage centered on Git Bash-compatible shell entrypoints.

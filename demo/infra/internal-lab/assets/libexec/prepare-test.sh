@@ -80,7 +80,7 @@ if [[ ! -f "${TEST_DEFINITION}" ]]; then
 fi
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
+python3 "${LAB_ROOT}/assets/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
@@ -108,9 +108,9 @@ fi
 LAB_ROOT="${LAB_ROOT}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
-  "${LAB_ROOT}/assets/scripts/reset-kafka-redis.sh"
+  "${LAB_ROOT}/assets/libexec/reset-kafka-redis.sh"
 
-"${LAB_ROOT}/assets/scripts/deploy-stubs.sh"
+"${LAB_ROOT}/assets/libexec/deploy-stubs.sh"
 
 helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo" \
   --namespace ckc-perf \
@@ -123,7 +123,7 @@ helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/de
   --set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
-"${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+"${LAB_ROOT}/assets/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 kubectl -n ckc-perf get pods,svc,endpoints -o wide
 
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF

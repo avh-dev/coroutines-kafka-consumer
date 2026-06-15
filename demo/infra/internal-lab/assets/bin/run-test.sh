@@ -300,7 +300,7 @@ echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/assets/scripts/helpers/definition-env.py" \
+python3 "${LAB_ROOT}/assets/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
@@ -329,9 +329,9 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/assets/scripts/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
+  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/assets/libexec/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
 else
-  "${LAB_ROOT}/assets/scripts/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+  "${LAB_ROOT}/assets/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
 LOAD_TEST_BIN="${LAB_ROOT}/runtime/load-test/bin/ckc-demo-load-test"
@@ -592,7 +592,7 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
   DRAIN_WAIT_EXIT_CODE=0
-  python3 "${LAB_ROOT}/assets/scripts/helpers/wait-consumer-drain.py" \
+  python3 "${LAB_ROOT}/assets/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
     --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
@@ -629,7 +629,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
   cp "${AUDIT_CHUNK_DIR}"/*.log.gz "${RUN_AUDIT_CHUNK_DIR}/"
   echo "Running audit analysis."
-  if ! python3 "${LAB_ROOT}/assets/scripts/helpers/analyze-audit.py" \
+  if ! python3 "${LAB_ROOT}/assets/helpers/analyze-audit.py" \
     --input-dir "${RUN_AUDIT_CHUNK_DIR}" \
     --metadata-file "${RUN_METADATA_FILE}" \
     --require-records \
