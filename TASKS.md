@@ -140,6 +140,7 @@
 | [INFRA-53](#infra-53) | Reduce internal-lab audit analyzer CPU cost and benchmark the changes on real optilab audit chunks.                                             | DONE |
 | [INFRA-54](#infra-54) | Restore full per-topic YAML audit summaries while keeping audit analysis off the load-test critical path.                                        | DONE |
 | [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | DONE |
+| [INFRA-56](#infra-56) | Add audit fairness metrics and telemetry-focused lab profiles for comparing freshness-first processing modes.                                   | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1502,3 +1503,12 @@ Split environment-owned Helm assets while keeping shared orchestration and audit
 Remove the PowerShell script surface and keep Windows usage centered on Git Bash-compatible shell entrypoints.
 Move internal-lab entrypoints into `assets/bin`, implementation scripts into `assets/libexec`, and reusable audit tools into `shared/audit`.
 Reshape AWS so local scripts create/update/connect, while lab lifecycle and test commands live under runner-side assets.
+
+<a id="infra-56"></a>
+### INFRA-56 - Add freshness fairness audit metrics
+
+_Date: 2026-06-15_
+
+Add audit analyzer metrics that show per-key telemetry processing fairness under lossy freshness-first modes.
+Report distribution skew, starvation gaps, and processed/dropped ratios for cauldron telemetry keys.
+Add internal-lab test and deployment profiles that generate telemetry-only fixed-fleet pressure for comparing `FRESHNESS_FIRST`, `FRESHNESS_FIRST_BY_KEY`, and stale-threshold discard behavior.
