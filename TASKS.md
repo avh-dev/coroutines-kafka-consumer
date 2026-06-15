@@ -139,7 +139,7 @@
 | [INFRA-52](#infra-52) | Use process-exporter CPU metrics for the internal-lab Redpanda dashboard panel to avoid native busy-counter stop spikes.                         | DONE |
 | [INFRA-53](#infra-53) | Reduce internal-lab audit analyzer CPU cost and benchmark the changes on real optilab audit chunks.                                             | DONE |
 | [INFRA-54](#infra-54) | Restore full per-topic YAML audit summaries while keeping audit analysis off the load-test critical path.                                        | DONE |
-| [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | IN_PROGRESS |
+| [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1500,3 +1500,5 @@ Refactor demo infrastructure so local scripts only create, update, or connect to
 Move long-running test execution behind target-host entrypoints that can be run from `tmux`.
 Split environment-owned Helm assets while keeping shared orchestration and audit-analysis logic reusable.
 Remove the PowerShell script surface and keep Windows usage centered on Git Bash-compatible shell entrypoints.
+Move internal-lab entrypoints into `assets/bin`, implementation scripts into `assets/libexec`, and reusable audit tools into `shared/audit`.
+Reshape AWS so local scripts create/update/connect, while lab lifecycle and test commands live under runner-side assets.
