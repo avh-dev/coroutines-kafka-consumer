@@ -1,0 +1,49 @@
+replicaCount: 2
+
+lab:
+  kafkaTopics:
+    - name: order.events.v1
+      partitions: 1
+    - name: batch.events.v1
+      partitions: 1
+    - name: cauldron.events.v1
+      partitions: 16
+
+env:
+  springProfilesActive: ckc
+  orderWorkerConcurrency: 2
+  orderPollLoopConcurrency: 1
+  orderWorkChannelCapacity: 128
+  batchWorkerConcurrency: 2
+  batchPollLoopConcurrency: 1
+  batchWorkChannelCapacity: 128
+  telemetryProcessingMode: FRESHNESS_FIRST
+  telemetryWorkerConcurrency: 16
+  telemetryPollLoopConcurrency: 1
+  telemetryWorkChannelCapacity: 256
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1Gi
+
+probes:
+  readiness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 12
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 15
+    failureThreshold: 8
+  startup:
+    enabled: true
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 30
+
+hpa:
+  enabled: false

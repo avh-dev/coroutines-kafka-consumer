@@ -245,6 +245,16 @@ stderr is saved to `analyzer-progress.log` in the same run directory. During the
 final analysis step, the runner also prints analyzer progress such as
 `chunks=12/40 records=...` to the terminal.
 
+For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
+test definition with `ckc-telemetry-freshness-first`,
+`ckc-telemetry-freshness-first-by-key`, and
+`spring-kafka-coroutines-naive-telemetry-threshold`. The cauldron topic summary
+then includes `key_fairness` metrics for processed/dropped ratio skew,
+per-key processed gaps, and processed/dropped record age. Keep this definition
+on one load-test worker unless you intentionally want one fixed fleet per
+worker; otherwise active key cardinality increases and can trigger
+`new_key_queue_full` before the key-coalescing behavior is measured.
+
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
 and stay there briefly before running audit analysis and printing the final

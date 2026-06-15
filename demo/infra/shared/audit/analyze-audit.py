@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import math
 import sys
 from collections import deque
 from dataclasses import dataclass, field
@@ -91,6 +92,218 @@ class ProcessingOrderStats:
             if state is not None and state.updated_ms == updated_ms:
                 del self.last_offset_by_key[group]
 
+
+@dataclass(slots=True)
+class OnlineAgeStats:
+    count: int = 0
+    total_ms: int = 0
+    min_ms: int | None = None
+    max_ms: int | None = None
+
+    def add(self, age_ms: int) -> None:
+        self.count += 1
+        self.total_ms += age_ms
+        self.min_ms = age_ms if self.min_ms is None else min(self.min_ms, age_ms)
+        self.max_ms = age_ms if self.max_ms is None else max(self.max_ms, age_ms)
+
+    def summary(self) -> dict[str, int | float | None]:
+        return {
+            "count": self.count,
+            "avg_ms": round(self.total_ms / self.count, 3) if self.count else None,
+            "min_ms": self.min_ms,
+            "max_ms": self.max_ms,
+        }
+
+
+@dataclass(slots=True)
+class KeyOutcomeStats:
+    published: int = 0
+    processed: int = 0
+    failed: int = 0
+    dropped: int = 0
+    last_processed_ms: int | None = None
+    max_processed_gap_ms: int | None = None
+
+    @property
+    def terminal(self) -> int:
+        return self.processed + self.failed + self.dropped
+
+
+@dataclass(slots=True)
+class KeyFairnessStats:
+    by_message_key: dict[str, KeyOutcomeStats] = field(default_factory=dict)
+    processed_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+    dropped_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+    failed_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+    finalized: bool = False
+
+    def add_published(self, record: AuditRecord) -> None:
+        self._stats(record.message_key).published += 1
+
+    def add_terminal(self, record: AuditRecord) -> None:
+        stats = self._stats(record.message_key)
+        if record.record_type == "C":
+            stats.processed += 1
+            if stats.last_processed_ms is not None:
+                gap_ms = record.audit_timestamp_ms - stats.last_processed_ms
+                stats.max_processed_gap_ms = (
+                    gap_ms
+                    if stats.max_processed_gap_ms is None
+                    else max(stats.max_processed_gap_ms, gap_ms)
+                )
+            stats.last_processed_ms = record.audit_timestamp_ms
+        elif record.record_type == "F":
+            stats.failed += 1
+        elif record.record_type == "D":
+            stats.dropped += 1
+
+    def add_terminal_age(self, published: AuditRecord, terminal: AuditRecord) -> None:
+        if published.kafka_timestamp_ms is None:
+            return
+        age_ms = max(0, terminal.audit_timestamp_ms - published.kafka_timestamp_ms)
+        if terminal.record_type == "C":
+            self.processed_age.add(age_ms)
+        elif terminal.record_type == "D":
+            self.dropped_age.add(age_ms)
+        elif terminal.record_type == "F":
+            self.failed_age.add(age_ms)
+
+    def finish(self, watermark_ms: int) -> None:
+        if self.finalized:
+            return
+        for stats in self.by_message_key.values():
+            if stats.last_processed_ms is None:
+                continue
+            trailing_gap_ms = watermark_ms - stats.last_processed_ms
+            stats.max_processed_gap_ms = (
+                trailing_gap_ms
+                if stats.max_processed_gap_ms is None
+                else max(stats.max_processed_gap_ms, trailing_gap_ms)
+            )
+        self.finalized = True
+
+    def summary(self) -> dict[str, object]:
+        key_stats = list(self.by_message_key.values())
+        return {
+            "keys": len(key_stats),
+            "keys_without_processed": sum(1 for stats in key_stats if stats.processed == 0),
+            "published_per_key": distribution_summary([stats.published for stats in key_stats]),
+            "processed_per_key": distribution_summary([stats.processed for stats in key_stats]),
+            "dropped_per_key": distribution_summary([stats.dropped for stats in key_stats]),
+            "processed_ratio": distribution_summary([ratio(stats.processed, stats.published) for stats in key_stats]),
+            "dropped_ratio": distribution_summary([ratio(stats.dropped, stats.published) for stats in key_stats]),
+            "processed_max_gap_ms": gap_summary(
+                [stats.max_processed_gap_ms for stats in key_stats if stats.max_processed_gap_ms is not None]
+            ),
+            "record_age": {
+                "processed": self.processed_age.summary(),
+                "dropped": self.dropped_age.summary(),
+                "failed": self.failed_age.summary(),
+            },
+        }
+
+    def _stats(self, message_key: str) -> KeyOutcomeStats:
+        stats = self.by_message_key.get(message_key)
+        if stats is None:
+            stats = KeyOutcomeStats()
+            self.by_message_key[message_key] = stats
+        return stats
+
+
+def ratio(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
+
+
+def distribution_summary(values: list[int | float]) -> dict[str, int | float | None]:
+    if not values:
+        return empty_distribution_summary()
+    sorted_values = sorted(values)
+    avg = sum(sorted_values) / len(sorted_values)
+    return {
+        "count": len(sorted_values),
+        "avg": round(avg, 6),
+        "min": rounded_number(sorted_values[0]),
+        "p50": rounded_number(percentile(sorted_values, 0.50)),
+        "p95": rounded_number(percentile(sorted_values, 0.95)),
+        "p99": rounded_number(percentile(sorted_values, 0.99)),
+        "max": rounded_number(sorted_values[-1]),
+        "coefficient_of_variation": coefficient_of_variation(sorted_values, avg),
+        "gini": gini(sorted_values),
+        "max_to_min": max_to_min(sorted_values),
+    }
+
+
+def gap_summary(values: list[int]) -> dict[str, object]:
+    summary = distribution_summary(values)
+    summary["keys_over_1s"] = sum(1 for value in values if value > 1_000)
+    summary["keys_over_5s"] = sum(1 for value in values if value > 5_000)
+    summary["keys_over_10s"] = sum(1 for value in values if value > 10_000)
+    summary["keys_over_30s"] = sum(1 for value in values if value > 30_000)
+    return summary
+
+
+def empty_distribution_summary() -> dict[str, None]:
+    return {
+        "count": None,
+        "avg": None,
+        "min": None,
+        "p50": None,
+        "p95": None,
+        "p99": None,
+        "max": None,
+        "coefficient_of_variation": None,
+        "gini": None,
+        "max_to_min": None,
+    }
+
+
+def percentile(sorted_values: list[int | float], quantile: float) -> int | float:
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    position = (len(sorted_values) - 1) * quantile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return sorted_values[lower]
+    lower_value = sorted_values[lower]
+    upper_value = sorted_values[upper]
+    return lower_value + (upper_value - lower_value) * (position - lower)
+
+
+def coefficient_of_variation(values: list[int | float], avg: float) -> float | None:
+    if not values or avg == 0:
+        return None
+    variance = sum((value - avg) ** 2 for value in values) / len(values)
+    return round(math.sqrt(variance) / avg, 6)
+
+
+def gini(values: list[int | float]) -> float | None:
+    if not values:
+        return None
+    total = sum(values)
+    if total == 0:
+        return None
+    weighted_sum = sum((index + 1) * value for index, value in enumerate(sorted(values)))
+    coefficient = (2 * weighted_sum) / (len(values) * total) - (len(values) + 1) / len(values)
+    return round(coefficient, 6)
+
+
+def max_to_min(values: list[int | float]) -> float | None:
+    if not values:
+        return None
+    minimum = min(values)
+    if minimum == 0:
+        return None
+    return round(max(values) / minimum, 6)
+
+
+def rounded_number(value: int | float) -> int | float:
+    if isinstance(value, int):
+        return value
+    return round(value, 6)
+
 @dataclass(slots=True)
 class RecordState:
     first_seen_ms: int
@@ -123,6 +336,7 @@ class ClosedRecordState:
 @dataclass(slots=True)
 class AuditStats:
     open_record_ttl_ms: int
+    key_fairness: KeyFairnessStats | None = None
     published_records: int = 0
     processed_records: int = 0
     failed_records: int = 0
@@ -174,6 +388,8 @@ class AuditStats:
         for key in list(self.open_by_key):
             self._evict_open_record(key)
         self.recent_closed_by_key.clear()
+        if self.key_fairness is not None:
+            self.key_fairness.finish(self.watermark_ms)
 
     def _add_published(self, record: AuditRecord) -> None:
         self.published_records += 1
@@ -194,6 +410,8 @@ class AuditStats:
         state.last_seen_ms = record.audit_timestamp_ms
         self.open_expiry_queue.append((state.last_seen_ms, record.key))
         self.published_unique += 1
+        if self.key_fairness is not None:
+            self.key_fairness.add_published(record)
         self._close_if_complete(record.key)
 
     def _add_terminal(self, record: AuditRecord) -> None:
@@ -220,6 +438,8 @@ class AuditStats:
                 state.processed = record
                 state.processed_count = 1
                 self.processed_unique += 1
+                if self.key_fairness is not None:
+                    self.key_fairness.add_terminal(record)
                 self._add_terminal_unique(record, state)
             else:
                 state.processed_count += 1
@@ -229,6 +449,8 @@ class AuditStats:
                 state.failed = record
                 state.failed_count = 1
                 self.failed_unique += 1
+                if self.key_fairness is not None:
+                    self.key_fairness.add_terminal(record)
                 self._add_terminal_unique(record, state)
             else:
                 state.failed_count += 1
@@ -238,6 +460,8 @@ class AuditStats:
                 state.dropped = record
                 state.dropped_count = 1
                 self.dropped_unique += 1
+                if self.key_fairness is not None:
+                    self.key_fairness.add_terminal(record)
                 self._add_terminal_unique(record, state)
             else:
                 state.dropped_count += 1
@@ -302,6 +526,10 @@ class AuditStats:
         state = self.open_by_key.get(key)
         if state is None or not state.is_complete():
             return
+        if self.key_fairness is not None and state.published is not None:
+            terminal = state.processed or state.failed or state.dropped
+            if terminal is not None:
+                self.key_fairness.add_terminal_age(state.published, terminal)
         del self.open_by_key[key]
         self.recent_closed_by_key[key] = ClosedRecordState(
             closed_ms=state.last_seen_ms,
@@ -344,7 +572,13 @@ class AuditStats:
 class AuditAccumulator:
     def __init__(self, open_record_ttl_ms: int) -> None:
         self.all = AuditStats(open_record_ttl_ms=open_record_ttl_ms)
-        self.by_topic = {topic_id: AuditStats(open_record_ttl_ms=open_record_ttl_ms) for topic_id in TOPIC_NAMES}
+        self.by_topic = {
+            topic_id: AuditStats(
+                open_record_ttl_ms=open_record_ttl_ms,
+                key_fairness=KeyFairnessStats() if topic_id == 3 else None,
+            )
+            for topic_id in TOPIC_NAMES
+        }
         self.record_count = 0
 
     def add(self, record: AuditRecord) -> None:
@@ -496,6 +730,8 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             },
         }
     )
+    if stats.key_fairness is not None:
+        summary["key_fairness"] = stats.key_fairness.summary()
     return summary
 
 

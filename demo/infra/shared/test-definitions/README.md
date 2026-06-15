@@ -25,6 +25,7 @@ Available internal-lab tests:
 
 - `internal-lab/smoke.yaml`: short functional check with low traffic.
 - `internal-lab/baseline.yaml`: comparison baseline for the dedicated Linux host.
+- `internal-lab/telemetry-freshness-fairness.yaml`: telemetry-only fixed-fleet load for comparing freshness-first key fairness under intentional overload.
 
 Available AWS definitions remain at the top level:
 
@@ -32,5 +33,7 @@ Available AWS definitions remain at the top level:
 - `ckc-baseline.yaml`: AWS baseline intended for larger, more production-like load.
 
 `load_profile` is a shared percentage schedule. `base_tps` is applied per load-test shard, and `order_event_percent`, `batch_event_percent`, and `cauldron_telemetry_percent` split that event budget across order, batch, and cauldron telemetry topics. `telemetry_source_mode` defaults to `ACTIVE_BATCHES`; set it to `FIXED_FLEET` when a test needs stable cauldron-key cardinality instead of business-pipeline active-batch cardinality. The load-test job exits when the profile schedule ends.
+
+For freshness fairness comparisons, run `internal-lab/telemetry-freshness-fairness.yaml` against `ckc-telemetry-freshness-first`, `ckc-telemetry-freshness-first-by-key`, and `spring-kafka-coroutines-naive-telemetry-threshold`. The definition intentionally uses one load-test worker so fixed-fleet telemetry is a single round-robin stream across the configured cauldron keys instead of one fleet per worker. Compare `audit.topics.cauldron.events.v1.key_fairness.processed_ratio`, `dropped_ratio`, `processed_max_gap_ms`, and `record_age` in each run's `summary.yaml`.
 
 For AWS definitions, `deployment.kafka_topics` is consumed by lab setup, not by the application deployment itself. `create-lab` flushes Redis and deletes and recreates these topics before workloads are deployed so a test definition can change partition counts without leaving old topic metadata behind.
