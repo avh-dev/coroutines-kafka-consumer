@@ -195,22 +195,25 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   demo/ckc-demo-load-test)"
 ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 SHARED_SYNC_FINGERPRINT="$(fingerprint_paths "shared-sync" demo/infra/shared)"
+INTERNAL_LAB_HELM_SYNC_FINGERPRINT="$(fingerprint_paths "internal-lab-helm-sync" demo/infra/internal-lab/helm)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/shared/grafana)"
+  demo/infra/shared/grafana \
+  demo/infra/internal-lab/helm/demo)"
 STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
   demo/infra/internal-lab/assets/config/demo-stubs-values.yaml \
   demo/infra/internal-lab/assets/libexec/deploy-stubs.sh \
-  demo/infra/shared/helm/demo-stubs)"
+  demo/infra/internal-lab/helm/demo-stubs)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
 LOAD_TEST_RUNTIME_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 SHARED_SYNC_CHANGED=0
+INTERNAL_LAB_HELM_SYNC_CHANGED=0
 BASE_DEPLOY_CHANGED=0
 STUBS_DEPLOY_CHANGED=0
 
@@ -228,6 +231,9 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "assets-sync" 
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "shared-sync" "${SHARED_SYNC_FINGERPRINT}"; then
   SHARED_SYNC_CHANGED=1
+fi
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "internal-lab-helm-sync" "${INTERNAL_LAB_HELM_SYNC_FINGERPRINT}"; then
+  INTERNAL_LAB_HELM_SYNC_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
@@ -261,6 +267,10 @@ fi
 if [[ "${SHARED_SYNC_CHANGED}" -eq 1 ]]; then
   sync_path "${REPO_ROOT}/demo/infra/shared" "${LAB_ROOT}/workspace/demo/infra/shared"
   record_remote_fingerprint "shared-sync" "${SHARED_SYNC_FINGERPRINT}"
+fi
+if [[ "${INTERNAL_LAB_HELM_SYNC_CHANGED}" -eq 1 ]]; then
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/helm" "${LAB_ROOT}/workspace/demo/infra/internal-lab/helm"
+  record_remote_fingerprint "internal-lab-helm-sync" "${INTERNAL_LAB_HELM_SYNC_FINGERPRINT}"
 fi
 
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
@@ -313,6 +323,7 @@ echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  load-test runtime changed=${LOAD_TEST_RUNTIME_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  shared synced=${SHARED_SYNC_CHANGED}"
+echo "  internal-lab helm synced=${INTERNAL_LAB_HELM_SYNC_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"
 echo "  demo-stubs redeployed=$(( DEMO_STUBS_IMAGE_CHANGED || STUBS_DEPLOY_CHANGED ))"
 echo "  runtime=${LAB_ROOT}/runtime/load-test"

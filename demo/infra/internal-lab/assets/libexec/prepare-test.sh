@@ -4,7 +4,7 @@ set -euo pipefail
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/shared/helm/demo/profiles/internal-lab"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo/profiles/internal-lab"
 TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 
@@ -112,7 +112,7 @@ CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-
 
 "${LAB_ROOT}/assets/libexec/deploy-stubs.sh"
 
-helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo" \
+helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo" \
   --namespace ckc-perf \
   -f "${LAB_ROOT}/assets/config/demo-values.yaml" \
   -f "${DEPLOYMENT_PROFILE}" \

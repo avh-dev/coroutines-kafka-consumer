@@ -11,10 +11,10 @@ if ! k3s ctr images list -q | grep -Fxq "docker.io/ckc-perf/demo-stubs:latest"; 
   exit 1
 fi
 
-helm upgrade --install ckc-demo-stubs "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo-stubs" \
+helm upgrade --install ckc-demo-stubs "${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo-stubs" \
   --namespace ckc-perf \
   -f "${LAB_ROOT}/assets/config/demo-stubs-values.yaml" \
-  -f "${LAB_ROOT}/workspace/demo/infra/shared/helm/demo-stubs/profiles/internal-lab.yaml"
+  -f "${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo-stubs/profiles/internal-lab.yaml"
 
 if [ "${RESTART}" = "--restart" ]; then
   kubectl -n ckc-perf rollout restart deployment/ckc-demo-stubs

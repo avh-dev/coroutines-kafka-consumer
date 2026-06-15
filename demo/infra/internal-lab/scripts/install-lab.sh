@@ -58,9 +58,11 @@ cat > "${STATE_DIR}/lab.env" <<EOF
 LAB_HOST=${LAB_HOST}
 EOF
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/workspace/demo/infra' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana' '${LAB_ROOT}/workspace/demo/infra/shared'"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/workspace/demo/infra' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared/grafana' '${LAB_ROOT}/workspace/demo/infra/shared' '${LAB_ROOT}/workspace/demo/infra/internal-lab'"
 scp -r "${ASSETS_DIR}" "root@${LAB_HOST}:${LAB_ROOT}/"
 scp -r "${REPO_ROOT}/demo/infra/shared" "root@${LAB_HOST}:${LAB_ROOT}/workspace/demo/infra/"
+ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/workspace/demo/infra/internal-lab'"
+scp -r "${REPO_ROOT}/demo/infra/internal-lab/helm" "root@${LAB_HOST}:${LAB_ROOT}/workspace/demo/infra/internal-lab/"
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config'"
 ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}

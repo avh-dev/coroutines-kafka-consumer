@@ -37,8 +37,8 @@
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `../shared/helm`
-  Helm charts and deployment profiles for the app and stub workloads.
+- `helm/`
+  AWS-owned Helm charts and deployment profiles for the app and stub workloads.
 
 - `../shared/test-definitions`
   Test-run definitions that select deployment profiles and load configuration.

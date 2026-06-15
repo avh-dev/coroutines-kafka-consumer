@@ -334,19 +334,19 @@ While topics are being deleted and recreated, running app pods can briefly log `
 Switch only the app profile or explicit Helm settings. For example:
 
 ```sh
-helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
+helm upgrade --install ckc-demo demo/infra/internal-lab/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/internal-lab/ckc.yaml
+  -f demo/infra/internal-lab/helm/demo/profiles/internal-lab/ckc.yaml
 ```
 
 ```sh
-helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
+helm upgrade --install ckc-demo demo/infra/internal-lab/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/internal-lab/spring-kafka.yaml
+  -f demo/infra/internal-lab/helm/demo/profiles/internal-lab/spring-kafka.yaml
 ```
 
 Useful Prometheus queries:
