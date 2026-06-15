@@ -4,4 +4,5 @@
 
 - `test-definitions/`: YAML smoke/load definitions
 - `test-orchestration/`: Kubernetes test runner used by AWS lab flows
+- `audit/`: shared audit archiver and analyzer used by local, internal-lab, and AWS flows
 - `grafana/`: shared dashboard and provisioning files

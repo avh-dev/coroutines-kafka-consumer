@@ -43,6 +43,9 @@
 - `../shared/test-definitions`
   Test-run definitions that select deployment profiles and load configuration.
 
+- `../shared/audit`
+  Shared audit analysis code. AWS audit chunks can be downloaded from S3 and analyzed from any machine with Python and AWS CLI access.
+
 ## Access Model
 
 - The runner has no public IP.
@@ -66,3 +69,13 @@
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
 `create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/shared/test-definitions/ckc-baseline.yaml`.
+
+## Audit Analysis
+
+AWS audit analysis is intentionally manual and location-independent. After a run has uploaded audit chunks to S3, run the shared analyzer wrapper from a local machine, the internal lab, or the AWS runner:
+
+```sh
+./demo/infra/aws/audit/analyze-s3-audit.sh s3://bucket/prefix/run-id
+```
+
+Add `--upload-summary` to copy `summary.yaml` and `analyzer-progress.log` back to the same S3 prefix.

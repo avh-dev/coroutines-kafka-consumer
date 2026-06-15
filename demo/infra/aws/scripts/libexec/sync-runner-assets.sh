@@ -34,8 +34,10 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/assets/terraform/load-lab/outputs.tf \
   demo/infra/aws/assets/terraform/load-lab/profiles \
   demo/infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
+  demo/infra/aws/audit \
   demo/infra/aws/helm \
   demo/infra/aws/runner-assets \
+  demo/infra/shared/audit \
   demo/infra/shared/grafana \
   demo/infra/shared/test-definitions \
   demo/infra/shared/test-orchestration
@@ -55,6 +57,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "mkdir -p \\"${REPO_TARGET}\\"",
     "tar -xzf \\"${BUNDLE_TARGET}\\" -C \\"${REPO_TARGET}\\"",
     "find \\"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \\"${REPO_TARGET}/demo/infra/aws/audit\\" -type f -name '*.sh' -exec chmod +x {} +",
     "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",

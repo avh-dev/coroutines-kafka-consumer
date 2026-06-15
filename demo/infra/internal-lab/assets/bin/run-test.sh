@@ -629,7 +629,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
   cp "${AUDIT_CHUNK_DIR}"/*.log.gz "${RUN_AUDIT_CHUNK_DIR}/"
   echo "Running audit analysis."
-  if ! python3 "${LAB_ROOT}/assets/helpers/analyze-audit.py" \
+  if ! python3 "${LAB_ROOT}/workspace/demo/infra/shared/audit/analyze-audit.py" \
     --input-dir "${RUN_AUDIT_CHUNK_DIR}" \
     --metadata-file "${RUN_METADATA_FILE}" \
     --require-records \
