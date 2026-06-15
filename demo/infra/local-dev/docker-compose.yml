@@ -60,7 +60,7 @@ services:
       - audit
     command: ["python", "/app/archive-audit.py", "--output-dir", "/audit/chunks"]
     volumes:
-      - ../internal-lab/assets/scripts/helpers/archive-audit.py:/app/archive-audit.py:ro
+      - ../shared/audit/archive-audit.py:/app/archive-audit.py:ro
       - ../../../.demo-infra/local-dev/audit/live:/audit
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 5171), 2); s.close()"]

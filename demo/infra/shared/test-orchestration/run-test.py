@@ -482,7 +482,7 @@ def require_profile_file(base_dir: Path, name: str) -> Path:
 def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: dict[str, Any], registry: str) -> None:
     deployment = require_section(definition, "deployment")
     app_profile = as_str(deployment.get("app_profile"), "ckc-single")
-    charts_dir = repo_dir / "infra" / "shared" / "helm"
+    charts_dir = repo_dir / "demo" / "infra" / "aws" / "helm"
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
     stubs_chart = charts_dir / "demo-stubs"
