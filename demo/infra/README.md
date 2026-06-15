@@ -9,13 +9,13 @@
 - `shared/`: Helm charts, test definitions, test orchestration, Grafana provisioning, and dashboards shared by lab environments
 - `aws/terraform/`: long-lived AWS Terraform stacks for `runner` and `ecr`
 - `aws/assets/`: AWS-only assets uploaded to the runner, including disposable `load-lab` Terraform
-- `aws/runner-internal/`: scripts executed inside the AWS runner
-- `aws/scripts/`: local operator scripts split into `linux` and `windows`
+- `aws/runner-assets/`: scripts executed inside the AWS runner
+- `aws/scripts/`: Git Bash-compatible local operator scripts
 
 ## Shell Notes
 
 On Windows, run local infrastructure shell scripts from Git Bash.
-The local scripts are written and tested as Bash scripts and assume Git Bash path behavior when used on Windows.
+Do not use PowerShell wrappers for demo infrastructure; the local scripts assume Git Bash path behavior when used on Windows.
 
 ## AWS Model
 
@@ -37,15 +37,7 @@ From the repository root, prepare the runner:
 ```sh
 cp demo/infra/aws/terraform/runner/terraform.tfvars.example demo/infra/aws/terraform/runner/terraform.tfvars
 cp demo/infra/aws/terraform/ecr/terraform.tfvars.example demo/infra/aws/terraform/ecr/terraform.tfvars
-./demo/infra/aws/scripts/linux/create-runner-and-ecr.sh us-east-1 dev
-```
-
-Or on Windows PowerShell:
-
-```powershell
-Copy-Item demo\infra\aws\terraform\runner\terraform.tfvars.example demo\infra\aws\terraform\runner\terraform.tfvars
-Copy-Item demo\infra\aws\terraform\ecr\terraform.tfvars.example demo\infra\aws\terraform\ecr\terraform.tfvars
-./demo/infra/aws/scripts/windows/create-runner-and-ecr.ps1 -Region us-east-1 -Environment dev
+./demo/infra/aws/scripts/create-runner-and-ecr.sh us-east-1 dev
 ```
 
 What you get after `apply`:
@@ -56,52 +48,39 @@ What you get after `apply`:
 - the shared `CKC Overview` dashboard already provisioned
 - no public inbound access to the instance
 
-Open Grafana from your local machine through SSM port forwarding:
+Connect to the runner:
 
 ```sh
-./demo/infra/aws/scripts/linux/start-grafana-tunnel.sh us-east-1
+./demo/infra/aws/scripts/connect-runner.sh us-east-1
 ```
 
-Or on Windows PowerShell:
+Start long-running AWS lab work from the runner, preferably inside `tmux`:
 
-```powershell
-./demo/infra/aws/scripts/windows/start-grafana-tunnel.ps1 -Region us-east-1
+```sh
+tmux new -s ckc
+cd /opt/ckc-runner/assets/repo
+./demo/infra/aws/runner-assets/bin/create-lab.sh us-east-1 dev default
+./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/shared/test-definitions/ckc-baseline.yaml
 ```
 
-Then browse to `http://localhost:3002` with `admin` / `admin`.
+Update images and runner assets from your local machine when the code changes:
+
+```sh
+./demo/infra/aws/scripts/update-aws-lab.sh us-east-1 dev
+```
 
 Default local observability ports are intentionally distinct:
 
 - local-dev: Prometheus `9090`, Grafana `3000`
 - internal-lab: app `30080`, Prometheus `30090`, Grafana `3000`
-- AWS runner tunnels: Prometheus `9093`, Grafana `3002`
-
-Open a shell on the runner:
-
-```sh
-./demo/infra/aws/scripts/linux/connect-runner.sh us-east-1
-```
+- AWS runner: Prometheus-compatible storage and Grafana run on the runner host
 
 ## Typical Workflow
 
 1. Create the runner and ECR repositories from your local machine.
-2. Open Grafana and Prometheus tunnels from your local machine.
-3. Start a test from your workstation with `start-test`.
-4. Inspect Grafana and Prometheus through local SSM tunnels.
-5. Destroy the runner only when you no longer need the long-lived management host.
-
-## Cleanup
-
-To destroy both the temporary load lab and the runner:
-
-```sh
-./demo/infra/aws/scripts/linux/destroy-all.sh us-east-1 dev
-```
-
-Or on Windows PowerShell:
-
-```powershell
-./demo/infra/aws/scripts/windows/destroy-all.ps1 -Region us-east-1 -Environment dev
-```
+2. Update AWS lab images and runner assets from your local machine when needed.
+3. Connect to the runner from your local machine.
+4. Run lab creation, tests, chaos scenarios, and lab cleanup on the runner inside `tmux`.
+5. Destroy the long-lived runner and ECR stacks manually with Terraform only when they are no longer needed.
 
 Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), and [internal-lab/README.md](internal-lab/README.md).

@@ -11,19 +11,17 @@
   This currently holds `runner/` and `ecr/`.
 
 - `assets/`
-  AWS-only files uploaded to the runner by `update-runner`.
+  AWS-only files uploaded to the runner by `update-aws-lab`.
   This currently includes runner-side Terraform for disposable labs.
 
-- `runner-internal/`
+- `runner-assets/`
   Remote entrypoints that execute on the runner host.
 
 - `../shared/`
   Helm charts, test definitions, and test orchestration code reused by lab flows.
 
 - `scripts/`
-  Local operator commands split by OS:
-  `scripts/linux/`
-  `scripts/windows/`
+  Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
 
 ## Model
 
@@ -36,7 +34,7 @@
 - `assets/terraform`
   Defines the disposable AWS test lab synced to the runner.
 
-- `runner-internal`
+- `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
 - `../shared/helm`
@@ -49,7 +47,7 @@
 
 - The runner has no public IP.
 - Shell access uses AWS Systems Manager Session Manager.
-- Grafana and Prometheus are exposed locally through SSM port forwarding on `http://localhost:3002` and `http://localhost:9093`.
+- Grafana and Prometheus-compatible storage run on the runner host.
 - Outbound internet access from the runner goes through a NAT gateway.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
 - `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
@@ -58,12 +56,12 @@
 
 ## Typical Flow
 
-1. Create the long-lived base with `create-runner-and-ecr`.
-2. Build and push images from your workstation.
-3. Create or reuse a lab from your workstation with `create-lab`.
-4. Run one or more tests with `run-test`.
-5. Inspect pod-aware metrics in Grafana through the runner tunnel.
-6. Destroy the lab with `destroy-lab` when it is no longer needed. Metrics history remains on the runner.
+1. Create the long-lived base with local `scripts/create-runner-and-ecr.sh`.
+2. Build and push images, then sync runner assets with local `scripts/update-aws-lab.sh`.
+3. Connect to the runner with local `scripts/connect-runner.sh`.
+4. On the runner, start `tmux` and run `runner-assets/bin/create-lab.sh`.
+5. On the runner, run one or more tests with `runner-assets/bin/run-test.sh`.
+6. On the runner, destroy the disposable lab with `runner-assets/bin/destroy-lab.sh` when it is no longer needed. Metrics history remains on the runner.
 
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 

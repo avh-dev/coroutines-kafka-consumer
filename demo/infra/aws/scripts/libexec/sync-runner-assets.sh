@@ -6,7 +6,7 @@ REGION="${1:-us-east-1}"
 INSTANCE_ID="${2:-}"
 RUNNER_ASSETS_DIR="${CKC_RUNNER_ASSETS_DIR:-/opt/ckc-runner/assets}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
+LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../../.." && pwd)"
 TERRAFORM_DIR="${LOCAL_REPO_DIR}/demo/infra/aws/terraform/runner"
 TEMP_DIR="${LOCAL_REPO_DIR}/.demo-infra/tmp"
 BUNDLE_TARGET="${RUNNER_ASSETS_DIR}/runner-assets.tar.gz"
@@ -34,7 +34,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/assets/terraform/load-lab/outputs.tf \
   demo/infra/aws/assets/terraform/load-lab/profiles \
   demo/infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
-  demo/infra/aws/runner-internal \
+  demo/infra/aws/runner-assets \
   demo/infra/shared/grafana \
   demo/infra/shared/helm \
   demo/infra/shared/test-definitions \
@@ -54,7 +54,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "PY",
     "mkdir -p \\"${REPO_TARGET}\\"",
     "tar -xzf \\"${BUNDLE_TARGET}\\" -C \\"${REPO_TARGET}\\"",
-    "find \\"${REPO_TARGET}/demo/infra/aws/runner-internal\\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \\"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\\" -type f -name '*.sh' -exec chmod +x {} +",
     "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",

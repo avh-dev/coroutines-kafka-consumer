@@ -9,7 +9,7 @@ REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 
 COMMAND=(
-  "${REPO_DIR}/demo/infra/aws/runner-internal/run-test.sh"
+  "${REPO_DIR}/demo/infra/aws/runner-assets/bin/run-test.sh"
   "${REGION}"
   "${ENVIRONMENT}"
 )

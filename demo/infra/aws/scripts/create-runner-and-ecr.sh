@@ -44,7 +44,7 @@ wait_for_runner_bootstrap() {
 }
 
 sync_runner_assets() {
-  "${SCRIPT_DIR}/update-runner.sh" "${REGION}" "$1"
+  "${SCRIPT_DIR}/libexec/sync-runner-assets.sh" "${REGION}" "$1"
 }
 
 if [ ! -f "${RUNNER_TERRAFORM_DIR}/terraform.tfvars" ]; then

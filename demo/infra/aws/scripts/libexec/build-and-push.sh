@@ -5,7 +5,7 @@ set -eu
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
+REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../../.." && pwd)"
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
