@@ -141,6 +141,7 @@
 | [INFRA-54](#infra-54) | Restore full per-topic YAML audit summaries while keeping audit analysis off the load-test critical path.                                        | DONE |
 | [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | DONE |
 | [INFRA-56](#infra-56) | Add audit fairness metrics and telemetry-focused lab profiles for comparing freshness-first processing modes.                                   | DONE |
+| [INFRA-57](#infra-57) | Add test-definition chaos steps for scheduled pod disruption, application crashes, and demo-stubs profile changes.                              | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1512,3 +1513,12 @@ _Date: 2026-06-15_
 Add audit analyzer metrics that show per-key telemetry processing fairness under lossy freshness-first modes.
 Report distribution skew, starvation gaps, and processed/dropped ratios for cauldron telemetry keys.
 Add internal-lab test and deployment profiles that generate telemetry-only fixed-fleet pressure for comparing `FRESHNESS_FIRST`, `FRESHNESS_FIRST_BY_KEY`, and stale-threshold discard behavior.
+
+<a id="infra-57"></a>
+### INFRA-57 - Add test definition chaos steps
+
+_Date: 2026-06-16_
+
+Start adding a chaos-steps section to test definitions with offsets from test start, scenario type, and scenario parameters.
+Cover initial Kubernetes pod disruption scenarios: deleting a random pod and triggering the internal crash endpoint in a random pod.
+Cover demo-stubs runtime profile changes, including switching to a named profile and resetting back to the default profile.
