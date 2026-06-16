@@ -75,6 +75,7 @@ Noop runs use the runtime Helm override `--set env.processingEnabled=false`.
 Available internal-lab tests:
 
 - `internal-lab/smoke.yaml`: short functional check with low traffic.
+- `internal-lab/chaos-smoke.yaml`: short resiliency check that schedules demo pod deletion, demo pod crash, and demo-stubs profile changes.
 - `internal-lab/baseline.yaml`: comparison baseline for the dedicated Linux host.
 - `internal-lab/telemetry-freshness-fairness.yaml`: telemetry-only fixed-fleet load for comparing freshness-first key fairness under intentional overload.
 
