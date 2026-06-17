@@ -315,7 +315,6 @@ python3 "${LAB_ROOT}/assets/helpers/definition-env.py" \
 mkdir -p "${LOG_DIR}" "${PID_DIR}"
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-RUN_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 
 PID_PATH="${PID_DIR}/load-test.pid"
 CHAOS_PID_PATH="${PID_DIR}/chaos.pid"
@@ -519,6 +518,7 @@ LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
 nohup "${LOAD_TEST_BIN}" > "${LOG_PATH}" 2>&1 &
 
 PID="$!"
+LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 echo "${PID}" > "${PID_PATH}"
 
 CHAOS_LOG_PATH="${LOG_DIR}/chaos-${RUN_ID}.log"
@@ -526,7 +526,7 @@ CHAOS_PID=""
 if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
   nohup python3 "${LAB_ROOT}/assets/helpers/run-chaos-steps.py" \
-    --start-epoch-seconds "${RUN_STARTED_EPOCH_SECONDS}" \
+    --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
     > "${CHAOS_LOG_PATH}" 2>&1 &
   CHAOS_PID="$!"
   echo "${CHAOS_PID}" > "${CHAOS_PID_PATH}"
