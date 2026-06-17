@@ -317,6 +317,7 @@ RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 PID_PATH="${PID_DIR}/load-test.pid"
+CHAOS_PID_PATH="${PID_DIR}/chaos.pid"
 if [ -f "${PID_PATH}" ]; then
   existing_pid="$(cat "${PID_PATH}")"
   if [ -n "${existing_pid}" ] && kill -0 "${existing_pid}" >/dev/null 2>&1; then
@@ -324,6 +325,14 @@ if [ -f "${PID_PATH}" ]; then
     exit 1
   fi
   rm -f "${PID_PATH}"
+fi
+if [ -f "${CHAOS_PID_PATH}" ]; then
+  existing_chaos_pid="$(cat "${CHAOS_PID_PATH}")"
+  if [ -n "${existing_chaos_pid}" ] && kill -0 "${existing_chaos_pid}" >/dev/null 2>&1; then
+    echo "Chaos executor is already running with pid ${existing_chaos_pid}." >&2
+    exit 1
+  fi
+  rm -f "${CHAOS_PID_PATH}"
 fi
 
 if [ "${RUN_PREPARE}" -eq 1 ]; then
@@ -360,6 +369,7 @@ write_run_metadata() {
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
+  export CHAOS_STEPS_JSON
   export CONSUMER_DRAIN_TIMEOUT_SECONDS CONSUMER_DRAIN_STABLE_SECONDS CONSUMER_DRAIN_POLL_SECONDS
   python3 - <<'PY'
 import json
@@ -443,6 +453,7 @@ metadata = {
         "telemetry_source_mode": env("TELEMETRY_SOURCE_MODE"),
     },
     "stubs": json.loads(env("STUB_SETTINGS_JSON", "{}")),
+    "chaos_steps": json.loads(env("CHAOS_STEPS_JSON", "[]")),
 }
 
 with Path(env("RUN_METADATA_FILE")).open("w", encoding="utf-8") as file:
@@ -507,7 +518,19 @@ LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
 nohup "${LOAD_TEST_BIN}" > "${LOG_PATH}" 2>&1 &
 
 PID="$!"
+LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 echo "${PID}" > "${PID_PATH}"
+
+CHAOS_LOG_PATH="${LOG_DIR}/chaos-${RUN_ID}.log"
+CHAOS_PID=""
+if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
+  CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
+  nohup python3 "${LAB_ROOT}/assets/helpers/run-chaos-steps.py" \
+    --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
+    > "${CHAOS_LOG_PATH}" 2>&1 &
+  CHAOS_PID="$!"
+  echo "${CHAOS_PID}" > "${CHAOS_PID_PATH}"
+fi
 
 echo "Load test started on lab host."
 echo "  pid=${PID}"
@@ -516,6 +539,10 @@ echo "  audit=${RUN_AUDIT_DIR}"
 echo "  pid_file=${PID_PATH}"
 echo "  bootstrap=127.0.0.1:9092"
 echo "  test_definition=$(basename "${TEST_DEFINITION}")"
+if [ -n "${CHAOS_PID}" ]; then
+  echo "  chaos_pid=${CHAOS_PID}"
+  echo "  chaos_log=${CHAOS_LOG_PATH}"
+fi
 echo
 if [ -t 0 ]; then
   echo "Press q to stop the test early. Otherwise this script exits when the load-test process finishes."
@@ -523,7 +550,23 @@ else
   echo "No interactive input is attached; waiting until the load-test process finishes."
 fi
 
+stop_chaos() {
+  if [ -n "${CHAOS_PID:-}" ] && kill -0 "${CHAOS_PID}" >/dev/null 2>&1; then
+    kill "${CHAOS_PID}" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5; do
+      if ! kill -0 "${CHAOS_PID}" >/dev/null 2>&1; then
+        rm -f "${CHAOS_PID_PATH}"
+        return
+      fi
+      sleep 1
+    done
+    kill -9 "${CHAOS_PID}" >/dev/null 2>&1 || true
+  fi
+  rm -f "${CHAOS_PID_PATH}"
+}
+
 stop_process() {
+  stop_chaos
   if kill -0 "${PID}" >/dev/null 2>&1; then
     kill "${PID}" >/dev/null 2>&1 || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -560,8 +603,21 @@ while true; do
     rm -f "${PID_PATH}"
     LOAD_TEST_EXIT_CODE=0
     wait "${PID}" || LOAD_TEST_EXIT_CODE=$?
+    stop_chaos
     echo "Load test finished."
     break
+  fi
+
+  if [ -n "${CHAOS_PID:-}" ] && ! kill -0 "${CHAOS_PID}" >/dev/null 2>&1; then
+    rm -f "${CHAOS_PID_PATH}"
+    CHAOS_EXIT_CODE=0
+    wait "${CHAOS_PID}" || CHAOS_EXIT_CODE=$?
+    CHAOS_PID=""
+    if [ "${CHAOS_EXIT_CODE}" -ne 0 ]; then
+      echo "Chaos executor exited with status ${CHAOS_EXIT_CODE}. Log: ${CHAOS_LOG_PATH}" >&2
+      stop_process
+      exit "${CHAOS_EXIT_CODE}"
+    fi
   fi
 
   if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then

@@ -174,6 +174,12 @@ shown as defaults and used when Enter is pressed:
 - the shared suspend worker dispatcher thread count
 - a load-test definition, defaulting to the previous run
 
+Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
+executor after the load-test process starts. Chaos offsets are measured from
+that load-test start point. The executor writes its own log under
+`/opt/ckc-internal-lab/logs/chaos-<run-id>.log`, and the runner fails fast if a
+chaos step fails.
+
 Pass the same choices explicitly for a non-interactive run:
 
 ```sh
@@ -218,6 +224,14 @@ The script exports `load_test` settings as environment variables for `ckc-demo-l
 
 ```text
 /opt/ckc-internal-lab/logs/
+```
+
+Run the bundled internal-lab chaos smoke explicitly with:
+
+```sh
+LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
+  --deployment ckc \
+  chaos-smoke
 ```
 
 High-volume publish and processed audit records are streamed over TCP into the

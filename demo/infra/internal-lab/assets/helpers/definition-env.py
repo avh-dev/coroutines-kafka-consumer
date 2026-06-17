@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -106,7 +107,96 @@ def load_yaml_fallback(path: Path) -> dict[str, Any]:
             key, value = stripped.split(":", 1)
             data[section][subsection][key.strip()] = scalar(value)
 
+    chaos_steps = parse_chaos_steps(path)
+    if chaos_steps:
+        data["chaos_steps"] = chaos_steps
+
     return data
+
+
+def clean_yaml_lines(path: Path) -> list[tuple[int, str]]:
+    result: list[tuple[int, str]] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        result.append((len(line) - len(line.lstrip(" ")), line.strip()))
+    return result
+
+
+def parse_duration_seconds(value: Any, context: str) -> int:
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(f"{context} must be non-negative: {value}")
+        return value
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{context} must not be empty")
+    if text.isdigit():
+        return int(text)
+    matches = list(re.finditer(r"(\d+)\s*([hms])", text))
+    if not matches or "".join(match.group(0) for match in matches) != text.replace(" ", ""):
+        raise ValueError(f"{context} must be a duration like 30s, 2m30s, or 1h")
+    multipliers = {"h": 3600, "m": 60, "s": 1}
+    return sum(int(match.group(1)) * multipliers[match.group(2)] for match in matches)
+
+
+def parse_mapping(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[dict[str, Any], int]:
+    result: dict[str, Any] = {}
+    while index < len(lines):
+        line_indent, stripped = lines[index]
+        if line_indent < indent:
+            break
+        if line_indent > indent:
+            raise ValueError(f"Unexpected indentation in chaos_steps near: {stripped}")
+        if stripped.startswith("- "):
+            break
+        if ":" not in stripped:
+            raise ValueError(f"Expected key-value item in chaos_steps near: {stripped}")
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if value:
+            result[key] = scalar(value)
+            index += 1
+            continue
+        child, index = parse_mapping(lines, index + 1, indent + 2)
+        result[key] = child
+    return result, index
+
+
+def parse_chaos_steps(path: Path) -> list[dict[str, Any]]:
+    lines = clean_yaml_lines(path)
+    start_index: int | None = None
+    for index, (indent, stripped) in enumerate(lines):
+        if indent == 0 and stripped == "chaos_steps:":
+            start_index = index + 1
+            break
+    if start_index is None:
+        return []
+
+    steps: list[dict[str, Any]] = []
+    index = start_index
+    while index < len(lines):
+        indent, stripped = lines[index]
+        if indent == 0:
+            break
+        if indent != 2 or not stripped.startswith("- "):
+            raise ValueError(f"chaos_steps entries must be list items: {stripped}")
+
+        step: dict[str, Any] = {}
+        first_item = stripped[2:].strip()
+        if first_item:
+            if ":" not in first_item:
+                raise ValueError(f"chaos_steps list item must start with a key-value pair: {stripped}")
+            key, value = first_item.split(":", 1)
+            step[key.strip()] = scalar(value)
+
+        child, index = parse_mapping(lines, index + 1, 4)
+        step.update(child)
+        steps.append(step)
+
+    return steps
 
 
 def shell_quote(value: str) -> str:
@@ -120,6 +210,87 @@ def value_at(data: dict[str, Any], *keys: str, default: Any = "") -> Any:
             return default
         current = current.get(key, default)
     return current
+
+
+def latency_settings_from_values(values: dict[str, Any], context: str, definition_path: Path) -> dict[str, int]:
+    required_keys = ("delay_p90_ms", "delay_p95_ms", "delay_p99_ms", "delay_p100_ms")
+    missing = [key for key in required_keys if key not in values]
+    if missing:
+        raise ValueError(f"Test definition must define {context}.{missing[0]}: {definition_path}")
+    return {
+        "delayP90Ms": int(values["delay_p90_ms"]),
+        "delayP95Ms": int(values["delay_p95_ms"]),
+        "delayP99Ms": int(values["delay_p99_ms"]),
+        "delayP100Ms": int(values["delay_p100_ms"]),
+    }
+
+
+def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, context: str = "stubs") -> dict[str, Any]:
+    if "error_rate_percent" not in stubs:
+        raise ValueError(f"Test definition must define {context}.error_rate_percent: {definition_path}")
+    default_registry = {"delayP90Ms": 2, "delayP95Ms": 3, "delayP99Ms": 4, "delayP100Ms": 5}
+    registry = stubs.get("registry", {})
+    return {
+        "eta": latency_settings_from_values(stubs.get("eta", {}), f"{context}.eta", definition_path),
+        "flavour": latency_settings_from_values(stubs.get("flavour", {}), f"{context}.flavour", definition_path),
+        "registry": (
+            latency_settings_from_values(registry, f"{context}.registry", definition_path)
+            if isinstance(registry, dict) and registry
+            else default_registry
+        ),
+        "errorRatePercent": int(stubs["error_rate_percent"]),
+    }
+
+
+def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
+    raw_steps = definition.get("chaos_steps", [])
+    if raw_steps in ("", None):
+        return []
+    if not isinstance(raw_steps, list):
+        raise ValueError(f"Test definition chaos_steps must be a list: {definition_path}")
+
+    supported_types = {"delete_random_pod", "crash_random_pod", "set_stubs_profile", "reset_stubs_profile"}
+    result: list[dict[str, Any]] = []
+    previous_at = -1
+    for index, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            raise ValueError(f"chaos_steps[{index}] must be an object: {definition_path}")
+        if "at" not in raw_step:
+            raise ValueError(f"chaos_steps[{index}] must define at: {definition_path}")
+        if "type" not in raw_step:
+            raise ValueError(f"chaos_steps[{index}] must define type: {definition_path}")
+
+        at_seconds = parse_duration_seconds(raw_step["at"], f"chaos_steps[{index}].at")
+        step_type = str(raw_step["type"])
+        if step_type not in supported_types:
+            raise ValueError(f"Unsupported chaos_steps[{index}].type {step_type!r}: {definition_path}")
+        if at_seconds < previous_at:
+            raise ValueError(f"chaos_steps must be ordered by at: {definition_path}")
+        previous_at = at_seconds
+
+        params = raw_step.get("params", {})
+        if params in ("", None):
+            params = {}
+        if not isinstance(params, dict):
+            raise ValueError(f"chaos_steps[{index}].params must be an object: {definition_path}")
+
+        normalized = {"atSeconds": at_seconds, "type": step_type, "params": params}
+        if step_type in {"delete_random_pod", "crash_random_pod"}:
+            normalized["params"] = {
+                "namespace": str(params.get("namespace", "ckc-perf")),
+                "selector": str(params.get("selector", "app.kubernetes.io/name=ckc-demo")),
+            }
+            if step_type == "crash_random_pod" and "endpoint" in params:
+                normalized["params"]["endpoint"] = str(params["endpoint"])
+        elif step_type == "set_stubs_profile":
+            normalized["params"] = {
+                "settings": stub_settings_from_definition(params, definition_path, f"chaos_steps[{index}].params")
+            }
+        elif step_type == "reset_stubs_profile":
+            normalized["params"] = {"settings": baseline_stubs}
+        result.append(normalized)
+
+    return result
 
 
 def main() -> None:
@@ -159,45 +330,8 @@ def main() -> None:
     if not isinstance(stubs, dict) or not stubs:
         raise ValueError(f"Test definition must define stubs baseline settings: {definition_path}")
 
-    def required_int(values: dict[str, Any], key: str, context: str) -> int:
-        if key not in values:
-            raise ValueError(f"Test definition must define stubs.{context}.{key}: {definition_path}")
-        return int(values[key])
-
-    def latency_settings(name: str) -> dict[str, int]:
-        values = stubs.get(name, {})
-        if not isinstance(values, dict) or not values:
-            raise ValueError(f"Test definition must define stubs.{name}: {definition_path}")
-        return {
-            "delayP90Ms": required_int(values, "delay_p90_ms", name),
-            "delayP95Ms": required_int(values, "delay_p95_ms", name),
-            "delayP99Ms": required_int(values, "delay_p99_ms", name),
-            "delayP100Ms": required_int(values, "delay_p100_ms", name),
-        }
-
-    def optional_latency_settings(name: str, defaults: dict[str, int]) -> dict[str, int]:
-        values = stubs.get(name, {})
-        if not isinstance(values, dict) or not values:
-            return defaults
-        return {
-            "delayP90Ms": int(values.get("delay_p90_ms", defaults["delayP90Ms"])),
-            "delayP95Ms": int(values.get("delay_p95_ms", defaults["delayP95Ms"])),
-            "delayP99Ms": int(values.get("delay_p99_ms", defaults["delayP99Ms"])),
-            "delayP100Ms": int(values.get("delay_p100_ms", defaults["delayP100Ms"])),
-        }
-
-    if "error_rate_percent" not in stubs:
-        raise ValueError(f"Test definition must define stubs.error_rate_percent: {definition_path}")
-
-    stub_settings = {
-        "eta": latency_settings("eta"),
-        "flavour": latency_settings("flavour"),
-        "registry": optional_latency_settings(
-            "registry",
-            {"delayP90Ms": 2, "delayP95Ms": 3, "delayP99Ms": 4, "delayP100Ms": 5},
-        ),
-        "errorRatePercent": int(stubs["error_rate_percent"]),
-    }
+    stub_settings = stub_settings_from_definition(stubs, definition_path)
+    chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
 
     assignments = {
         "APP_PROFILE": deployment_profile_path.stem,
@@ -206,6 +340,7 @@ def main() -> None:
         "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
+        "CHAOS_STEPS_JSON": json.dumps(chaos_steps, separators=(",", ":")),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
         "BASE_TPS": str(load_test.get("base_tps", 10000)),
         "ORDER_EVENT_PERCENT": str(load_test.get("order_event_percent", 40)),
