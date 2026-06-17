@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import random
+import socket
 import subprocess
 import sys
 import time
@@ -40,6 +41,22 @@ def run(command: list[str], *, check: bool = True, capture_output: bool = False)
             sys.stderr.write(result.stderr)
         raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
     return result
+
+
+def wait_for_http_ok(url: str, timeout_seconds: int) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        result = subprocess.run(["curl", "-fsS", url], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            return
+        time.sleep(0.5)
+    raise TimeoutError(f"Endpoint did not become reachable: {url}")
+
+
+def free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def load_steps(args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -98,13 +115,20 @@ def random_running_pod(namespace: str, selector: str) -> str:
         capture_output=True,
     )
     data = json.loads(result.stdout)
-    pods = [
-        item["metadata"]["name"]
-        for item in data.get("items", [])
-        if not item.get("metadata", {}).get("deletionTimestamp")
-    ]
+    pods = []
+    for item in data.get("items", []):
+        metadata = item.get("metadata", {})
+        if metadata.get("deletionTimestamp"):
+            continue
+        conditions = item.get("status", {}).get("conditions", [])
+        ready = any(
+            condition.get("type") == "Ready" and condition.get("status") == "True"
+            for condition in conditions
+        )
+        if ready:
+            pods.append(metadata["name"])
     if not pods:
-        raise RuntimeError(f"No running pods matched namespace={namespace} selector={selector}")
+        raise RuntimeError(f"No ready running pods matched namespace={namespace} selector={selector}")
     return random.SystemRandom().choice(pods)
 
 
@@ -112,6 +136,11 @@ def pod_params(params: dict[str, Any]) -> tuple[str, str]:
     namespace = str(params.get("namespace", "ckc-perf"))
     selector = str(params.get("selector", "app.kubernetes.io/name=ckc-demo"))
     return namespace, selector
+
+
+def crash_endpoint(params: dict[str, Any]) -> str:
+    endpoint = str(params.get("endpoint", "/internal/crash"))
+    return endpoint if endpoint.startswith("/") else f"/{endpoint}"
 
 
 def delete_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
@@ -126,24 +155,37 @@ def delete_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
 
 def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
     namespace, selector = pod_params(params)
+    endpoint = crash_endpoint(params)
     if dry_run:
-        log(f"dry-run: would crash one pod namespace={namespace} selector={selector}")
+        log(f"dry-run: would crash one pod namespace={namespace} selector={selector} endpoint={endpoint}")
         return
     pod = random_running_pod(namespace, selector)
-    log(f"triggering internal crash endpoint namespace={namespace} pod={pod}")
-    run(
+    port = free_local_port()
+    log(f"triggering internal crash endpoint namespace={namespace} pod={pod} endpoint={endpoint}")
+    port_forward = subprocess.Popen(
         [
             "kubectl",
             "-n",
             namespace,
-            "exec",
-            pod,
-            "--",
-            "sh",
-            "-c",
-            "curl -sS -X POST http://localhost:8080/internal/crash >/dev/null 2>&1 &",
-        ]
+            "port-forward",
+            f"pod/{pod}",
+            f"{port}:8080",
+            "--address",
+            "127.0.0.1",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
+    try:
+        wait_for_http_ok(f"http://127.0.0.1:{port}/actuator/health", 30)
+        run(["curl", "-fsS", "-X", "POST", f"http://127.0.0.1:{port}{endpoint}"], check=False)
+    finally:
+        port_forward.terminate()
+        try:
+            port_forward.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            port_forward.kill()
+            port_forward.wait(timeout=5)
 
 
 def apply_stubs_profile(params: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:

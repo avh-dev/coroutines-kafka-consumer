@@ -35,9 +35,10 @@ chaos_steps:
     params:
       namespace: ckc-perf
       selector: app.kubernetes.io/name=ckc-demo
+      endpoint: /internal/crash
 ```
 
-`delete_random_pod` deletes one randomly selected matching pod through `kubectl delete pod`. `crash_random_pod` execs into one randomly selected matching pod and posts to the demo application's internal crash endpoint. `namespace` and `selector` are optional for both types.
+`delete_random_pod` deletes one randomly selected matching pod through `kubectl delete pod`. `crash_random_pod` selects one matching pod, opens a temporary `kubectl port-forward` to that pod, and posts to the demo application's internal crash endpoint from the lab host. `namespace` and `selector` are optional for both types. `endpoint` is optional for `crash_random_pod` and defaults to `/internal/crash`.
 
 Stub profile steps use the same latency keys as the baseline `stubs` block. `set_stubs_profile` applies the supplied profile through the demo-stubs settings endpoint, and `reset_stubs_profile` restores the baseline `stubs` settings from the same test definition.
 

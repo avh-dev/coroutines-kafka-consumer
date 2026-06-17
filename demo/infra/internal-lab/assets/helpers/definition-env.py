@@ -280,6 +280,8 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
                 "namespace": str(params.get("namespace", "ckc-perf")),
                 "selector": str(params.get("selector", "app.kubernetes.io/name=ckc-demo")),
             }
+            if step_type == "crash_random_pod" and "endpoint" in params:
+                normalized["params"]["endpoint"] = str(params["endpoint"])
         elif step_type == "set_stubs_profile":
             normalized["params"] = {
                 "settings": stub_settings_from_definition(params, definition_path, f"chaos_steps[{index}].params")
