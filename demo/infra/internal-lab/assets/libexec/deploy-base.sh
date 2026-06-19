@@ -53,7 +53,7 @@ if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "$
 fi
 
 mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/provisioning/dashboards"
-mkdir -p "${LAB_ROOT}/audit/live/chunks"
+mkdir -p "${LAB_ROOT}/audit/live"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${ASSETS_DIR}/grafana/provisioning/datasources/prometheus.yml" \
   > "${LAB_ROOT}/grafana/provisioning/datasources/prometheus.yml"
@@ -62,7 +62,7 @@ cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-
 cp "${ASSETS_DIR}/compose/process-exporter.yml" "${LAB_ROOT}/process-exporter.yml"
 cp "${ASSETS_DIR}/compose/fluent-bit.yaml" "${LAB_ROOT}/fluent-bit.yaml"
 
-for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-audit-archiver ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
+for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -71,7 +71,7 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis audit-archiver fluent-bit grafana process-exporter
+LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis fluent-bit grafana process-exporter
 docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
 docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
 docker restart ckc-internal-process-exporter >/dev/null
@@ -91,12 +91,6 @@ if ! timeout 30 sh -c "until [ \"\$(curl -fsS 'http://127.0.0.1:2020/api/v1/heal
   docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
   exit 1
 fi
-if [ "$(docker inspect -f '{{.State.Health.Status}}' ckc-internal-audit-archiver 2>/dev/null || true)" != "healthy" ]; then
-  echo "Audit archiver did not become healthy." >&2
-  docker logs --tail 50 ckc-internal-audit-archiver >&2 || true
-  exit 1
-fi
-
 echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST}:30080"
 echo "  prometheus: http://${LAB_HOST}:30090"

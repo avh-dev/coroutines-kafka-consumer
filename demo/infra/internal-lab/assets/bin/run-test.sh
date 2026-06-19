@@ -8,7 +8,7 @@ LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/pids"
 AUDIT_DIR="${LAB_ROOT}/audit"
 AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
-AUDIT_CHUNK_DIR="${AUDIT_LIVE_DIR}/chunks"
+AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo/profiles/internal-lab"
 TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
@@ -357,11 +357,11 @@ fi
 
 LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
 RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
-RUN_AUDIT_CHUNK_DIR="${RUN_AUDIT_DIR}/chunks"
+RUN_AUDIT_LOG_FILE="${RUN_AUDIT_DIR}/audit-${RUN_ID}.log"
 AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
 AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
 RUN_METADATA_FILE="${RUN_AUDIT_DIR}/run-metadata.json"
-mkdir -p "${RUN_AUDIT_DIR}" "${RUN_AUDIT_CHUNK_DIR}" "${AUDIT_CHUNK_DIR}"
+mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
@@ -465,24 +465,17 @@ PY
 write_run_metadata
 
 audit_collector_ready() {
-  [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ] &&
-  [ "$(docker inspect -f '{{.State.Health.Status}}' ckc-internal-audit-archiver 2>/dev/null || true)" = "healthy" ]
+  [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ]
 }
 
-if [ "${AUDIT_LOG_ENABLED}" = "true" ] && ! audit_collector_ready; then
-  echo "Audit collector is not ready on http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health." >&2
-  exit 1
-fi
-
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
-  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit audit-archiver >/dev/null
-  rm -f "${AUDIT_CHUNK_DIR}"/*.log "${AUDIT_CHUNK_DIR}"/*.log.gz "${AUDIT_CHUNK_DIR}"/*.part
+  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  rm -f "${AUDIT_LIVE_FILE}"
   rm -f "${AUDIT_ANALYZER_PROGRESS_FILE}" "${AUDIT_ANALYZER_SUMMARY_FILE}"
-  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 60 audit-archiver fluent-bit
+  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 60 fluent-bit
   if ! audit_collector_ready; then
-    echo "Audit collector is not ready after resetting audit archive services." >&2
+    echo "Audit collector is not ready after resetting Fluent Bit." >&2
     docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
-    docker logs --tail 50 ckc-internal-audit-archiver >&2 || true
     exit 1
   fi
 fi
@@ -659,34 +652,29 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   fi
 fi
 
-wait_for_audit_chunks_complete() {
-  local waited_seconds=0
+finalize_audit_log() {
+  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
+    echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
+    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+    return 1
+  fi
 
-  while find "${AUDIT_CHUNK_DIR}" -maxdepth 1 -type f -name '*.part' -print -quit | grep -q .; do
-    if [ "${waited_seconds}" -ge 30 ]; then
-      echo "Audit archiver still has pending chunk files after ${waited_seconds}s." >&2
-      find "${AUDIT_CHUNK_DIR}" -maxdepth 1 -type f -name '*.part' -print >&2
-      return 1
-    fi
-    sleep 1
-    waited_seconds=$((waited_seconds + 1))
-  done
+  rm -f "${RUN_AUDIT_LOG_FILE}" "${RUN_AUDIT_LOG_FILE}.gz"
+  mv "${AUDIT_LIVE_FILE}" "${RUN_AUDIT_LOG_FILE}"
+}
+
+archive_analyzed_audit_log() {
+  gzip -1 "${RUN_AUDIT_LOG_FILE}"
 }
 
 echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
-  echo "Archiving completed audit chunks."
-  wait_for_audit_chunks_complete
-  if ! find "${AUDIT_CHUNK_DIR}" -maxdepth 1 -type f -name '*.log.gz' -print -quit | grep -q .; then
-    echo "No completed audit chunks were archived for run ${RUN_ID}." >&2
-    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
-    docker logs --tail 50 ckc-internal-audit-archiver >&2 || true
-    exit 1
-  fi
-  cp "${AUDIT_CHUNK_DIR}"/*.log.gz "${RUN_AUDIT_CHUNK_DIR}/"
+  echo "Finalizing Fluent Bit audit log."
+  finalize_audit_log
   echo "Running audit analysis."
   if ! python3 "${LAB_ROOT}/workspace/demo/infra/shared/audit/analyze-audit.py" \
-    --input-dir "${RUN_AUDIT_CHUNK_DIR}" \
+    --input-file "${RUN_AUDIT_LOG_FILE}" \
     --metadata-file "${RUN_METADATA_FILE}" \
     --require-records \
     > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
@@ -695,6 +683,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
     cat "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2 || true
     exit 1
   fi
+  archive_analyzed_audit_log
   cat "${AUDIT_ANALYZER_SUMMARY_FILE}"
 else
   echo "Audit logging disabled; skipping audit analysis."
