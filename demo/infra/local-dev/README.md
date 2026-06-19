@@ -28,8 +28,8 @@ Start with local audit collection directly through Docker Compose:
 docker compose -f demo/infra/local-dev/docker-compose.yml --profile audit up -d
 ```
 
-The audit profile starts Fluent Bit and the shared audit archiver.
-Audit chunks are written under `.demo-infra/local-dev/audit/live/chunks/`.
+The audit profile starts Fluent Bit.
+Compact audit lines are written under `.demo-infra/local-dev/audit/live/audit.log`.
 The demo app and load-test generator use `127.0.0.1:5170` by default, so no extra audit TCP settings are needed for local runs.
 
 Run a full local test flow:

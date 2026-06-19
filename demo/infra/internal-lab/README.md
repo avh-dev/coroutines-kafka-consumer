@@ -36,7 +36,6 @@ lab host
     Redpanda -> host:9092
     Redis -> host:6379
     Fluent Bit -> host:5170 TCP audit ingest, localhost:2020 health
-    audit-archiver -> completed gzip audit chunks under /opt/ckc-internal-lab/audit/live/chunks
     Grafana -> host:3000 on all interfaces
     process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
 
@@ -235,16 +234,16 @@ LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
 ```
 
 High-volume publish and processed audit records are streamed over TCP into the
-host Fluent Bit collector. Fluent Bit forwards parsed records to the local
-audit archiver, which writes completed gzip chunks into:
+host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 
 ```text
-/opt/ckc-internal-lab/audit/live/chunks/*.log.gz
+/opt/ckc-internal-lab/audit/live/audit.log
 ```
 
-For each run, `run-test.sh` resets the live chunk directory before the load
-generator starts, lets the collector and archiver write completed chunks during
-the run, then stores the completed chunks plus the calculated report under:
+For each run, `run-test.sh` resets the live audit file before the load
+generator starts, lets Fluent Bit append compact lines during the run, then
+stops Fluent Bit after drain and moves the completed audit log plus the
+calculated report under:
 
 ```text
 /opt/ckc-internal-lab/audit/<run-id>/
@@ -252,12 +251,16 @@ the run, then stores the completed chunks plus the calculated report under:
 
 The runner prints and saves `summary.yaml` with the selected test settings,
 published, processed, missing, duplicate, and ordering counts calculated from
-the archived audit lines. The report contains aggregate audit totals and the
-same full summary for each topic. Latency is intentionally left to Prometheus
-and Grafana time-series metrics instead of the static audit summary. Analyzer
-stderr is saved to `analyzer-progress.log` in the same run directory. During the
-final analysis step, the runner also prints analyzer progress such as
-`chunks=12/40 records=...` to the terminal.
+the audit lines. After successful analysis, the raw audit file is compressed as
+`audit-<run-id>.log.gz` to keep historical runs compact. The report contains
+aggregate audit totals and the same full summary for each topic. Latency is
+intentionally left to Prometheus and Grafana time-series metrics instead of the
+static audit summary. Analyzer stderr is saved to `analyzer-progress.log` in the
+same run directory. Delivery
+correctness uses exact offline publish-to-terminal matching by default, so
+long-delayed terminal records from chaos and slow-stub runs do not get counted
+as missing. During the final analysis step, the runner also prints analyzer
+progress such as `files=1/1 10% records=...` to the terminal.
 
 For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
 test definition with `ckc-telemetry-freshness-first`,

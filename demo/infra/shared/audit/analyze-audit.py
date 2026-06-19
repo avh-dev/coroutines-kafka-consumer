@@ -327,7 +327,6 @@ class RecordState:
 @dataclass(slots=True)
 class ClosedRecordState:
     closed_ms: int
-    published: AuditRecord | None
     processed_seen: bool
     failed_seen: bool
     dropped_seen: bool
@@ -335,7 +334,7 @@ class ClosedRecordState:
 
 @dataclass(slots=True)
 class AuditStats:
-    open_record_ttl_ms: int
+    open_record_ttl_ms: int | None
     key_fairness: KeyFairnessStats | None = None
     published_records: int = 0
     processed_records: int = 0
@@ -375,7 +374,10 @@ class AuditStats:
 
     def add(self, record: AuditRecord) -> None:
         self.watermark_ms = max(self.watermark_ms, record.audit_timestamp_ms)
-        if self.watermark_ms - self.last_eviction_ms >= self.eviction_interval_ms:
+        if (
+            self.open_record_ttl_ms is not None
+            and self.watermark_ms - self.last_eviction_ms >= self.eviction_interval_ms
+        ):
             self._evict_expired(self.watermark_ms - self.open_record_ttl_ms)
             self.last_eviction_ms = self.watermark_ms
 
@@ -408,7 +410,8 @@ class AuditStats:
 
         state.published = record
         state.last_seen_ms = record.audit_timestamp_ms
-        self.open_expiry_queue.append((state.last_seen_ms, record.key))
+        if self.open_record_ttl_ms is not None:
+            self.open_expiry_queue.append((state.last_seen_ms, record.key))
         self.published_unique += 1
         if self.key_fairness is not None:
             self.key_fairness.add_published(record)
@@ -431,7 +434,8 @@ class AuditStats:
 
         state = self._state(record)
         state.last_seen_ms = record.audit_timestamp_ms
-        self.open_expiry_queue.append((state.last_seen_ms, record.key))
+        if self.open_record_ttl_ms is not None:
+            self.open_expiry_queue.append((state.last_seen_ms, record.key))
 
         if record.record_type == "C":
             if state.processed is None:
@@ -511,7 +515,8 @@ class AuditStats:
         if state is None:
             state = RecordState(first_seen_ms=record.audit_timestamp_ms, last_seen_ms=record.audit_timestamp_ms)
             self.open_by_key[record.key] = state
-            self.open_expiry_queue.append((state.last_seen_ms, record.key))
+            if self.open_record_ttl_ms is not None:
+                self.open_expiry_queue.append((state.last_seen_ms, record.key))
         return state
 
     def _add_terminal_unique(self, record: AuditRecord, state: RecordState) -> None:
@@ -533,12 +538,12 @@ class AuditStats:
         del self.open_by_key[key]
         self.recent_closed_by_key[key] = ClosedRecordState(
             closed_ms=state.last_seen_ms,
-            published=state.published,
             processed_seen=state.processed is not None,
             failed_seen=state.failed is not None,
             dropped_seen=state.dropped is not None,
         )
-        self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
+        if self.open_record_ttl_ms is not None:
+            self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
     def _evict_expired(self, cutoff_ms: int) -> None:
         while self.open_expiry_queue and self.open_expiry_queue[0][0] < cutoff_ms:
@@ -570,7 +575,8 @@ class AuditStats:
 
 
 class AuditAccumulator:
-    def __init__(self, open_record_ttl_ms: int) -> None:
+    def __init__(self, open_record_ttl_ms: int | None) -> None:
+        self.open_record_ttl_ms = open_record_ttl_ms
         self.all = AuditStats(open_record_ttl_ms=open_record_ttl_ms)
         self.by_topic = {
             topic_id: AuditStats(
@@ -600,7 +606,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-dir")
     parser.add_argument("--glob", default="*.log.gz")
     parser.add_argument("--metadata-file")
-    parser.add_argument("--open-record-ttl-seconds", type=float, default=60.0)
+    parser.add_argument(
+        "--open-record-ttl-seconds",
+        type=float,
+        help="Enable bounded-memory matching by evicting unmatched records after this many seconds. Omit for exact offline matching.",
+    )
     parser.add_argument("--require-records", action="store_true")
     return parser.parse_args()
 
@@ -642,26 +652,71 @@ def open_text(path: Path) -> TextIO:
     return path.open("r", encoding="utf-8")
 
 
-def read_path(path: Path, accumulator: AuditAccumulator) -> int:
+def add_line(line: str, accumulator: AuditAccumulator) -> int:
+    if not line.strip():
+        return 0
+    if line.startswith("S|"):
+        return 0
+    accumulator.add(parse_record(line))
+    return 1
+
+
+def read_gzip_path(path: Path, accumulator: AuditAccumulator) -> int:
     count = 0
-    print(f"Reading audit records from {path}.", file=sys.stderr, flush=True)
     with open_text(path) as file:
         for line in file:
-            if not line.strip():
-                continue
-            if line.startswith("S|"):
-                continue
-            accumulator.add(parse_record(line))
-            count += 1
+            count += add_line(line, accumulator)
     return count
 
 
+def read_plain_path(
+    path: Path,
+    accumulator: AuditAccumulator,
+    file_index: int,
+    expected_files: int,
+    progress_step_percent: int = 10,
+) -> int:
+    count = 0
+    total_bytes = path.stat().st_size
+    next_progress_percent = progress_step_percent
+
+    with path.open("rb") as file:
+        for line in file:
+            count += add_line(line.decode("utf-8"), accumulator)
+            if total_bytes <= 0:
+                continue
+
+            processed_bytes = file.tell()
+            current_percent = min(100, int(processed_bytes * 100 / total_bytes))
+            while current_percent >= next_progress_percent:
+                print_analysis_progress(
+                    accumulator,
+                    file_index,
+                    expected_files,
+                    progress_percent=next_progress_percent,
+                )
+                next_progress_percent += progress_step_percent
+
+    if total_bytes == 0:
+        print_analysis_progress(accumulator, file_index, expected_files, progress_percent=100)
+    return count
+
+
+def read_path(path: Path, accumulator: AuditAccumulator, file_index: int, expected_files: int) -> int:
+    print(f"Reading audit records from {path}.", file=sys.stderr, flush=True)
+    if path.suffix == ".gz":
+        count = read_gzip_path(path, accumulator)
+        print_analysis_progress(accumulator, file_index, expected_files)
+        return count
+    return read_plain_path(path, accumulator, file_index, expected_files)
+
+
 def read_files(paths: list[str], accumulator: AuditAccumulator) -> None:
-    for path_value in paths:
+    for index, path_value in enumerate(paths, start=1):
         path = Path(path_value)
         if not path.is_file():
             raise ValueError(f"audit input file was not found: {path}")
-        read_path(path, accumulator)
+        read_path(path, accumulator, index, len(paths))
 
 
 def list_chunks(input_dir: Path, glob: str) -> list[Path]:
@@ -674,19 +729,24 @@ def read_chunks(args: argparse.Namespace, accumulator: AuditAccumulator) -> None
     input_dir = Path(args.input_dir)
     chunks = list_chunks(input_dir, args.glob)
     for index, path in enumerate(chunks, start=1):
-        read_path(path, accumulator)
-        print_analysis_progress(accumulator, index, len(chunks))
+        read_path(path, accumulator, index, len(chunks))
 
 
-def print_analysis_progress(accumulator: AuditAccumulator, processed_chunks: int, expected_chunks: int | None) -> None:
-    chunk_progress = (
-        f"chunks={processed_chunks}/{expected_chunks}"
-        if expected_chunks is not None
-        else f"chunks={processed_chunks}"
+def print_analysis_progress(
+    accumulator: AuditAccumulator,
+    processed_files: int,
+    expected_files: int | None,
+    progress_percent: int | None = None,
+) -> None:
+    file_progress = (
+        f"files={processed_files}/{expected_files}"
+        if expected_files is not None
+        else f"files={processed_files}"
     )
+    read_progress = f"{file_progress} {progress_percent}%" if progress_percent is not None else file_progress
     print(
         "Audit analyzer progress: "
-        f"{chunk_progress} records={accumulator.record_count}",
+        f"{read_progress} records={accumulator.record_count}",
         file=sys.stderr,
         flush=True,
     )
@@ -751,6 +811,14 @@ def load_metadata(path_value: str | None) -> dict[str, object]:
 def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object]) -> dict[str, object]:
     audit = {
         "records_read": accumulator.record_count,
+        "delivery_matching": {
+            "mode": "bounded_ttl" if accumulator.open_record_ttl_ms is not None else "exact",
+            "open_record_ttl_seconds": (
+                round(accumulator.open_record_ttl_ms / 1000, 3)
+                if accumulator.open_record_ttl_ms is not None
+                else None
+            ),
+        },
         "totals": stats_summary(accumulator.all),
         "topics": {
             TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
@@ -820,11 +888,15 @@ def main() -> int:
     args = parse_args()
     if not args.input_file and not args.input_dir:
         raise ValueError("at least one --input-file or --input-dir is required")
-    if args.open_record_ttl_seconds <= 0:
+    if args.open_record_ttl_seconds is not None and args.open_record_ttl_seconds <= 0:
         raise ValueError("--open-record-ttl-seconds must be positive")
 
     accumulator = AuditAccumulator(
-        open_record_ttl_ms=round(args.open_record_ttl_seconds * 1000),
+        open_record_ttl_ms=(
+            round(args.open_record_ttl_seconds * 1000)
+            if args.open_record_ttl_seconds is not None
+            else None
+        ),
     )
     read_files(args.input_file, accumulator)
     if args.input_dir:

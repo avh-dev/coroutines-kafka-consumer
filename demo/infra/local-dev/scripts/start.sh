@@ -40,7 +40,7 @@ if audit_enabled; then
 fi
 
 if [[ "${start_audit}" == "true" ]]; then
-  docker compose "${compose_args[@]}" rm -f -s audit-archiver fluent-bit >/dev/null 2>&1 || true
+  docker compose "${compose_args[@]}" rm -f -s fluent-bit >/dev/null 2>&1 || true
 fi
 
 docker compose "${compose_args[@]}" up -d --remove-orphans "$@"

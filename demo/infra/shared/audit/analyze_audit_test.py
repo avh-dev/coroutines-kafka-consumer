@@ -22,8 +22,8 @@ def load_analyzer():
 analyzer = load_analyzer()
 
 
-def analyze(lines: list[str]) -> dict[str, object]:
-    accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=60_000)
+def analyze(lines: list[str], open_record_ttl_ms: int | None = None) -> dict[str, object]:
+    accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=open_record_ttl_ms)
     for line in lines:
         accumulator.add(analyzer.parse_record(line))
     accumulator.finish()
@@ -31,6 +31,35 @@ def analyze(lines: list[str]) -> dict[str, object]:
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_exact_matching_keeps_long_delayed_terminal_records(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "C|1|0|1|72000|order-a",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual("exact", document["audit"]["delivery_matching"]["mode"])
+        self.assertIsNone(document["audit"]["delivery_matching"]["open_record_ttl_seconds"])
+        self.assertEqual(0, totals["missing_terminal"])
+        self.assertEqual(0, totals["without_publish"]["processed"])
+
+    def test_bounded_matching_can_evict_long_delayed_terminal_records(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "C|1|0|1|72000|order-a",
+            ],
+            open_record_ttl_ms=60_000,
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual("bounded_ttl", document["audit"]["delivery_matching"]["mode"])
+        self.assertEqual(60.0, document["audit"]["delivery_matching"]["open_record_ttl_seconds"])
+        self.assertEqual(1, totals["missing_terminal"])
+        self.assertEqual(1, totals["without_publish"]["processed"])
+
     def test_reports_skewed_cauldron_processing_fairness(self) -> None:
         document = analyze(
             [

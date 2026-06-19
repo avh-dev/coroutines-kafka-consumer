@@ -176,12 +176,6 @@ class LoadTestProducers(
             val acked = sentCounter.incrementAndGet()
             val recordMetadata = metadata!!
             auditLog?.published(recordMetadata, key)
-            if (acked <= 5 || acked % 500 == 0L) {
-                println(
-                    "load-test publish ack stream=$stream key=$key " +
-                        "topic=${recordMetadata.topic()} partition=${recordMetadata.partition()} offset=${recordMetadata.offset()}"
-                )
-            }
         }
 
     private fun maybeLogProgress(totalSent: Long) {
