@@ -121,6 +121,7 @@ private class CkcConsumerRuntime(
             orderConsumerMetrics,
             properties.audit,
             properties.consumers.order,
+            properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> orderHandler(key, event) }
@@ -130,6 +131,7 @@ private class CkcConsumerRuntime(
             batchConsumerMetrics,
             properties.audit,
             properties.consumers.batch,
+            properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, event -> batchHandler(key, event) }
@@ -139,6 +141,7 @@ private class CkcConsumerRuntime(
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,
+            properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled
         ) { key, telemetry -> telemetryHandler(key, telemetry) }

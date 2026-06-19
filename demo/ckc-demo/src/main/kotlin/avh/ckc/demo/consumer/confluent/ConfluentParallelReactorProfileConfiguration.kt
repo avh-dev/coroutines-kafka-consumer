@@ -9,6 +9,7 @@ import avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import io.confluent.parallelconsumer.ParallelConsumerOptions
+import io.confluent.parallelconsumer.RecordContext
 import io.confluent.parallelconsumer.reactor.ReactorProcessor
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tags
@@ -144,7 +145,7 @@ private class ConfluentParallelReactorConsumerRuntime(
         topic: String,
         consumerProperties: Map<String, Any>,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        handler: (org.apache.kafka.clients.consumer.ConsumerRecord<String, V>) -> Publisher<*>
+        handler: (RecordContext<String, V>) -> Publisher<*>
     ): List<ManagedReactorProcessor> {
         require(runtime.pollLoopConcurrency > 0) {
             "demo.consumers.*.poll-loop-concurrency must be > 0 for confluent-parallel-reactor"
@@ -170,7 +171,7 @@ private class ConfluentParallelReactorConsumerRuntime(
                 kafkaClientMetrics = kafkaClientMetrics,
                 thread = newPollThread(processorName) {
                     processor.react { context ->
-                        handler(context.getSingleRecord().getConsumerRecord())
+                        handler(context.getSingleRecord())
                     }
                 }
             )

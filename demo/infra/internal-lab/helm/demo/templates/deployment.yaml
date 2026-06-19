@@ -63,6 +63,10 @@ spec:
               value: {{ .Values.env.workerDispatcherThreads | quote }}
             - name: FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS
               value: {{ .Values.env.freshnessFirstMaxRecordAgeSeconds | quote }}
+            - name: DEMO_CONSUMER_RETRY_MAX_ATTEMPTS
+              value: {{ .Values.env.consumerRetryMaxAttempts | quote }}
+            - name: DEMO_CONSUMER_RETRY_BACKOFF_MS
+              value: {{ .Values.env.consumerRetryBackoffMs | quote }}
             - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
               value: {{ .Values.env.kafkaConsumerFetchMinBytes | quote }}
             - name: KAFKA_CONSUMER_FETCH_MAX_WAIT_MS

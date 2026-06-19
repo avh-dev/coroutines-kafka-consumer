@@ -63,6 +63,9 @@ demo:
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
     worker-dispatcher-threads: ${WORKER_DISPATCHER_THREADS:8}
     freshness-first-max-record-age-seconds: ${FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS:10}
+    retry:
+      max-attempts: ${DEMO_CONSUMER_RETRY_MAX_ATTEMPTS:3}
+      backoff-ms: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}
     order:
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}

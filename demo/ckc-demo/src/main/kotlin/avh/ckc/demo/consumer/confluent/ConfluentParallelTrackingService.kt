@@ -5,12 +5,15 @@ import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
+import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SyncBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
+import io.confluent.parallelconsumer.PCRetriableException
+import io.confluent.parallelconsumer.RecordContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
@@ -27,7 +30,8 @@ class ConfluentParallelTrackingService(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    fun processOrderLifecycle(record: ConsumerRecord<String, OrderLifecycleEvent>) {
+    fun processOrderLifecycle(context: RecordContext<String, OrderLifecycleEvent>) {
+        val record = context.consumerRecord
         try {
             if (shouldDiscard(properties.consumers.order, record)) {
                 auditDropped(record)
@@ -41,12 +45,12 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel order event received for key={}, order={}", record.key(), record.value().orderId)
         } catch (error: Throwable) {
-            auditFailed(record)
-            throw error
+            handleFailure(context, error)
         }
     }
 
-    fun processBatchLifecycle(record: ConsumerRecord<String, BatchLifecycleEvent>) {
+    fun processBatchLifecycle(context: RecordContext<String, BatchLifecycleEvent>) {
+        val record = context.consumerRecord
         try {
             if (shouldDiscard(properties.consumers.batch, record)) {
                 auditDropped(record)
@@ -60,12 +64,12 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel batch event received for key={}, batch={}", record.key(), record.value().batchId)
         } catch (error: Throwable) {
-            auditFailed(record)
-            throw error
+            handleFailure(context, error)
         }
     }
 
-    fun processCauldronTelemetry(record: ConsumerRecord<String, CauldronTelemetryEvent>) {
+    fun processCauldronTelemetry(context: RecordContext<String, CauldronTelemetryEvent>) {
+        val record = context.consumerRecord
         try {
             if (shouldDiscard(properties.consumers.telemetry, record)) {
                 auditDropped(record)
@@ -79,8 +83,7 @@ class ConfluentParallelTrackingService(
             auditProcessed(record)
             logger.debug("Confluent Parallel cauldron event received for key={}, cauldron={}", record.key(), record.value().cauldronId)
         } catch (error: Throwable) {
-            auditFailed(record)
-            throw error
+            handleFailure(context, error)
         }
     }
 
@@ -98,6 +101,32 @@ class ConfluentParallelTrackingService(
         if (properties.audit.enabled) {
             logFailed(record, properties.audit)
         }
+    }
+
+    private fun auditRetryAttempt(record: ConsumerRecord<*, *>) {
+        if (properties.audit.enabled) {
+            logRetryAttempt(record, properties.audit)
+        }
+    }
+
+    private fun handleFailure(context: RecordContext<String, *>, error: Throwable) {
+        val record = context.consumerRecord
+        val attempt = context.numberOfFailedAttempts + 1
+        if (attempt >= properties.consumers.retry.maxAttempts) {
+            auditFailed(record)
+            logger.warn(
+                "Confluent Parallel final failure for record topic={}, partition={}, offset={} after {} attempts",
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                attempt,
+                error
+            )
+            return
+        }
+
+        auditRetryAttempt(record)
+        throw PCRetriableException(error)
     }
 
     private fun auditDropped(record: ConsumerRecord<*, *>) {

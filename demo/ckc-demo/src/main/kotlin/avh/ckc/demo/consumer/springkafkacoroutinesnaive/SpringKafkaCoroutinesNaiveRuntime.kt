@@ -7,6 +7,7 @@ import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
+import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -170,28 +171,49 @@ class SpringKafkaCoroutinesNaiveRuntime(
     ) {
         val context = record.context()
         val startedAt = System.nanoTime()
-        try {
-            if (shouldDiscard(runtime, context)) {
-                logDropped(record, properties.audit)
+        if (shouldDiscard(runtime, context)) {
+            logDropped(record, properties.audit)
+            return
+        }
+
+        var attempt = 1
+        while (true) {
+            try {
+                if (properties.consumers.processingEnabled) {
+                    handle()
+                } else {
+                    latencyOnlyDelay()
+                }
+                recordMetrics.onProcessed(metrics, context, value, startedAt)
+                logProcessed(record, properties.audit)
                 return
+            } catch (error: Throwable) {
+                recordMetrics.onFailed(metrics, context, value, startedAt, error)
+                if (attempt >= properties.consumers.retry.maxAttempts) {
+                    logFailed(record, properties.audit)
+                    logger.warn(
+                        "Naive Spring Kafka coroutine worker final failure topic={}, partition={}, offset={} after {} attempts",
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        attempt,
+                        error
+                    )
+                    return
+                }
+
+                logRetryAttempt(record, properties.audit)
+                logger.warn(
+                    "Naive Spring Kafka coroutine worker retrying record topic={}, partition={}, offset={} after attempt {}",
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    attempt,
+                    error
+                )
+                attempt += 1
+                delay(properties.consumers.retry.backoffMs)
             }
-            if (properties.consumers.processingEnabled) {
-                handle()
-            } else {
-                latencyOnlyDelay()
-            }
-            recordMetrics.onProcessed(metrics, context, value, startedAt)
-            logProcessed(record, properties.audit)
-        } catch (error: Throwable) {
-            recordMetrics.onFailed(metrics, context, value, startedAt, error)
-            logFailed(record, properties.audit)
-            logger.warn(
-                "Naive Spring Kafka coroutine worker failed record topic={}, partition={}, offset={}",
-                record.topic(),
-                record.partition(),
-                record.offset(),
-                error
-            )
         }
     }
 

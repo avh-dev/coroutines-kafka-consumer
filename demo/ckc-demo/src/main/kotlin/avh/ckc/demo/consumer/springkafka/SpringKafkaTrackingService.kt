@@ -3,7 +3,6 @@ package avh.ckc.demo.consumer.springkafka
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
-import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.proto.BatchLifecycleEvent
@@ -57,7 +56,6 @@ class SpringKafkaTrackingService(
             logger.debug("Spring Kafka order event received for key={}, order={}", context.key, event.orderId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(orderConsumerMetrics, context, event, startedAt, error)
-            auditFailed(context)
             throw error
         }
     }
@@ -82,7 +80,6 @@ class SpringKafkaTrackingService(
             logger.debug("Spring Kafka batch event received for key={}, batch={}", context.key, event.batchId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(batchConsumerMetrics, context, event, startedAt, error)
-            auditFailed(context)
             throw error
         }
     }
@@ -107,7 +104,6 @@ class SpringKafkaTrackingService(
             logger.debug("Spring Kafka telemetry event received for key={}, cauldron={}", context.key, event.cauldronId)
         } catch (error: Throwable) {
             recordMetrics.onFailed(telemetryConsumerMetrics, context, event, startedAt, error)
-            auditFailed(context)
             throw error
         }
     }
@@ -118,10 +114,6 @@ class SpringKafkaTrackingService(
 
     private fun auditProcessed(context: DemoConsumerRecordContext) {
         logProcessed(context.topic, context.key, context.partition, context.offset, context.timestamp, properties.audit)
-    }
-
-    private fun auditFailed(context: DemoConsumerRecordContext) {
-        logFailed(context.topic, context.key, context.partition, context.offset, context.timestamp, properties.audit)
     }
 
     private fun auditDropped(context: DemoConsumerRecordContext) {

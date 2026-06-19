@@ -29,6 +29,8 @@ env:
   metricsImplementation: MICROMETER
   workerDispatcherThreads: 8
   freshnessFirstMaxRecordAgeSeconds: 10
+  consumerRetryMaxAttempts: 3
+  consumerRetryBackoffMs: 250
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500

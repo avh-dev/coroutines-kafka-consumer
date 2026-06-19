@@ -240,6 +240,10 @@ host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 /opt/ckc-internal-lab/audit/live/audit.log
 ```
 
+Audit lines use compact record types: `P` for published records, `C` for
+processed records, `D` for intentional drops, `F` for terminal processing
+failures, and `R` for retry attempts that are not terminal outcomes.
+
 For each run, `run-test.sh` resets the live audit file before the load
 generator starts, lets Fluent Bit append compact lines during the run, then
 stops Fluent Bit after drain and moves the completed audit log plus the
