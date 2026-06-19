@@ -32,6 +32,18 @@ fun logFailed(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Aud
     )
 }
 
+fun logRetryAttempt(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+    logRecord(
+        type = "R",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit
+    )
+}
+
 fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
     logRecord(
         type = "D",
@@ -92,6 +104,25 @@ fun logFailed(
 ) {
     logRecord(
         type = "F",
+        topic = topic,
+        key = key,
+        partition = partition,
+        offset = offset,
+        kafkaTimestampMs = kafkaTimestampMs,
+        audit = audit
+    )
+}
+
+fun logRetryAttempt(
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    logRecord(
+        type = "R",
         topic = topic,
         key = key,
         partition = partition,

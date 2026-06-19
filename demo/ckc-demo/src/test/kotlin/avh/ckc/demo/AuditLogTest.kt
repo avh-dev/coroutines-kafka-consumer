@@ -36,6 +36,20 @@ class AuditLogTest {
     }
 
     @Test
+    fun `encodes retry attempt as compact TCP audit payload`() {
+        val encoded = encodeConsumerAuditRecord(
+            type = "R",
+            topic = DemoTopics.ORDER_EVENTS,
+            partition = 1,
+            offset = 12,
+            key = "order-1",
+            auditTimestampMs = 5678
+        )
+
+        assertEquals("R|1|1|12|5678|order-1", encoded)
+    }
+
+    @Test
     fun `encodes dropped record as compact TCP audit payload`() {
         val encoded = encodeConsumerAuditRecord(
             type = "D",

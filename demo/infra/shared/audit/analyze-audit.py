@@ -340,6 +340,7 @@ class AuditStats:
     processed_records: int = 0
     failed_records: int = 0
     dropped_records: int = 0
+    retry_attempt_records: int = 0
     published_unique: int = 0
     processed_unique: int = 0
     failed_unique: int = 0
@@ -385,6 +386,8 @@ class AuditStats:
             self._add_published(record)
         elif record.record_type in {"C", "F", "D"}:
             self._add_terminal(record)
+        elif record.record_type == "R":
+            self.retry_attempt_records += 1
 
     def finish(self) -> None:
         for key in list(self.open_by_key):
@@ -631,7 +634,7 @@ def parse_record(value: str) -> AuditRecord:
             message_key=message_key,
         )
 
-    if record_type in {"C", "F", "D"}:
+    if record_type in {"C", "F", "D", "R"}:
         if len(parts) != 6:
             raise ValueError(f"expected 6 consumer audit fields, got {len(parts)}: {value!r}")
         _, topic_id, partition, offset, audit_ts, message_key = parts
@@ -770,6 +773,7 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "processed": stats.processed_unique,
             "failed": stats.failed_unique,
             "dropped": stats.dropped_unique,
+            "retry_attempts": stats.retry_attempt_records,
             "terminal": stats.terminal_unique,
             "missing_terminal": stats.missing_terminal,
             "duplicates": {

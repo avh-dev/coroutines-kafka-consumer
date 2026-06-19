@@ -85,6 +85,7 @@
 | [DEMO-52](#demo-52) | Add a legacy brewing-step registry HTTP acknowledgement path and persist registry receipts before completing step records. | DONE |
 | [DEMO-53](#demo-53) | Add a naive Spring Kafka batch-listener profile that hands records to coroutine workers through bounded channels. | DONE |
 | [DEMO-54](#demo-54) | Flush the Logback TCP audit appender in the final graceful-shutdown lifecycle phase, audit freshness-first drops, and surface closed-channel admission failures. | DONE |
+| [DEMO-55](#demo-55) | Align demo consumer audit retry semantics and configure bounded retry rules for transient Redis and Armeria failures. | IN_PROGRESS |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1384,6 +1385,16 @@ Log freshness-first dropped records as explicit audit terminal outcomes and repo
 Let closed-channel admission failures escape the naive Spring Kafka listener instead of swallowing them as successful batch handling.
 Recover naive Spring Kafka batch admission failures without retry backoff, audit recovered records as dropped, and stop listener containers promptly before closing worker channels.
 Add an optional local-dev Docker Compose audit profile that runs Fluent Bit and archives audit chunks under `.demo-infra`.
+
+<a id="demo-55"></a>
+### DEMO-55 - Align consumer retry audit semantics
+
+_Date: 2026-06-19_
+
+Make demo audit records distinguish retryable processing attempts from terminal consumer outcomes.
+Keep `C`, `D`, and `F` aligned across CKC, Spring Kafka, Confluent Parallel Consumer, and the naive coroutine profile.
+Configure bounded retry behavior for demo failures that are expected to come mostly from Redis and Armeria client calls.
+Update the shared audit analyzer and tests so retry attempts do not look like conflicting terminal outcomes.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion
