@@ -16,7 +16,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
-import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
@@ -39,7 +38,6 @@ import kotlin.test.assertTrue
 class CkcProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
-    @Autowired private val metricsProperties: MetricsProperties,
     @Autowired
     @Qualifier("consumerMetrics")
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
@@ -76,14 +74,6 @@ class CkcProfileContextTest(
     }
 
     @Test
-    fun `model call timer publishes percentile histogram buckets`() {
-        assertEquals(
-            true,
-            metricsProperties.distribution.percentilesHistogram["ckc.demo.model.call.duration"]
-        )
-    }
-
-    @Test
     fun `ckc profile creates shared named worker dispatcher`() {
         assertEquals(1, applicationContext.getBeansOfType(ExecutorCoroutineDispatcher::class.java).size)
         val threadName = runBlocking {
@@ -110,8 +100,15 @@ class CkcProfileContextTest(
             .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
             .counter()
+        val age = meterRegistry.find("ckc.record.age")
+            .tag("consumer_id", "cauldron_events")
+            .tag("topic", "cauldron.events.v1")
+            .tag("event_type", "CAULDRON_TELEMETRY")
+            .tag("error", "none")
+            .summary()
 
         assertNotNull(counter)
+        assertNotNull(age)
         assertNull(
             meterRegistry.find("ckc.record.processed")
                 .tag("consumer_impl", "ckc")

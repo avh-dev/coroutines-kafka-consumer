@@ -10,6 +10,7 @@ import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.demo.service.DemoRecordAgeMetrics
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
@@ -32,6 +33,7 @@ class ConfluentParallelReactorTrackingService(
     private val orderLifecycleService: SuspendOrderLifecycleService,
     private val batchLifecycleService: SuspendBatchLifecycleService,
     private val cauldronTelemetryService: SuspendCauldronTelemetryService,
+    private val recordAgeMetrics: DemoRecordAgeMetrics,
     private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter,
     @Qualifier("confluentParallelReactorWorkerDispatcher")
     private val workerDispatcher: CoroutineDispatcher
@@ -51,6 +53,7 @@ class ConfluentParallelReactorTrackingService(
                 } else {
                     latencyOnlyDelay()
                 }
+                recordAgeMetrics.onProcessed(ORDER_CONSUMER_ID, record)
                 logProcessed(record, properties.audit)
                 logger.debug("Confluent Parallel Reactor order event received for key={}, order={}", record.key(), record.value().orderId)
                 processingCompleted()
@@ -72,6 +75,7 @@ class ConfluentParallelReactorTrackingService(
                 } else {
                     latencyOnlyDelay()
                 }
+                recordAgeMetrics.onProcessed(BATCH_CONSUMER_ID, record)
                 logProcessed(record, properties.audit)
                 logger.debug("Confluent Parallel Reactor batch event received for key={}, batch={}", record.key(), record.value().batchId)
                 processingCompleted()
@@ -93,6 +97,7 @@ class ConfluentParallelReactorTrackingService(
                 } else {
                     latencyOnlyDelay()
                 }
+                recordAgeMetrics.onProcessed(CAULDRON_CONSUMER_ID, record)
                 logProcessed(record, properties.audit)
                 logger.debug(
                     "Confluent Parallel Reactor cauldron event received for key={}, cauldron={}",
@@ -116,6 +121,7 @@ class ConfluentParallelReactorTrackingService(
         val record = context.consumerRecord
         val attempt = context.numberOfFailedAttempts + 1
         if (attempt >= properties.consumers.retry.maxAttempts) {
+            recordAgeMetrics.onFailed(consumerId(record), record, error)
             logFailed(record, properties.audit)
             logger.warn(
                 "Confluent Parallel Reactor final failure for record topic={}, partition={}, offset={} after {} attempts",
@@ -145,4 +151,18 @@ class ConfluentParallelReactorTrackingService(
                 )
             }
         }
+
+    private fun consumerId(record: ConsumerRecord<*, *>): String =
+        when (record.topic()) {
+            properties.topics.orderEvents -> ORDER_CONSUMER_ID
+            properties.topics.batchEvents -> BATCH_CONSUMER_ID
+            properties.topics.cauldronEvents -> CAULDRON_CONSUMER_ID
+            else -> record.topic()
+        }
+
+    private companion object {
+        private const val ORDER_CONSUMER_ID = "order_events"
+        private const val BATCH_CONSUMER_ID = "batch_events"
+        private const val CAULDRON_CONSUMER_ID = "cauldron_events"
+    }
 }

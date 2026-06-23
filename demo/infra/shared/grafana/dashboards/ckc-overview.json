@@ -316,9 +316,24 @@
           },
           "targets": [
             {
-              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
               "refId": "A",
               "legendFormat": "{{event_type}} {{pod}} avg"
+            },
+            {
+              "expr": "(histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "refId": "B",
+              "legendFormat": "{{event_type}} {{pod}} p50"
+            },
+            {
+              "expr": "(histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "refId": "D",
+              "legendFormat": "{{event_type}} {{pod}} p95"
+            },
+            {
+              "expr": "(histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "refId": "E",
+              "legendFormat": "{{event_type}} {{pod}} p99"
             },
             {
               "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
@@ -546,9 +561,24 @@
           },
           "targets": [
             {
-              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
               "refId": "A",
               "legendFormat": "{{event_type}} {{pod}} avg"
+            },
+            {
+              "expr": "(histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "refId": "B",
+              "legendFormat": "{{event_type}} {{pod}} p50"
+            },
+            {
+              "expr": "(histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "refId": "D",
+              "legendFormat": "{{event_type}} {{pod}} p95"
+            },
+            {
+              "expr": "(histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "refId": "E",
+              "legendFormat": "{{event_type}} {{pod}} p99"
             },
             {
               "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"batch_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
@@ -782,9 +812,24 @@
           },
           "targets": [
             {
-              "expr": "(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) != -2)",
+              "expr": "(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
               "refId": "A",
               "legendFormat": "{{topic}} {{pod}} avg"
+            },
+            {
+              "expr": "(histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "refId": "B",
+              "legendFormat": "{{topic}} {{pod}} p50"
+            },
+            {
+              "expr": "(histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "refId": "D",
+              "legendFormat": "{{topic}} {{pod}} p95"
+            },
+            {
+              "expr": "(histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "refId": "E",
+              "legendFormat": "{{topic}} {{pod}} p99"
             },
             {
               "expr": "(max by (topic, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"cauldron_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",

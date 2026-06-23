@@ -10,6 +10,7 @@ import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.demo.service.DemoRecordAgeMetrics
 import avh.ckc.demo.service.batch.SyncBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
@@ -27,6 +28,7 @@ class ConfluentParallelTrackingService(
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
+    private val recordAgeMetrics: DemoRecordAgeMetrics,
     private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -43,6 +45,7 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
+            recordAgeMetrics.onProcessed(ORDER_CONSUMER_ID, record)
             auditProcessed(record)
             logger.debug("Confluent Parallel order event received for key={}, order={}", record.key(), record.value().orderId)
         } catch (error: Throwable) {
@@ -62,6 +65,7 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
+            recordAgeMetrics.onProcessed(BATCH_CONSUMER_ID, record)
             auditProcessed(record)
             logger.debug("Confluent Parallel batch event received for key={}, batch={}", record.key(), record.value().batchId)
         } catch (error: Throwable) {
@@ -81,6 +85,7 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
+            recordAgeMetrics.onProcessed(CAULDRON_CONSUMER_ID, record)
             auditProcessed(record)
             logger.debug("Confluent Parallel cauldron event received for key={}, cauldron={}", record.key(), record.value().cauldronId)
         } catch (error: Throwable) {
@@ -114,6 +119,7 @@ class ConfluentParallelTrackingService(
         val record = context.consumerRecord
         val attempt = context.numberOfFailedAttempts + 1
         if (attempt >= properties.consumers.retry.maxAttempts) {
+            recordAgeMetrics.onFailed(consumerId(record), record, error)
             auditFailed(record)
             logger.warn(
                 "Confluent Parallel final failure for record topic={}, partition={}, offset={} after {} attempts",
@@ -145,4 +151,18 @@ class ConfluentParallelTrackingService(
                 logger.debug("Discarding stale Confluent Parallel record for topic={}, offset={}", record.topic(), record.offset())
             }
         }
+
+    private fun consumerId(record: ConsumerRecord<*, *>): String =
+        when (record.topic()) {
+            properties.topics.orderEvents -> ORDER_CONSUMER_ID
+            properties.topics.batchEvents -> BATCH_CONSUMER_ID
+            properties.topics.cauldronEvents -> CAULDRON_CONSUMER_ID
+            else -> record.topic()
+        }
+
+    private companion object {
+        private const val ORDER_CONSUMER_ID = "order_events"
+        private const val BATCH_CONSUMER_ID = "batch_events"
+        private const val CAULDRON_CONSUMER_ID = "cauldron_events"
+    }
 }
