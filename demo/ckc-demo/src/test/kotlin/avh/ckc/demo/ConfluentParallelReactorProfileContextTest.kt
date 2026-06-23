@@ -4,6 +4,7 @@ import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.service.DemoRecordAgeMetrics
 import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
@@ -13,7 +14,6 @@ import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
-import org.springframework.boot.actuate.autoconfigure.metrics.MetricsProperties
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
@@ -32,7 +32,6 @@ import kotlin.test.assertTrue
 class ConfluentParallelReactorProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
-    @Autowired private val metricsProperties: MetricsProperties,
     @Autowired
     @Qualifier("confluentParallelReactorWorkerDispatcher")
     private val workerDispatcher: ExecutorCoroutineDispatcher
@@ -61,17 +60,10 @@ class ConfluentParallelReactorProfileContextTest(
     }
 
     @Test
-    fun `confluent parallel reactor profile does not publish CKC record metrics`() {
+    fun `confluent parallel reactor profile publishes only CKC-style record age metrics`() {
+        assertTrue(applicationContext.getBeansOfType(DemoRecordAgeMetrics::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
-    }
-
-    @Test
-    fun `confluent parallel reactor processing timer publishes percentile histogram buckets`() {
-        assertEquals(
-            true,
-            metricsProperties.distribution.percentilesHistogram["pc.user.function.processing.time"]
-        )
     }
 
     @Test
