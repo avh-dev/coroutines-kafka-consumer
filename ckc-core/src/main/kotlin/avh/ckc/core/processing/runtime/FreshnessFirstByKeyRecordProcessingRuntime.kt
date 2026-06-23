@@ -90,6 +90,7 @@ internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
 
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
+            metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
             return true
         }
         if (!acceptingRecords.get()) {

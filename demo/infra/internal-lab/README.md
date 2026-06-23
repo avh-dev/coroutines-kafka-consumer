@@ -242,7 +242,10 @@ host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 
 Audit lines use compact record types: `P` for published records, `C` for
 processed records, `D` for intentional drops, `F` for terminal processing
-failures, and `R` for retry attempts that are not terminal outcomes.
+failures, and `R` for retry attempts that are not terminal outcomes. Drop
+records may include a final reason field, for example `stale_age`,
+`queue_overflow`, `replaced_by_newer_key_record`, `new_key_queue_full`, or
+`already_processed`.
 
 For each run, `run-test.sh` resets the live audit file before the load
 generator starts, lets Fluent Bit append compact lines during the run, then

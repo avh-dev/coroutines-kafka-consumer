@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.springkafkacoroutinesnaive
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
@@ -172,7 +173,7 @@ class SpringKafkaCoroutinesNaiveRuntime(
         val context = record.context()
         val startedAt = System.nanoTime()
         if (shouldDiscard(runtime, context)) {
-            logDropped(record, properties.audit)
+            logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
             return
         }
 

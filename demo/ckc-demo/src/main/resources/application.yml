@@ -77,7 +77,7 @@ demo:
       poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
     telemetry:
-      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST}
+      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_BY_KEY}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}

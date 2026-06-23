@@ -6,7 +6,9 @@ import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.awaitFor
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.typedTestRecord
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -206,11 +209,39 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
         assertEquals(2, stats.maxObservedOrderingQueueSize)
     }
 
+    @Test
+    fun `when record is already processed then it is reported as dropped without processing`() {
+        val metrics = RecordingMetrics<String, String>()
+        val handledRecords = CopyOnWriteArrayList<Long>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            metrics = metrics,
+            processedRecordTracker = object : ProcessedRecordTracker {
+                override fun <K, V> markProcessed(record: ConsumerRecord<K, V>) = Unit
+
+                override fun <K, V> isProcessed(record: ConsumerRecord<K, V>): Boolean =
+                    record.offset() == 43L
+            },
+            handler = KafkaRecordHandler { record ->
+                handledRecords += record.offset()
+            }
+        )
+
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 43L, key = "key-a")))
+
+        assertTrue(handledRecords.isEmpty())
+        assertEquals(listOf(43L), metrics.dropped.map { it.record.offset() })
+        assertEquals(listOf(RecordDropReason.ALREADY_PROCESSED), metrics.dropped.map { it.reason })
+    }
+
     private fun orderedRuntime(
         ordering: AtLeastOnceOrderedRecordProcessingRuntime.Ordering,
         workerConcurrency: Int,
         workChannelCapacity: Int,
         metrics: ConsumerMetrics<String, String> = noopMetrics(),
+        processedRecordTracker: ProcessedRecordTracker = NoopProcessedRecordTracker,
         handler: KafkaRecordHandler<String, String>
     ): AtLeastOnceOrderedRecordProcessingRuntime<String, String> {
         return AtLeastOnceOrderedRecordProcessingRuntime(
@@ -223,7 +254,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             handler = handler,
             retryPolicy = RetryPolicy.none(),
             processingFailureHandler = ProcessingFailureHandler.skip(),
-            processedRecordTracker = NoopProcessedRecordTracker
+            processedRecordTracker = processedRecordTracker
         )
     }
 

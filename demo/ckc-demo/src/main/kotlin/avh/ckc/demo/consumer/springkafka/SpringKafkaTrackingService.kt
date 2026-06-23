@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.springkafka
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
@@ -117,7 +118,15 @@ class SpringKafkaTrackingService(
     }
 
     private fun auditDropped(context: DemoConsumerRecordContext) {
-        logDropped(context.topic, context.key, context.partition, context.offset, context.timestamp, properties.audit)
+        logDropped(
+            context.topic,
+            context.key,
+            context.partition,
+            context.offset,
+            context.timestamp,
+            properties.audit,
+            AuditDropReasons.STALE_AGE
+        )
     }
 
     private fun shouldDiscard(

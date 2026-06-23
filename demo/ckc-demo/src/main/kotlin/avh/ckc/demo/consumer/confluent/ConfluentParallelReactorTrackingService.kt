@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
@@ -42,7 +43,7 @@ class ConfluentParallelReactorTrackingService(
             val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.order, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {
@@ -63,7 +64,7 @@ class ConfluentParallelReactorTrackingService(
             val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.batch, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {
@@ -84,7 +85,7 @@ class ConfluentParallelReactorTrackingService(
             val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.telemetry, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {

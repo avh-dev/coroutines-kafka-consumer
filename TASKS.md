@@ -85,7 +85,7 @@
 | [DEMO-52](#demo-52) | Add a legacy brewing-step registry HTTP acknowledgement path and persist registry receipts before completing step records. | DONE |
 | [DEMO-53](#demo-53) | Add a naive Spring Kafka batch-listener profile that hands records to coroutine workers through bounded channels. | DONE |
 | [DEMO-54](#demo-54) | Flush the Logback TCP audit appender in the final graceful-shutdown lifecycle phase, audit freshness-first drops, and surface closed-channel admission failures. | DONE |
-| [DEMO-55](#demo-55) | Align demo consumer audit retry semantics and configure bounded retry rules for transient Redis and Armeria failures. | IN_PROGRESS |
+| [DEMO-55](#demo-55) | Align demo consumer audit retry semantics and configure bounded retry rules for transient Redis and Armeria failures. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1395,6 +1395,8 @@ Make demo audit records distinguish retryable processing attempts from terminal 
 Keep `C`, `D`, and `F` aligned across CKC, Spring Kafka, Confluent Parallel Consumer, and the naive coroutine profile.
 Configure bounded retry behavior for demo failures that are expected to come mostly from Redis and Armeria client calls.
 Update the shared audit analyzer and tests so retry attempts do not look like conflicting terminal outcomes.
+Add drop reason details to demo audit records and analyzer summaries, including already-processed metadata skips after rebalance.
+Switch the demo telemetry default to freshness-first-by-key for the CKC comparison profile and raise internal-lab CKC queue capacities.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

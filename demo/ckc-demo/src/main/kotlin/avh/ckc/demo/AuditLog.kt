@@ -44,7 +44,11 @@ fun logRetryAttempt(record: ConsumerRecord<*, *>, audit: DemoApplicationProperti
     )
 }
 
-fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+fun logDropped(
+    record: ConsumerRecord<*, *>,
+    audit: DemoApplicationProperties.Audit,
+    reason: String? = null
+) {
     logRecord(
         type = "D",
         topic = record.topic(),
@@ -52,7 +56,8 @@ fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Au
         partition = record.partition(),
         offset = record.offset(),
         kafkaTimestampMs = record.timestamp(),
-        audit = audit
+        audit = audit,
+        detail = reason
     )
 }
 
@@ -62,7 +67,8 @@ fun logDropped(
     partition: Int,
     offset: Long,
     kafkaTimestampMs: Long,
-    audit: DemoApplicationProperties.Audit
+    audit: DemoApplicationProperties.Audit,
+    reason: String? = null
 ) {
     logRecord(
         type = "D",
@@ -71,7 +77,8 @@ fun logDropped(
         partition = partition,
         offset = offset,
         kafkaTimestampMs = kafkaTimestampMs,
-        audit = audit
+        audit = audit,
+        detail = reason
     )
 }
 
@@ -146,12 +153,13 @@ private fun logRecord(
     partition: Int,
     offset: Long,
     kafkaTimestampMs: Long,
-    audit: DemoApplicationProperties.Audit
+    audit: DemoApplicationProperties.Audit,
+    detail: String? = null
 ) {
     if (!audit.enabled) {
         return
     }
-    auditLogger.info(encodeConsumerAuditRecord(type, topic, partition, offset, key))
+    auditLogger.info(encodeConsumerAuditRecord(type, topic, partition, offset, key, detail = detail))
 }
 
 internal fun encodeConsumerAuditRecord(
@@ -160,6 +168,13 @@ internal fun encodeConsumerAuditRecord(
     partition: Int,
     offset: Long,
     key: String?,
-    auditTimestampMs: Long = System.currentTimeMillis()
+    auditTimestampMs: Long = System.currentTimeMillis(),
+    detail: String? = null
 ): String =
-    "$type|${auditTopicId(topic)}|$partition|$offset|$auditTimestampMs|${key.orEmpty()}"
+    buildString {
+        append("$type|${auditTopicId(topic)}|$partition|$offset|$auditTimestampMs|${key.orEmpty()}")
+        if (!detail.isNullOrBlank()) {
+            append("|")
+            append(detail)
+        }
+    }

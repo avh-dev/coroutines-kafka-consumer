@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.springkafkacoroutinesnaive
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
@@ -151,7 +152,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
 
     private fun naiveBatchAdmissionErrorHandler(properties: DemoApplicationProperties): DefaultErrorHandler =
         DefaultErrorHandler(
-            { record: ConsumerRecord<*, *>, _ -> logDropped(record, properties.audit) },
+            { record: ConsumerRecord<*, *>, _ -> logDropped(record, properties.audit, AuditDropReasons.ADMISSION_FAILED) },
             FixedBackOff(0L, 0L)
         )
 

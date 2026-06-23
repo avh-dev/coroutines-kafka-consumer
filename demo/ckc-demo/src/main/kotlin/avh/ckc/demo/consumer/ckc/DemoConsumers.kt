@@ -177,8 +177,10 @@ object DemoConsumers {
 
             override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
                 delegate.onRecordDropped(record, reason)
-                logDropped(record, audit)
+                logDropped(record, audit, reason.auditReason())
             }
         }
     }
+
+    private fun RecordDropReason.auditReason(): String = name.lowercase()
 }

@@ -64,6 +64,21 @@ class AuditLogTest {
     }
 
     @Test
+    fun `encodes dropped record reason as optional audit detail`() {
+        val encoded = encodeConsumerAuditRecord(
+            type = "D",
+            topic = DemoTopics.CAULDRON_EVENTS,
+            partition = 2,
+            offset = 99,
+            key = "cauldron-1",
+            auditTimestampMs = 9012,
+            detail = AuditDropReasons.STALE_AGE
+        )
+
+        assertEquals("D|3|2|99|9012|cauldron-1|stale_age", encoded)
+    }
+
+    @Test
     fun `audit helper can be skipped when audit is disabled`() {
         val properties = DemoApplicationProperties(audit = DemoApplicationProperties.Audit(enabled = false))
         val record = ConsumerRecord(DemoTopics.ORDER_EVENTS, 0, 1, "order-1", "value")

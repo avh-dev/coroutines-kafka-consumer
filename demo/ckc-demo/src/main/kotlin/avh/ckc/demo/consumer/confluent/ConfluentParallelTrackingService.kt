@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
@@ -131,7 +132,7 @@ class ConfluentParallelTrackingService(
 
     private fun auditDropped(record: ConsumerRecord<*, *>) {
         if (properties.audit.enabled) {
-            logDropped(record, properties.audit)
+            logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
         }
     }
 

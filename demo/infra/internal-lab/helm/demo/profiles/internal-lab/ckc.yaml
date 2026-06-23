@@ -16,10 +16,10 @@ env:
   orderWorkChannelCapacity: 1024
   batchWorkerConcurrency: 20
   batchPollLoopConcurrency: 1
-  batchWorkChannelCapacity: 512
+  batchWorkChannelCapacity: 1024
   telemetryWorkerConcurrency: 30
   telemetryPollLoopConcurrency: 1
-  telemetryWorkChannelCapacity: 512
+  telemetryWorkChannelCapacity: 1024
 
 resources:
   requests:

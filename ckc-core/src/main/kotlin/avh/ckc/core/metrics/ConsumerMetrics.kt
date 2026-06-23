@@ -73,11 +73,6 @@ interface ConsumerMetrics<K, V> {
     ) = Unit
 
     /**
-     * Records a polled record intentionally discarded by the selected processing mode.
-     *
-     * This callback is not used for shutdown or cancellation cleanup.
-     */
-    /**
      * Records a polled record intentionally discarded by the selected processing mode with a stable reason.
      */
     fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) = Unit
@@ -127,6 +122,7 @@ enum class BackpressureAction {
 }
 
 enum class RecordDropReason {
+    ALREADY_PROCESSED,
     QUEUE_OVERFLOW,
     REPLACED_BY_NEWER_KEY_RECORD,
     NEW_KEY_QUEUE_FULL
