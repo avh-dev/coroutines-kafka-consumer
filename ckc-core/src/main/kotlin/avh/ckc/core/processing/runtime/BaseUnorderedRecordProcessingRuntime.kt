@@ -5,6 +5,7 @@ import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
@@ -77,6 +78,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
 
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
+            metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
             return true
         }
 

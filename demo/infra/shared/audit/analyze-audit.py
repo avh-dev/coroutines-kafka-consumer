@@ -31,6 +31,7 @@ class AuditRecord:
     audit_timestamp_ms: int
     message_key: str
     kafka_timestamp_ms: int | None = None
+    drop_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -340,6 +341,7 @@ class AuditStats:
     processed_records: int = 0
     failed_records: int = 0
     dropped_records: int = 0
+    retry_attempt_records: int = 0
     published_unique: int = 0
     processed_unique: int = 0
     failed_unique: int = 0
@@ -350,6 +352,7 @@ class AuditStats:
     duplicate_processed: int = 0
     duplicate_failed: int = 0
     duplicate_dropped: int = 0
+    dropped_by_reason: dict[str, int] = field(default_factory=dict)
     processed_without_publish: int = 0
     failed_without_publish: int = 0
     dropped_without_publish: int = 0
@@ -385,6 +388,8 @@ class AuditStats:
             self._add_published(record)
         elif record.record_type in {"C", "F", "D"}:
             self._add_terminal(record)
+        elif record.record_type == "R":
+            self.retry_attempt_records += 1
 
     def finish(self) -> None:
         for key in list(self.open_by_key):
@@ -464,6 +469,7 @@ class AuditStats:
                 state.dropped = record
                 state.dropped_count = 1
                 self.dropped_unique += 1
+                self._add_drop_reason(record)
                 if self.key_fairness is not None:
                     self.key_fairness.add_terminal(record)
                 self._add_terminal_unique(record, state)
@@ -507,6 +513,7 @@ class AuditStats:
                 had_other_outcome = closed.processed_seen or closed.failed_seen
                 closed.dropped_seen = True
                 self.dropped_unique += 1
+                self._add_drop_reason(record)
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
 
@@ -526,6 +533,10 @@ class AuditStats:
                 if record.record_type in {"C", "F"}:
                     self.partition_order.add_partition_order(record)
                     self.key_order.add_key_order(record)
+
+    def _add_drop_reason(self, record: AuditRecord) -> None:
+        reason = record.drop_reason or "unknown"
+        self.dropped_by_reason[reason] = self.dropped_by_reason.get(reason, 0) + 1
 
     def _close_if_complete(self, key: RecordKey) -> None:
         state = self.open_by_key.get(key)
@@ -631,7 +642,7 @@ def parse_record(value: str) -> AuditRecord:
             message_key=message_key,
         )
 
-    if record_type in {"C", "F", "D"}:
+    if record_type in {"C", "F", "R"}:
         if len(parts) != 6:
             raise ValueError(f"expected 6 consumer audit fields, got {len(parts)}: {value!r}")
         _, topic_id, partition, offset, audit_ts, message_key = parts
@@ -641,6 +652,19 @@ def parse_record(value: str) -> AuditRecord:
             kafka_timestamp_ms=None,
             audit_timestamp_ms=int(audit_ts),
             message_key=message_key,
+        )
+
+    if record_type == "D":
+        if len(parts) not in {6, 7}:
+            raise ValueError(f"expected 6 or 7 drop audit fields, got {len(parts)}: {value!r}")
+        _, topic_id, partition, offset, audit_ts, message_key, *detail = parts
+        return AuditRecord(
+            record_type=record_type,
+            key=RecordKey(int(topic_id), int(partition), int(offset)),
+            kafka_timestamp_ms=None,
+            audit_timestamp_ms=int(audit_ts),
+            message_key=message_key,
+            drop_reason=detail[0] if detail else None,
         )
 
     raise ValueError(f"unexpected audit record type: {record_type}")
@@ -770,6 +794,8 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "processed": stats.processed_unique,
             "failed": stats.failed_unique,
             "dropped": stats.dropped_unique,
+            "dropped_by_reason": stats.dropped_by_reason,
+            "retry_attempts": stats.retry_attempt_records,
             "terminal": stats.terminal_unique,
             "missing_terminal": stats.missing_terminal,
             "duplicates": {

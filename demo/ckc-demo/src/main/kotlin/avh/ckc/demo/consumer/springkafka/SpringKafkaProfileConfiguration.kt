@@ -2,6 +2,8 @@ package avh.ckc.demo.consumer.springkafka
 
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.consumer.requireSupportedBySpringKafka
+import avh.ckc.demo.logFailed
+import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -9,6 +11,7 @@ import avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
@@ -18,6 +21,9 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.listener.ContainerProperties
+import org.springframework.kafka.listener.DefaultErrorHandler
+import org.springframework.kafka.listener.RetryListener
+import org.springframework.util.backoff.FixedBackOff
 
 @Configuration(proxyBeanMethods = false)
 @Profile("spring-kafka")
@@ -41,6 +47,7 @@ class SpringKafkaProfileConfiguration {
         ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.order.pollLoopConcurrency)
+            setCommonErrorHandler(demoProcessingErrorHandler(properties))
             configureTimeBasedCommits(properties)
         }
 
@@ -62,6 +69,7 @@ class SpringKafkaProfileConfiguration {
         ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent>().apply {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.batch.pollLoopConcurrency)
+            setCommonErrorHandler(demoProcessingErrorHandler(properties))
             configureTimeBasedCommits(properties)
         }
 
@@ -83,7 +91,27 @@ class SpringKafkaProfileConfiguration {
         ConcurrentKafkaListenerContainerFactory<String, CauldronTelemetryEvent>().apply {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.telemetry.pollLoopConcurrency)
+            setCommonErrorHandler(demoProcessingErrorHandler(properties))
         }
+
+    private fun demoProcessingErrorHandler(properties: DemoApplicationProperties): DefaultErrorHandler {
+        val retry = properties.consumers.retry
+        return DefaultErrorHandler(
+            { record: ConsumerRecord<*, *>, _ -> logFailed(record, properties.audit) },
+            FixedBackOff(
+                retry.backoffMs,
+                retry.maxRetries.toLong()
+            )
+        ).apply {
+            setRetryListeners(
+                RetryListener { record, _, deliveryAttempt ->
+                    if (deliveryAttempt < retry.maxAttempts) {
+                        logRetryAttempt(record, properties.audit)
+                    }
+                }
+            )
+        }
+    }
 
     private fun commonConsumerProperties(
         properties: DemoApplicationProperties,

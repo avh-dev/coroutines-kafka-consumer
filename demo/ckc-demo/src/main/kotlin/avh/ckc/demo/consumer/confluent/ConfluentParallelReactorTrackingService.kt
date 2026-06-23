@@ -1,16 +1,20 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
+import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
+import io.confluent.parallelconsumer.PCRetriableException
+import io.confluent.parallelconsumer.RecordContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactor.mono
@@ -34,11 +38,12 @@ class ConfluentParallelReactorTrackingService(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    fun processOrderLifecycle(record: ConsumerRecord<String, OrderLifecycleEvent>): Mono<Boolean> =
+    fun processOrderLifecycle(context: RecordContext<String, OrderLifecycleEvent>): Mono<Boolean> =
         mono(context = workerDispatcher) {
+            val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.order, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {
@@ -50,16 +55,16 @@ class ConfluentParallelReactorTrackingService(
                 logger.debug("Confluent Parallel Reactor order event received for key={}, order={}", record.key(), record.value().orderId)
                 processingCompleted()
             } catch (error: Throwable) {
-                logFailed(record, properties.audit)
-                throw error
+                handleFailure(context, error)
             }
         }
 
-    fun processBatchLifecycle(record: ConsumerRecord<String, BatchLifecycleEvent>): Mono<Boolean> =
+    fun processBatchLifecycle(context: RecordContext<String, BatchLifecycleEvent>): Mono<Boolean> =
         mono(context = workerDispatcher) {
+            val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.batch, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {
@@ -71,16 +76,16 @@ class ConfluentParallelReactorTrackingService(
                 logger.debug("Confluent Parallel Reactor batch event received for key={}, batch={}", record.key(), record.value().batchId)
                 processingCompleted()
             } catch (error: Throwable) {
-                logFailed(record, properties.audit)
-                throw error
+                handleFailure(context, error)
             }
         }
 
-    fun processCauldronTelemetry(record: ConsumerRecord<String, CauldronTelemetryEvent>): Mono<Boolean> =
+    fun processCauldronTelemetry(context: RecordContext<String, CauldronTelemetryEvent>): Mono<Boolean> =
         mono(context = workerDispatcher) {
+            val record = context.consumerRecord
             try {
                 if (shouldDiscard(properties.consumers.telemetry, record)) {
-                    logDropped(record, properties.audit)
+                    logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
                     return@mono processingCompleted()
                 }
                 if (properties.consumers.processingEnabled) {
@@ -96,8 +101,7 @@ class ConfluentParallelReactorTrackingService(
                 )
                 processingCompleted()
             } catch (error: Throwable) {
-                logFailed(record, properties.audit)
-                throw error
+                handleFailure(context, error)
             }
         }
 
@@ -107,6 +111,26 @@ class ConfluentParallelReactorTrackingService(
 
     // ReactorProcessor 0.5.3.3 acknowledges successful work on onNext, so the publisher must emit one value.
     private fun processingCompleted(): Boolean = true
+
+    private fun handleFailure(context: RecordContext<String, *>, error: Throwable): Boolean {
+        val record = context.consumerRecord
+        val attempt = context.numberOfFailedAttempts + 1
+        if (attempt >= properties.consumers.retry.maxAttempts) {
+            logFailed(record, properties.audit)
+            logger.warn(
+                "Confluent Parallel Reactor final failure for record topic={}, partition={}, offset={} after {} attempts",
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                attempt,
+                error
+            )
+            return processingCompleted()
+        }
+
+        logRetryAttempt(record, properties.audit)
+        throw PCRetriableException(error)
+    }
 
     private fun shouldDiscard(
         runtime: DemoApplicationProperties.ConsumerRuntime,

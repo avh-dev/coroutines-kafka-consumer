@@ -63,6 +63,9 @@ demo:
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
     worker-dispatcher-threads: ${WORKER_DISPATCHER_THREADS:8}
     freshness-first-max-record-age-seconds: ${FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS:10}
+    retry:
+      max-attempts: ${DEMO_CONSUMER_RETRY_MAX_ATTEMPTS:3}
+      backoff-ms: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}
     order:
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
@@ -74,7 +77,7 @@ demo:
       poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
     telemetry:
-      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST}
+      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_BY_KEY}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}

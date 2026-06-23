@@ -58,6 +58,7 @@ data class DemoApplicationProperties(
         var metricsImplementation: MetricsImplementation = MetricsImplementation.MICROMETER,
         var workerDispatcherThreads: Int = 8,
         var freshnessFirstMaxRecordAgeSeconds: Long = 10,
+        var retry: Retry = Retry(),
         var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var batch: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
         var telemetry: ConsumerRuntime = ConsumerRuntime(
@@ -70,6 +71,19 @@ data class DemoApplicationProperties(
     enum class MetricsImplementation {
         MICROMETER,
         NOOP
+    }
+
+    data class Retry(
+        var maxAttempts: Int = 3,
+        var backoffMs: Long = 250
+    ) {
+        init {
+            require(maxAttempts >= 1) { "demo.consumers.retry.max-attempts must be >= 1" }
+            require(backoffMs >= 0) { "demo.consumers.retry.backoff-ms must be >= 0" }
+        }
+
+        val maxRetries: Int
+            get() = maxAttempts - 1
     }
 
     data class ConsumerRuntime(

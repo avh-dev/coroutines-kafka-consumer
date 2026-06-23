@@ -1,6 +1,8 @@
 package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
+import avh.ckc.core.RetryPolicy
+import avh.ckc.core.RetryRule
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.coroutinesKafkaConsumer
@@ -9,6 +11,7 @@ import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logProcessed
+import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -20,6 +23,7 @@ import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
+import kotlin.time.Duration.Companion.milliseconds
 
 object DemoConsumers {
     fun orderConsumer(
@@ -27,6 +31,7 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
@@ -44,7 +49,8 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics.withDropAudit(audit)
+            retryPolicy = demoRetryPolicy(retry)
+            this.metrics = metrics.withAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -67,6 +73,7 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, BatchLifecycleEvent) -> Unit
@@ -84,7 +91,8 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics.withDropAudit(audit)
+            retryPolicy = demoRetryPolicy(retry)
+            this.metrics = metrics.withAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -107,6 +115,7 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
@@ -124,7 +133,8 @@ object DemoConsumers {
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
             this.processingDispatcher = processingDispatcher
-            this.metrics = metrics.withDropAudit(audit)
+            retryPolicy = demoRetryPolicy(retry)
+            this.metrics = metrics.withAudit(audit)
             onProcessingFailure { record, _ ->
                 logFailed(record, audit)
             }
@@ -146,15 +156,31 @@ object DemoConsumers {
         delay((5L..8L).random())
     }
 
-    private fun <K, V> ConsumerMetrics<K, V>.withDropAudit(
+    private fun demoRetryPolicy(retry: DemoApplicationProperties.Retry): RetryPolicy =
+        RetryPolicy.of(
+            RetryRule.of(
+                exceptionTypes = listOf(Exception::class),
+                maxRetries = retry.maxRetries,
+                delay = retry.backoffMs.milliseconds
+            )
+        )
+
+    private fun <K, V> ConsumerMetrics<K, V>.withAudit(
         audit: DemoApplicationProperties.Audit
     ): ConsumerMetrics<K, V> {
         val delegate = this
         return object : ConsumerMetrics<K, V> by delegate {
+            override fun onRetry(key: K?, value: V?, record: ConsumerRecord<K, V>, attempt: Int, error: Throwable) {
+                delegate.onRetry(key, value, record, attempt, error)
+                logRetryAttempt(record, audit)
+            }
+
             override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
                 delegate.onRecordDropped(record, reason)
-                logDropped(record, audit)
+                logDropped(record, audit, reason.auditReason())
             }
         }
     }
+
+    private fun RecordDropReason.auditReason(): String = name.lowercase()
 }

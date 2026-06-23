@@ -32,9 +32,9 @@ fun logFailed(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Aud
     )
 }
 
-fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
+fun logRetryAttempt(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Audit) {
     logRecord(
-        type = "D",
+        type = "R",
         topic = record.topic(),
         key = record.key()?.toString(),
         partition = record.partition(),
@@ -45,12 +45,30 @@ fun logDropped(record: ConsumerRecord<*, *>, audit: DemoApplicationProperties.Au
 }
 
 fun logDropped(
+    record: ConsumerRecord<*, *>,
+    audit: DemoApplicationProperties.Audit,
+    reason: String? = null
+) {
+    logRecord(
+        type = "D",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit,
+        detail = reason
+    )
+}
+
+fun logDropped(
     topic: String,
     key: String?,
     partition: Int,
     offset: Long,
     kafkaTimestampMs: Long,
-    audit: DemoApplicationProperties.Audit
+    audit: DemoApplicationProperties.Audit,
+    reason: String? = null
 ) {
     logRecord(
         type = "D",
@@ -59,7 +77,8 @@ fun logDropped(
         partition = partition,
         offset = offset,
         kafkaTimestampMs = kafkaTimestampMs,
-        audit = audit
+        audit = audit,
+        detail = reason
     )
 }
 
@@ -101,6 +120,25 @@ fun logFailed(
     )
 }
 
+fun logRetryAttempt(
+    topic: String,
+    key: String?,
+    partition: Int,
+    offset: Long,
+    kafkaTimestampMs: Long,
+    audit: DemoApplicationProperties.Audit
+) {
+    logRecord(
+        type = "R",
+        topic = topic,
+        key = key,
+        partition = partition,
+        offset = offset,
+        kafkaTimestampMs = kafkaTimestampMs,
+        audit = audit
+    )
+}
+
 fun logAuditShutdownMarker(phase: String, audit: DemoApplicationProperties.Audit) {
     if (!audit.enabled) {
         return
@@ -115,12 +153,13 @@ private fun logRecord(
     partition: Int,
     offset: Long,
     kafkaTimestampMs: Long,
-    audit: DemoApplicationProperties.Audit
+    audit: DemoApplicationProperties.Audit,
+    detail: String? = null
 ) {
     if (!audit.enabled) {
         return
     }
-    auditLogger.info(encodeConsumerAuditRecord(type, topic, partition, offset, key))
+    auditLogger.info(encodeConsumerAuditRecord(type, topic, partition, offset, key, detail = detail))
 }
 
 internal fun encodeConsumerAuditRecord(
@@ -129,6 +168,13 @@ internal fun encodeConsumerAuditRecord(
     partition: Int,
     offset: Long,
     key: String?,
-    auditTimestampMs: Long = System.currentTimeMillis()
+    auditTimestampMs: Long = System.currentTimeMillis(),
+    detail: String? = null
 ): String =
-    "$type|${auditTopicId(topic)}|$partition|$offset|$auditTimestampMs|${key.orEmpty()}"
+    buildString {
+        append("$type|${auditTopicId(topic)}|$partition|$offset|$auditTimestampMs|${key.orEmpty()}")
+        if (!detail.isNullOrBlank()) {
+            append("|")
+            append(detail)
+        }
+    }

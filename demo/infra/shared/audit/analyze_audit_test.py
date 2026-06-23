@@ -60,6 +60,38 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(1, totals["missing_terminal"])
         self.assertEqual(1, totals["without_publish"]["processed"])
 
+    def test_retry_attempts_do_not_count_as_terminal_conflicts(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "R|1|0|1|1100|order-a",
+                "C|1|0|1|1200|order-a",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["retry_attempts"])
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(1, totals["terminal"])
+        self.assertEqual(0, totals["failed"])
+        self.assertEqual(0, totals["conflicting_terminal_outcomes"])
+
+    def test_counts_unique_drop_reasons(self) -> None:
+        document = analyze(
+            [
+                "P|3|0|1|1000|1000|cauldron-a",
+                "D|3|0|1|1100|cauldron-a|stale_age",
+                "D|3|0|1|1200|cauldron-a|stale_age",
+                "P|3|0|2|2000|2000|cauldron-b",
+                "D|3|0|2|2100|cauldron-b",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(2, totals["dropped"])
+        self.assertEqual({"stale_age": 1, "unknown": 1}, totals["dropped_by_reason"])
+        self.assertEqual(1, totals["duplicates"]["dropped"])
+
     def test_reports_skewed_cauldron_processing_fairness(self) -> None:
         document = analyze(
             [

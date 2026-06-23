@@ -16,9 +16,12 @@ import org.springframework.context.ApplicationContext
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.listener.ContainerProperties
+import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.test.context.ActiveProfiles
+import org.springframework.test.util.ReflectionTestUtils
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -70,6 +73,7 @@ class SpringKafkaProfileContextTest(
         val batchConsumerFactory = configuration.batchOrderConsumerFactory(properties)
         val batchContainerFactory = configuration.batchLifecycleListenerContainerFactory(batchConsumerFactory, properties)
         val telemetryConsumerFactory = configuration.cauldronTelemetryConsumerFactory(properties)
+        val telemetryContainerFactory = configuration.cauldronTelemetryListenerContainerFactory(telemetryConsumerFactory, properties)
 
         assertEquals(ContainerProperties.AckMode.TIME, orderContainerFactory.containerProperties.ackMode)
         assertEquals(1_234, orderContainerFactory.containerProperties.ackTime)
@@ -79,8 +83,17 @@ class SpringKafkaProfileContextTest(
         assertEquals(false, batchConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(true, telemetryConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(1_234, telemetryConsumerFactory.config()[ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG])
+        assertProcessingRecovery(orderContainerFactory)
+        assertProcessingRecovery(batchContainerFactory)
+        assertProcessingRecovery(telemetryContainerFactory)
     }
 
     private fun ConsumerFactory<*, *>.config(): Map<String, Any> =
         (this as DefaultKafkaConsumerFactory<*, *>).configurationProperties
+
+    private fun assertProcessingRecovery(factory: Any) {
+        val errorHandler = ReflectionTestUtils.getField(factory, "commonErrorHandler")
+
+        assertIs<DefaultErrorHandler>(errorHandler)
+    }
 }
