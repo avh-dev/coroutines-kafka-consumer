@@ -145,6 +145,7 @@
 | [INFRA-55](#infra-55) | Refactor lab infrastructure entrypoints, AWS runner workflow, Helm ownership, and shared audit analysis assets.                                  | DONE |
 | [INFRA-56](#infra-56) | Add audit fairness metrics and telemetry-focused lab profiles for comparing freshness-first processing modes.                                   | DONE |
 | [INFRA-57](#infra-57) | Add test-definition chaos steps and simplify internal-lab audit collection around Fluent Bit file output.                                      | DONE |
+| [INFRA-58](#infra-58) | Reorganize the internal-lab server runtime layout by responsibility instead of source asset ownership.                                        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1558,3 +1559,12 @@ Cover demo-stubs runtime profile changes, including switching to a named profile
 Add an internal-lab chaos test definition for the 15-minute 3000 TPS scenario.
 Replace the custom audit archiver with Fluent Bit file output, analyze a single completed audit log offline, and gzip it after analysis.
 Remove noisy per-ack load-test stdout logging and make analyzer delivery matching exact by default for long chaos delays.
+
+<a id="infra-58"></a>
+### INFRA-58 - Reorganize internal-lab server runtime layout
+
+_Date: 2026-06-27_
+
+Replace source-oriented server directories such as `assets`, `shared`, and `workspace` with responsibility-oriented runtime paths.
+Keep local repository ownership intact while mapping uploaded files to lab-host `bin`, `libexec`, `helpers`, `helm`, `docker`, `grafana`, and `test-definitions` directories.
+Clean up install and update scripts so fresh installs and incremental updates produce the same lab-host structure.

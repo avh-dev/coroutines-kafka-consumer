@@ -59,8 +59,8 @@ services:
       - "127.0.0.1:2020:2020"
     command: ["-c", "/fluent-bit/etc/fluent-bit.yaml"]
     volumes:
-      - ./fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
-      - ./audit/live:/audit
+      - ${LAB_ROOT}/docker/compose/fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
+      - ${LAB_ROOT}/audit/live:/audit
     deploy:
       resources:
         limits:
@@ -79,8 +79,8 @@ services:
       GF_SERVER_DOMAIN: "${LAB_HOST:-localhost}"
       GF_SERVER_ROOT_URL: "http://${LAB_HOST:-localhost}:3000/"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./workspace/demo/infra/shared/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${LAB_ROOT}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${LAB_ROOT}/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.8.0
@@ -109,4 +109,4 @@ services:
       - --config.path=/config/process-exporter.yml
     volumes:
       - /proc:/host/proc:ro
-      - ./process-exporter.yml:/config/process-exporter.yml:ro
+      - ${LAB_ROOT}/docker/compose/process-exporter.yml:/config/process-exporter.yml:ro

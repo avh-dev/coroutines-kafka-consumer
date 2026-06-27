@@ -7,10 +7,12 @@ if [ -z "${LAB_NODE_IP:-}" ]; then
   exit 1
 fi
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}"
-ASSETS_DIR="${ASSETS_DIR:-${LAB_ROOT}/assets}"
-SHARED_GRAFANA_DIR="${SHARED_GRAFANA_DIR:-${LAB_ROOT}/workspace/demo/infra/shared/grafana}"
+K8S_DIR="${K8S_DIR:-${LAB_ROOT}/k8s}"
+COMPOSE_DIR="${COMPOSE_DIR:-${LAB_ROOT}/docker/compose}"
+GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
+GENERATED_DIR="${LAB_ROOT}/state/generated"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
 
@@ -24,20 +26,20 @@ restart_prometheus() {
   kubectl -n ckc-perf rollout status deployment/ckc-prometheus --timeout=5m
 }
 
-mkdir -p "${LAB_ROOT}/generated"
+mkdir -p "${GENERATED_DIR}"
 mkdir -p "${LAB_ROOT}/prometheus"
 chown -R 65534:65534 "${LAB_ROOT}/prometheus"
 
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
-  "${ASSETS_DIR}/k8s/external-services.yaml.tpl" \
-  > "${LAB_ROOT}/generated/external-services.yaml"
+  "${K8S_DIR}/external-services.yaml.tpl" \
+  > "${GENERATED_DIR}/external-services.yaml"
 
-kubectl apply -f "${ASSETS_DIR}/k8s/namespace.yaml"
-kubectl apply -f "${ASSETS_DIR}/k8s/metrics-server.yaml"
-kubectl apply -f "${LAB_ROOT}/generated/external-services.yaml"
+kubectl apply -f "${K8S_DIR}/namespace.yaml"
+kubectl apply -f "${K8S_DIR}/metrics-server.yaml"
+kubectl apply -f "${GENERATED_DIR}/external-services.yaml"
 kubectl -n ckc-perf delete service,endpoints ckc-external-demo-stubs --ignore-not-found=true
 PROMETHEUS_CONFIG_BEFORE="$(kubectl -n ckc-perf get configmap ckc-prometheus-config -o jsonpath='{.data.prometheus\.yml}' 2>/dev/null || true)"
-kubectl apply -f "${ASSETS_DIR}/k8s/prometheus.yaml"
+kubectl apply -f "${K8S_DIR}/prometheus.yaml"
 
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
 kubectl -n ckc-perf rollout status deployment/ckc-prometheus --timeout=5m
@@ -52,15 +54,11 @@ if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "$
   fi
 fi
 
-mkdir -p "${LAB_ROOT}/grafana/provisioning/datasources" "${LAB_ROOT}/grafana/provisioning/dashboards"
+mkdir -p "${GRAFANA_DIR}/provisioning/datasources" "${GRAFANA_DIR}/provisioning/dashboards"
 mkdir -p "${LAB_ROOT}/audit/live"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
-  "${ASSETS_DIR}/grafana/provisioning/datasources/prometheus.yml" \
-  > "${LAB_ROOT}/grafana/provisioning/datasources/prometheus.yml"
-cp "${SHARED_GRAFANA_DIR}/provisioning/dashboards/ckc.yml" "${LAB_ROOT}/grafana/provisioning/dashboards/ckc.yml"
-cp "${ASSETS_DIR}/compose/docker-compose.host-services.yml" "${LAB_ROOT}/docker-compose.host-services.yml"
-cp "${ASSETS_DIR}/compose/process-exporter.yml" "${LAB_ROOT}/process-exporter.yml"
-cp "${ASSETS_DIR}/compose/fluent-bit.yaml" "${LAB_ROOT}/fluent-bit.yaml"
+  "${GRAFANA_DIR}/templates/provisioning/datasources/prometheus.yml" \
+  > "${GRAFANA_DIR}/provisioning/datasources/prometheus.yml"
 
 for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
@@ -71,7 +69,7 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis fluent-bit grafana process-exporter
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis fluent-bit grafana process-exporter
 docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
 docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
 docker restart ckc-internal-process-exporter >/dev/null
@@ -79,7 +77,7 @@ if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/nu
   echo "Process exporter did not expose the Redpanda process group within 30 seconds; continuing because it is observability-only." >&2
   docker logs --tail 50 ckc-internal-process-exporter >&2 || true
 fi
-LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
 
 if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9308/metrics' >/dev/null 2>&1; do sleep 2; done"; then
   echo "Kafka exporter did not become ready within 30 seconds; continuing because it is observability-only." >&2

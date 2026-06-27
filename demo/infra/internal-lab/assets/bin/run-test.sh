@@ -2,16 +2,16 @@
 
 set -eu
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 LOG_DIR="${LAB_ROOT}/logs"
-PID_DIR="${LAB_ROOT}/pids"
+PID_DIR="${LAB_ROOT}/state/pids"
 AUDIT_DIR="${LAB_ROOT}/audit"
 AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
 AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo/profiles/internal-lab"
-TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles/internal-lab"
+TEST_DIR="${LAB_ROOT}/test-definitions"
 AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
 AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
@@ -199,7 +199,7 @@ resolve_yaml() {
   case "${value}" in
     */*|*\\*)
       if [ "${value#/}" = "${value}" ]; then
-        printf "%s/%s\n" "${LAB_ROOT}/workspace" "${value}"
+        printf "%s/%s\n" "${LAB_ROOT}" "${value}"
       else
         printf "%s\n" "${value}"
       fi
@@ -300,14 +300,14 @@ echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/assets/helpers/definition-env.py" \
+python3 "${LAB_ROOT}/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
-  --repo-dir "${LAB_ROOT}/workspace" \
+  --repo-dir "${LAB_ROOT}" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
@@ -338,12 +338,12 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/assets/libexec/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
+  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/libexec/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
 else
-  "${LAB_ROOT}/assets/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+  "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
-LOAD_TEST_BIN="${LAB_ROOT}/runtime/load-test/bin/ckc-demo-load-test"
+LOAD_TEST_BIN="${LAB_ROOT}/load-test-runtime/bin/ckc-demo-load-test"
 if [ ! -x "${LOAD_TEST_BIN}" ]; then
   echo "Load-test runtime was not found or is not executable: ${LOAD_TEST_BIN}" >&2
   echo "Run local demo/infra/internal-lab/scripts/update-lab.sh first." >&2
@@ -469,10 +469,10 @@ audit_collector_ready() {
 }
 
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
-  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
   rm -f "${AUDIT_LIVE_FILE}"
   rm -f "${AUDIT_ANALYZER_PROGRESS_FILE}" "${AUDIT_ANALYZER_SUMMARY_FILE}"
-  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" up -d --wait --wait-timeout 60 fluent-bit
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait --wait-timeout 60 fluent-bit
   if ! audit_collector_ready; then
     echo "Audit collector is not ready after resetting Fluent Bit." >&2
     docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
@@ -518,7 +518,7 @@ CHAOS_LOG_PATH="${LOG_DIR}/chaos-${RUN_ID}.log"
 CHAOS_PID=""
 if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
-  nohup python3 "${LAB_ROOT}/assets/helpers/run-chaos-steps.py" \
+  nohup python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" \
     --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
     > "${CHAOS_LOG_PATH}" 2>&1 &
   CHAOS_PID="$!"
@@ -641,7 +641,7 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
   DRAIN_WAIT_EXIT_CODE=0
-  python3 "${LAB_ROOT}/assets/helpers/wait-consumer-drain.py" \
+  python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
     --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
@@ -653,7 +653,7 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
 fi
 
 finalize_audit_log() {
-  LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
   if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
     echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
     docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
@@ -673,7 +673,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   echo "Finalizing Fluent Bit audit log."
   finalize_audit_log
   echo "Running audit analysis."
-  if ! python3 "${LAB_ROOT}/workspace/demo/infra/shared/audit/analyze-audit.py" \
+  if ! python3 "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
     --input-file "${RUN_AUDIT_LOG_FILE}" \
     --metadata-file "${RUN_METADATA_FILE}" \
     --require-records \
