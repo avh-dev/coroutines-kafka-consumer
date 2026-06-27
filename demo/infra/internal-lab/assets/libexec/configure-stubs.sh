@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 STUB_SETTINGS_JSON="${1:-}"
 PORT="${STUBS_PORT_FORWARD_PORT:-18080}"
 

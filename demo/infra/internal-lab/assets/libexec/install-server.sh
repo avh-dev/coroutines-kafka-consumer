@@ -12,7 +12,7 @@ if [ -z "${LAB_NODE_IP:-}" ]; then
   exit 1
 fi
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 
 export DEBIAN_FRONTEND=noninteractive
 

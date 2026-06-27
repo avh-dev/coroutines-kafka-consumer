@@ -153,7 +153,7 @@ spec:
             name: ckc-prometheus-config
         - name: data
           hostPath:
-            path: /opt/ckc-internal-lab/prometheus
+            path: /opt/ckc-lab/prometheus
             type: DirectoryOrCreate
 ---
 apiVersion: v1

@@ -2,15 +2,16 @@
 
 set -eu
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 
 if [ "$#" -eq 0 ]; then
   echo "Usage: $0 <service=fingerprint> [...]" >&2
   exit 1
 fi
 
-image_tar="${LAB_ROOT}/images/ckc-internal-lab-images.tar"
+image_tar="${LAB_ROOT}/state/images/ckc-lab-images.tar"
 image_names=""
+mkdir -p "${LAB_ROOT}/state/images" "${LAB_ROOT}/state/fingerprints/images"
 
 for request in "$@"; do
   service="${request%%=*}"
@@ -29,16 +30,16 @@ for request in "$@"; do
     echo "Fingerprint is missing for ${service}." >&2
     exit 1
   fi
-  if [ ! -f "${LAB_ROOT}/build-context/${service}/Dockerfile" ]; then
+  if [ ! -f "${LAB_ROOT}/docker/build/${service}/Dockerfile" ]; then
     echo "Dockerfile is missing for ${service}." >&2
     exit 1
   fi
-  if [ ! -d "${LAB_ROOT}/build-context/${service}/build/install/ckc-${service}" ]; then
+  if [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/ckc-${service}" ]; then
     echo "Runtime dist is missing for ${service}." >&2
     exit 1
   fi
 
-  docker build -t "ckc-perf/${service}:latest" "${LAB_ROOT}/build-context/${service}"
+  docker build -t "ckc-perf/${service}:latest" "${LAB_ROOT}/docker/build/${service}"
   image_names="${image_names} ckc-perf/${service}:latest"
 done
 
@@ -50,7 +51,7 @@ rm -f "${image_tar}"
 for request in "$@"; do
   service="${request%%=*}"
   fingerprint="${request#*=}"
-  printf '%s\n' "${fingerprint}" > "${LAB_ROOT}/images/${service}.fingerprint"
+  printf '%s\n' "${fingerprint}" > "${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint"
 done
 
 docker image ls 'ckc-perf/*'

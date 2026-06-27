@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo/profiles/internal-lab"
-TEST_DIR="${LAB_ROOT}/workspace/demo/infra/shared/test-definitions/internal-lab"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles/internal-lab"
+TEST_DIR="${LAB_ROOT}/test-definitions"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 
 if [[ ! -f "${LAB_ENV}" ]]; then
@@ -53,7 +53,7 @@ resolve_yaml() {
   case "${value}" in
     */*|*\\*)
       if [[ "${value#/}" = "${value}" ]]; then
-        printf "%s/%s\n" "${LAB_ROOT}/workspace" "${value}"
+        printf "%s/%s\n" "${LAB_ROOT}" "${value}"
       else
         printf "%s\n" "${value}"
       fi
@@ -80,14 +80,14 @@ if [[ ! -f "${TEST_DEFINITION}" ]]; then
 fi
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/assets/helpers/definition-env.py" \
+python3 "${LAB_ROOT}/helpers/definition-env.py" \
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
-  --repo-dir "${LAB_ROOT}/workspace" \
+  --repo-dir "${LAB_ROOT}" \
   > "${ENV_FILE}"
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
@@ -108,13 +108,13 @@ fi
 LAB_ROOT="${LAB_ROOT}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
-  "${LAB_ROOT}/assets/libexec/reset-kafka-redis.sh"
+  "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
 
-"${LAB_ROOT}/assets/libexec/deploy-stubs.sh"
+"${LAB_ROOT}/libexec/deploy-stubs.sh"
 
-helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/internal-lab/helm/demo" \
+helm upgrade --install ckc-demo "${LAB_ROOT}/helm/demo" \
   --namespace ckc-perf \
-  -f "${LAB_ROOT}/assets/config/demo-values.yaml" \
+  -f "${LAB_ROOT}/config/defaults/demo-values.yaml" \
   -f "${DEPLOYMENT_PROFILE}" \
   --set "env.processingEnabled=${PROCESSING_ENABLED}" \
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
@@ -123,7 +123,7 @@ helm upgrade --install ckc-demo "${LAB_ROOT}/workspace/demo/infra/internal-lab/h
   --set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
-"${LAB_ROOT}/assets/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 kubectl -n ckc-perf get pods,svc,endpoints -o wide
 
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF

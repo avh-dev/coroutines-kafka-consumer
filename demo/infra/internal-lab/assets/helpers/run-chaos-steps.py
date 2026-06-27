@@ -16,12 +16,12 @@ from typing import Any
 
 
 def parse_args() -> argparse.Namespace:
-    lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-internal-lab")
+    lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-lab")
     parser = argparse.ArgumentParser(description="Run scheduled internal-lab chaos steps.")
     parser.add_argument("--steps-json", default=os.environ.get("CHAOS_STEPS_JSON", "[]"))
     parser.add_argument("--steps-file")
     parser.add_argument("--start-epoch-seconds", type=float, default=time.time())
-    parser.add_argument("--configure-stubs", default=f"{lab_root}/assets/libexec/configure-stubs.sh")
+    parser.add_argument("--configure-stubs", default=f"{lab_root}/libexec/configure-stubs.sh")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 

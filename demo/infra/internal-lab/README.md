@@ -41,11 +41,11 @@ lab host
 
   Host runtime
     Docker build for ckc-perf/demo and ckc-perf/demo-stubs from synced dist layouts
-    ckc-demo-load-test as a host Java process under /opt/ckc-internal-lab/runtime/load-test
+    ckc-demo-load-test as a host Java process under /opt/ckc-lab/load-test-runtime
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
-Prometheus stores its TSDB on the lab host under `/opt/ckc-internal-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history.
+Prometheus stores its TSDB on the lab host under `/opt/ckc-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history.
 
 ## Install
 
@@ -85,7 +85,7 @@ EOF
 The installer:
 
 - writes or refreshes `.demo-infra/internal-lab/lab.env`
-- copies `demo/infra/internal-lab/assets` to `/opt/ckc-internal-lab/assets` on the lab host
+- maps local internal-lab assets and shared test assets into responsibility-oriented lab-host directories under `/opt/ckc-lab`
 - installs Docker, Helm, and k3s on the lab host
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
@@ -104,6 +104,26 @@ curl -fsS "http://${LAB_HOST}:3000/api/health"
 curl -fsS "http://${LAB_HOST}:30090/-/ready"
 ```
 
+The lab host layout is grouped by runtime responsibility:
+
+```text
+/opt/ckc-lab/bin                public lab entrypoints
+/opt/ckc-lab/libexec            internal shell helpers
+/opt/ckc-lab/helpers            internal Python helpers, including audit analysis
+/opt/ckc-lab/helm               internal-lab Helm charts and profiles
+/opt/ckc-lab/docker/compose     host-service Docker Compose files
+/opt/ckc-lab/docker/build       Docker build contexts
+/opt/ckc-lab/k8s                raw Kubernetes manifests and templates
+/opt/ckc-lab/config             persisted lab and test config
+/opt/ckc-lab/grafana            Grafana provisioning and dashboards
+/opt/ckc-lab/test-definitions   internal-lab test definitions
+/opt/ckc-lab/load-test-runtime  built load-test runtime
+/opt/ckc-lab/state              fingerprints, generated files, and pids
+/opt/ckc-lab/logs               lab process logs
+/opt/ckc-lab/audit              audit run outputs
+/opt/ckc-lab/prometheus         persistent Prometheus data
+```
+
 ## Clean Reinstall
 
 To rebuild an existing lab host from scratch, first make sure the current
@@ -113,11 +133,11 @@ assets are present on the lab host, then run the destructive lab-side cleanup:
 ./demo/infra/internal-lab/scripts/update-lab.sh
 source .demo-infra/internal-lab/lab.env
 ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/uninstall-server.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/uninstall-server.sh
 ```
 
 The cleanup removes k3s, internal-lab Docker containers/images, Helm, Java 21,
-Docker packages installed by the lab installer, and `/opt/ckc-internal-lab`.
+Docker packages installed by the lab installer, and `/opt/ckc-lab`.
 After it finishes, run a fresh install from the local machine:
 
 ```sh
@@ -136,7 +156,7 @@ This keeps uncommitted local code changes testable without making the lab host r
 
 - `ckc-demo` and `ckc-demo-stubs` image build inputs
 - the `ckc-demo-load-test` runtime distribution
-- shared Helm charts, Grafana dashboards, test definitions, and helper scripts
+- internal-lab Helm charts, Grafana dashboards, test definitions, and helper scripts
 - internal-lab assets and host scripts
 
 This means a `test-definition` or Helm-only change usually skips Gradle, image rebuilds, and the base lab redeploy. Changes to Grafana or internal-lab k8s or compose assets still reapply the base lab, and demo-stubs chart changes still re-run the stubs deployment.
@@ -159,7 +179,7 @@ ssh "root@${LAB_HOST}"
 Start the interactive runner:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
 The runner presents fixed choices through numbered lists and prompts for the
@@ -176,13 +196,13 @@ shown as defaults and used when Enter is pressed:
 Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
 executor after the load-test process starts. Chaos offsets are measured from
 that load-test start point. The executor writes its own log under
-`/opt/ckc-internal-lab/logs/chaos-<run-id>.log`, and the runner fails fast if a
+`/opt/ckc-lab/logs/chaos-<run-id>.log`, and the runner fails fast if a
 chaos step fails.
 
 Pass the same choices explicitly for a non-interactive run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --deployment ckc-sync \
   --processing-enabled false \
   --audit-log-enabled false \
@@ -205,7 +225,7 @@ Before starting the load generator, the runner:
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --skip-prepare \
   --deployment ckc-sync \
   --processing-enabled false \
@@ -222,13 +242,13 @@ profile continues to use `Dispatchers.IO`.
 The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text
-/opt/ckc-internal-lab/logs/
+/opt/ckc-lab/logs/
 ```
 
 Run the bundled internal-lab chaos smoke explicitly with:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh \
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --deployment ckc \
   chaos-smoke
 ```
@@ -237,7 +257,7 @@ High-volume publish and processed audit records are streamed over TCP into the
 host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 
 ```text
-/opt/ckc-internal-lab/audit/live/audit.log
+/opt/ckc-lab/audit/live/audit.log
 ```
 
 Audit lines use compact record types: `P` for published records, `C` for
@@ -253,7 +273,7 @@ stops Fluent Bit after drain and moves the completed audit log plus the
 calculated report under:
 
 ```text
-/opt/ckc-internal-lab/audit/<run-id>/
+/opt/ckc-lab/audit/<run-id>/
 ```
 
 The runner prints and saves `summary.yaml` with the selected test settings,
@@ -292,8 +312,8 @@ collector health endpoint is unavailable before the test starts or during the
 load run. Override the lag wait with:
 
 ```sh
-CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh --skip-drain-wait
+CONSUMER_DRAIN_TIMEOUT_SECONDS=1800 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh --skip-drain-wait
 ```
 
 It prints the Java process PID and waits until the load-test process exits. In an interactive terminal, press `q` to stop the local load-test process early.
@@ -323,7 +343,7 @@ The shared dashboard is provisioned under the `CKC` folder:
 http://$LAB_HOST:3000/d/ckc-overview/ckc-overview
 ```
 
-Dashboard JSON is mounted from `/opt/ckc-internal-lab/workspace/demo/infra/shared/grafana/dashboards`,
+Dashboard JSON is mounted from `/opt/ckc-lab/grafana/dashboards`,
 the same path refreshed by `update-lab.sh`. The update script reapplies the Grafana compose service so mount
 changes and refreshed dashboard JSON are visible without manual copying.
 
@@ -360,7 +380,7 @@ Keep these constant between runs:
 Reset state and deploy the same profile before every run:
 
 ```sh
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
@@ -368,19 +388,19 @@ While topics are being deleted and recreated, running app pods can briefly log `
 Switch only the app profile or explicit Helm settings. For example:
 
 ```sh
-helm upgrade --install ckc-demo demo/infra/internal-lab/helm/demo \
+helm upgrade --install ckc-demo demo/infra/internal-lab/assets/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/internal-lab/helm/demo/profiles/internal-lab/ckc.yaml
+  -f demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab/ckc.yaml
 ```
 
 ```sh
-helm upgrade --install ckc-demo demo/infra/internal-lab/helm/demo \
+helm upgrade --install ckc-demo demo/infra/internal-lab/assets/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/internal-lab/helm/demo/profiles/internal-lab/spring-kafka.yaml
+  -f demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab/spring-kafka.yaml
 ```
 
 Useful Prometheus queries:
@@ -434,9 +454,9 @@ Recommended before serious runs:
 
 ```sh
 source .demo-infra/internal-lab/lab.env
-ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/tune-host.sh"
+ssh "root@${LAB_HOST}" "LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/tune-host.sh"
 ssh "root@${LAB_HOST}"
-LAB_ROOT=/opt/ckc-internal-lab /opt/ckc-internal-lab/assets/bin/run-test.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
 Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.

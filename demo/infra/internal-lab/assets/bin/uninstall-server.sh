@@ -2,7 +2,7 @@
 
 set -eu
 
-LAB_ROOT="${LAB_ROOT:-/opt/ckc-internal-lab}"
+LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root." >&2
@@ -23,8 +23,8 @@ fi
 
 echo "Removing internal lab Docker containers and images."
 if command -v docker >/dev/null 2>&1; then
-  if [ -f "${LAB_ROOT}/docker-compose.host-services.yml" ]; then
-    LAB_NODE_IP="${LAB_NODE_IP:-127.0.0.1}" LAB_HOST="${LAB_HOST:-localhost}" docker compose -f "${LAB_ROOT}/docker-compose.host-services.yml" down --remove-orphans >/dev/null 2>&1 || true
+  if [ -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" ]; then
+    LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP:-127.0.0.1}" LAB_HOST="${LAB_HOST:-localhost}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" down --remove-orphans >/dev/null 2>&1 || true
   fi
 
   docker rm -f \
@@ -32,6 +32,7 @@ if command -v docker >/dev/null 2>&1; then
     ckc-perf-redpanda \
     ckc-perf-redis \
     ckc-perf-demo-stubs \
+    ckc-internal-fluent-bit \
     ckc-internal-grafana \
     ckc-internal-kafka-exporter \
     ckc-internal-cadvisor \
