@@ -18,7 +18,7 @@ env:
   batchWorkerConcurrency: 20
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 512
-  telemetryWorkerConcurrency: 30
+  telemetryWorkerConcurrency: 20
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512
 

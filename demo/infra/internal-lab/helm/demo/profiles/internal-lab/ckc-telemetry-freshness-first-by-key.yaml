@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 1
 
 lab:
   kafkaTopics:
@@ -7,7 +7,7 @@ lab:
     - name: batch.events.v1
       partitions: 1
     - name: cauldron.events.v1
-      partitions: 16
+      partitions: 1
 
 env:
   springProfilesActive: ckc
@@ -20,7 +20,7 @@ env:
   telemetryProcessingMode: FRESHNESS_FIRST_BY_KEY
   telemetryWorkerConcurrency: 16
   telemetryPollLoopConcurrency: 1
-  telemetryWorkChannelCapacity: 256
+  telemetryWorkChannelCapacity: 10000
 
 resources:
   requests:

@@ -15,7 +15,8 @@ import org.springframework.stereotype.Service
 class SyncCauldronTelemetryService(
     private val modelClient: SyncArcaneEtaModelClient,
     private val normalizer: ArcaneEtaNormalizer,
-    private val brewingStateRepository: SyncBrewingStateRepository
+    private val brewingStateRepository: SyncBrewingStateRepository,
+    private val telemetryMetrics: CauldronTelemetryMetrics
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -23,6 +24,7 @@ class SyncCauldronTelemetryService(
         try {
             val batch = findBatch(telemetryEvent) ?: return null
             val previous = brewingStateRepository.findEtaContext(batch.batchId)
+            telemetryMetrics.recordEventGap(telemetryEvent, previous)
             val modelResponse = modelClient.estimate(modelRequest(batch, telemetryEvent, previous))
 
             brewingStateRepository.saveEtaContext(etaContext(batch, telemetryEvent, modelResponse))

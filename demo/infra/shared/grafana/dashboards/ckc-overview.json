@@ -839,6 +839,69 @@
           ],
           "title": "Cauldron Events Successful Record Age",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 24
+          },
+          "id": 81,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "(1000 * sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_sum[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_count[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "refId": "A",
+              "legendFormat": "{{pod}} avg"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "refId": "B",
+              "legendFormat": "{{pod}} p50"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "refId": "D",
+              "legendFormat": "{{pod}} p95"
+            },
+            {
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "refId": "E",
+              "legendFormat": "{{pod}} p99"
+            },
+            {
+              "expr": "(1000 * max by (${pod_grouping}) (ckc_demo_cauldron_telemetry_event_gap_seconds_max)) and on() (vector(${duration_percentile}) == -2)",
+              "refId": "C",
+              "legendFormat": "{{pod}} max"
+            }
+          ],
+          "title": "Cauldron Telemetry Event Gap",
+          "type": "timeseries"
         }
       ],
       "title": "Cauldron Events",
