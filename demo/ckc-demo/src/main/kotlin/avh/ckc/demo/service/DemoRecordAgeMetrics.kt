@@ -36,7 +36,6 @@ class DemoRecordAgeMetrics(
         error: String
     ) {
         DistributionSummary.builder("ckc.record.age")
-            .baseUnit("milliseconds")
             .tags(
                 Tags.of(
                     "consumer_id",
