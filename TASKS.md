@@ -146,6 +146,7 @@
 | [INFRA-56](#infra-56) | Add audit fairness metrics and telemetry-focused lab profiles for comparing freshness-first processing modes.                                   | DONE |
 | [INFRA-57](#infra-57) | Add test-definition chaos steps and simplify internal-lab audit collection around Fluent Bit file output.                                      | DONE |
 | [INFRA-58](#infra-58) | Reorganize the internal-lab server runtime layout by responsibility instead of source asset ownership.                                        | DONE |
+| [INFRA-59](#infra-59) | Add internal-lab test bundles for running sequential comparison scenarios across deployment profiles.                                        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1568,3 +1569,12 @@ _Date: 2026-06-27_
 Replace source-oriented server directories such as `assets`, `shared`, and `workspace` with responsibility-oriented runtime paths.
 Keep local repository ownership intact while mapping uploaded files to lab-host `bin`, `libexec`, `helpers`, `helm`, `docker`, `grafana`, and `test-definitions` directories.
 Clean up install and update scripts so fresh installs and incremental updates produce the same lab-host structure.
+
+<a id="infra-59"></a>
+### INFRA-59 - Add internal-lab test bundles
+
+_Date: 2026-06-27_
+
+Add bundle definitions for sequentially running the same internal-lab test against multiple deployment profiles.
+Provide a lab-host bundle runner that calls the existing single-test runner for each bundle entry and records a per-bundle summary.
+Start with a comparison bundle based on the current lab settings plus Confluent Reactor and naive Spring Kafka profiles.

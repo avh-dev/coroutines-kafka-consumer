@@ -75,7 +75,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${LAB_HOST}" "
     LAB_ROOT='${LEGACY_LAB_ROOT}' LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -p ckc-internal-lab -f '${LEGACY_LAB_ROOT}/compose/docker-compose.host-services.yml' down --remove-orphans >/dev/null 2>&1 || true
   fi
   rm -rf '${LEGACY_LAB_ROOT}'
-  mkdir -p '${LAB_ROOT}' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared' '${LAB_ROOT}/workspace' '${LAB_ROOT}/bin' '${LAB_ROOT}/libexec' '${LAB_ROOT}/helpers' '${LAB_ROOT}/helm' '${LAB_ROOT}/compose' '${LAB_ROOT}/build' '${LAB_ROOT}/runtime' '${LAB_ROOT}/docker' '${LAB_ROOT}/k8s' '${LAB_ROOT}/grafana' '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/load-test-runtime'
+  mkdir -p '${LAB_ROOT}' && rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/shared' '${LAB_ROOT}/workspace' '${LAB_ROOT}/bin' '${LAB_ROOT}/libexec' '${LAB_ROOT}/helpers' '${LAB_ROOT}/helm' '${LAB_ROOT}/compose' '${LAB_ROOT}/build' '${LAB_ROOT}/runtime' '${LAB_ROOT}/docker' '${LAB_ROOT}/k8s' '${LAB_ROOT}/grafana' '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/load-test-runtime' '${LAB_ROOT}/notify'
 "
 copy_dir "${ASSETS_DIR}/bin" "${LAB_ROOT}/bin"
 copy_dir "${ASSETS_DIR}/libexec" "${LAB_ROOT}/libexec"
@@ -83,11 +83,13 @@ copy_dir "${ASSETS_DIR}/helpers" "${LAB_ROOT}/helpers"
 copy_dir "${ASSETS_DIR}/helm" "${LAB_ROOT}/helm"
 copy_dir "${ASSETS_DIR}/compose" "${LAB_ROOT}/docker/compose"
 copy_dir "${ASSETS_DIR}/k8s" "${LAB_ROOT}/k8s"
-ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config/defaults' '${LAB_ROOT}/grafana/templates' '${LAB_ROOT}/grafana/dashboards' '${LAB_ROOT}/grafana/provisioning/dashboards' '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/helpers/audit'"
+copy_dir "${ASSETS_DIR}/notify" "${LAB_ROOT}/notify"
+ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config/defaults' '${LAB_ROOT}/grafana/templates' '${LAB_ROOT}/grafana/dashboards' '${LAB_ROOT}/grafana/provisioning/dashboards' '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/test-bundles' '${LAB_ROOT}/helpers/audit'"
 copy_dir "${ASSETS_DIR}/config" "${LAB_ROOT}/config/defaults"
 copy_dir "${ASSETS_DIR}/grafana" "${LAB_ROOT}/grafana/templates"
 copy_dir "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
 copy_dir "${REPO_ROOT}/demo/infra/shared/test-definitions/internal-lab" "${LAB_ROOT}/test-definitions"
+copy_dir "${REPO_ROOT}/demo/infra/shared/test-bundles/internal-lab" "${LAB_ROOT}/test-bundles"
 copy_dir "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
 copy_dir "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config'"

@@ -55,7 +55,7 @@ rm -f /usr/local/bin/helm
 rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc
 
 echo "Removing lab packages."
-apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin openjdk-21-jre-headless >/dev/null 2>&1 || true
+apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin openjdk-21-jre-headless python3-yaml >/dev/null 2>&1 || true
 apt-get autoremove -y >/dev/null 2>&1 || true
 
 echo "Internal lab server cleanup is complete."

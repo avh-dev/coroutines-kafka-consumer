@@ -1,0 +1,20 @@
+name: smoke-repeat
+description: Run the short smoke definition twice to validate bundle orchestration.
+
+defaults:
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+    WORKER_DISPATCHER_THREADS: 2
+    LOAD_TEST_WORKERS: 1
+    BASE_TPS: 100
+
+tests:
+  - name: ckc-smoke-1
+    deployment: ckc
+    test_definition: smoke
+
+  - name: ckc-smoke-2
+    deployment: ckc
+    test_definition: smoke

@@ -16,6 +16,7 @@ AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
 AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
 RUN_PREPARE=1
+RUN_ANALYSIS=1
 WAIT_FOR_CONSUMER_DRAIN="${WAIT_FOR_CONSUMER_DRAIN:-1}"
 CONSUMER_DRAIN_TIMEOUT_SECONDS="${CONSUMER_DRAIN_TIMEOUT_SECONDS:-900}"
 CONSUMER_DRAIN_STABLE_SECONDS="${CONSUMER_DRAIN_STABLE_SECONDS:-15}"
@@ -26,12 +27,15 @@ PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
 METRICS_IMPLEMENTATION=""
 WORKER_DISPATCHER_THREADS=""
+ENV_OVERRIDES=()
+RUN_INTERRUPTED=0
 
 usage() {
   cat <<EOF
-Usage: $0 [--skip-prepare] [--skip-drain-wait] [--deployment profile]
+Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP]
+          [--env KEY=VALUE]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
 Selects an internal-lab deployment and test definition, prepares the lab when
@@ -41,6 +45,7 @@ Options:
   --skip-prepare   Start only the lab-host load-test process.
   --skip-drain-wait
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
+  --skip-analysis  Finalize the raw audit log but leave analysis for a later step.
   --deployment     Select a Helm deployment profile without prompting.
   --processing-enabled
                     Override demo processing with true or false. Use false for noop mode.
@@ -50,6 +55,7 @@ Options:
                     Select MICROMETER or NOOP consumer metrics.
   --worker-dispatcher-threads
                     Set the shared suspend worker dispatcher thread count.
+  --env             Override any generated test environment value. Can be repeated.
   -h, --help       Show this help.
 EOF
 }
@@ -62,6 +68,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-drain-wait)
       WAIT_FOR_CONSUMER_DRAIN=0
+      shift
+      ;;
+    --skip-analysis)
+      RUN_ANALYSIS=0
       shift
       ;;
     --deployment)
@@ -82,6 +92,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --worker-dispatcher-threads)
       WORKER_DISPATCHER_THREADS="${2:?--worker-dispatcher-threads requires a positive integer}"
+      shift 2
+      ;;
+    --env)
+      ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
       shift 2
       ;;
     -h|--help)
@@ -298,19 +312,43 @@ echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
 echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
+if [ "${#ENV_OVERRIDES[@]}" -gt 0 ]; then
+  echo "Environment overrides:"
+  printf "  %s\n" "${ENV_OVERRIDES[@]}"
+fi
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/helpers/definition-env.py" \
+DEFINITION_ENV_ARGS=(
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
-  --repo-dir "${LAB_ROOT}" \
-  > "${ENV_FILE}"
+  --repo-dir "${LAB_ROOT}"
+)
+for override in "${ENV_OVERRIDES[@]}"; do
+  DEFINITION_ENV_ARGS+=(--env "${override}")
+done
+python3 "${LAB_ROOT}/helpers/definition-env.py" "${DEFINITION_ENV_ARGS[@]}" > "${ENV_FILE}"
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
+if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false" ]; then
+  echo "PROCESSING_ENABLED must be true or false after overrides: ${PROCESSING_ENABLED}" >&2
+  exit 1
+fi
+if [ "${AUDIT_LOG_ENABLED}" != "true" ] && [ "${AUDIT_LOG_ENABLED}" != "false" ]; then
+  echo "AUDIT_LOG_ENABLED must be true or false after overrides: ${AUDIT_LOG_ENABLED}" >&2
+  exit 1
+fi
+if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATION}" != "NOOP" ]; then
+  echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WORKER_DISPATCHER_THREADS must be a positive integer after overrides: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
 
 mkdir -p "${LOG_DIR}" "${PID_DIR}"
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -338,7 +376,18 @@ fi
 if [ "${RUN_PREPARE}" -eq 1 ]; then
   echo
   echo "Preparing lab deployment and test."
-  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/libexec/prepare-test.sh" "${DEPLOYMENT_PROFILE}" "${TEST_DEFINITION}" "${PROCESSING_ENABLED}" "${AUDIT_LOG_ENABLED}" "${METRICS_IMPLEMENTATION}" "${WORKER_DISPATCHER_THREADS}"
+  PREPARE_ARGS=(
+    "${DEPLOYMENT_PROFILE}"
+    "${TEST_DEFINITION}"
+    "${PROCESSING_ENABLED}"
+    "${AUDIT_LOG_ENABLED}"
+    "${METRICS_IMPLEMENTATION}"
+    "${WORKER_DISPATCHER_THREADS}"
+  )
+  for override in "${ENV_OVERRIDES[@]}"; do
+    PREPARE_ARGS+=(--env "${override}")
+  done
+  AUDIT_RUN_ID="${RUN_ID}" "${LAB_ROOT}/libexec/prepare-test.sh" "${PREPARE_ARGS[@]}"
 else
   "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
@@ -361,6 +410,7 @@ RUN_AUDIT_LOG_FILE="${RUN_AUDIT_DIR}/audit-${RUN_ID}.log"
 AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
 AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
 RUN_METADATA_FILE="${RUN_AUDIT_DIR}/run-metadata.json"
+RUN_STATUS_FILE="${RUN_AUDIT_DIR}/run-status.json"
 mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
@@ -463,6 +513,30 @@ PY
 }
 
 write_run_metadata
+
+write_run_status() {
+  local status="$1"
+  local exit_code="$2"
+  local ended_at
+
+  ended_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  RUN_ID="${RUN_ID}" RUN_STARTED_AT="${RUN_STARTED_AT}" RUN_STATUS_FILE="${RUN_STATUS_FILE}" \
+  RUN_STATUS="${status}" RUN_EXIT_CODE="${exit_code}" RUN_ENDED_AT="${ended_at}" RUN_ANALYSIS="${RUN_ANALYSIS}" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+document = {
+    "run_id": os.environ["RUN_ID"],
+    "status": os.environ["RUN_STATUS"],
+    "exit_code": int(os.environ["RUN_EXIT_CODE"]),
+    "started_at": os.environ["RUN_STARTED_AT"],
+    "ended_at": os.environ["RUN_ENDED_AT"],
+    "analysis_enabled": os.environ["RUN_ANALYSIS"] == "1",
+}
+Path(os.environ["RUN_STATUS_FILE"]).write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+PY
+}
 
 audit_collector_ready() {
   [ "$(curl -fsS "http://127.0.0.1:${AUDIT_HTTP_PORT}/api/v1/health" 2>/dev/null || true)" = "ok" ]
@@ -574,6 +648,11 @@ stop_process() {
   rm -f "${PID_PATH}"
 }
 
+request_stop() {
+  RUN_INTERRUPTED=1
+  stop_process
+}
+
 stop_requested() {
   key=""
 
@@ -589,7 +668,7 @@ stop_requested() {
   return 1
 }
 
-trap stop_process INT TERM
+trap request_stop INT TERM
 
 while true; do
   if ! kill -0 "${PID}" >/dev/null 2>&1; then
@@ -621,7 +700,7 @@ while true; do
 
   if stop_requested; then
     echo "Stopping load test by user request."
-    stop_process
+    request_stop
     break
   fi
 
@@ -630,14 +709,13 @@ while true; do
   fi
 done
 
-trap - INT TERM
-
 if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
   echo "Load test exited with status ${LOAD_TEST_EXIT_CODE}." >&2
+  write_run_status "failed" "${LOAD_TEST_EXIT_CODE}"
   exit "${LOAD_TEST_EXIT_CODE}"
 fi
 
-if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
+if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
   DRAIN_WAIT_EXIT_CODE=0
@@ -648,8 +726,11 @@ if [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"
   if [ "${DRAIN_WAIT_EXIT_CODE}" -ne 0 ]; then
+    write_run_status "failed" "${DRAIN_WAIT_EXIT_CODE}"
     exit "${DRAIN_WAIT_EXIT_CODE}"
   fi
+elif [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+  echo "Run was interrupted; skipping consumer drain wait."
 fi
 
 finalize_audit_log() {
@@ -671,20 +752,36 @@ archive_analyzed_audit_log() {
 echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   echo "Finalizing Fluent Bit audit log."
-  finalize_audit_log
-  echo "Running audit analysis."
-  if ! python3 "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
-    --input-file "${RUN_AUDIT_LOG_FILE}" \
-    --metadata-file "${RUN_METADATA_FILE}" \
-    --require-records \
-    > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
-    2> >(tee "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2); then
-    echo "Audit analysis failed. Progress log: ${AUDIT_ANALYZER_PROGRESS_FILE}" >&2
-    cat "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2 || true
+  if ! finalize_audit_log; then
+    write_run_status "failed" 1
     exit 1
   fi
-  archive_analyzed_audit_log
-  cat "${AUDIT_ANALYZER_SUMMARY_FILE}"
+  if [ "${RUN_ANALYSIS}" -eq 1 ]; then
+    echo "Running audit analysis."
+    if ! python3 "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
+      --input-file "${RUN_AUDIT_LOG_FILE}" \
+      --metadata-file "${RUN_METADATA_FILE}" \
+      --require-records \
+      > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
+      2> >(tee "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2); then
+      echo "Audit analysis failed. Progress log: ${AUDIT_ANALYZER_PROGRESS_FILE}" >&2
+      cat "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2 || true
+      write_run_status "failed" 1
+      exit 1
+    fi
+    archive_analyzed_audit_log
+    cat "${AUDIT_ANALYZER_SUMMARY_FILE}"
+  else
+    echo "Audit analysis skipped; raw audit log is ready: ${RUN_AUDIT_LOG_FILE}"
+  fi
 else
   echo "Audit logging disabled; skipping audit analysis."
 fi
+
+if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+  write_run_status "interrupted" 130
+  trap - INT TERM
+  exit 130
+fi
+write_run_status "completed" 0
+trap - INT TERM
