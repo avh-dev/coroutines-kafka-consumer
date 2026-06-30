@@ -8,6 +8,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml
+except ImportError as error:
+    raise SystemExit("PyYAML is required. Install python3-yaml on the lab host.") from error
+
 
 def positive_int(value: str) -> int:
     parsed = int(value)
@@ -24,12 +29,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audit-log-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--metrics-implementation", choices=["MICROMETER", "NOOP"], default="MICROMETER")
     parser.add_argument("--worker-dispatcher-threads", type=positive_int, default=8)
+    parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Override a generated environment value.")
     parser.add_argument("--repo-dir", default=".")
     return parser.parse_args()
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    return load_yaml_fallback(path)
+    with path.open("r", encoding="utf-8") as file:
+        data = yaml.safe_load(file) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"YAML document must be an object: {path}")
+    return data
 
 
 def scalar(value: str) -> Any:
@@ -42,86 +52,6 @@ def scalar(value: str) -> Any:
         return int(value)
     except ValueError:
         return value
-
-
-def load_yaml_fallback(path: Path) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    section: str | None = None
-    subsection: str | None = None
-    current_topic: dict[str, Any] | None = None
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        stripped = line.strip()
-
-        if indent == 0 and stripped.endswith(":"):
-            section = stripped[:-1]
-            data.setdefault(section, {})
-            subsection = None
-            continue
-        if indent == 0 and ":" in stripped:
-            key, value = stripped.split(":", 1)
-            data[key.strip()] = scalar(value)
-            section = None
-            subsection = None
-            continue
-
-        if section is None:
-            continue
-
-        if indent == 2 and stripped.endswith(":"):
-            subsection = stripped[:-1]
-            if subsection in {"kafka_topics", "kafkaTopics"}:
-                data[section][subsection] = []
-            else:
-                data[section].setdefault(subsection, {})
-            continue
-
-        if indent == 2 and ":" in stripped:
-            key, value = stripped.split(":", 1)
-            data[section][key.strip()] = scalar(value)
-            continue
-
-        if subsection in {"kafka_topics", "kafkaTopics"}:
-            if stripped.startswith("- "):
-                current_topic = {}
-                data[section][subsection].append(current_topic)
-                item = stripped[2:]
-                if ":" in item:
-                    key, value = item.split(":", 1)
-                    current_topic[key.strip()] = scalar(value)
-            elif current_topic is not None and ":" in stripped:
-                key, value = stripped.split(":", 1)
-                current_topic[key.strip()] = scalar(value)
-            continue
-
-        if section == "env" and indent == 2 and ":" in stripped:
-            key, value = stripped.split(":", 1)
-            data[section][key.strip()] = scalar(value)
-            continue
-
-        if subsection and indent == 4 and ":" in stripped:
-            key, value = stripped.split(":", 1)
-            data[section][subsection][key.strip()] = scalar(value)
-
-    chaos_steps = parse_chaos_steps(path)
-    if chaos_steps:
-        data["chaos_steps"] = chaos_steps
-
-    return data
-
-
-def clean_yaml_lines(path: Path) -> list[tuple[int, str]]:
-    result: list[tuple[int, str]] = []
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip():
-            continue
-        result.append((len(line) - len(line.lstrip(" ")), line.strip()))
-    return result
 
 
 def parse_duration_seconds(value: Any, context: str) -> int:
@@ -139,64 +69,6 @@ def parse_duration_seconds(value: Any, context: str) -> int:
         raise ValueError(f"{context} must be a duration like 30s, 2m30s, or 1h")
     multipliers = {"h": 3600, "m": 60, "s": 1}
     return sum(int(match.group(1)) * multipliers[match.group(2)] for match in matches)
-
-
-def parse_mapping(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[dict[str, Any], int]:
-    result: dict[str, Any] = {}
-    while index < len(lines):
-        line_indent, stripped = lines[index]
-        if line_indent < indent:
-            break
-        if line_indent > indent:
-            raise ValueError(f"Unexpected indentation in chaos_steps near: {stripped}")
-        if stripped.startswith("- "):
-            break
-        if ":" not in stripped:
-            raise ValueError(f"Expected key-value item in chaos_steps near: {stripped}")
-        key, value = stripped.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if value:
-            result[key] = scalar(value)
-            index += 1
-            continue
-        child, index = parse_mapping(lines, index + 1, indent + 2)
-        result[key] = child
-    return result, index
-
-
-def parse_chaos_steps(path: Path) -> list[dict[str, Any]]:
-    lines = clean_yaml_lines(path)
-    start_index: int | None = None
-    for index, (indent, stripped) in enumerate(lines):
-        if indent == 0 and stripped == "chaos_steps:":
-            start_index = index + 1
-            break
-    if start_index is None:
-        return []
-
-    steps: list[dict[str, Any]] = []
-    index = start_index
-    while index < len(lines):
-        indent, stripped = lines[index]
-        if indent == 0:
-            break
-        if indent != 2 or not stripped.startswith("- "):
-            raise ValueError(f"chaos_steps entries must be list items: {stripped}")
-
-        step: dict[str, Any] = {}
-        first_item = stripped[2:].strip()
-        if first_item:
-            if ":" not in first_item:
-                raise ValueError(f"chaos_steps list item must start with a key-value pair: {stripped}")
-            key, value = first_item.split(":", 1)
-            step[key.strip()] = scalar(value)
-
-        child, index = parse_mapping(lines, index + 1, 4)
-        step.update(child)
-        steps.append(step)
-
-    return steps
 
 
 def shell_quote(value: str) -> str:
@@ -293,6 +165,16 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
     return result
 
 
+def parse_env_override(value: str) -> tuple[str, str]:
+    key, separator, raw = value.partition("=")
+    key = key.strip()
+    if not separator or not key:
+        raise ValueError(f"Environment override must use KEY=VALUE: {value!r}")
+    if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
+        raise ValueError(f"Environment override key must be uppercase snake case: {key!r}")
+    return key, raw
+
+
 def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir).resolve()
@@ -360,6 +242,10 @@ def main() -> None:
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
     }
+
+    for override in args.env:
+        key, value = parse_env_override(override)
+        assignments[key] = value
 
     for key, value in assignments.items():
         print(f"{key}={shell_quote(value)}")

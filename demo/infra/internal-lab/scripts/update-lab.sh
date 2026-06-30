@@ -111,6 +111,17 @@ remote_fingerprint_matches() {
     "test \"\$(cat '${LAB_ROOT}/state/fingerprints/${name}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
 }
 
+remote_paths_exist() {
+  local -a paths=("$@")
+  local command="set -e;"
+  local path
+
+  for path in "${paths[@]}"; do
+    command="${command} test -e '$(printf "%q" "${path}")';"
+  done
+  ssh "root@${LAB_HOST}" "${command}"
+}
+
 record_remote_fingerprint() {
   local name="$1"
   local fingerprint="$2"
@@ -125,14 +136,18 @@ sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helm" "${LAB_ROOT}/helm"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
+  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/notify'"
+  sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
+  sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/config" "${LAB_ROOT}/config/defaults"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh"
+  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }
 
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
   sync_path "${REPO_ROOT}/demo/infra/shared/test-definitions/internal-lab" "${LAB_ROOT}/test-definitions"
+  sync_path "${REPO_ROOT}/demo/infra/shared/test-bundles/internal-lab" "${LAB_ROOT}/test-bundles"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
 }
@@ -221,6 +236,7 @@ LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
+ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml)"
 
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
@@ -235,7 +251,8 @@ ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-l
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/grafana \
-  demo/infra/shared/test-definitions/internal-lab)"
+  demo/infra/shared/test-definitions/internal-lab \
+  demo/infra/shared/test-bundles/internal-lab)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \
@@ -268,7 +285,13 @@ fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"; then
   ASSETS_SYNC_CHANGED=1
 fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}"; then
+if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
+  ! remote_fingerprint_matches "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" ||
+  ! remote_paths_exist \
+    "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
+    "${LAB_ROOT}/test-definitions/telemetry-freshness-fairness.yaml" \
+    "${LAB_ROOT}/test-bundles/telemetry-fairness-profile-comparison.yaml" \
+    "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then

@@ -17,16 +17,42 @@ fi
 # shellcheck disable=SC1090
 source "${LAB_ENV}"
 
-DEPLOYMENT_PROFILE="${1:-}"
-TEST_DEFINITION="${2:-}"
-PROCESSING_ENABLED="${3:-true}"
-AUDIT_LOG_ENABLED="${4:-true}"
-METRICS_IMPLEMENTATION="${5:-MICROMETER}"
-WORKER_DISPATCHER_THREADS="${6:-8}"
+DEPLOYMENT_PROFILE=""
+TEST_DEFINITION=""
+PROCESSING_ENABLED="true"
+AUDIT_LOG_ENABLED="true"
+METRICS_IMPLEMENTATION="MICROMETER"
+WORKER_DISPATCHER_THREADS="8"
 AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
+ENV_OVERRIDES=()
+POSITIONAL_ARGS=()
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --env)
+      ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--env KEY=VALUE ...]" >&2
+      exit 0
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+DEPLOYMENT_PROFILE="${POSITIONAL_ARGS[0]:-}"
+TEST_DEFINITION="${POSITIONAL_ARGS[1]:-}"
+PROCESSING_ENABLED="${POSITIONAL_ARGS[2]:-${PROCESSING_ENABLED}}"
+AUDIT_LOG_ENABLED="${POSITIONAL_ARGS[3]:-${AUDIT_LOG_ENABLED}}"
+METRICS_IMPLEMENTATION="${POSITIONAL_ARGS[4]:-${METRICS_IMPLEMENTATION}}"
+WORKER_DISPATCHER_THREADS="${POSITIONAL_ARGS[5]:-${WORKER_DISPATCHER_THREADS}}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--env KEY=VALUE ...]" >&2
   exit 1
 fi
 if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
@@ -80,17 +106,37 @@ if [[ ! -f "${TEST_DEFINITION}" ]]; then
 fi
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
-python3 "${LAB_ROOT}/helpers/definition-env.py" \
+DEFINITION_ENV_ARGS=(
   "${TEST_DEFINITION}" \
   --deployment-profile "${DEPLOYMENT_PROFILE}" \
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
   --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
-  --repo-dir "${LAB_ROOT}" \
-  > "${ENV_FILE}"
+  --repo-dir "${LAB_ROOT}"
+)
+for override in "${ENV_OVERRIDES[@]}"; do
+  DEFINITION_ENV_ARGS+=(--env "${override}")
+done
+python3 "${LAB_ROOT}/helpers/definition-env.py" "${DEFINITION_ENV_ARGS[@]}" > "${ENV_FILE}"
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
+if [[ "${PROCESSING_ENABLED}" != "true" && "${PROCESSING_ENABLED}" != "false" ]]; then
+  echo "PROCESSING_ENABLED must be true or false after overrides: ${PROCESSING_ENABLED}" >&2
+  exit 1
+fi
+if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
+  echo "AUDIT_LOG_ENABLED must be true or false after overrides: ${AUDIT_LOG_ENABLED}" >&2
+  exit 1
+fi
+if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}" != "NOOP" ]]; then
+  echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WORKER_DISPATCHER_THREADS must be a positive integer after overrides: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 

@@ -117,6 +117,7 @@ The lab host layout is grouped by runtime responsibility:
 /opt/ckc-lab/config             persisted lab and test config
 /opt/ckc-lab/grafana            Grafana provisioning and dashboards
 /opt/ckc-lab/test-definitions   internal-lab test definitions
+/opt/ckc-lab/test-bundles       sequential comparison bundle definitions
 /opt/ckc-lab/load-test-runtime  built load-test runtime
 /opt/ckc-lab/state              fingerprints, generated files, and pids
 /opt/ckc-lab/logs               lab process logs
@@ -211,6 +212,18 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   baseline
 ```
 
+Any generated test environment value can also be overridden with repeated
+`--env KEY=VALUE` flags. These overrides are applied after the deployment
+profile and test definition are rendered:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
+  --deployment ckc \
+  --env WORKER_DISPATCHER_THREADS=2 \
+  --env BASE_TPS=3000 \
+  telemetry-freshness-fairness
+```
+
 Before starting the load generator, the runner:
 
 - reads Kafka topics from `lab.kafkaTopics` in the selected Helm deployment profile
@@ -253,6 +266,84 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   chaos-smoke
 ```
 
+Start the sequential comparison bundle selector with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh
+```
+
+Or run a specific bundle with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison
+```
+
+Run every synced bundle sequentially with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh all
+```
+
+Bundle definitions live under `/opt/ckc-lab/test-bundles`. The runner executes
+each bundle test through `run-test.sh` and writes bundle-level logs and JSON
+summaries under `/opt/ckc-lab/logs/bundles`.
+After the initial bundle selection and bundle-wide settings prompt, tests run
+unattended. Type `q` and press Enter while a bundle is running to ask the
+current test to stop, finalize its raw audit log, and abort the rest of the
+bundle.
+
+For a short end-to-end bundle smoke test, run:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh smoke-repeat
+```
+
+Bundle-wide environment overrides can also be passed non-interactively:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison \
+  --env PROCESSING_ENABLED=true \
+  --env AUDIT_LOG_ENABLED=true \
+  --env METRICS_IMPLEMENTATION=MICROMETER
+```
+
+When audit logging is enabled, bundle runs first execute all load phases and
+collect raw audit logs under `/opt/ckc-lab/audit/<run-id>/`. Audit analysis then
+runs as a separate bundle phase for every completed run, and the raw audit logs
+are compressed after successful analysis.
+
+Optional notification hooks live under `/opt/ckc-lab/notify`. If
+`/opt/ckc-lab/notify/notify.py` or `/opt/ckc-lab/notify/notify.sh` exists and
+is executable, `run-bundle.sh` calls it as:
+
+```text
+notify-hook event-name payload.json
+```
+
+Supported event names include `bundle_started`, `test_started`,
+`test_finished`, `bundle_runs_finished`, `audit_analysis_started`,
+`audit_analysis_finished`, `audit_run_analysis_started`,
+`audit_run_analysis_finished`, `bundle_finished`, and `bundle_failed`.
+
+The lab sync includes a Telegram example hook at
+`/opt/ckc-lab/notify/notify-telegram.py` plus setup instructions in
+`/opt/ckc-lab/notify/README.md`. Enable it by creating a local shell wrapper
+named `/opt/ckc-lab/notify/notify.sh`; this wrapper is not synced from the repository,
+so secrets stay on the server:
+
+```sh
+cat > /opt/ckc-lab/notify/notify.sh <<'EOF'
+#!/usr/bin/env sh
+export TELEGRAM_BOT_TOKEN='replace-me'
+export TELEGRAM_CHAT_ID='replace-me'
+exec /opt/ckc-lab/notify/notify-telegram.py "$@"
+EOF
+chmod 0750 /opt/ckc-lab/notify/notify.sh
+```
+
+`notify-telegram.py` also supports optional `TELEGRAM_THREAD_ID` and
+`TELEGRAM_EVENTS` environment variables.
+
 High-volume publish and processed audit records are streamed over TCP into the
 host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 
@@ -267,9 +358,9 @@ records may include a final reason field, for example `stale_age`,
 `queue_overflow`, `replaced_by_newer_key_record`, `new_key_queue_full`, or
 `already_processed`.
 
-For each run, `run-test.sh` resets the live audit file before the load
-generator starts, lets Fluent Bit append compact lines during the run, then
-stops Fluent Bit after drain and moves the completed audit log plus the
+For each single `run-test.sh` run, the script resets the live audit file before
+the load generator starts, lets Fluent Bit append compact lines during the run,
+then stops Fluent Bit after drain and moves the completed audit log plus the
 calculated report under:
 
 ```text
@@ -288,6 +379,10 @@ correctness uses exact offline publish-to-terminal matching by default, so
 long-delayed terminal records from chaos and slow-stub runs do not get counted
 as missing. During the final analysis step, the runner also prints analyzer
 progress such as `files=1/1 10% records=...` to the terminal.
+
+`run-test.sh --skip-analysis` finalizes the raw audit log and writes run
+metadata/status but leaves `summary.yaml` generation for a later analyzer pass.
+This is the mode used by `run-bundle.sh`.
 
 For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
 test definition with `ckc-telemetry-freshness-first`,
