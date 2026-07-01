@@ -19,7 +19,7 @@ env:
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 512
   batchProcessingMode: AT_LEAST_ONCE_UNORDERED
-  telemetryWorkerConcurrency: 30
+  telemetryWorkerConcurrency: 20
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512
 

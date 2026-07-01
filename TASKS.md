@@ -148,6 +148,7 @@
 | [INFRA-58](#infra-58) | Reorganize the internal-lab server runtime layout by responsibility instead of source asset ownership.                                        | DONE |
 | [INFRA-59](#infra-59) | Add internal-lab test bundles for running sequential comparison scenarios across deployment profiles.                                        | DONE |
 | [INFRA-60](#infra-60) | Add audit freshness gap distributions so lossy processing modes show how many dropped records precede each processed record.                 | DONE |
+| [INFRA-61](#infra-61) | Extend internal-lab Prometheus retention so Grafana keeps recent lab metrics for multi-day comparisons.                                      | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1588,3 +1589,12 @@ _Date: 2026-06-30_
 Add audit analyzer output that counts how many dropped same-key records preceded each processed record.
 Report the distribution alongside existing freshness fairness summaries so freshness-first-by-key runs show actual per-key refresh behavior.
 Include timing context for dropped-to-processed gaps where audit timestamps allow it.
+
+<a id="infra-61"></a>
+### INFRA-61 - Extend internal-lab Prometheus retention
+
+_Date: 2026-07-01_
+
+Keep internal-lab Prometheus scraping at a 15-second interval for load-test charts with lower storage churn.
+Increase TSDB retention from a short same-day window to three days so recent runs remain visible after midnight.
+Raise the retention size cap while keeping an explicit disk guard for the dedicated lab host.
