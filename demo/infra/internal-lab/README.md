@@ -45,7 +45,7 @@ lab host
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
-Prometheus stores its TSDB on the lab host under `/opt/ckc-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history.
+Prometheus scrapes internal-lab targets every 15 seconds and stores its TSDB on the lab host under `/opt/ckc-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history. The lab keeps up to three days of metrics with a 20 GB retention-size cap.
 
 ## Install
 
@@ -554,7 +554,7 @@ ssh "root@${LAB_HOST}"
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
-Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `5s` or slower unless short spike visibility is required.
+Use wired Ethernet when possible. Run a warm-up before measuring. Keep Prometheus scrape interval at `15s` or slower unless short spike visibility is required.
 
 The default demo app values set memory limits but do not set CPU limits. CPU limits can introduce CFS throttling and distort latency measurements. Add CPU limits only when testing constrained CPU behavior.
 

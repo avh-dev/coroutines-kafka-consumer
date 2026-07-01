@@ -34,8 +34,8 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 5s
-      evaluation_interval: 5s
+      scrape_interval: 15s
+      evaluation_interval: 15s
 
     scrape_configs:
       - job_name: ckc-demo
@@ -130,8 +130,8 @@ spec:
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
-            - --storage.tsdb.retention.time=6h
-            - --storage.tsdb.retention.size=1GB
+            - --storage.tsdb.retention.time=3d
+            - --storage.tsdb.retention.size=20GB
             - --web.enable-lifecycle
           ports:
             - name: http
