@@ -117,6 +117,49 @@ class OnlineAgeStats:
 
 
 @dataclass(slots=True)
+class FreshnessGapStats:
+    processed_records: int = 0
+    pending_drops_by_key: dict[str, int] = field(default_factory=dict)
+    first_pending_drop_ms_by_key: dict[str, int] = field(default_factory=dict)
+    last_pending_drop_ms_by_key: dict[str, int] = field(default_factory=dict)
+    dropped_before_processed_histogram: dict[int, int] = field(default_factory=dict)
+    first_drop_to_processed_ms: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+    last_drop_to_processed_ms: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+
+    def add_processed(self, record: AuditRecord) -> None:
+        self.processed_records += 1
+        dropped = self.pending_drops_by_key.pop(record.message_key, 0)
+        self.dropped_before_processed_histogram[dropped] = (
+            self.dropped_before_processed_histogram.get(dropped, 0) + 1
+        )
+
+        first_drop_ms = self.first_pending_drop_ms_by_key.pop(record.message_key, None)
+        last_drop_ms = self.last_pending_drop_ms_by_key.pop(record.message_key, None)
+        if first_drop_ms is not None:
+            self.first_drop_to_processed_ms.add(max(0, record.audit_timestamp_ms - first_drop_ms))
+        if last_drop_ms is not None:
+            self.last_drop_to_processed_ms.add(max(0, record.audit_timestamp_ms - last_drop_ms))
+
+    def add_dropped(self, record: AuditRecord) -> None:
+        pending = self.pending_drops_by_key.get(record.message_key, 0)
+        self.pending_drops_by_key[record.message_key] = pending + 1
+        if pending == 0:
+            self.first_pending_drop_ms_by_key[record.message_key] = record.audit_timestamp_ms
+        self.last_pending_drop_ms_by_key[record.message_key] = record.audit_timestamp_ms
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "processed_records": self.processed_records,
+            "dropped_before_processed": histogram_distribution_summary(self.dropped_before_processed_histogram),
+            "dropped_before_processed_histogram": dict(sorted(self.dropped_before_processed_histogram.items())),
+            "first_drop_to_processed_ms": self.first_drop_to_processed_ms.summary(),
+            "last_drop_to_processed_ms": self.last_drop_to_processed_ms.summary(),
+            "keys_with_pending_drops": len(self.pending_drops_by_key),
+            "pending_dropped_records": sum(self.pending_drops_by_key.values()),
+        }
+
+
+@dataclass(slots=True)
 class KeyOutcomeStats:
     published: int = 0
     processed: int = 0
@@ -133,6 +176,7 @@ class KeyOutcomeStats:
 @dataclass(slots=True)
 class KeyFairnessStats:
     by_message_key: dict[str, KeyOutcomeStats] = field(default_factory=dict)
+    freshness_gap: FreshnessGapStats = field(default_factory=FreshnessGapStats)
     processed_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
     dropped_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
     failed_age: OnlineAgeStats = field(default_factory=OnlineAgeStats)
@@ -145,6 +189,7 @@ class KeyFairnessStats:
         stats = self._stats(record.message_key)
         if record.record_type == "C":
             stats.processed += 1
+            self.freshness_gap.add_processed(record)
             if stats.last_processed_ms is not None:
                 gap_ms = record.audit_timestamp_ms - stats.last_processed_ms
                 stats.max_processed_gap_ms = (
@@ -157,6 +202,7 @@ class KeyFairnessStats:
             stats.failed += 1
         elif record.record_type == "D":
             stats.dropped += 1
+            self.freshness_gap.add_dropped(record)
 
     def add_terminal_age(self, published: AuditRecord, terminal: AuditRecord) -> None:
         if published.kafka_timestamp_ms is None:
@@ -196,6 +242,7 @@ class KeyFairnessStats:
             "processed_max_gap_ms": gap_summary(
                 [stats.max_processed_gap_ms for stats in key_stats if stats.max_processed_gap_ms is not None]
             ),
+            "freshness_gap": self.freshness_gap.summary(),
             "record_age": {
                 "processed": self.processed_age.summary(),
                 "dropped": self.dropped_age.summary(),
@@ -236,6 +283,30 @@ def distribution_summary(values: list[int | float]) -> dict[str, int | float | N
     }
 
 
+def histogram_distribution_summary(histogram: dict[int, int]) -> dict[str, int | float | None]:
+    items = [(value, count) for value, count in sorted(histogram.items()) if count > 0]
+    if not items:
+        return empty_distribution_summary()
+
+    count = sum(bucket_count for _, bucket_count in items)
+    total = sum(value * bucket_count for value, bucket_count in items)
+    avg = total / count
+    minimum = items[0][0]
+    maximum = items[-1][0]
+    return {
+        "count": count,
+        "avg": round(avg, 6),
+        "min": minimum,
+        "p50": rounded_number(histogram_percentile(items, count, 0.50)),
+        "p95": rounded_number(histogram_percentile(items, count, 0.95)),
+        "p99": rounded_number(histogram_percentile(items, count, 0.99)),
+        "max": maximum,
+        "coefficient_of_variation": histogram_coefficient_of_variation(items, count, avg),
+        "gini": histogram_gini(items, count, total),
+        "max_to_min": None if minimum == 0 else round(maximum / minimum, 6),
+    }
+
+
 def gap_summary(values: list[int]) -> dict[str, object]:
     summary = distribution_summary(values)
     summary["keys_over_1s"] = sum(1 for value in values if value > 1_000)
@@ -273,10 +344,43 @@ def percentile(sorted_values: list[int | float], quantile: float) -> int | float
     return lower_value + (upper_value - lower_value) * (position - lower)
 
 
+def histogram_percentile(items: list[tuple[int, int]], count: int, quantile: float) -> int | float:
+    if count == 1:
+        return items[0][0]
+    position = (count - 1) * quantile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return histogram_value_at(items, lower)
+    lower_value = histogram_value_at(items, lower)
+    upper_value = histogram_value_at(items, upper)
+    return lower_value + (upper_value - lower_value) * (position - lower)
+
+
+def histogram_value_at(items: list[tuple[int, int]], index: int) -> int:
+    seen = 0
+    for value, count in items:
+        seen += count
+        if index < seen:
+            return value
+    return items[-1][0]
+
+
 def coefficient_of_variation(values: list[int | float], avg: float) -> float | None:
     if not values or avg == 0:
         return None
     variance = sum((value - avg) ** 2 for value in values) / len(values)
+    return round(math.sqrt(variance) / avg, 6)
+
+
+def histogram_coefficient_of_variation(
+    items: list[tuple[int, int]],
+    count: int,
+    avg: float,
+) -> float | None:
+    if count == 0 or avg == 0:
+        return None
+    variance = sum(bucket_count * ((value - avg) ** 2) for value, bucket_count in items) / count
     return round(math.sqrt(variance) / avg, 6)
 
 
@@ -288,6 +392,19 @@ def gini(values: list[int | float]) -> float | None:
         return None
     weighted_sum = sum((index + 1) * value for index, value in enumerate(sorted(values)))
     coefficient = (2 * weighted_sum) / (len(values) * total) - (len(values) + 1) / len(values)
+    return round(coefficient, 6)
+
+
+def histogram_gini(items: list[tuple[int, int]], count: int, total: int) -> float | None:
+    if count == 0 or total == 0:
+        return None
+    weighted_sum = 0.0
+    seen = 0
+    for value, bucket_count in items:
+        index_sum = bucket_count * (2 * seen + bucket_count + 1) / 2
+        weighted_sum += value * index_sum
+        seen += bucket_count
+    coefficient = (2 * weighted_sum) / (count * total) - (count + 1) / count
     return round(coefficient, 6)
 
 

@@ -147,6 +147,7 @@
 | [INFRA-57](#infra-57) | Add test-definition chaos steps and simplify internal-lab audit collection around Fluent Bit file output.                                      | DONE |
 | [INFRA-58](#infra-58) | Reorganize the internal-lab server runtime layout by responsibility instead of source asset ownership.                                        | DONE |
 | [INFRA-59](#infra-59) | Add internal-lab test bundles for running sequential comparison scenarios across deployment profiles.                                        | DONE |
+| [INFRA-60](#infra-60) | Add audit freshness gap distributions so lossy processing modes show how many dropped records precede each processed record.                 | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1578,3 +1579,12 @@ _Date: 2026-06-27_
 Add bundle definitions for sequentially running the same internal-lab test against multiple deployment profiles.
 Provide a lab-host bundle runner that calls the existing single-test runner for each bundle entry and records a per-bundle summary.
 Start with a comparison bundle based on the current lab settings plus Confluent Reactor and naive Spring Kafka profiles.
+
+<a id="infra-60"></a>
+### INFRA-60 - Add audit freshness gap distributions
+
+_Date: 2026-06-30_
+
+Add audit analyzer output that counts how many dropped same-key records preceded each processed record.
+Report the distribution alongside existing freshness fairness summaries so freshness-first-by-key runs show actual per-key refresh behavior.
+Include timing context for dropped-to-processed gaps where audit timestamps allow it.
