@@ -294,6 +294,12 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
+if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
+  # The base helper sync owns LAB_ROOT/helpers with --delete, so it can remove
+  # shared runtime helpers such as helpers/audit even when their fingerprint
+  # has not changed.
+  RUNTIME_TEST_ASSETS_CHANGED=1
+fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
 fi

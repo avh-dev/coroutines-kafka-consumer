@@ -120,6 +120,38 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(3, fairness["record_age"]["processed"]["count"])
         self.assertEqual(2200, fairness["record_age"]["processed"]["max_ms"])
 
+    def test_reports_dropped_records_before_processed_distribution(self) -> None:
+        document = analyze(
+            [
+                "P|3|0|1|1000|1000|cauldron-a",
+                "C|3|0|1|1100|cauldron-a",
+                "P|3|0|2|1200|1200|cauldron-a",
+                "D|3|0|2|1210|cauldron-a|replaced_by_newer_key_record",
+                "P|3|0|3|1300|1300|cauldron-a",
+                "D|3|0|3|1310|cauldron-a|replaced_by_newer_key_record",
+                "P|3|0|4|1500|1500|cauldron-a",
+                "C|3|0|4|1500|cauldron-a",
+                "P|3|0|5|2000|2000|cauldron-b",
+                "D|3|0|5|2050|cauldron-b|stale_age",
+                "P|3|0|6|2500|2500|cauldron-b",
+                "C|3|0|6|2600|cauldron-b",
+                "P|3|0|7|3000|3000|cauldron-c",
+                "D|3|0|7|3050|cauldron-c|stale_age",
+            ]
+        )
+
+        freshness_gap = document["audit"]["topics"]["cauldron.events.v1"]["key_fairness"]["freshness_gap"]
+
+        self.assertEqual(3, freshness_gap["processed_records"])
+        self.assertEqual({0: 1, 1: 1, 2: 1}, freshness_gap["dropped_before_processed_histogram"])
+        self.assertEqual(1, freshness_gap["dropped_before_processed"]["p50"])
+        self.assertEqual(2, freshness_gap["dropped_before_processed"]["max"])
+        self.assertEqual(2, freshness_gap["first_drop_to_processed_ms"]["count"])
+        self.assertEqual(550, freshness_gap["first_drop_to_processed_ms"]["max_ms"])
+        self.assertEqual(190, freshness_gap["last_drop_to_processed_ms"]["min_ms"])
+        self.assertEqual(1, freshness_gap["keys_with_pending_drops"])
+        self.assertEqual(1, freshness_gap["pending_dropped_records"])
+
     def test_reports_even_cauldron_processing_fairness(self) -> None:
         document = analyze(
             [
