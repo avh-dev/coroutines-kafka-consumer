@@ -50,6 +50,15 @@ class MetricsConfiguration {
         )
 
     @Bean
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun confluentParallelMicrometerConsumerMetrics(meterRegistry: MeterRegistry): MicrometerConsumerMetrics =
+        MicrometerConsumerMetrics(
+            meterRegistry = meterRegistry,
+            recordTagSchema = recordMetricTagSchema(eventTypeTag)
+        )
+
+    @Bean
     fun consumerProfileInfoMetric(
         meterRegistry: MeterRegistry,
         environment: Environment
@@ -161,6 +170,39 @@ class MetricsConfiguration {
             batchLifecycleTagValueProvider()
         )
 
+    @Bean
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun confluentParallelConsumerMetrics(
+        @Qualifier("confluentParallelMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, CauldronTelemetryEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "cauldron_events",
+            cauldronTelemetryTagValueProvider()
+        )
+
+    @Bean
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun confluentParallelOrderConsumerMetrics(
+        @Qualifier("confluentParallelMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, OrderLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "order_events",
+            orderLifecycleTagValueProvider()
+        )
+
+    @Bean
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
+    fun confluentParallelBatchConsumerMetrics(
+        @Qualifier("confluentParallelMicrometerConsumerMetrics") micrometerConsumerMetrics: MicrometerConsumerMetrics
+    ): ConsumerMetrics<String, BatchLifecycleEvent> =
+        micrometerConsumerMetrics.forConsumer(
+            consumerId = "batch_events",
+            batchLifecycleTagValueProvider()
+        )
+
     @Bean("consumerMetrics")
     @Profile("ckc", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
@@ -207,6 +249,24 @@ class MetricsConfiguration {
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
     fun noopSpringKafkaCoroutinesNaiveBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> =
+        noopMetrics()
+
+    @Bean("confluentParallelConsumerMetrics")
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopConfluentParallelTelemetryConsumerMetrics(): ConsumerMetrics<String, CauldronTelemetryEvent> =
+        noopMetrics()
+
+    @Bean("confluentParallelOrderConsumerMetrics")
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopConfluentParallelOrderConsumerMetrics(): ConsumerMetrics<String, OrderLifecycleEvent> =
+        noopMetrics()
+
+    @Bean("confluentParallelBatchConsumerMetrics")
+    @Profile("confluent-parallel", "confluent-parallel-reactor")
+    @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
+    fun noopConfluentParallelBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> =
         noopMetrics()
 
     private fun cauldronTelemetryTagValueProvider() =

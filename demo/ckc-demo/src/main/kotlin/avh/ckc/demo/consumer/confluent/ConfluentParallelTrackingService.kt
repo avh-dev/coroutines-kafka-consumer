@@ -1,5 +1,7 @@
 package avh.ckc.demo.consumer.confluent
 
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
@@ -10,7 +12,8 @@ import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.demo.service.DemoRecordAgeMetrics
+import avh.ckc.demo.service.DemoConsumerRecordContext
+import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.demo.service.batch.SyncBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
@@ -18,6 +21,7 @@ import io.confluent.parallelconsumer.PCRetriableException
 import io.confluent.parallelconsumer.RecordContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
@@ -28,15 +32,28 @@ class ConfluentParallelTrackingService(
     private val orderLifecycleService: SyncOrderLifecycleService,
     private val batchLifecycleService: SyncBatchLifecycleService,
     private val cauldronTelemetryService: SyncCauldronTelemetryService,
-    private val recordAgeMetrics: DemoRecordAgeMetrics,
-    private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter
+    private val recordMetrics: DemoRecordMetrics,
+    private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter,
+    @Qualifier("confluentParallelOrderConsumerMetrics")
+    private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
+    @Qualifier("confluentParallelBatchConsumerMetrics")
+    private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
+    @Qualifier("confluentParallelConsumerMetrics")
+    private val telemetryConsumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun processOrderLifecycle(context: RecordContext<String, OrderLifecycleEvent>) {
         val record = context.consumerRecord
+        val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.order, record)) {
+                recordMetrics.onDropped(
+                    orderConsumerMetrics,
+                    record.context(),
+                    record.value(),
+                    RecordDropReason.STALE_AGE
+                )
                 auditDropped(record)
                 return
             }
@@ -45,18 +62,25 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
-            recordAgeMetrics.onProcessed(ORDER_CONSUMER_ID, record)
+            recordMetrics.onProcessed(orderConsumerMetrics, record.context(), record.value(), startedAt)
             auditProcessed(record)
             logger.debug("Confluent Parallel order event received for key={}, order={}", record.key(), record.value().orderId)
         } catch (error: Throwable) {
-            handleFailure(context, error)
+            handleFailure(context, orderConsumerMetrics, startedAt, error)
         }
     }
 
     fun processBatchLifecycle(context: RecordContext<String, BatchLifecycleEvent>) {
         val record = context.consumerRecord
+        val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.batch, record)) {
+                recordMetrics.onDropped(
+                    batchConsumerMetrics,
+                    record.context(),
+                    record.value(),
+                    RecordDropReason.STALE_AGE
+                )
                 auditDropped(record)
                 return
             }
@@ -65,18 +89,25 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
-            recordAgeMetrics.onProcessed(BATCH_CONSUMER_ID, record)
+            recordMetrics.onProcessed(batchConsumerMetrics, record.context(), record.value(), startedAt)
             auditProcessed(record)
             logger.debug("Confluent Parallel batch event received for key={}, batch={}", record.key(), record.value().batchId)
         } catch (error: Throwable) {
-            handleFailure(context, error)
+            handleFailure(context, batchConsumerMetrics, startedAt, error)
         }
     }
 
     fun processCauldronTelemetry(context: RecordContext<String, CauldronTelemetryEvent>) {
         val record = context.consumerRecord
+        val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.telemetry, record)) {
+                recordMetrics.onDropped(
+                    telemetryConsumerMetrics,
+                    record.context(),
+                    record.value(),
+                    RecordDropReason.STALE_AGE
+                )
                 auditDropped(record)
                 return
             }
@@ -85,11 +116,11 @@ class ConfluentParallelTrackingService(
             } else {
                 latencyOnlySleep()
             }
-            recordAgeMetrics.onProcessed(CAULDRON_CONSUMER_ID, record)
+            recordMetrics.onProcessed(telemetryConsumerMetrics, record.context(), record.value(), startedAt)
             auditProcessed(record)
             logger.debug("Confluent Parallel cauldron event received for key={}, cauldron={}", record.key(), record.value().cauldronId)
         } catch (error: Throwable) {
-            handleFailure(context, error)
+            handleFailure(context, telemetryConsumerMetrics, startedAt, error)
         }
     }
 
@@ -115,11 +146,16 @@ class ConfluentParallelTrackingService(
         }
     }
 
-    private fun handleFailure(context: RecordContext<String, *>, error: Throwable) {
+    private fun <V> handleFailure(
+        context: RecordContext<String, V>,
+        metrics: ConsumerMetrics<String, V>,
+        startedAt: Long,
+        error: Throwable
+    ) {
         val record = context.consumerRecord
         val attempt = context.numberOfFailedAttempts + 1
         if (attempt >= properties.consumers.retry.maxAttempts) {
-            recordAgeMetrics.onFailed(consumerId(record), record, error)
+            recordMetrics.onFailed(metrics, record.context(), record.value(), startedAt, error)
             auditFailed(record)
             logger.warn(
                 "Confluent Parallel final failure for record topic={}, partition={}, offset={} after {} attempts",
@@ -132,6 +168,7 @@ class ConfluentParallelTrackingService(
             return
         }
 
+        recordMetrics.onRetry(metrics, record.context(), record.value(), attempt, error)
         auditRetryAttempt(record)
         throw PCRetriableException(error)
     }
@@ -152,17 +189,12 @@ class ConfluentParallelTrackingService(
             }
         }
 
-    private fun consumerId(record: ConsumerRecord<*, *>): String =
-        when (record.topic()) {
-            properties.topics.orderEvents -> ORDER_CONSUMER_ID
-            properties.topics.batchEvents -> BATCH_CONSUMER_ID
-            properties.topics.cauldronEvents -> CAULDRON_CONSUMER_ID
-            else -> record.topic()
-        }
-
-    private companion object {
-        private const val ORDER_CONSUMER_ID = "order_events"
-        private const val BATCH_CONSUMER_ID = "batch_events"
-        private const val CAULDRON_CONSUMER_ID = "cauldron_events"
-    }
+    private fun <V> ConsumerRecord<String, V>.context(): DemoConsumerRecordContext =
+        DemoConsumerRecordContext(
+            key = key(),
+            topic = topic(),
+            partition = partition(),
+            offset = offset(),
+            timestamp = timestamp()
+        )
 }

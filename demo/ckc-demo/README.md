@@ -94,11 +94,11 @@ The consumer profiles expose demo-only switches for consumer experiments:
 - `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc`, `spring-kafka-coroutines-naive`, and `confluent-parallel-reactor` profiles. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`.
 - `TELEMETRY_PROCESSING_MODE=FRESHNESS_FIRST` selects the CKC telemetry processing mode. `FRESHNESS_FIRST_BY_KEY` is available for CKC telemetry runs when only the latest queued cauldron update per key should be retained.
 - `TELEMETRY_WORK_CHANNEL_CAPACITY=256` is the telemetry runtime queue capacity. With `FRESHNESS_FIRST_BY_KEY`, it limits queued distinct telemetry keys, not total Kafka records. Records for already queued keys can replace older queued values without consuming extra capacity; records for new keys are dropped when the queued key-lane capacity is full.
-- `FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=10` limits record age for freshness-first external adapter handling. Stale records are acknowledged without running demo business logic or audit writes.
+- `FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=10` limits record age for freshness-first external adapter handling. Stale records are acknowledged without running demo business logic, but still emit dropped audit records and `ckc.record.dropped{reason="stale_age"}` metrics.
 
 The external demo profiles reject `FRESHNESS_FIRST_BY_KEY` because Spring Kafka and Confluent Parallel Consumer are not configured here to model CKC's key-coalescing freshness semantics exactly.
 
-For CKC drop monitoring, `ckc.record.dropped` includes a `reason` tag. In `FRESHNESS_FIRST_BY_KEY`, `replaced_by_newer_key_record` is expected during same-key telemetry bursts, while `new_key_queue_full` indicates the active key cardinality exceeded `TELEMETRY_WORK_CHANNEL_CAPACITY` and should normally stay near zero.
+For drop monitoring, `ckc.record.dropped` includes a `reason` tag. In `FRESHNESS_FIRST_BY_KEY`, `replaced_by_newer_key_record` is expected during same-key telemetry bursts, while `new_key_queue_full` indicates the active key cardinality exceeded `TELEMETRY_WORK_CHANNEL_CAPACITY` and should normally stay near zero.
 
 Example:
 

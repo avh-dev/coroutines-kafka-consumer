@@ -88,6 +88,7 @@
 | [DEMO-55](#demo-55) | Align demo consumer audit retry semantics and configure bounded retry rules for transient Redis and Armeria failures. | DONE |
 | [DEMO-56](#demo-56) | Add comparable record age metrics and Grafana percentiles for alternative demo consumer implementations. | DONE |
 | [DEMO-57](#demo-57) | Add Redis-backed cauldron telemetry event gap metrics and Grafana visibility. | DONE |
+| [DEMO-58](#demo-58) | Unify external demo consumer record metrics and expose freshness-first dropped records. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1421,6 +1422,15 @@ _Date: 2026-06-24_
 Measure the event-time gap between consecutive processed cauldron telemetry updates using Redis-backed ETA context state.
 Keep the metric resilient to consumer rebalance by deriving the previous timestamp from persisted business state instead of per-pod memory.
 Expose the gap distribution in Grafana so freshness-first runs show how often each cauldron state is refreshed.
+
+<a id="demo-58"></a>
+### DEMO-58 - Unify external record metrics
+
+_Date: 2026-07-01_
+
+Bring Confluent Parallel Consumer profiles onto the same CKC-style record metric adapter used by Spring Kafka external profiles.
+Record freshness-first stale drops as `ckc.record.dropped` in addition to audit records.
+Keep adapter-specific retry and acknowledgement behavior while sharing processed, failed, and dropped metric semantics.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

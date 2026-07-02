@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.springkafka
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
@@ -44,6 +45,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.order, context)) {
+                recordMetrics.onDropped(orderConsumerMetrics, context, event, RecordDropReason.STALE_AGE)
                 auditDropped(context)
                 return
             }
@@ -68,6 +70,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.batch, context)) {
+                recordMetrics.onDropped(batchConsumerMetrics, context, event, RecordDropReason.STALE_AGE)
                 auditDropped(context)
                 return
             }
@@ -92,6 +95,7 @@ class SpringKafkaTrackingService(
         val startedAt = System.nanoTime()
         try {
             if (shouldDiscard(properties.consumers.telemetry, context)) {
+                recordMetrics.onDropped(telemetryConsumerMetrics, context, event, RecordDropReason.STALE_AGE)
                 auditDropped(context)
                 return
             }

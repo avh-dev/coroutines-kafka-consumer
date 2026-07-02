@@ -4,7 +4,6 @@ import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
-import avh.ckc.demo.service.DemoRecordAgeMetrics
 import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
@@ -53,10 +52,9 @@ class ConfluentParallelProfileContextTest(
     }
 
     @Test
-    fun `confluent parallel profile publishes only CKC-style record age metrics`() {
-        assertTrue(applicationContext.getBeansOfType(DemoRecordAgeMetrics::class.java).isNotEmpty())
-        assertFalse(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
-        assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
+    fun `confluent parallel profile publishes CKC-style record metrics`() {
+        assertTrue(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
     }
 
 }

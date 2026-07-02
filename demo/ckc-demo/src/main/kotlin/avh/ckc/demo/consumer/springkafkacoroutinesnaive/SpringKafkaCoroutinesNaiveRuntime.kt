@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.springkafkacoroutinesnaive
 
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.consumer.FreshnessFirstRecordFilter
@@ -173,6 +174,7 @@ class SpringKafkaCoroutinesNaiveRuntime(
         val context = record.context()
         val startedAt = System.nanoTime()
         if (shouldDiscard(runtime, context)) {
+            recordMetrics.onDropped(metrics, context, value, RecordDropReason.STALE_AGE)
             logDropped(record, properties.audit, AuditDropReasons.STALE_AGE)
             return
         }
@@ -203,6 +205,7 @@ class SpringKafkaCoroutinesNaiveRuntime(
                     return
                 }
 
+                recordMetrics.onRetry(metrics, context, value, attempt, error)
                 logRetryAttempt(record, properties.audit)
                 logger.warn(
                     "Naive Spring Kafka coroutine worker retrying record topic={}, partition={}, offset={} after attempt {}",
