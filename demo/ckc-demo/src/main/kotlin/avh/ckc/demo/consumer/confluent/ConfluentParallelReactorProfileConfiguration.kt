@@ -12,7 +12,6 @@ import io.confluent.parallelconsumer.ParallelConsumerOptions
 import io.confluent.parallelconsumer.RecordContext
 import io.confluent.parallelconsumer.reactor.ReactorProcessor
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Tags
 import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -103,7 +102,6 @@ private class ConfluentParallelReactorConsumerRuntime(
     private fun orderProcessors(): List<ManagedReactorProcessor> =
         newManagedProcessors(
             name = "order-lifecycle",
-            consumerId = "order_events",
             topic = properties.topics.orderEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
@@ -116,7 +114,6 @@ private class ConfluentParallelReactorConsumerRuntime(
     private fun batchProcessors(): List<ManagedReactorProcessor> =
         newManagedProcessors(
             name = "batch-lifecycle",
-            consumerId = "batch_events",
             topic = properties.topics.batchEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
@@ -129,7 +126,6 @@ private class ConfluentParallelReactorConsumerRuntime(
     private fun telemetryProcessors(): List<ManagedReactorProcessor> =
         newManagedProcessors(
             name = "cauldron-telemetry",
-            consumerId = "cauldron_events",
             topic = properties.topics.cauldronEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId,
@@ -141,7 +137,6 @@ private class ConfluentParallelReactorConsumerRuntime(
 
     private fun <V> newManagedProcessors(
         name: String,
-        consumerId: String,
         topic: String,
         consumerProperties: Map<String, Any>,
         runtime: DemoApplicationProperties.ConsumerRuntime,
@@ -161,9 +156,7 @@ private class ConfluentParallelReactorConsumerRuntime(
             val processor = newProcessor(
                 consumer = consumer,
                 runtime = runtime,
-                processorName = processorName,
-                consumerId = consumerId,
-                topic = topic
+                processorName = processorName
             )
             processor.subscribe(listOf(topic))
             ManagedReactorProcessor(
@@ -181,9 +174,7 @@ private class ConfluentParallelReactorConsumerRuntime(
     private fun <V> newProcessor(
         consumer: KafkaConsumer<String, V>,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        processorName: String,
-        consumerId: String,
-        topic: String
+        processorName: String
     ): ReactorProcessor<String, V> {
         require(runtime.workerConcurrency > 0) {
             "demo.consumers.*.worker-concurrency must be > 0 for confluent-parallel-reactor"
@@ -193,18 +184,6 @@ private class ConfluentParallelReactorConsumerRuntime(
             .commitMode(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC)
             .maxConcurrency(runtime.workerConcurrency)
             .consumer(consumer)
-            .meterRegistry(meterRegistry)
-            .metricsTags(
-                Tags.of(
-                    "consumer_id",
-                    consumerId,
-                    "spring_profile",
-                    "confluent-parallel-reactor",
-                    "topic",
-                    topic
-                )
-            )
-            .pcInstanceTag(processorName)
             .build()
         return ReactorProcessor(options, Schedulers::immediate)
     }

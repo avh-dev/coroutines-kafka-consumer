@@ -151,6 +151,7 @@
 | [INFRA-59](#infra-59) | Add internal-lab test bundles for running sequential comparison scenarios across deployment profiles.                                        | DONE |
 | [INFRA-60](#infra-60) | Add audit freshness gap distributions so lossy processing modes show how many dropped records precede each processed record.                 | DONE |
 | [INFRA-61](#infra-61) | Extend internal-lab Prometheus retention so Grafana keeps recent lab metrics for multi-day comparisons.                                      | DONE |
+| [INFRA-62](#infra-62) | Remove native Parallel Consumer record metrics from the shared Grafana dashboard.                                                           | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1617,3 +1618,11 @@ _Date: 2026-07-01_
 Keep internal-lab Prometheus scraping at a 15-second interval for load-test charts with lower storage churn.
 Increase TSDB retention from a short same-day window to three days so recent runs remain visible after midnight.
 Raise the retention size cap while keeping an explicit disk guard for the dedicated lab host.
+
+<a id="infra-62"></a>
+### INFRA-62 - Remove native PC record dashboard metrics
+
+_Date: 2026-07-02_
+
+Remove native Confluent Parallel Consumer record throughput, failure, and processing-duration series from the shared Grafana dashboard.
+Use the unified `ckc.record.*` metrics for Confluent profiles after the external metric adapter change.
