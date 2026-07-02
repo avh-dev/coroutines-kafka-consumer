@@ -12,6 +12,7 @@ import org.mockito.BDDMockito.given
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
+import org.springframework.test.annotation.DirtiesContext
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import kotlin.test.assertEquals
@@ -25,6 +26,7 @@ import kotlin.test.assertTrue
 )
 @AutoConfigureObservability
 @ActiveProfiles("api")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OrderHttpServiceTest {
     @Autowired
     private lateinit var server: Server

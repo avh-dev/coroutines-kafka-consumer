@@ -16,7 +16,9 @@ import kotlin.test.assertSame
     properties = [
         "demo.kafka.enabled=false",
         "SERVER_PORT=0",
-        "demo.consumers.metrics-implementation=NOOP"
+        "demo.consumers.metrics-implementation=NOOP",
+        "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
+                "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
     ]
 )
 @ActiveProfiles("spring-kafka")

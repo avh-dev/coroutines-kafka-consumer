@@ -28,7 +28,9 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
-        "SERVER_PORT=0"
+        "SERVER_PORT=0",
+        "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
+                "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
     ]
 )
 @ActiveProfiles("spring-kafka")

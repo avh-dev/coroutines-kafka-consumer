@@ -89,6 +89,7 @@
 | [DEMO-56](#demo-56) | Add comparable record age metrics and Grafana percentiles for alternative demo consumer implementations. | DONE |
 | [DEMO-57](#demo-57) | Add Redis-backed cauldron telemetry event gap metrics and Grafana visibility. | DONE |
 | [DEMO-58](#demo-58) | Unify external demo consumer record metrics and expose freshness-first dropped records. | DONE |
+| [DEMO-59](#demo-59) | Stabilize demo Spring context tests that start Armeria on shared ports. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1431,6 +1432,14 @@ _Date: 2026-07-01_
 Bring Confluent Parallel Consumer profiles onto the same CKC-style record metric adapter used by Spring Kafka external profiles.
 Record freshness-first stale drops as `ckc.record.dropped` in addition to audit records.
 Keep adapter-specific retry and acknowledgement behavior while sharing processed, failed, and dropped metric semantics.
+
+<a id="demo-59"></a>
+### DEMO-59 - Stabilize demo context tests
+
+_Date: 2026-07-02_
+
+Fix demo Spring context tests that can fail with Armeria bind conflicts when multiple profile contexts run in the same Gradle test task.
+Keep the full `ckc-demo` test task runnable so merge checks do not rely only on targeted test subsets.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion

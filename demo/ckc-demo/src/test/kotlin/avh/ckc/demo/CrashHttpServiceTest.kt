@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
+import org.springframework.test.annotation.DirtiesContext
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import kotlin.test.assertEquals
 
@@ -24,6 +25,7 @@ import kotlin.test.assertEquals
 )
 @AutoConfigureObservability
 @ActiveProfiles("ckc")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CrashHttpServiceTest {
     @Autowired
     private lateinit var server: Server
