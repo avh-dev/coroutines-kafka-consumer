@@ -19,6 +19,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
@@ -69,8 +70,28 @@ class CkcProfileConfiguration {
 }
 
 @Configuration(proxyBeanMethods = false)
-@Profile("ckc-sync")
+@Profile("ckc-sync", "ckc-sync-loom")
 class CkcSyncProfileConfiguration {
+    @Bean("ckcSyncProcessingDispatcher", destroyMethod = "")
+    @Profile("ckc-sync & !ckc-sync-loom")
+    fun ckcSyncIoDispatcher(): CoroutineDispatcher =
+        Dispatchers.IO
+
+    @Bean("ckcSyncProcessingDispatcher", destroyMethod = "close")
+    @Profile("ckc-sync-loom")
+    fun ckcSyncLoomDispatcher(
+        @Value("\${demo.consumers.virtual-thread-name-prefix:ckc-sync-loom-worker-}")
+        threadNamePrefix: String
+    ): ExecutorCoroutineDispatcher {
+        val threadNumber = AtomicInteger()
+        return Executors.newThreadPerTaskExecutor { runnable ->
+            Thread.ofVirtual()
+                .name(threadNamePrefix, threadNumber.incrementAndGet().toLong())
+                .factory()
+                .newThread(runnable)
+        }.asCoroutineDispatcher()
+    }
+
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
     fun ckcSyncConsumerRuntime(
@@ -80,7 +101,8 @@ class CkcSyncProfileConfiguration {
         cauldronTelemetryService: SyncCauldronTelemetryService,
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
-        @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>
+        @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
+        @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -90,7 +112,7 @@ class CkcSyncProfileConfiguration {
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
-            Dispatchers.IO
+            processingDispatcher
         )
 }
 
