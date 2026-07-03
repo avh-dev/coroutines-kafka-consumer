@@ -251,7 +251,8 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
 Even with `--skip-prepare`, stub baseline settings are applied before the load generator starts.
 `--worker-dispatcher-threads` limits the shared fixed worker pool for the
 suspend `ckc` and `confluent-parallel-reactor` profiles. The blocking `ckc-sync`
-profile continues to use `Dispatchers.IO`.
+profile continues to use `Dispatchers.IO`, while `ckc-sync-loom` uses virtual
+threads.
 The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text
@@ -276,6 +277,12 @@ Or run a specific bundle with:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison
+```
+
+Compare suspend CKC, blocking CKC sync IO, and blocking CKC sync Loom profiles with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh ckc-sync-loom-comparison
 ```
 
 Run every synced bundle sequentially with:

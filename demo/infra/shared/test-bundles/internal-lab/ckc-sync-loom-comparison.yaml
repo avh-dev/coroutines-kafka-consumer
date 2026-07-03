@@ -1,0 +1,22 @@
+name: ckc-sync-loom-comparison
+description: Compare suspend CKC, CKC sync Dispatchers.IO, and CKC sync virtual-thread profiles on the same baseline test.
+
+defaults:
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+    WORKER_DISPATCHER_THREADS: 2
+
+tests:
+  - name: ckc
+    deployment: ckc
+    test_definition: baseline
+
+  - name: ckc-sync
+    deployment: ckc-sync
+    test_definition: baseline
+
+  - name: ckc-sync-loom
+    deployment: ckc-sync-loom
+    test_definition: baseline
