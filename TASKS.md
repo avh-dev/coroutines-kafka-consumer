@@ -90,6 +90,7 @@
 | [DEMO-57](#demo-57) | Add Redis-backed cauldron telemetry event gap metrics and Grafana visibility. | DONE |
 | [DEMO-58](#demo-58) | Unify external demo consumer record metrics and expose freshness-first dropped records. | DONE |
 | [DEMO-59](#demo-59) | Stabilize demo Spring context tests that start Armeria on shared ports. | DONE |
+| [DEMO-60](#demo-60) | Add a CKC sync Loom profile that runs blocking demo handlers on virtual threads instead of `Dispatchers.IO`. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1441,6 +1442,15 @@ _Date: 2026-07-02_
 
 Fix demo Spring context tests that can fail with Armeria bind conflicts when multiple profile contexts run in the same Gradle test task.
 Keep the full `ckc-demo` test task runnable so merge checks do not rely only on targeted test subsets.
+
+<a id="demo-60"></a>
+### DEMO-60 - Add CKC sync Loom profile
+
+_Date: 2026-07-03_
+
+Add a `ckc-sync-loom` Spring profile for comparing blocking CKC demo handlers on virtual threads.
+Reuse the existing synchronous demo services while making the processing dispatcher differ from the `ckc-sync` IO baseline.
+Cover the profile identity and bean wiring with demo Spring context tests.
 
 <a id="infra-44"></a>
 ### INFRA-44 - Add dedicated Fluent Bit audit ingestion
