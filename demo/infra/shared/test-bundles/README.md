@@ -30,7 +30,8 @@ Bundle runs collect raw audit logs first and run audit analysis as a separate
 final phase.
 
 Use `smoke-repeat` for quick bundle smoke checks; it runs the short `smoke`
-definition twice.
+definition twice. Use `ckc-sync-loom-comparison` to run suspend CKC plus the
+blocking CKC sync IO and virtual-thread profiles on the baseline definition.
 
 Bundle-wide overrides can be passed without prompts:
 

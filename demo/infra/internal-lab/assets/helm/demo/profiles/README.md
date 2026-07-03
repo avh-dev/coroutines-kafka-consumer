@@ -2,6 +2,11 @@
 
 Deployment profiles in this chart are offered by the interactive internal-lab runner.
 
+Sync CKC profiles:
+
+- `ckc-sync`: CKC with blocking demo services on `Dispatchers.IO`.
+- `ckc-sync-loom`: CKC with the same blocking demo services on virtual threads.
+
 Telemetry freshness fairness profiles:
 
 - `ckc-telemetry-freshness-first`: CKC telemetry overload using queue-level `FRESHNESS_FIRST`.

@@ -153,6 +153,7 @@
 | [INFRA-60](#infra-60) | Add audit freshness gap distributions so lossy processing modes show how many dropped records precede each processed record.                 | DONE |
 | [INFRA-61](#infra-61) | Extend internal-lab Prometheus retention so Grafana keeps recent lab metrics for multi-day comparisons.                                      | DONE |
 | [INFRA-62](#infra-62) | Remove native Parallel Consumer record metrics from the shared Grafana dashboard.                                                           | DONE |
+| [INFRA-63](#infra-63) | Add internal-lab deployment and comparison-bundle support for the `ckc-sync-loom` demo profile.                                           | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1636,3 +1637,12 @@ _Date: 2026-07-02_
 
 Remove native Confluent Parallel Consumer record throughput, failure, and processing-duration series from the shared Grafana dashboard.
 Use the unified `ckc.record.*` metrics for Confluent profiles after the external metric adapter change.
+
+<a id="infra-63"></a>
+### INFRA-63 - Add CKC sync Loom lab profile
+
+_Date: 2026-07-03_
+
+Add an internal-lab Helm deployment profile for the `ckc-sync-loom` demo profile.
+Keep the profile aligned with the existing `ckc-sync` baseline so tests can compare dispatcher behavior directly.
+Add a small internal-lab bundle for running the IO and Loom CKC sync profiles back to back.
