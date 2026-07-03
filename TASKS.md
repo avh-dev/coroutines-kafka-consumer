@@ -154,6 +154,7 @@
 | [INFRA-61](#infra-61) | Extend internal-lab Prometheus retention so Grafana keeps recent lab metrics for multi-day comparisons.                                      | DONE |
 | [INFRA-62](#infra-62) | Remove native Parallel Consumer record metrics from the shared Grafana dashboard.                                                           | DONE |
 | [INFRA-63](#infra-63) | Add internal-lab deployment and comparison-bundle support for the `ckc-sync-loom` demo profile.                                           | DONE |
+| [INFRA-64](#infra-64) | Show selected application pod CPU and memory series alongside sum and average aggregates in Grafana.                                      | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1646,3 +1647,12 @@ _Date: 2026-07-03_
 Add an internal-lab Helm deployment profile for the `ckc-sync-loom` demo profile.
 Keep the profile aligned with the existing `ckc-sync` baseline so tests can compare dispatcher behavior directly.
 Add a small internal-lab bundle for running the IO and Loom CKC sync profiles back to back.
+
+<a id="infra-64"></a>
+### INFRA-64 - Add application pod aggregate panels
+
+_Date: 2026-07-03_
+
+Update the Grafana Application Pods CPU and memory panels to honor selected pod filters.
+Keep per-pod series visible while adding sum and average aggregate series for the selected pods.
+Make deployment-level and typical-pod resource usage visible in the same panel.

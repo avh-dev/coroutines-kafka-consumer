@@ -2082,16 +2082,16 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+              "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__rate_interval]))",
-              "legendFormat": "demo {{pod}}",
+              "expr": "1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
+              "legendFormat": "CPU sum {{pod}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Demo Pod CPU",
+          "title": "Pod CPU",
           "type": "timeseries",
           "id": 73
         },
@@ -2180,21 +2180,21 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+              "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\"})",
-              "legendFormat": "demo {{pod}}",
+              "expr": "avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})",
+              "legendFormat": "Memory avg {{pod}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Demo Pod Memory",
+          "title": "Pod Memory",
           "type": "timeseries",
           "id": 74
         }
       ],
-      "title": "Pod CPU",
+      "title": "Pod Resources",
       "type": "row",
       "id": 72
     },
@@ -2879,20 +2879,48 @@
         "type": "custom"
       },
       {
+        "allValue": ".*",
         "current": {
           "selected": true,
-          "text": "aggregate",
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}, pod)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Application pods",
+        "multi": true,
+        "name": "pod",
+        "options": [],
+        "query": {
+          "query": "label_values(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}, pod)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "total",
           "value": "__name__"
         },
         "hide": 0,
         "includeAll": false,
-        "label": "Application pods",
+        "label": "Metric breakdown",
         "multi": false,
         "name": "pod_grouping",
         "options": [
           {
             "selected": true,
-            "text": "aggregate",
+            "text": "total",
             "value": "__name__"
           },
           {
@@ -2901,7 +2929,7 @@
             "value": "pod"
           }
         ],
-        "query": "aggregate : __name__,by pod : pod",
+        "query": "total : __name__,by pod : pod",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
