@@ -1,0 +1,54 @@
+name: network-chaos-smoke
+
+stubs:
+  error_rate_percent: 0
+  eta:
+    delay_p90_ms: 20
+    delay_p95_ms: 40
+    delay_p99_ms: 80
+    delay_p100_ms: 120
+  flavour:
+    delay_p90_ms: 20
+    delay_p95_ms: 40
+    delay_p99_ms: 80
+    delay_p100_ms: 120
+  registry:
+    delay_p90_ms: 2
+    delay_p95_ms: 3
+    delay_p99_ms: 4
+    delay_p100_ms: 5
+
+chaos_steps:
+  - at: 45s
+    type: set_service_netem
+    params:
+      target: redis
+      delay_ms: 120
+      jitter_ms: 30
+      duration: 45s
+  - at: 105s
+    type: set_service_netem
+    params:
+      target: kafka
+      delay_ms: 180
+      jitter_ms: 60
+      loss_percent: 0.2
+      duration: 45s
+  - at: 135s
+    type: restart_service
+    params:
+      target: redis
+
+load_test:
+  shards: 1
+  base_tps: 20
+  order_event_percent: 35
+  batch_event_percent: 25
+  cauldron_telemetry_percent: 40
+  load_profile: "0 -> (20s, warmup) -> 100 -> (3m, network-chaos-smoke) -> 100 -> (30s, cool-down) -> 0"
+  cauldron_count: 2
+  min_orders_per_batch: 2
+  max_orders_per_batch: 3
+  min_brewing_steps: 5
+  max_brewing_steps: 8
+  diagnostics_blob_size: 64

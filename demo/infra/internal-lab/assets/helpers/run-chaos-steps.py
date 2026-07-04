@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import random
+import signal
 import socket
 import subprocess
 import sys
@@ -22,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps-file")
     parser.add_argument("--start-epoch-seconds", type=float, default=time.time())
     parser.add_argument("--configure-stubs", default=f"{lab_root}/libexec/configure-stubs.sh")
+    parser.add_argument("--reset-all", action="store_true", help="Remove internal-lab network chaos state and exit.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -41,6 +43,192 @@ def run(command: list[str], *, check: bool = True, capture_output: bool = False)
             sys.stderr.write(result.stderr)
         raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
     return result
+
+
+def run_ignored(command: list[str]) -> None:
+    log(f"+ {' '.join(command)} || true")
+    subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+SERVICE_TARGETS = {
+    "kafka": {"ports": [9092], "container": "ckc-perf-redpanda", "mark": 6501, "band": 10, "handle": 110},
+    "redis": {"ports": [6379], "container": "ckc-perf-redis", "mark": 6502, "band": 11, "handle": 111},
+    "audit": {"ports": [5170], "container": "ckc-internal-fluent-bit", "mark": 6503, "band": 12, "handle": 112},
+}
+
+
+def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    target = str(params.get("target", "")).strip().lower()
+    if target not in SERVICE_TARGETS:
+        raise ValueError(f"Unsupported service target: {target!r}")
+    return target, SERVICE_TARGETS[target]
+
+
+def tc_classid(handle: int, band: int) -> str:
+    return f"{handle}:{band:x}"
+
+
+def default_netem_dev() -> str:
+    configured = os.environ.get("CHAOS_NETEM_DEV", "").strip()
+    if configured:
+        return configured
+    for candidate in ("cni0", "flannel.1"):
+        if subprocess.run(["ip", "link", "show", candidate], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+            return candidate
+    result = run(["ip", "route", "show", "default"], capture_output=True)
+    for token_index, token in enumerate(result.stdout.split()):
+        if token == "dev" and token_index + 1 < len(result.stdout.split()):
+            return result.stdout.split()[token_index + 1]
+    raise RuntimeError("Could not detect a network interface for service netem chaos.")
+
+
+def target_netem_dev(params: dict[str, Any]) -> str:
+    return str(params.get("dev") or default_netem_dev()).strip()
+
+
+def iptables_rule(dev: str, port: int, mark: int, target: str) -> list[str]:
+    return [
+        "iptables",
+        "-t",
+        "mangle",
+        "-A",
+        "POSTROUTING",
+        "-o",
+        dev,
+        "-p",
+        "tcp",
+        "--sport",
+        str(port),
+        "-m",
+        "comment",
+        "--comment",
+        f"ckc-chaos-{target}",
+        "-j",
+        "MARK",
+        "--set-mark",
+        str(mark),
+    ]
+
+
+def delete_iptables_rule(dev: str, port: int, mark: int, target: str, *, dry_run: bool) -> None:
+    rule = iptables_rule(dev, port, mark, target)
+    delete_rule = rule.copy()
+    delete_rule[3] = "-D"
+    if dry_run:
+        log(f"dry-run: would delete iptables service mark target={target} port={port} dev={dev}")
+        return
+    while subprocess.run(delete_rule, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        pass
+
+
+def ensure_prio_qdisc(dev: str) -> None:
+    result = run(["tc", "qdisc", "show", "dev", dev], capture_output=True)
+    if "handle 1:" in result.stdout and "prio" in result.stdout:
+        return
+    run(["tc", "qdisc", "replace", "dev", dev, "root", "handle", "1:", "prio", "bands", "16"])
+
+
+def reset_service_netem(params: dict[str, Any], *, dry_run: bool) -> None:
+    target, config = service_target(params)
+    dev = target_netem_dev(params)
+    mark = int(config["mark"])
+    band = int(config["band"])
+    if dry_run:
+        log(f"dry-run: would reset service netem target={target} dev={dev}")
+        return
+    for port in config["ports"]:
+        delete_iptables_rule(dev, int(port), mark, target, dry_run=False)
+    run_ignored(["tc", "filter", "delete", "dev", dev, "protocol", "ip", "parent", "1:0", "prio", str(band)])
+    run_ignored(["tc", "qdisc", "delete", "dev", dev, "parent", tc_classid(1, band)])
+    log(f"reset service netem target={target} dev={dev}")
+
+
+def reset_all_service_netem(*, dry_run: bool) -> None:
+    devs = [os.environ.get("CHAOS_NETEM_DEV", "").strip(), "cni0", "flannel.1"]
+    if not dry_run:
+        try:
+            devs.append(default_netem_dev())
+        except Exception:
+            pass
+    seen = set()
+    for dev in [item for item in devs if item]:
+        if dev in seen:
+            continue
+        seen.add(dev)
+        if subprocess.run(["ip", "link", "show", dev], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+            continue
+        for target, config in SERVICE_TARGETS.items():
+            params = {"target": target, "dev": dev}
+            reset_service_netem(params, dry_run=dry_run)
+            for port in config["ports"]:
+                delete_iptables_rule(dev, int(port), int(config["mark"]), target, dry_run=dry_run)
+        if dry_run:
+            log(f"dry-run: would delete root qdisc dev={dev}")
+        else:
+            run_ignored(["tc", "qdisc", "delete", "dev", dev, "root"])
+
+
+def set_service_netem(params: dict[str, Any], *, dry_run: bool) -> None:
+    target, config = service_target(params)
+    dev = target_netem_dev(params)
+    mark = int(config["mark"])
+    band = int(config["band"])
+    handle = int(config["handle"])
+    delay_ms = int(params.get("delayMs", 0))
+    jitter_ms = int(params.get("jitterMs", 0))
+    loss_percent = float(params.get("lossPercent", 0))
+    rate = str(params.get("rate", "")).strip()
+
+    netem = ["tc", "qdisc", "replace", "dev", dev, "parent", tc_classid(1, band), "handle", f"{handle}:", "netem"]
+    if delay_ms > 0:
+        netem += ["delay", f"{delay_ms}ms"]
+        if jitter_ms > 0:
+            netem.append(f"{jitter_ms}ms")
+    if loss_percent > 0:
+        netem += ["loss", f"{loss_percent}%"]
+    if rate:
+        netem += ["rate", rate]
+
+    if dry_run:
+        log(f"dry-run: would set service netem target={target} dev={dev} command={' '.join(netem)}")
+        return
+
+    reset_service_netem({"target": target, "dev": dev}, dry_run=False)
+    ensure_prio_qdisc(dev)
+    run(netem)
+    run(
+        [
+            "tc",
+            "filter",
+            "replace",
+            "dev",
+            dev,
+            "protocol",
+            "ip",
+            "parent",
+            "1:0",
+            "prio",
+            str(band),
+            "handle",
+            str(mark),
+            "fw",
+            "flowid",
+            tc_classid(1, band),
+        ]
+    )
+    for port in config["ports"]:
+        run(iptables_rule(dev, int(port), mark, target))
+    log(f"set service netem target={target} dev={dev} delay_ms={delay_ms} jitter_ms={jitter_ms} loss_percent={loss_percent} rate={rate or '-'}")
+
+
+def docker_service(params: dict[str, Any], action: str, *, dry_run: bool) -> None:
+    target, config = service_target(params)
+    container = str(config["container"])
+    if dry_run:
+        log(f"dry-run: would docker {action} target={target} container={container}")
+        return
+    log(f"docker {action} target={target} container={container}")
+    run(["docker", action, container])
 
 
 def wait_for_http_ok(url: str, timeout_seconds: int) -> None:
@@ -211,12 +399,34 @@ def run_step(step: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> No
         crash_random_pod(params, dry_run=dry_run)
     elif step_type in {"set_stubs_profile", "reset_stubs_profile"}:
         apply_stubs_profile(params, configure_stubs, dry_run=dry_run)
+    elif step_type == "set_service_netem":
+        set_service_netem(params, dry_run=dry_run)
+    elif step_type == "reset_service_netem":
+        reset_service_netem(params, dry_run=dry_run)
+    elif step_type == "pause_service":
+        docker_service(params, "pause", dry_run=dry_run)
+    elif step_type == "resume_service":
+        docker_service(params, "unpause", dry_run=dry_run)
+    elif step_type == "restart_service":
+        docker_service(params, "restart", dry_run=dry_run)
     else:
         raise ValueError(f"Unsupported chaos step type: {step_type}")
 
 
 def main() -> None:
     args = parse_args()
+    if args.reset_all:
+        reset_all_service_netem(dry_run=args.dry_run)
+        return
+
+    def handle_signal(signum: int, _frame: Any) -> None:
+        log(f"received signal {signum}; resetting service netem before exit")
+        reset_all_service_netem(dry_run=args.dry_run)
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
     steps = load_steps(args)
     if not steps:
         log("no chaos steps configured")

@@ -354,6 +354,10 @@ mkdir -p "${LOG_DIR}" "${PID_DIR}"
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
+reset_chaos_network() {
+  python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" --reset-all >/dev/null 2>&1 || true
+}
+
 PID_PATH="${PID_DIR}/load-test.pid"
 CHAOS_PID_PATH="${PID_DIR}/chaos.pid"
 if [ -f "${PID_PATH}" ]; then
@@ -630,6 +634,7 @@ stop_chaos() {
     kill -9 "${CHAOS_PID}" >/dev/null 2>&1 || true
   fi
   rm -f "${CHAOS_PID_PATH}"
+  reset_chaos_network
 }
 
 stop_process() {
@@ -676,6 +681,7 @@ while true; do
     LOAD_TEST_EXIT_CODE=0
     wait "${PID}" || LOAD_TEST_EXIT_CODE=$?
     stop_chaos
+    reset_chaos_network
     echo "Load test finished."
     break
   fi
