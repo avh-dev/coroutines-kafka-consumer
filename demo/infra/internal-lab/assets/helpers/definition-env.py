@@ -71,6 +71,29 @@ def parse_duration_seconds(value: Any, context: str) -> int:
     return sum(int(match.group(1)) * multipliers[match.group(2)] for match in matches)
 
 
+def optional_duration_seconds(params: dict[str, Any], key: str, context: str) -> int | None:
+    if key not in params or params[key] in ("", None):
+        return None
+    seconds = parse_duration_seconds(params[key], f"{context}.{key}")
+    if seconds <= 0:
+        raise ValueError(f"{context}.{key} must be positive when defined")
+    return seconds
+
+
+def non_negative_int(params: dict[str, Any], key: str, default: int, context: str) -> int:
+    value = int(params.get(key, default))
+    if value < 0:
+        raise ValueError(f"{context}.{key} must be non-negative")
+    return value
+
+
+def percentage(params: dict[str, Any], key: str, default: float, context: str) -> float:
+    value = float(params.get(key, default))
+    if value < 0 or value > 100:
+        raise ValueError(f"{context}.{key} must be between 0 and 100")
+    return value
+
+
 def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
@@ -121,8 +144,19 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
     if not isinstance(raw_steps, list):
         raise ValueError(f"Test definition chaos_steps must be a list: {definition_path}")
 
-    supported_types = {"delete_random_pod", "crash_random_pod", "set_stubs_profile", "reset_stubs_profile"}
-    result: list[dict[str, Any]] = []
+    supported_types = {
+        "delete_random_pod",
+        "crash_random_pod",
+        "set_stubs_profile",
+        "reset_stubs_profile",
+        "set_service_netem",
+        "reset_service_netem",
+        "pause_service",
+        "resume_service",
+        "restart_service",
+    }
+    service_targets = {"kafka", "redis", "audit"}
+    result: list[tuple[int, int, dict[str, Any]]] = []
     previous_at = -1
     for index, raw_step in enumerate(raw_steps, start=1):
         if not isinstance(raw_step, dict):
@@ -146,6 +180,7 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
         if not isinstance(params, dict):
             raise ValueError(f"chaos_steps[{index}].params must be an object: {definition_path}")
 
+        sequence = len(result)
         normalized = {"atSeconds": at_seconds, "type": step_type, "params": params}
         if step_type in {"delete_random_pod", "crash_random_pod"}:
             normalized["params"] = {
@@ -160,9 +195,46 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
             }
         elif step_type == "reset_stubs_profile":
             normalized["params"] = {"settings": baseline_stubs}
-        result.append(normalized)
+        elif step_type in {"set_service_netem", "reset_service_netem", "pause_service", "resume_service", "restart_service"}:
+            context = f"chaos_steps[{index}].params"
+            target = str(params.get("target", "")).strip().lower()
+            if target not in service_targets:
+                raise ValueError(f"{context}.target must be one of {sorted(service_targets)}: {definition_path}")
+            normalized["params"] = {"target": target}
+            if step_type == "set_service_netem":
+                normalized["params"].update(
+                    {
+                        "delayMs": non_negative_int(params, "delay_ms", 0, context),
+                        "jitterMs": non_negative_int(params, "jitter_ms", 0, context),
+                        "lossPercent": percentage(params, "loss_percent", 0, context),
+                    }
+                )
+                if "rate" in params and params["rate"] not in ("", None):
+                    normalized["params"]["rate"] = str(params["rate"])
+                if (
+                    normalized["params"]["delayMs"] == 0
+                    and normalized["params"]["lossPercent"] == 0
+                    and "rate" not in normalized["params"]
+                ):
+                    raise ValueError(f"{context} must define delay_ms, loss_percent, or rate: {definition_path}")
+                duration_seconds = optional_duration_seconds(params, "duration", context)
+                if duration_seconds is not None:
+                    result.append((at_seconds + duration_seconds, sequence + 1, {
+                        "atSeconds": at_seconds + duration_seconds,
+                        "type": "reset_service_netem",
+                        "params": {"target": target},
+                    }))
+            elif step_type == "pause_service":
+                duration_seconds = optional_duration_seconds(params, "duration", context)
+                if duration_seconds is not None:
+                    result.append((at_seconds + duration_seconds, sequence + 1, {
+                        "atSeconds": at_seconds + duration_seconds,
+                        "type": "resume_service",
+                        "params": {"target": target},
+                    }))
+        result.append((at_seconds, sequence, normalized))
 
-    return result
+    return [step for _, _, step in sorted(result, key=lambda item: (item[0], item[1]))]
 
 
 def parse_env_override(value: str) -> tuple[str, str]:

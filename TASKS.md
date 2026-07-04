@@ -155,6 +155,7 @@
 | [INFRA-62](#infra-62) | Remove native Parallel Consumer record metrics from the shared Grafana dashboard.                                                           | DONE |
 | [INFRA-63](#infra-63) | Add internal-lab deployment and comparison-bundle support for the `ckc-sync-loom` demo profile.                                           | DONE |
 | [INFRA-64](#infra-64) | Show selected application pod CPU and memory series alongside sum and average aggregates in Grafana.                                      | DONE |
+| [INFRA-65](#infra-65) | Add internal-lab network and host-service chaos steps for Redis and Kafka resiliency scenarios.                                          | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1656,3 +1657,14 @@ _Date: 2026-07-03_
 Update the Grafana Application Pods CPU and memory panels to honor selected pod filters.
 Keep per-pod series visible while adding sum and average aggregate series for the selected pods.
 Make deployment-level and typical-pod resource usage visible in the same panel.
+
+<a id="infra-65"></a>
+### INFRA-65 - Add internal-lab network chaos
+
+_Date: 2026-07-04_
+
+Add scheduled internal-lab chaos steps for Redis and Kafka network degradation.
+Support reversible host-service disruption scenarios that fit the existing test-definition DSL.
+Document example scenarios so lab runs can exercise slow downstream state, slow Kafka access, and service restarts.
+Add a network-chaos smoke definition for validating the host-level tc/iptables path.
+Add a targeted queue-backlog crash comparison with large order/batch worker queues and low worker concurrency to expose listener-accepted records lost on app crashes.
