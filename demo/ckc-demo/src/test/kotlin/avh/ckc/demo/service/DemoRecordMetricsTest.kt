@@ -1,7 +1,8 @@
 package avh.ckc.demo.service
 
 import avh.ckc.core.metrics.RecordDropReason
-import avh.ckc.micrometer.MicrometerConsumerMetrics
+import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
+import avh.ckc.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,8 +12,11 @@ class DemoRecordMetricsTest {
     @Test
     fun `records freshness first stale drops with CKC record metric tags`() {
         val meterRegistry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetrics(meterRegistry)
-            .forConsumer<String, String>(consumerId = "cauldron_events")
+        val metrics = micrometerConsumerMetrics<String, String>(
+            MicrometerConsumerMetricsFactory(meterRegistry, metricPrefix = "demo")
+        ) {
+            consumerId = "cauldron_events"
+        }
         val recordMetrics = DemoRecordMetrics()
         val context = DemoConsumerRecordContext(
             key = "cauldron-1",
@@ -24,7 +28,7 @@ class DemoRecordMetricsTest {
 
         recordMetrics.onDropped(metrics, context, "payload", RecordDropReason.STALE_AGE)
 
-        val counter = meterRegistry.find("ckc.record.dropped")
+        val counter = meterRegistry.find("demo.ckc.record.dropped")
             .tag("topic", "cauldron.events.v1")
             .tag("reason", "stale_age")
             .counter()

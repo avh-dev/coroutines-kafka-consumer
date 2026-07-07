@@ -92,5 +92,5 @@ management:
       percentiles-histogram:
         ckc.demo.model.call.duration: true
         ckc.demo.cauldron.telemetry.event.gap: true
-        ckc.record.process.duration: true
-        ckc.record.age: true
+        demo.ckc.record.process.duration: true
+        demo.ckc.record.age: true

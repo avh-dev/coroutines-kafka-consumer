@@ -5,7 +5,7 @@ import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.service.DemoRecordMetrics
-import avh.ckc.micrometer.MicrometerConsumerMetrics
+import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
 import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -56,7 +56,7 @@ class ConfluentParallelProfileContextTest(
     @Test
     fun `confluent parallel profile publishes CKC-style record metrics`() {
         assertTrue(applicationContext.getBeansOfType(DemoRecordMetrics::class.java).isNotEmpty())
-        assertTrue(applicationContext.getBeansOfType(MicrometerConsumerMetrics::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(MicrometerConsumerMetricsFactory::class.java).isNotEmpty())
     }
 
 }
