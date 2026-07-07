@@ -63,16 +63,22 @@ type and make slow event classes visible.
 
 <table>
   <tr>
-    <td><strong>Without custom tags</strong><br>One aggregate processing latency series per topic or consumer.</td>
+    <td width="50%" valign="top">
+      <strong>Without custom tags</strong><br>
+      One aggregate processing latency series per topic or consumer.
+    </td>
+    <td width="50%" valign="top">
+      <strong>With <code>event_type</code></strong><br>
+      Separate latency series for each event type.
+    </td>
   </tr>
   <tr>
-    <td><img src="../docs/images/ckc-micrometer/custom-tags-aggregated.png" alt="Grafana panel with one aggregate processing latency series"></td>
-  </tr>
-  <tr>
-    <td><strong>With <code>event_type</code></strong><br>Separate latency series for each event type.</td>
-  </tr>
-  <tr>
-    <td><img src="../docs/images/ckc-micrometer/custom-tags-split-by-event-type.png" alt="Grafana panel split into processing latency series by event type"></td>
+    <td width="50%" valign="top">
+      <img src="../docs/images/ckc-micrometer/custom-tags-aggregated.png" alt="Grafana panel with one aggregate processing latency series" width="100%">
+    </td>
+    <td width="50%" valign="top">
+      <img src="../docs/images/ckc-micrometer/custom-tags-split-by-event-type.png" alt="Grafana panel split into processing latency series by event type" width="100%">
+    </td>
   </tr>
 </table>
 
@@ -407,6 +413,50 @@ property documentation for the exact matching rules.
 
 CKC registers duration meters as Micrometer `Timer`s. Percentiles and histogram buckets are configured
 through Micrometer or through your application framework, not through the CKC adapter.
+
+With plain Micrometer, add a `MeterFilter` to the registry before creating CKC meters:
+
+```kotlin
+import io.micrometer.core.instrument.Meter
+import io.micrometer.core.instrument.config.MeterFilter
+import io.micrometer.core.instrument.distribution.DistributionStatisticConfig
+
+meterRegistry.config().meterFilter(object : MeterFilter {
+    override fun configure(
+        id: Meter.Id,
+        config: DistributionStatisticConfig
+    ): DistributionStatisticConfig {
+        if (id.type != Meter.Type.TIMER || !id.name.startsWith("myapp.ckc.")) {
+            return config
+        }
+
+        return DistributionStatisticConfig.builder()
+            .percentilesHistogram(true)
+            .build()
+            .merge(config)
+    }
+})
+```
+
+Client-side percentile gauges can be configured the same way:
+
+```kotlin
+meterRegistry.config().meterFilter(object : MeterFilter {
+    override fun configure(
+        id: Meter.Id,
+        config: DistributionStatisticConfig
+    ): DistributionStatisticConfig {
+        if (id.name != "myapp.ckc.record.process.duration") {
+            return config
+        }
+
+        return DistributionStatisticConfig.builder()
+            .percentiles(0.5, 0.95, 0.99)
+            .build()
+            .merge(config)
+    }
+})
+```
 
 For Spring Boot and Prometheus, enable percentile histograms for selected CKC timers:
 
