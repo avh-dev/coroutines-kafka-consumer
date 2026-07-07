@@ -31,6 +31,7 @@
 | [CORE-26](#core-26) | Add ordering-queue gauges so key and partition contention are observable independently from the shared admission queue.                                                                                   | DONE |
 | [CORE-27](#core-27) | Advance tracked offsets after terminal processing failures are handled successfully so skipped or DLT records do not block later commits.                                                               | DONE |
 | [CORE-28](#core-28) | Add a freshness-first-by-key processing mode that keeps only the latest queued record per key and drops new keys when bounded admission is full.                                                        | DONE |
+| [CORE-29](#core-29) | Refactor the Micrometer adapter module into clearer public API, implementation, naming, and documentation pieces.                                                                                       | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1279,6 +1280,20 @@ Add a bounded freshness-first-by-key runtime for telemetry-style streams with fi
 Keep only the newest queued record for each key and drop older queued records for the same key intentionally.
 Drop records for new keys when queued key-lane admission is full, and document capacity tuning around active keys and drop metrics.
 Expose stable drop reasons so replacement drops can be distinguished from key-lane saturation.
+
+<a id="core-29"></a>
+### CORE-29 - Refactor Micrometer module documentation
+
+_Date: 2026-07-05_
+
+Split the Micrometer adapter module into clearer API, implementation, naming, and record-tag schema pieces.
+Document the metric prefix, custom tag schema, Prometheus label-set constraints, and the exported metric surface.
+Remove counters duplicated by timer counts and export record age as a timer so histogram and percentile configuration is consistent for duration-like metrics.
+Rename the configured Micrometer entry point to `MicrometerConsumerMetricsFactory` and expose `metricPrefix` instead of an application-specific prefix name.
+Require a metric prefix while keeping the `ckc` namespace permanent in every factory-created metric name.
+Keep `consumer_id` present on all CKC meters, using `default` when no logical consumer id is supplied, so Prometheus label sets stay stable.
+Replace object-handle custom tags with string-key record-driven tag schemas, per-consumer extractor maps, and default schema values for missing record-driven tags.
+Add README examples, exported metric tables, filtering/histogram notes, and Grafana screenshots that explain record-driven custom tags.
 
 <a id="infra-42"></a>
 ### INFRA-42 - Show Reactor Parallel Consumer metrics

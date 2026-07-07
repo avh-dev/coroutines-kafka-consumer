@@ -1,0 +1,135 @@
+package avh.ckc.micrometer
+
+import avh.ckc.core.metrics.ConsumerMetrics
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.DistributionSummary
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tag
+import io.micrometer.core.instrument.Tags
+import io.micrometer.core.instrument.Timer
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import java.util.logging.Logger
+
+/**
+ * Factory for Micrometer-backed CKC consumer metrics.
+ *
+ * Create one factory for a metric family configuration, then bind concrete
+ * [ConsumerMetrics] instances with [micrometerConsumerMetrics]. Consumers created from the
+ * same factory share the same metric prefix, static tags, and record-driven tag schema.
+ *
+ * @param meterRegistry registry that receives CKC meters.
+ * @param metricPrefix user-defined prefix prepended to the permanent `ckc`
+ * namespace. For example, `myapp` produces metrics such as
+ * `myapp.ckc.record.process.duration`.
+ * @param staticTags tags attached to every meter created by this factory.
+ * @param recordDrivenTagSchema record-driven custom tag keys and default values that
+ * may be populated by per-consumer extractors.
+ */
+open class MicrometerConsumerMetricsFactory(
+    internal val meterRegistry: MeterRegistry,
+    val metricPrefix: String,
+    internal val staticTags: Iterable<Tag> = emptyList(),
+    internal val recordDrivenTagSchema: RecordDrivenTagSchema = RecordDrivenTagSchema.empty()
+) {
+    init {
+        require(metricPrefix.isNotBlank()) { "Metric prefix must not be blank" }
+        require(!metricPrefix.startsWith(".")) { "Metric prefix must not start with '.'" }
+        require(!metricPrefix.endsWith(".")) { "Metric prefix must not end with '.'" }
+        require(!metricPrefix.endsWith(".ckc")) {
+            "Metric prefix must not include the permanent '.ckc' segment"
+        }
+    }
+
+    private val metricNames = MicrometerMetricNames(metricPrefix)
+
+    internal fun <K, V> createConsumerMetrics(
+        consumerId: String,
+        recordDrivenTagValues: RecordDrivenTagValues<K, V>
+    ): ConsumerMetrics<K, V> {
+        require(consumerId.isNotBlank()) { "Consumer id must not be blank" }
+        val unknownKeys = recordDrivenTagValues.extractors.keys - recordDrivenTagSchema.keys
+        if (unknownKeys.isNotEmpty()) {
+            logger.warning(
+                "Ignoring record-driven tag extractors not declared in the Micrometer record-driven tag schema: " +
+                    unknownKeys.joinToString()
+            )
+        }
+        return BoundMicrometerConsumerMetrics(this, consumerId, recordDrivenTagValues)
+    }
+
+    internal fun timer(suffix: String, tags: Iterable<Tag> = staticTags): Timer =
+        Timer.builder(metricName(suffix))
+            .tags(tags)
+            .register(meterRegistry)
+
+    internal fun summary(suffix: String, tags: Iterable<Tag> = staticTags): DistributionSummary =
+        DistributionSummary.builder(metricName(suffix))
+            .tags(tags)
+            .register(meterRegistry)
+
+    internal fun counter(suffix: String, tags: Iterable<Tag> = staticTags): Counter =
+        Counter.builder(metricName(suffix))
+            .tags(tags)
+            .register(meterRegistry)
+
+    internal fun metricName(suffix: String): String =
+        metricNames.fullName(suffix)
+
+    internal fun tags(baseTags: Iterable<Tag> = staticTags, vararg pairs: Pair<String, String>): Tags =
+        Tags.of(baseTags).and(pairs.map { Tag.of(it.first, it.second) })
+
+    internal fun <K, V> recordTags(
+        baseTags: Iterable<Tag>,
+        recordDrivenTagValues: RecordDrivenTagValues<K, V>,
+        record: ConsumerRecord<K, V>
+    ): Tags {
+        return tags(
+            baseTags,
+            "topic" to record.topic()
+        ).and(recordDrivenTagSchema.tagsFrom(recordDrivenTagValues, record))
+    }
+
+    companion object {
+        const val DEFAULT_CONSUMER_ID: String = "default"
+        private val logger: Logger = Logger.getLogger(MicrometerConsumerMetricsFactory::class.java.name)
+    }
+}
+
+/**
+ * Builder for a Micrometer-backed [ConsumerMetrics] instance bound to one CKC consumer.
+ *
+ * The builder is used by [micrometerConsumerMetrics]. If [consumerId] is not changed, the
+ * bound metrics use `consumer_id=default`. [recordDrivenTagValues] may provide extractors for
+ * custom tags declared by the factory's `recordDrivenTagSchema`.
+ */
+class MicrometerConsumerMetricsBuilder<K, V> internal constructor() {
+    /**
+     * Logical CKC consumer id written to the `consumer_id` tag.
+     *
+     * This is not Kafka `group.id` or Kafka `client.id`. Keep it stable and low-cardinality.
+     */
+    var consumerId: String = MicrometerConsumerMetricsFactory.DEFAULT_CONSUMER_ID
+
+    /**
+     * Per-consumer extractors for record-driven custom tags.
+     *
+     * Missing extractors and `null` extractor results use defaults from the factory schema.
+     */
+    var recordDrivenTagValues: RecordDrivenTagValues<K, V> =
+        RecordDrivenTagValues.none()
+}
+
+/**
+ * Creates a Micrometer-backed [ConsumerMetrics] instance for one CKC consumer.
+ *
+ * The returned metrics instance has a stable `consumer_id` tag and uses the record-driven tag schema from
+ * [factory]. Extractors declared in [block] are validated against the factory schema once at
+ * creation time; unknown extractor keys are logged and ignored.
+ */
+fun <K, V> micrometerConsumerMetrics(
+    factory: MicrometerConsumerMetricsFactory,
+    block: MicrometerConsumerMetricsBuilder<K, V>.() -> Unit = {}
+): ConsumerMetrics<K, V> {
+    val builder = MicrometerConsumerMetricsBuilder<K, V>().apply(block)
+    return factory.createConsumerMetrics(builder.consumerId, builder.recordDrivenTagValues)
+}

@@ -97,24 +97,24 @@ class CkcProfileContextTest(
             durationNanos = 1_000_000
         )
 
-        val counter = meterRegistry.find("ckc.record.processed")
+        val processingDuration = meterRegistry.find("demo.ckc.record.process.duration")
             .tag("consumer_id", "cauldron_events")
             .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
-            .counter()
-        val age = meterRegistry.find("ckc.record.age")
+            .timer()
+        val age = meterRegistry.find("demo.ckc.record.age")
             .tag("consumer_id", "cauldron_events")
             .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
             .tag("error", "none")
-            .summary()
+            .timer()
 
-        assertNotNull(counter)
+        assertNotNull(processingDuration)
         assertNotNull(age)
         assertNull(
-            meterRegistry.find("ckc.record.processed")
+            meterRegistry.find("demo.ckc.record.process.duration")
                 .tag("consumer_impl", "ckc")
-                .counter()
+                .timer()
         )
     }
 
