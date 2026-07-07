@@ -156,6 +156,7 @@
 | [INFRA-63](#infra-63) | Add internal-lab deployment and comparison-bundle support for the `ckc-sync-loom` demo profile.                                           | DONE |
 | [INFRA-64](#infra-64) | Show selected application pod CPU and memory series alongside sum and average aggregates in Grafana.                                      | DONE |
 | [INFRA-65](#infra-65) | Add internal-lab network and host-service chaos steps for Redis and Kafka resiliency scenarios.                                          | DONE |
+| [INFRA-66](#infra-66) | Add a Grafana dashboard variable for toggling event-type metric aggregation.                                                             | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1668,3 +1669,11 @@ Support reversible host-service disruption scenarios that fit the existing test-
 Document example scenarios so lab runs can exercise slow downstream state, slow Kafka access, and service restarts.
 Add a network-chaos smoke definition for validating the host-level tc/iptables path.
 Add a targeted queue-backlog crash comparison with large order/batch worker queues and low worker concurrency to expose listener-accepted records lost on app crashes.
+
+<a id="infra-66"></a>
+### INFRA-66 - Add event-type aggregation toggle
+
+_Date: 2026-07-07_
+
+Add a Grafana dashboard variable that switches CKC order and batch record panels between per-event-type series and aggregated event-type series.
+Keep the existing split-by-event-type view as the default so current dashboard behavior is preserved.

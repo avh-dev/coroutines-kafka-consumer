@@ -147,9 +147,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (event_type, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
+              "expr": "sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}}"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}}"
             }
           ],
           "title": "Order Events Throughput",
@@ -190,9 +190,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (event_type, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
+              "expr": "sum by (${event_type_grouping}, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"order_events\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}} / {{error}}"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} / {{error}}"
             }
           ],
           "title": "Order Events Failure Throughput",
@@ -233,28 +233,28 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{event_type}} {{pod}} avg",
+              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval])) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} avg",
               "refId": "A"
             },
             {
-              "expr": "(1000 * max by (event_type, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"})) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{event_type}} {{pod}} max",
+              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} max",
               "refId": "B"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{event_type}} {{pod}} p50",
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p50",
               "refId": "C"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{event_type}} {{pod}} p95",
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p95",
               "refId": "D"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{event_type}} {{pod}} p99",
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p99",
               "refId": "E"
             }
           ],
@@ -296,29 +296,29 @@
           },
           "targets": [
             {
-              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}} avg"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} avg"
             },
             {
-              "expr": "(histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
               "refId": "B",
-              "legendFormat": "{{event_type}} {{pod}} p50"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p50"
             },
             {
-              "expr": "(histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
               "refId": "D",
-              "legendFormat": "{{event_type}} {{pod}} p95"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p95"
             },
             {
-              "expr": "(histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
               "refId": "E",
-              "legendFormat": "{{event_type}} {{pod}} p99"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p99"
             },
             {
-              "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(max by (${event_type_grouping}, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"order_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
               "refId": "C",
-              "legendFormat": "{{event_type}} {{pod}} max"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} max"
             }
           ],
           "title": "Order Events Successful Record Age",
@@ -372,9 +372,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (event_type, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
+              "expr": "sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_processed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}}"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}}"
             }
           ],
           "title": "Batch Events Throughput",
@@ -415,9 +415,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (event_type, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
+              "expr": "sum by (${event_type_grouping}, error, ${pod_grouping}) (rate(ckc_record_failed_total{consumer_id=\"batch_events\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}} / {{error}}"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} / {{error}}"
             }
           ],
           "title": "Batch Events Failure Throughput",
@@ -458,28 +458,28 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{event_type}} {{pod}} avg",
+              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\"}[$__rate_interval])) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} avg",
               "refId": "A"
             },
             {
-              "expr": "(1000 * max by (event_type, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\"})) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{event_type}} {{pod}} max",
+              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\"})) and on() (vector(${duration_percentile}) == -2)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} max",
               "refId": "B"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{event_type}} {{pod}} p50",
+              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p50",
               "refId": "C"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{event_type}} {{pod}} p95",
+              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p95",
               "refId": "D"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{event_type}} {{pod}} p99",
+              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p99",
               "refId": "E"
             }
           ],
@@ -521,29 +521,29 @@
           },
           "targets": [
             {
-              "expr": "(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (event_type, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
               "refId": "A",
-              "legendFormat": "{{event_type}} {{pod}} avg"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} avg"
             },
             {
-              "expr": "(histogram_quantile(0.50, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
               "refId": "B",
-              "legendFormat": "{{event_type}} {{pod}} p50"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p50"
             },
             {
-              "expr": "(histogram_quantile(0.95, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
               "refId": "D",
-              "legendFormat": "{{event_type}} {{pod}} p95"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p95"
             },
             {
-              "expr": "(histogram_quantile(0.99, sum by (le, event_type, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (rate(ckc_record_age_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
               "refId": "E",
-              "legendFormat": "{{event_type}} {{pod}} p99"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} p99"
             },
             {
-              "expr": "(max by (event_type, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"batch_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(max by (${event_type_grouping}, ${pod_grouping}) (ckc_record_age_max{consumer_id=\"batch_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
               "refId": "C",
-              "legendFormat": "{{event_type}} {{pod}} max"
+              "legendFormat": "{{event_type}}{{consumer_id}} {{pod}} max"
             }
           ],
           "title": "Batch Events Successful Record Age",
@@ -2905,6 +2905,34 @@
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "split by event type",
+          "value": "event_type"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Event type breakdown",
+        "multi": false,
+        "name": "event_type_grouping",
+        "options": [
+          {
+            "selected": true,
+            "text": "split by event type",
+            "value": "event_type"
+          },
+          {
+            "selected": false,
+            "text": "aggregate event types",
+            "value": "consumer_id"
+          }
+        ],
+        "query": "split by event type : event_type,aggregate event types : consumer_id",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
       },
       {
         "current": {
