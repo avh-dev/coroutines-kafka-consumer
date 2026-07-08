@@ -163,6 +163,7 @@
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
+| [DOC-4](#doc-4) | Refine the `ckc-micrometer` README wording around ConsumerMetrics, tag customization, filtering, and histograms. | DONE |
 
 ## Task Details
 
@@ -1146,6 +1147,15 @@ _Date: 2026-06-09_
 Add the first repository-level README for OSS positioning.
 Document what CKC is trying to solve and which Kafka-adjacent projects are not direct benchmark equivalents.
 Capture the kotlin-kafka investigation outcome as a related-project note instead of keeping a misleading demo benchmark profile.
+
+<a id="doc-4"></a>
+### DOC-4 - Refine Micrometer README wording
+
+_Date: 2026-07-08_
+
+Clarify that `ConsumerMetrics` is an interface supplied to CKC consumers.
+Tighten the Micrometer module introduction so it describes backend export without exposing factory details too early.
+Make filtering, percentile, and histogram sections explicit that CKC relies on Micrometer or framework-level configuration for those concerns.
 
 <a id="demo-37"></a>
 ### DEMO-37 - Remove Ktor remnants
