@@ -1,14 +1,14 @@
 # CKC Micrometer
 
 CKC does not force a particular observability backend on applications. The core library only calls
-methods on the
+methods on an implementation of the
 [`ConsumerMetrics`](../ckc-core/src/main/kotlin/avh/ckc/core/metrics/ConsumerMetrics.kt)
-implementation supplied when a consumer is created. By default, CKC uses a no-op implementation that
-does nothing.
+interface supplied when a consumer is created. By default, CKC uses a no-op implementation that does
+nothing.
 
-`ckc-micrometer` provides `MicrometerConsumerMetricsFactory`, which creates `ConsumerMetrics`
-implementations that export those callback events as Micrometer meters: polls, record processing,
-retries, commits, backpressure pauses and resumes, dropped records, failures, and live runtime gauges.
+The `ckc-micrometer` module lets applications export those consumer metric events as Micrometer
+meters: polls, record processing, retries, commits, backpressure pauses and resumes, dropped
+records, failures, and live runtime gauges.
 
 ## Contents
 
@@ -21,8 +21,8 @@ retries, commits, backpressure pauses and resumes, dropped records, failures, an
 
 ## Minimal Usage
 
-Create one `MicrometerConsumerMetricsFactory` instance per metric family configuration, bind one
-`ConsumerMetrics` instance per CKC consumer, and pass that bound metrics instance to the consumer DSL:
+Create one `MicrometerConsumerMetricsFactory` instance per metric family configuration, create one
+`ConsumerMetrics` instance per CKC consumer, and pass that metrics instance to the consumer DSL:
 
 ```kotlin
 val meterRegistry = SimpleMeterRegistry()
@@ -50,9 +50,9 @@ Metric names always include the permanent `ckc` namespace after the user-defined
 
 ## Tags Customization
 
-The key feature of this Micrometer implementation is record-driven tag customization. It lets an
-application keep a stable Micrometer/Prometheus metric schema while adding dashboard slices from
-Kafka record data such as event type, tenant class, operation type, or another bounded domain value.
+The key feature of this implementation is record-driven tag customization. It lets an application
+keep a stable Micrometer/Prometheus metric schema while adding dashboard slices from Kafka record
+data such as event type, tenant class, operation type, or another bounded domain value.
 
 Suppose one Kafka topic contains all order events, but different records represent different event
 types: `ORDER_CREATED`, `ORDER_UPDATED`, `ORDER_CANCELLED`, and so on. These event types may run very
@@ -85,10 +85,13 @@ type and make slow event classes visible.
 Metric identity and tag schema are configured at the `MicrometerConsumerMetricsFactory` level:
 
 - `metricPrefix` is mandatory and is prepended before the permanent `.ckc` segment.
-- `consumer_id` is always present on CKC meters. If omitted, it uses `default`.
+- `consumerId` sets the value of the `consumer_id` tag. The tag is always present on CKC meters;
+  if omitted, it uses `default`.
 - `recordDrivenTagSchema` declares custom record tag keys and their default values.
-- `micrometerConsumerMetrics(...)` binds one `ConsumerMetrics` instance and may provide
+- `micrometerConsumerMetrics(...)` creates one `ConsumerMetrics` instance and may provide
   record-driven extractors for declared custom tags.
+
+Why is `metricPrefix` mandatory?
 
 In most deployments Micrometer meters are exported to Prometheus. Prometheus expects one metric
 family to have a consistent set of label names. Reusing the same metric name with different custom
@@ -363,7 +366,8 @@ val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFactory) {
 }
 ```
 
-- `consumerId`: logical CKC consumer id; defaults to `default`.
+- `consumerId`: logical CKC consumer id. It sets the value of the `consumer_id` tag and defaults to
+  `default`.
 - `recordDrivenTagValues`: optional per-consumer extractors for record-driven custom tags.
 
 `recordDrivenTagSchema(...)` declares allowed custom record tag keys and defaults:
@@ -380,8 +384,9 @@ receives the current Kafka `ConsumerRecord<K, V>` and returns a tag value or `nu
 
 ## Filtering
 
-If some meters are not useful for your application, filter them with Micrometer or Spring Boot rather
-than adding CKC-specific per-meter enable flags.
+CKC does not provide its own per-meter filtering mechanism. If some CKC meters are not useful for
+your application, filter them with Micrometer or with the application framework that configures
+Micrometer.
 
 Micrometer [`MeterFilter`](https://docs.micrometer.io/micrometer/reference/concepts/meter-filters.html):
 
@@ -411,8 +416,9 @@ property documentation for the exact matching rules.
 
 ## Percentiles and Histograms
 
-CKC registers duration meters as Micrometer `Timer`s. Percentiles and histogram buckets are configured
-through Micrometer or through your application framework, not through the CKC adapter.
+CKC does not provide its own API for percentiles or histogram buckets. CKC registers duration meters
+as Micrometer `Timer`s; percentile and histogram behavior is configured through Micrometer or through
+the application framework that configures Micrometer.
 
 With plain Micrometer, add a `MeterFilter` to the registry before creating CKC meters:
 
