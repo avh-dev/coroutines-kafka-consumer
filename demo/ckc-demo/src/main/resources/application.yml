@@ -17,6 +17,9 @@ logging:
 #    org.springframework.kafka.listener: DEBUG
 #    org.springframework.kafka.config: DEBUG
 
+ckc:
+  enabled: false
+
 armeria:
   graceful-shutdown-quiet-period-millis: 1000
   graceful-shutdown-timeout-millis: 3000

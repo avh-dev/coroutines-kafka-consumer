@@ -23,7 +23,7 @@ class MetricsConfiguration {
     private val eventTypeTag = "event_type"
 
     @Bean
-    @Profile("ckc", "ckc-sync", "ckc-sync-loom")
+    @Profile("ckc", "ckc-sync", "ckc-sync-loom", "ckc-spring-boot")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun micrometerConsumerMetricsFactory(meterRegistry: MeterRegistry): MicrometerConsumerMetricsFactory =
         MicrometerConsumerMetricsFactory(
@@ -295,6 +295,7 @@ class MetricsConfiguration {
             environment.acceptsProfiles(Profiles.of("spring-kafka-coroutines-naive")) -> "spring-kafka-coroutines-naive"
             environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
             environment.acceptsProfiles(Profiles.of("ckc-sync-loom")) -> "ckc-sync-loom"
+            environment.acceptsProfiles(Profiles.of("ckc-spring-boot")) -> "ckc-spring-boot"
             environment.acceptsProfiles(Profiles.of("ckc-sync")) -> "ckc-sync"
             environment.acceptsProfiles(Profiles.of("ckc")) -> "ckc"
             else -> environment.activeProfiles.firstOrNull() ?: "unknown"
@@ -305,7 +306,7 @@ class MetricsConfiguration {
             "confluent-parallel", "confluent-parallel-reactor" -> "confluent_parallel"
             "spring-kafka-coroutines-naive" -> "spring_kafka_coroutines_naive"
             "spring-kafka" -> "spring_kafka"
-            "ckc-sync", "ckc-sync-loom" -> "ckc"
+            "ckc-sync", "ckc-sync-loom", "ckc-spring-boot" -> "ckc"
             "ckc" -> "ckc"
             else -> "unknown"
         }

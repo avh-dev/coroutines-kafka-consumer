@@ -1,0 +1,66 @@
+ckc:
+  enabled: true
+  metrics:
+    enabled: ${CKC_METRICS_ENABLED:true}
+    prefix: demo
+  default-cluster: local
+  clusters:
+    local:
+      kafka-properties:
+        bootstrap.servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        auto.offset.reset: earliest
+        fetch.min.bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
+        fetch.max.wait.ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
+        max.poll.records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
+  consumers:
+    order-events:
+      auto-startup: ${KAFKA_ENABLED:false}
+      topics:
+        - ${ORDER_EVENTS_TOPIC:order.events.v1}
+      group-id: ${ORDER_GROUP_ID:potion-tracking-orders}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
+      processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
+      consumer-poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
+      work-channel-capacity: ${ORDER_WORK_CHANNEL_CAPACITY:1024}
+      commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
+      retry:
+        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
+        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
+      kafka-properties:
+        enable.auto.commit: false
+    batch-events:
+      auto-startup: ${KAFKA_ENABLED:false}
+      topics:
+        - ${BATCH_EVENTS_TOPIC:batch.events.v1}
+      group-id: ${BATCH_GROUP_ID:potion-tracking-batches}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
+      processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}
+      consumer-poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
+      work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
+      commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
+      retry:
+        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
+        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
+      kafka-properties:
+        enable.auto.commit: false
+    cauldron-events:
+      auto-startup: ${KAFKA_ENABLED:false}
+      topics:
+        - ${CAULDRON_EVENTS_TOPIC:cauldron.events.v1}
+      group-id: ${CAULDRON_GROUP_ID:potion-tracking-cauldrons}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
+      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_BY_KEY}
+      worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
+      consumer-poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
+      work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}
+      commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
+      retry:
+        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
+        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
+      kafka-properties:
+        enable.auto.commit: true
