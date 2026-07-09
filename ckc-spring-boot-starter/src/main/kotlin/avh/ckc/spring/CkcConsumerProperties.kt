@@ -9,6 +9,8 @@ import java.time.Duration
 data class CkcConsumerProperties(
     var enabled: Boolean = true,
     var metrics: Metrics = Metrics(),
+    var defaultRetrySchema: String? = null,
+    var retrySchemas: MutableMap<String, RetrySchema> = linkedMapOf(),
     var defaultCluster: String? = null,
     var clusters: MutableMap<String, Cluster> = linkedMapOf(),
     var consumers: MutableMap<String, Consumer> = linkedMapOf()
@@ -66,7 +68,7 @@ data class CkcConsumerProperties(
         var commitInterval: Duration = Duration.ofSeconds(5),
         var workChannelCapacity: Int = 1024,
         var metrics: ConsumerMetricsProperties = ConsumerMetricsProperties(),
-        var retry: Retry = Retry(),
+        var retrySchema: String? = null,
         var kafkaProperties: MutableMap<String, String> = linkedMapOf()
     ) {
         internal fun kafkaProperties(clusterProperties: Map<String, String>): Map<String, Any?> {
@@ -85,7 +87,12 @@ data class CkcConsumerProperties(
         var schema: String? = null
     )
 
-    data class Retry(
+    data class RetrySchema(
+        var rules: List<RetryRule> = emptyList()
+    )
+
+    data class RetryRule(
+        var exceptions: List<String> = emptyList(),
         var maxRetries: Int = 0,
         var delay: Duration = Duration.ZERO
     )

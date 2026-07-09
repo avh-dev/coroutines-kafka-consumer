@@ -32,6 +32,15 @@ ckc:
             - name: event_type
               default: UNKNOWN
   default-cluster: main
+  default-retry-schema: transient-errors
+  retry-schemas:
+    transient-errors:
+      rules:
+        - exceptions:
+            - java.io.IOException
+            - java.net.SocketTimeoutException
+          max-retries: 3
+          delay: 100ms
   clusters:
     main:
       kafka-properties:
@@ -49,9 +58,6 @@ ckc:
       processing-mode: at-least-once-ordered-by-key
       worker-concurrency: 64
       work-channel-capacity: 10000
-      retry:
-        max-retries: 3
-        delay: 100ms
       kafka-properties:
         max.poll.records: 500
 ```
@@ -79,6 +85,10 @@ class OrdersWarmup(
     }
 }
 ```
+
+Retry schemas are ordered lists of core retry rules. Each rule lists fully qualified exception class
+names, `max-retries`, and `delay`; the first matching rule is used. Consumers use
+`ckc.default-retry-schema` unless they override it with `ckc.consumers.<name>.retry-schema`.
 
 ## Metrics
 

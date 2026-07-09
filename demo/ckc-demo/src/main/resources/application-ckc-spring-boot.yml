@@ -14,6 +14,14 @@ ckc:
             - name: event_type
               default: UNKNOWN
   default-cluster: local
+  default-retry-schema: default
+  retry-schemas:
+    default:
+      rules:
+        - exceptions:
+            - java.lang.Throwable
+          max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
+          delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
   clusters:
     local:
       kafka-properties:
@@ -35,9 +43,6 @@ ckc:
       consumer-poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${ORDER_WORK_CHANNEL_CAPACITY:1024}
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
-      retry:
-        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
-        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
       kafka-properties:
         enable.auto.commit: false
     batch-events:
@@ -52,9 +57,6 @@ ckc:
       consumer-poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
-      retry:
-        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
-        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
       kafka-properties:
         enable.auto.commit: false
     cauldron-events:
@@ -69,8 +71,5 @@ ckc:
       consumer-poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
-      retry:
-        max-retries: ${DEMO_CONSUMER_RETRY_MAX_RETRIES:2}
-        delay: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}ms
       kafka-properties:
         enable.auto.commit: true

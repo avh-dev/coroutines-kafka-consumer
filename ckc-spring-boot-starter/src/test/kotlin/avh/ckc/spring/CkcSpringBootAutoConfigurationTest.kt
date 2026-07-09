@@ -14,7 +14,6 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import java.time.Duration
 
 class CkcSpringBootAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
@@ -38,8 +37,6 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.consumer-poll-loop-concurrency=2",
                 "ckc.consumers.orders.commit-interval=2s",
                 "ckc.consumers.orders.work-channel-capacity=256",
-                "ckc.consumers.orders.retry.max-retries=3",
-                "ckc.consumers.orders.retry.delay=25ms",
                 "ckc.consumers.orders.kafka-properties.${ConsumerConfig.MAX_POLL_RECORDS_CONFIG}=500"
             )
             .run { context ->
@@ -55,8 +52,6 @@ class CkcSpringBootAutoConfigurationTest {
                 val properties = context.getBean(CkcConsumerProperties::class.java)
                 assertThat(properties.consumers["orders"]?.processingMode)
                     .isEqualTo(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY)
-                assertThat(properties.consumers["orders"]?.retry?.delay)
-                    .isEqualTo(Duration.ofMillis(25))
                 assertThat(
                     properties.consumers["orders"]?.kafkaProperties(
                         properties.clusters.getValue("main").kafkaProperties
@@ -193,6 +188,113 @@ class CkcSpringBootAutoConfigurationTest {
                     .hasStackTraceContaining("CKC custom metrics are enabled")
             }
     }
+
+    @Test
+    fun `uses configured retry schema`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.retry-schema=transient-errors",
+                "ckc.retry-schemas.transient-errors.rules[0].exceptions[0]=java.io.IOException",
+                "ckc.retry-schemas.transient-errors.rules[0].exceptions[1]=java.net.SocketTimeoutException",
+                "ckc.retry-schemas.transient-errors.rules[0].max-retries=3",
+                "ckc.retry-schemas.transient-errors.rules[0].delay=50ms",
+                "ckc.retry-schemas.transient-errors.rules[1].exceptions[0]=java.lang.IllegalStateException",
+                "ckc.retry-schemas.transient-errors.rules[1].max-retries=1",
+                "ckc.retry-schemas.transient-errors.rules[1].delay=10ms"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+
+                val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.consumers.getValue("orders").retrySchema)
+                    .isEqualTo("transient-errors")
+                assertThat(properties.retrySchemas.getValue("transient-errors").rules)
+                    .hasSize(2)
+            }
+    }
+
+    @Test
+    fun `uses default retry schema when consumer retry schema is omitted`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.default-retry-schema=default",
+                "ckc.retry-schemas.default.rules[0].exceptions[0]=java.io.IOException",
+                "ckc.retry-schemas.default.rules[0].max-retries=2",
+                "ckc.retry-schemas.default.rules[0].delay=25ms"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+
+                val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.defaultRetrySchema)
+                    .isEqualTo("default")
+                assertThat(properties.consumers.getValue("orders").retrySchema)
+                    .isNull()
+            }
+    }
+
+    @Test
+    fun `fails when retry schema is unknown`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.retry-schema=missing"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("references unknown retry schema 'missing'")
+            }
+    }
+
+    @Test
+    fun `fails when retry schema exception is not throwable`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.retry-schema=bad",
+                "ckc.retry-schemas.bad.rules[0].exceptions[0]=java.lang.String",
+                "ckc.retry-schemas.bad.rules[0].max-retries=1"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("but it is not a Throwable")
+            }
+    }
+
 }
 
 @Configuration(proxyBeanMethods = false)
