@@ -37,6 +37,7 @@
 | [CORE-32](#core-32) | Add Spring Boot metrics configuration for Micrometer schemas, custom metrics, and annotated record-driven tag extractors.                                                                                | DONE |
 | [CORE-33](#core-33) | Add Spring Boot retry schemas so consumers can share explicit ordered retry rules from application configuration.                                                                                         | DONE |
 | [CORE-34](#core-34) | Add Spring Boot lifecycle phase, bounded shutdown, and lifecycle diagnostics for starter-managed CKC consumers.                                                                                            | DONE |
+| [CORE-35](#core-35) | Add a minimal CKC startup banner with starter version diagnostics.                                                                                                                                       | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1755,6 +1756,14 @@ _Date: 2026-07-09_
 Add configurable Spring lifecycle phase and bounded shutdown for starter-managed CKC consumers.
 Keep graceful drain and commit semantics in core while making starter shutdown wait time explicit.
 Log consumer startup and shutdown diagnostics so configured consumers are visible during application boot.
+
+<a id="core-35"></a>
+### CORE-35 - Add Spring Boot startup banner
+
+_Date: 2026-07-09_
+
+Add a minimal CKC banner to the Spring Boot starter startup logs.
+Expose the starter implementation version through jar manifest metadata and fall back to a development marker on plain classpaths.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

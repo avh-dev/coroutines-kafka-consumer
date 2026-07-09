@@ -123,6 +123,12 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
+    fun `starter version has development fallback on plain classpath`() {
+        assertThat(ckcStarterVersion())
+            .isNotBlank()
+    }
+
+    @Test
     fun `binds configured micrometer metrics schema`() {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java, MetricsConfiguration::class.java)
