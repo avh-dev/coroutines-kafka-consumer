@@ -20,6 +20,7 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.core.annotation.AnnotationUtils
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.util.logging.Logger
 import java.util.regex.Pattern
 import kotlin.reflect.KClass
@@ -41,6 +42,8 @@ class CkcConsumersLifecycle internal constructor(
 ) : SmartLifecycle, CkcConsumerRegistry {
     private val consumerRuntimes: List<NamedConsumerRuntime> by lazy { resolveConsumerRuntimes() }
     private val runningConsumerNames = linkedSetOf<String>()
+    private val properties: CkcConsumerProperties
+        get() = applicationContext.getBean(CkcConsumerProperties::class.java)
 
     override val consumerNames: Set<String>
         get() = consumerRuntimes.mapTo(linkedSetOf()) { it.name }
@@ -50,9 +53,12 @@ class CkcConsumersLifecycle internal constructor(
 
     override fun start() {
         synchronized(this) {
-            consumerRuntimes
-                .filter { it.autoStartup }
-                .forEach { startRuntime(it) }
+            val autoStartupRuntimes = consumerRuntimes.filter { it.autoStartup }
+            logger.info(
+                "Starting ${autoStartupRuntimes.size} auto-startup CKC consumer(s); " +
+                    "${consumerRuntimes.size - autoStartupRuntimes.size} manual consumer(s) registered"
+            )
+            autoStartupRuntimes.forEach { startRuntime(it) }
             running = runningConsumerNames.isNotEmpty()
         }
     }
@@ -63,12 +69,10 @@ class CkcConsumersLifecycle internal constructor(
                 return
             }
             try {
-                runBlocking {
-                    consumerRuntimes
-                        .filter { it.name in runningConsumerNames }
-                        .asReversed()
-                        .forEach { it.consumer.stop() }
-                }
+                stopRuntimes(
+                    runtimes = consumerRuntimes.filter { it.name in runningConsumerNames }.asReversed(),
+                    timeout = properties.lifecycle.shutdownTimeout
+                )
             } finally {
                 runningConsumerNames.clear()
                 running = false
@@ -79,6 +83,8 @@ class CkcConsumersLifecycle internal constructor(
     override fun isRunning(): Boolean = running
 
     override fun isAutoStartup(): Boolean = true
+
+    override fun getPhase(): Int = properties.lifecycle.phase
 
     override fun isRunning(name: String): Boolean =
         synchronized(this) {
@@ -100,9 +106,7 @@ class CkcConsumersLifecycle internal constructor(
                 return
             }
             try {
-                runBlocking {
-                    runtime.consumer.stop()
-                }
+                stopRuntimes(listOf(runtime), properties.lifecycle.shutdownTimeout)
             } finally {
                 runningConsumerNames.remove(runtime.name)
                 running = runningConsumerNames.isNotEmpty()
@@ -114,8 +118,41 @@ class CkcConsumersLifecycle internal constructor(
         if (runtime.name in runningConsumerNames) {
             return
         }
+        logger.info("Starting CKC consumer '${runtime.name}'")
         runtime.consumer.start()
         runningConsumerNames += runtime.name
+        logger.info("Started CKC consumer '${runtime.name}'")
+    }
+
+    private fun stopRuntimes(
+        runtimes: List<NamedConsumerRuntime>,
+        timeout: java.time.Duration
+    ) {
+        if (runtimes.isEmpty()) {
+            return
+        }
+        require(!timeout.isNegative && !timeout.isZero) {
+            "ckc.lifecycle.shutdown-timeout must be > 0"
+        }
+        logger.info(
+            "Stopping ${runtimes.size} CKC consumer(s) with shutdown timeout ${timeout.toMillis()}ms"
+        )
+        runBlocking {
+            try {
+                withTimeout(timeout.toMillis()) {
+                    runtimes.forEach { runtime ->
+                        logger.info("Stopping CKC consumer '${runtime.name}'")
+                        runtime.consumer.stop()
+                        logger.info("Stopped CKC consumer '${runtime.name}'")
+                    }
+                }
+            } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+                logger.warning(
+                    "Timed out after ${timeout.toMillis()}ms while stopping CKC consumer(s): " +
+                        runtimes.joinToString { it.name }
+                )
+            }
+        }
     }
 
     private fun requireConsumerRuntime(name: String): NamedConsumerRuntime =
@@ -142,6 +179,12 @@ class CkcConsumersLifecycle internal constructor(
             NamedConsumerRuntime(
                 name = consumerName,
                 autoStartup = consumerProperties.autoStartup,
+                cluster = consumerProperties.cluster ?: properties.defaultCluster ?: properties.clusters.singleClusterNameOrNull(),
+                topics = consumerProperties.topics,
+                topicPattern = consumerProperties.topicPattern,
+                processingMode = consumerProperties.processingMode,
+                workerConcurrency = consumerProperties.workerConcurrency,
+                consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency,
                 consumer = buildConsumer(
                     applicationContext,
                     properties,
@@ -152,12 +195,29 @@ class CkcConsumersLifecycle internal constructor(
                 )
             )
         }
+            .also { runtimes ->
+                runtimes.forEach { runtime ->
+                    logger.info(
+                        "Resolved CKC consumer '${runtime.name}': autoStartup=${runtime.autoStartup}, " +
+                            "cluster=${runtime.cluster ?: "<default>"}, topics=${runtime.topics}, " +
+                            "topicPattern=${runtime.topicPattern}, processingMode=${runtime.processingMode}, " +
+                            "workerConcurrency=${runtime.workerConcurrency}, " +
+                            "consumerPollLoopConcurrency=${runtime.consumerPollLoopConcurrency}"
+                    )
+                }
+            }
     }
 }
 
 private data class NamedConsumerRuntime(
     val name: String,
     val autoStartup: Boolean,
+    val cluster: String?,
+    val topics: List<String>,
+    val topicPattern: String?,
+    val processingMode: avh.ckc.core.ProcessingMode,
+    val workerConcurrency: Int,
+    val consumerPollLoopConcurrency: Int,
     val consumer: avh.ckc.core.CoroutinesKafkaConsumer<Any?, Any?>
 )
 

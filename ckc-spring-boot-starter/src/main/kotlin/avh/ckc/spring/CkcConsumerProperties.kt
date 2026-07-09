@@ -8,6 +8,7 @@ import java.time.Duration
 @ConfigurationProperties(prefix = "ckc")
 data class CkcConsumerProperties(
     var enabled: Boolean = true,
+    var lifecycle: Lifecycle = Lifecycle(),
     var metrics: Metrics = Metrics(),
     var defaultRetrySchema: String? = null,
     var retrySchemas: MutableMap<String, RetrySchema> = linkedMapOf(),
@@ -15,6 +16,11 @@ data class CkcConsumerProperties(
     var clusters: MutableMap<String, Cluster> = linkedMapOf(),
     var consumers: MutableMap<String, Consumer> = linkedMapOf()
 ) {
+    data class Lifecycle(
+        var phase: Int = 0,
+        var shutdownTimeout: Duration = Duration.ofSeconds(30)
+    )
+
     data class Metrics(
         var enabled: Boolean = true,
         var implementation: MetricsImplementation = MetricsImplementation.MICROMETER,

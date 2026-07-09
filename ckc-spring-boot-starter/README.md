@@ -19,6 +19,9 @@ class OrdersConsumer(
 
 ```yaml
 ckc:
+  lifecycle:
+    phase: 0
+    shutdown-timeout: 30s
   metrics:
     implementation: MICROMETER
     micrometer:
@@ -89,6 +92,10 @@ class OrdersWarmup(
 Retry schemas are ordered lists of core retry rules. Each rule lists fully qualified exception class
 names, `max-retries`, and `delay`; the first matching rule is used. Consumers use
 `ckc.default-retry-schema` unless they override it with `ckc.consumers.<name>.retry-schema`.
+
+The starter is managed by Spring `SmartLifecycle`. `ckc.lifecycle.phase` controls start/stop order
+relative to other lifecycle beans, and `ckc.lifecycle.shutdown-timeout` bounds how long the starter
+waits for CKC consumers to stop gracefully.
 
 ## Metrics
 

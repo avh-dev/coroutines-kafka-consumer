@@ -24,6 +24,8 @@ class CkcSpringBootAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java)
             .withPropertyValues(
+                "ckc.lifecycle.phase=1500",
+                "ckc.lifecycle.shutdown-timeout=15s",
                 "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
                 "ckc.clusters.main.kafka-properties.${ConsumerConfig.AUTO_OFFSET_RESET_CONFIG}=earliest",
                 "ckc.consumers.orders.auto-startup=false",
@@ -44,12 +46,17 @@ class CkcSpringBootAutoConfigurationTest {
                 assertThat(context).hasSingleBean(CkcConsumerRegistry::class.java)
 
                 val registry = context.getBean(CkcConsumerRegistry::class.java)
+                val lifecycle = context.getBean(CkcConsumersLifecycle::class.java)
+                assertThat(lifecycle.phase)
+                    .isEqualTo(1500)
                 assertThat(registry.consumerNames)
                     .containsExactly("orders")
                 assertThat(registry.isRunning("orders"))
                     .isFalse()
 
                 val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.lifecycle.shutdownTimeout)
+                    .isEqualTo(java.time.Duration.ofSeconds(15))
                 assertThat(properties.consumers["orders"]?.processingMode)
                     .isEqualTo(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY)
                 assertThat(
