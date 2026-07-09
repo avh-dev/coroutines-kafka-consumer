@@ -20,7 +20,17 @@ class OrdersConsumer(
 ```yaml
 ckc:
   metrics:
-    prefix: myapp
+    implementation: MICROMETER
+    micrometer:
+      schemas:
+        default:
+          metric-prefix: myapp
+          static-tags:
+            - name: app_name
+              value: orders-service
+          record-driven-tags:
+            - name: event_type
+              default: UNKNOWN
   default-cluster: main
   clusters:
     main:
@@ -70,6 +80,32 @@ class OrdersWarmup(
 }
 ```
 
-If a `MeterRegistry` is present, the starter creates a default `MicrometerConsumerMetricsSchema`
-using `ckc.metrics.prefix`. Applications can provide their own schema bean to customize tags and
-record-driven tag schemas.
+## Metrics
+
+Set `ckc.metrics.implementation` to `MICROMETER`, `CUSTOM`, or `NONE`. `MICROMETER` uses the
+configured `ckc.metrics.micrometer.schemas` entries to create CKC Micrometer metrics. If no schema is
+configured, the starter keeps the legacy fallback and creates one schema from `ckc.metrics.prefix`.
+
+Record-driven Micrometer tag schemas are declared in configuration. The per-record extraction logic
+lives in Spring beans annotated with `@CkcMicrometerRecordTags`:
+
+```kotlin
+@Bean
+@CkcMicrometerRecordTags(consumer = "orders")
+fun orderRecordTags(): RecordDrivenTagExtractors<String, OrderEvent> =
+    recordDrivenTagExtractors {
+        tag("event_type") { record -> record.value()?.type ?: "UNKNOWN" }
+    }
+```
+
+For `CUSTOM`, provide `ConsumerMetrics` beans annotated with `@CkcConsumerMetrics`:
+
+```kotlin
+@Bean
+@CkcConsumerMetrics(consumer = "orders")
+fun orderMetrics(): ConsumerMetrics<String, OrderEvent> =
+    MyOrderMetrics()
+```
+
+Leaving `consumer` blank declares a default bean. For custom metrics, a single unannotated
+`ConsumerMetrics` bean is also accepted as the default.

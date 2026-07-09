@@ -15,7 +15,36 @@ data class CkcConsumerProperties(
 ) {
     data class Metrics(
         var enabled: Boolean = true,
-        var prefix: String = "app"
+        var implementation: MetricsImplementation = MetricsImplementation.MICROMETER,
+        var prefix: String = "app",
+        var micrometer: Micrometer = Micrometer()
+    )
+
+    enum class MetricsImplementation {
+        MICROMETER,
+        CUSTOM,
+        NONE
+    }
+
+    data class Micrometer(
+        var defaultSchema: String? = null,
+        var schemas: MutableMap<String, MicrometerSchema> = linkedMapOf()
+    )
+
+    data class MicrometerSchema(
+        var metricPrefix: String = "app",
+        var staticTags: List<MetricTag> = emptyList(),
+        var recordDrivenTags: List<RecordDrivenTag> = emptyList()
+    )
+
+    data class MetricTag(
+        var name: String = "",
+        var value: String = ""
+    )
+
+    data class RecordDrivenTag(
+        var name: String = "",
+        var default: String = "NONE"
     )
 
     data class Cluster(
@@ -36,6 +65,7 @@ data class CkcConsumerProperties(
         var consumerPollLoopConcurrency: Int = 1,
         var commitInterval: Duration = Duration.ofSeconds(5),
         var workChannelCapacity: Int = 1024,
+        var metrics: ConsumerMetricsProperties = ConsumerMetricsProperties(),
         var retry: Retry = Retry(),
         var kafkaProperties: MutableMap<String, String> = linkedMapOf()
     ) {
@@ -50,6 +80,10 @@ data class CkcConsumerProperties(
             return merged
         }
     }
+
+    data class ConsumerMetricsProperties(
+        var schema: String? = null
+    )
 
     data class Retry(
         var maxRetries: Int = 0,

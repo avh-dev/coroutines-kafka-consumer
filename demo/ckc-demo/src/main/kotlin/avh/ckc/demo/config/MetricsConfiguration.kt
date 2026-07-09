@@ -23,7 +23,7 @@ class MetricsConfiguration {
     private val eventTypeTag = "event_type"
 
     @Bean
-    @Profile("ckc", "ckc-sync", "ckc-sync-loom", "ckc-spring-boot")
+    @Profile("ckc", "ckc-sync", "ckc-sync-loom")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun micrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
         MicrometerConsumerMetricsSchema(
