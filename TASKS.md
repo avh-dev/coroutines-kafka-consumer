@@ -32,6 +32,7 @@
 | [CORE-27](#core-27) | Advance tracked offsets after terminal processing failures are handled successfully so skipped or DLT records do not block later commits.                                                               | DONE |
 | [CORE-28](#core-28) | Add a freshness-first-by-key processing mode that keeps only the latest queued record per key and drops new keys when bounded admission is full.                                                        | DONE |
 | [CORE-29](#core-29) | Refactor the Micrometer adapter module into clearer public API, implementation, naming, and documentation pieces.                                                                                       | DONE |
+| [CORE-30](#core-30) | Add a Spring Boot starter that wires annotated CKC consumer beans from application configuration.                                                                                                        | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1702,3 +1703,12 @@ _Date: 2026-07-07_
 
 Add a Grafana dashboard variable that switches CKC order and batch record panels between per-event-type series and aggregated event-type series.
 Keep the existing split-by-event-type view as the default so current dashboard behavior is preserved.
+
+<a id="core-30"></a>
+### CORE-30 - Add Spring Boot starter
+
+_Date: 2026-07-08_
+
+Added a production Spring Boot starter module for configuring CKC consumers from application properties.
+The starter discovers annotated `CkcConsumer` beans, binds each bean to a named consumer configuration, and manages CKC lifecycle through Spring.
+The first iteration keeps the API focused on class-level consumer declarations instead of Spring Kafka-style method listener annotations.
