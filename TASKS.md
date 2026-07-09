@@ -93,6 +93,7 @@
 | [DEMO-58](#demo-58) | Unify external demo consumer record metrics and expose freshness-first dropped records. | DONE |
 | [DEMO-59](#demo-59) | Stabilize demo Spring context tests that start Armeria on shared ports. | DONE |
 | [DEMO-60](#demo-60) | Add a CKC sync Loom profile that runs blocking demo handlers on virtual threads instead of `Dispatchers.IO`. | DONE |
+| [DEMO-61](#demo-61) | Add a `ckc-spring-boot` demo profile that uses the CKC Spring Boot starter for configuration-driven consumer wiring. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -159,6 +160,7 @@
 | [INFRA-64](#infra-64) | Show selected application pod CPU and memory series alongside sum and average aggregates in Grafana.                                      | DONE |
 | [INFRA-65](#infra-65) | Add internal-lab network and host-service chaos steps for Redis and Kafka resiliency scenarios.                                          | DONE |
 | [INFRA-66](#infra-66) | Add a Grafana dashboard variable for toggling event-type metric aggregation.                                                             | DONE |
+| [INFRA-67](#infra-67) | Add internal-lab Helm and test-definition support for the `ckc-spring-boot` demo profile.                                               | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1712,3 +1714,20 @@ _Date: 2026-07-08_
 Added a production Spring Boot starter module for configuring CKC consumers from application properties.
 The starter discovers annotated `CkcConsumer` beans, binds each bean to a named consumer configuration, and manages CKC lifecycle through Spring.
 The first iteration keeps the API focused on class-level consumer declarations instead of Spring Kafka-style method listener annotations.
+
+<a id="demo-61"></a>
+### DEMO-61 - Add CKC Spring Boot demo profile
+
+_Date: 2026-07-09_
+
+Added a parallel demo profile named `ckc-spring-boot` that exercises the Spring Boot starter in a normal application shape.
+Kept the existing hand-wired `ckc` profiles intact while moving the new profile's CKC runtime settings into application configuration.
+The demo profile keeps code focused on annotated consumer classes and business handling.
+
+<a id="infra-67"></a>
+### INFRA-67 - Add CKC Spring Boot lab profile
+
+_Date: 2026-07-09_
+
+Added internal-lab Helm deployment and test-bundle support for running the `ckc-spring-boot` demo profile.
+Kept it parallel to existing CKC profiles so the starter-backed application shape can be smoke-tested without replacing hand-wired CKC deployments.

@@ -2,6 +2,10 @@
 
 Deployment profiles in this chart are offered by the interactive internal-lab runner.
 
+Starter-backed CKC profiles:
+
+- `ckc-spring-boot`: CKC with consumers wired by the CKC Spring Boot starter and runtime settings in application configuration.
+
 Sync CKC profiles:
 
 - `ckc-sync`: CKC with blocking demo services on `Dispatchers.IO`.

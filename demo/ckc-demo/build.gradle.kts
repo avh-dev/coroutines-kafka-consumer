@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":ckc-core"))
     implementation(project(":ckc-demo-contracts"))
     implementation(project(":ckc-micrometer"))
+    implementation(project(":ckc-spring-boot-starter"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("reflect"))
     implementation(kotlin("stdlib"))

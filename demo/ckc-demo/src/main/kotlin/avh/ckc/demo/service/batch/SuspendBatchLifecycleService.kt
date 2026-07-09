@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("ckc", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
+@Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
 class SuspendBatchLifecycleService(
     private val brewingStateRepository: SuspendBrewingStateRepository,
     private val registryClient: SuspendBrewingStepRegistryClient

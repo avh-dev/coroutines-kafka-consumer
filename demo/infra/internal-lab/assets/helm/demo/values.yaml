@@ -30,6 +30,7 @@ env:
   workerDispatcherThreads: 8
   freshnessFirstMaxRecordAgeSeconds: 10
   consumerRetryMaxAttempts: 3
+  consumerRetryMaxRetries: 2
   consumerRetryBackoffMs: 250
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
