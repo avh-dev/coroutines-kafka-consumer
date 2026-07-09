@@ -53,6 +53,7 @@ class CkcConsumersLifecycle internal constructor(
 
     override fun start() {
         synchronized(this) {
+            logStartupBanner()
             val autoStartupRuntimes = consumerRuntimes.filter { it.autoStartup }
             logger.info(
                 "Starting ${autoStartupRuntimes.size} auto-startup CKC consumer(s); " +
@@ -122,6 +123,16 @@ class CkcConsumersLifecycle internal constructor(
         runtime.consumer.start()
         runningConsumerNames += runtime.name
         logger.info("Started CKC consumer '${runtime.name}'")
+    }
+
+    private fun logStartupBanner() {
+        logger.info(
+            "\n" +
+                "  ___ _  __ ___\n" +
+                " / __| |/ // __|  v${ckcStarterVersion()}\n" +
+                "| (__| ' <| (__   Coroutines Kafka Consumer\n" +
+                " \\___|_|\\_\\\\___|\n"
+        )
     }
 
     private fun stopRuntimes(
@@ -507,5 +518,9 @@ private fun resolveExceptionTypes(
         (exceptionClass as Class<out Throwable>).kotlin
     }
 }
+
+internal fun ckcStarterVersion(): String =
+    CkcSpringBootAutoConfiguration::class.java.`package`?.implementationVersion
+        ?: "dev"
 
 private val logger: Logger = Logger.getLogger(CkcSpringBootAutoConfiguration::class.java.name)
