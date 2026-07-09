@@ -69,6 +69,11 @@ Each `@CkcKafkaConsumer` bean is bound to `ckc.consumers.<name>`. The starter ke
 settings in Spring configuration and leaves record handling in a dedicated consumer class instead
 of using method-level listener annotations.
 
+Startup validation is strict: every annotated consumer must have matching configuration, every
+configured consumer must have a matching annotated bean, consumer names must be unique, and merged
+Kafka properties must include `bootstrap.servers`, `group.id`, `key.deserializer`, and
+`value.deserializer`.
+
 Kafka client properties are shared through `ckc.clusters.<name>.kafka-properties`. A consumer selects
 its cluster with `cluster`. If `cluster` is omitted, the starter uses `ckc.default-cluster`; if that is
 also omitted and exactly one cluster is configured, that single cluster is used as the default.

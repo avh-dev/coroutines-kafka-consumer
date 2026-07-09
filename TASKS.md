@@ -38,6 +38,7 @@
 | [CORE-33](#core-33) | Add Spring Boot retry schemas so consumers can share explicit ordered retry rules from application configuration.                                                                                         | DONE |
 | [CORE-34](#core-34) | Add Spring Boot lifecycle phase, bounded shutdown, and lifecycle diagnostics for starter-managed CKC consumers.                                                                                            | DONE |
 | [CORE-35](#core-35) | Add a minimal CKC startup banner with starter version diagnostics.                                                                                                                                       | DONE |
+| [CORE-36](#core-36) | Add startup validation and diagnostics for Spring Boot starter consumer configuration.                                                                                                                    | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1764,6 +1765,15 @@ _Date: 2026-07-09_
 
 Add a minimal CKC banner to the Spring Boot starter startup logs.
 Expose the starter implementation version through jar manifest metadata and fall back to a development marker on plain classpaths.
+
+<a id="core-36"></a>
+### CORE-36 - Add Spring Boot startup validation
+
+_Date: 2026-07-09_
+
+Validate starter-managed consumer declarations before building CKC runtimes.
+Fail fast on duplicate handlers, missing handlers or configuration, invalid subscriptions, missing Kafka essentials, and unknown schemas.
+Improve startup diagnostics so each resolved consumer logs its handler, cluster, subscription, group, processing, retry, and metrics configuration.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

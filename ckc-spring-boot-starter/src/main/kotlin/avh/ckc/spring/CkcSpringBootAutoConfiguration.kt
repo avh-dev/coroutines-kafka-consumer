@@ -10,6 +10,7 @@ import avh.ckc.micrometer.RecordMetricTagDefinition
 import avh.ckc.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -173,36 +174,46 @@ class CkcConsumersLifecycle internal constructor(
     private fun resolveConsumerRuntimes(): List<NamedConsumerRuntime> {
         val properties = applicationContext.getBean(CkcConsumerProperties::class.java)
         val annotatedConsumers = applicationContext.getBeansOfType(CkcConsumer::class.java)
-            .mapNotNull { (beanName, bean) ->
+            .map { (beanName, bean) ->
                 val annotation = AnnotationUtils.findAnnotation(bean.javaClass, CkcKafkaConsumer::class.java)
-                    ?: return@mapNotNull null
-                annotation.name.takeIf { it.isNotBlank() }?.let { consumerName ->
-                    beanName to (consumerName to bean)
+                    ?: error("CKC consumer bean '$beanName' is missing @CkcKafkaConsumer")
+                require(annotation.name.isNotBlank()) {
+                    "CKC consumer bean '$beanName' declares @CkcKafkaConsumer with a blank name"
                 }
+                AnnotatedConsumer(beanName, annotation.name, bean)
             }
 
-        return annotatedConsumers.map { (_, namedBean) ->
-            val consumerName = namedBean.first
+        validateConsumerSet(properties, annotatedConsumers)
+
+        return annotatedConsumers.map { annotatedConsumer ->
+            val consumerName = annotatedConsumer.consumerName
             @Suppress("UNCHECKED_CAST")
-            val consumerBean = namedBean.second as CkcConsumer<Any?, Any?>
-            val consumerProperties = properties.consumers[consumerName]
-                ?: error("Missing CKC configuration properties for consumer '$consumerName'")
+            val consumerBean = annotatedConsumer.bean as CkcConsumer<Any?, Any?>
+            val consumerProperties = properties.consumers.getValue(consumerName)
+            val resolvedCluster = resolveCluster(properties, consumerName, consumerProperties)
+            val kafkaProperties = consumerProperties.kafkaProperties(resolvedCluster.kafkaProperties)
+            validateConsumerProperties(properties, consumerName, consumerProperties, kafkaProperties)
             NamedConsumerRuntime(
                 name = consumerName,
                 autoStartup = consumerProperties.autoStartup,
-                cluster = consumerProperties.cluster ?: properties.defaultCluster ?: properties.clusters.singleClusterNameOrNull(),
+                handler = annotatedConsumer.bean.javaClass.name,
+                cluster = resolvedCluster.name,
                 topics = consumerProperties.topics,
                 topicPattern = consumerProperties.topicPattern,
+                groupId = kafkaProperties[ConsumerConfig.GROUP_ID_CONFIG]?.toString(),
+                clientId = kafkaProperties[ConsumerConfig.CLIENT_ID_CONFIG]?.toString(),
                 processingMode = consumerProperties.processingMode,
                 workerConcurrency = consumerProperties.workerConcurrency,
                 consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency,
+                retrySchema = resolvedRetrySchemaName(properties, consumerProperties.retrySchema),
+                metrics = resolvedMetricsDescription(properties, consumerName),
                 consumer = buildConsumer(
                     applicationContext,
                     properties,
                     consumerName,
                     consumerBean,
                     consumerProperties,
-                    resolveClusterProperties(properties, consumerName, consumerProperties)
+                    resolvedCluster.kafkaProperties
                 )
             )
         }
@@ -210,10 +221,12 @@ class CkcConsumersLifecycle internal constructor(
                 runtimes.forEach { runtime ->
                     logger.info(
                         "Resolved CKC consumer '${runtime.name}': autoStartup=${runtime.autoStartup}, " +
-                            "cluster=${runtime.cluster ?: "<default>"}, topics=${runtime.topics}, " +
-                            "topicPattern=${runtime.topicPattern}, processingMode=${runtime.processingMode}, " +
+                            "handler=${runtime.handler}, cluster=${runtime.cluster}, topics=${runtime.topics}, " +
+                            "topicPattern=${runtime.topicPattern}, groupId=${runtime.groupId}, " +
+                            "clientId=${runtime.clientId ?: "<none>"}, processingMode=${runtime.processingMode}, " +
                             "workerConcurrency=${runtime.workerConcurrency}, " +
-                            "consumerPollLoopConcurrency=${runtime.consumerPollLoopConcurrency}"
+                            "consumerPollLoopConcurrency=${runtime.consumerPollLoopConcurrency}, " +
+                            "retrySchema=${runtime.retrySchema ?: "<none>"}, metrics=${runtime.metrics}"
                     )
                 }
             }
@@ -223,13 +236,29 @@ class CkcConsumersLifecycle internal constructor(
 private data class NamedConsumerRuntime(
     val name: String,
     val autoStartup: Boolean,
+    val handler: String,
     val cluster: String?,
     val topics: List<String>,
     val topicPattern: String?,
+    val groupId: String?,
+    val clientId: String?,
     val processingMode: avh.ckc.core.ProcessingMode,
     val workerConcurrency: Int,
     val consumerPollLoopConcurrency: Int,
+    val retrySchema: String?,
+    val metrics: String,
     val consumer: avh.ckc.core.CoroutinesKafkaConsumer<Any?, Any?>
+)
+
+private data class AnnotatedConsumer(
+    val beanName: String,
+    val consumerName: String,
+    val bean: CkcConsumer<*, *>
+)
+
+private data class ResolvedCluster(
+    val name: String,
+    val kafkaProperties: Map<String, String>
 )
 
 private fun buildConsumer(
@@ -258,11 +287,11 @@ private fun buildConsumer(
     }
 }
 
-private fun resolveClusterProperties(
+private fun resolveCluster(
     properties: CkcConsumerProperties,
     consumerName: String,
     consumerProperties: CkcConsumerProperties.Consumer
-): Map<String, String> {
+): ResolvedCluster {
     val clusterName = consumerProperties.cluster
         ?: properties.defaultCluster
         ?: properties.clusters.singleClusterNameOrNull()
@@ -271,12 +300,129 @@ private fun resolveClusterProperties(
                 "ckc.default-cluster, or define exactly one ckc.clusters entry."
         )
 
-    return properties.clusters[clusterName]?.kafkaProperties
+    val clusterProperties = properties.clusters[clusterName]?.kafkaProperties
         ?: error("CKC consumer '$consumerName' references unknown cluster '$clusterName'")
+    return ResolvedCluster(clusterName, clusterProperties)
 }
 
 private fun Map<String, CkcConsumerProperties.Cluster>.singleClusterNameOrNull(): String? =
     if (size == 1) keys.single() else null
+
+private fun validateConsumerSet(
+    properties: CkcConsumerProperties,
+    annotatedConsumers: List<AnnotatedConsumer>
+) {
+    val duplicateConsumers = annotatedConsumers
+        .groupBy { it.consumerName }
+        .filterValues { it.size > 1 }
+    require(duplicateConsumers.isEmpty()) {
+        "Multiple CKC consumer beans declare the same consumer name: " +
+            duplicateConsumers.entries.joinToString { (consumerName, consumers) ->
+                "$consumerName=${consumers.joinToString { it.beanName }}"
+            }
+    }
+
+    val handlerNames = annotatedConsumers.mapTo(linkedSetOf()) { it.consumerName }
+    val configuredNames = properties.consumers.keys
+    val missingConfigs = handlerNames - configuredNames
+    require(missingConfigs.isEmpty()) {
+        "Missing CKC configuration properties for consumer(s): ${missingConfigs.joinToString()}"
+    }
+    val missingHandlers = configuredNames - handlerNames
+    require(missingHandlers.isEmpty()) {
+        "Missing @CkcKafkaConsumer bean(s) for configured consumer(s): ${missingHandlers.joinToString()}"
+    }
+}
+
+private fun validateConsumerProperties(
+    properties: CkcConsumerProperties,
+    consumerName: String,
+    consumerProperties: CkcConsumerProperties.Consumer,
+    kafkaProperties: Map<String, Any?>
+) {
+    validateSubscription(consumerName, consumerProperties)
+    validatePositive(consumerName, "worker-concurrency", consumerProperties.workerConcurrency)
+    validatePositive(consumerName, "consumer-poll-loop-concurrency", consumerProperties.consumerPollLoopConcurrency)
+    validatePositive(consumerName, "work-channel-capacity", consumerProperties.workChannelCapacity)
+    require(!consumerProperties.commitInterval.isNegative && !consumerProperties.commitInterval.isZero) {
+        "ckc.consumers.$consumerName.commit-interval must be > 0"
+    }
+    requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG)
+    requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.GROUP_ID_CONFIG)
+    requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG)
+    requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG)
+    consumerProperties.retrySchema?.takeIf { it.isNotBlank() }?.let { schemaName ->
+        require(schemaName in properties.retrySchemas) {
+            "CKC consumer '$consumerName' references unknown retry schema '$schemaName'"
+        }
+    }
+    properties.defaultRetrySchema?.takeIf { it.isNotBlank() }?.let { schemaName ->
+        require(schemaName in properties.retrySchemas) {
+            "CKC default retry schema references unknown retry schema '$schemaName'"
+        }
+    }
+    validateMetricsSchema(properties, consumerName)
+}
+
+private fun validateSubscription(
+    consumerName: String,
+    properties: CkcConsumerProperties.Consumer
+) {
+    val hasTopics = properties.topics.isNotEmpty()
+    val hasPattern = !properties.topicPattern.isNullOrBlank()
+    require(hasTopics xor hasPattern) {
+        "Exactly one of ckc.consumers.$consumerName.topics or ckc.consumers.$consumerName.topic-pattern must be specified"
+    }
+    require(properties.topics.none { it.isBlank() }) {
+        "ckc.consumers.$consumerName.topics must not contain blank topic names"
+    }
+}
+
+private fun validatePositive(consumerName: String, propertyName: String, value: Int) {
+    require(value > 0) { "ckc.consumers.$consumerName.$propertyName must be > 0" }
+}
+
+private fun requireKafkaProperty(
+    consumerName: String,
+    kafkaProperties: Map<String, Any?>,
+    propertyName: String
+) {
+    require(!kafkaProperties[propertyName]?.toString().isNullOrBlank()) {
+        "Missing Kafka property '$propertyName' for CKC consumer '$consumerName'"
+    }
+}
+
+private fun validateMetricsSchema(properties: CkcConsumerProperties, consumerName: String) {
+    if (!properties.metrics.enabled || properties.metrics.implementation != CkcConsumerProperties.MetricsImplementation.MICROMETER) {
+        return
+    }
+    resolveMicrometerSchemaProperties(properties, consumerName)
+}
+
+private fun resolvedRetrySchemaName(
+    properties: CkcConsumerProperties,
+    consumerRetrySchema: String?
+): String? =
+    consumerRetrySchema?.takeIf { it.isNotBlank() }
+        ?: properties.defaultRetrySchema?.takeIf { it.isNotBlank() }
+
+private fun resolvedMetricsDescription(
+    properties: CkcConsumerProperties,
+    consumerName: String
+): String {
+    if (!properties.metrics.enabled) {
+        return "disabled"
+    }
+    return when (properties.metrics.implementation) {
+        CkcConsumerProperties.MetricsImplementation.MICROMETER -> {
+            val schema = resolveMicrometerSchemaName(properties, consumerName)
+            "micrometer(schema=${schema ?: "<legacy>"})"
+        }
+
+        CkcConsumerProperties.MetricsImplementation.CUSTOM -> "custom"
+        CkcConsumerProperties.MetricsImplementation.NONE -> "none"
+    }
+}
 
 private fun consumerMetrics(
     applicationContext: ApplicationContext,
@@ -372,6 +518,24 @@ private fun resolveMicrometerSchemaProperties(
 
     return configuredSchemas[schemaName]
         ?: error("CKC consumer '$consumerName' references unknown Micrometer schema '$schemaName'")
+}
+
+private fun resolveMicrometerSchemaName(
+    properties: CkcConsumerProperties,
+    consumerName: String
+): String? {
+    val configuredSchemas = properties.metrics.micrometer.schemas
+    if (configuredSchemas.isEmpty()) {
+        return null
+    }
+    return properties.consumers[consumerName]?.metrics?.schema
+        ?: properties.metrics.micrometer.defaultSchema
+        ?: "default".takeIf { it in configuredSchemas }
+        ?: configuredSchemas.keys.singleOrNull()
+        ?: error(
+            "Missing CKC Micrometer schema for consumer '$consumerName'. Set " +
+                "ckc.consumers.$consumerName.metrics.schema or ckc.metrics.micrometer.default-schema."
+        )
 }
 
 private fun customMetrics(

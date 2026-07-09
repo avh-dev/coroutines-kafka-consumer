@@ -93,6 +93,85 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
+    fun `fails when two handlers use the same consumer name`() {
+        contextRunner
+            .withUserConfiguration(DuplicateOrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("Multiple CKC consumer beans declare the same consumer name")
+            }
+    }
+
+    @Test
+    fun `fails when handler has no consumer configuration`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("Missing CKC configuration properties for consumer(s): orders")
+            }
+    }
+
+    @Test
+    fun `fails when consumer configuration has no handler`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orphan.auto-startup=false",
+                "ckc.consumers.orphan.topics[0]=orphan.v1",
+                "ckc.consumers.orphan.group-id=orphan-service",
+                "ckc.consumers.orphan.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orphan.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("Missing @CkcKafkaConsumer bean(s) for configured consumer(s): orphan")
+            }
+    }
+
+    @Test
+    fun `fails when required kafka property is missing`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("Missing Kafka property 'value.deserializer' for CKC consumer 'orders'")
+            }
+    }
+
+    @Test
     fun `uses the only cluster as default when consumer cluster is omitted`() {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java)
@@ -319,6 +398,27 @@ private class OrdersConsumerConfiguration {
 
 @CkcKafkaConsumer(name = "orders")
 private class OrdersConsumer : CkcConsumer<String, String> {
+    override suspend fun process(record: ConsumerRecord<String, String>) = Unit
+}
+
+@Configuration(proxyBeanMethods = false)
+private class DuplicateOrdersConsumerConfiguration {
+    @Bean
+    fun firstOrdersConsumer(): FirstOrdersConsumer =
+        FirstOrdersConsumer()
+
+    @Bean
+    fun secondOrdersConsumer(): SecondOrdersConsumer =
+        SecondOrdersConsumer()
+}
+
+@CkcKafkaConsumer(name = "orders")
+private class FirstOrdersConsumer : CkcConsumer<String, String> {
+    override suspend fun process(record: ConsumerRecord<String, String>) = Unit
+}
+
+@CkcKafkaConsumer(name = "orders")
+private class SecondOrdersConsumer : CkcConsumer<String, String> {
     override suspend fun process(record: ConsumerRecord<String, String>) = Unit
 }
 
