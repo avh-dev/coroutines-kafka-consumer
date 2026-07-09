@@ -160,6 +160,7 @@
 | [INFRA-64](#infra-64) | Show selected application pod CPU and memory series alongside sum and average aggregates in Grafana.                                      | DONE |
 | [INFRA-65](#infra-65) | Add internal-lab network and host-service chaos steps for Redis and Kafka resiliency scenarios.                                          | DONE |
 | [INFRA-66](#infra-66) | Add a Grafana dashboard variable for toggling event-type metric aggregation.                                                             | DONE |
+| [INFRA-67](#infra-67) | Add internal-lab Helm and test-definition support for the `ckc-spring-boot` demo profile.                                               | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1722,3 +1723,11 @@ _Date: 2026-07-09_
 Added a parallel demo profile named `ckc-spring-boot` that exercises the Spring Boot starter in a normal application shape.
 Kept the existing hand-wired `ckc` profiles intact while moving the new profile's CKC runtime settings into application configuration.
 The demo profile keeps code focused on annotated consumer classes and business handling.
+
+<a id="infra-67"></a>
+### INFRA-67 - Add CKC Spring Boot lab profile
+
+_Date: 2026-07-09_
+
+Added internal-lab Helm deployment and test-bundle support for running the `ckc-spring-boot` demo profile.
+Kept it parallel to existing CKC profiles so the starter-backed application shape can be smoke-tested without replacing hand-wired CKC deployments.

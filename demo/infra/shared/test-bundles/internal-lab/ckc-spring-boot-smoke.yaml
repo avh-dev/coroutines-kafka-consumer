@@ -1,0 +1,13 @@
+name: ckc-spring-boot-smoke
+description: Run the internal-lab smoke test against the CKC Spring Boot starter demo profile.
+
+defaults:
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+
+tests:
+  - name: ckc-spring-boot
+    deployment: ckc-spring-boot
+    test_definition: smoke
