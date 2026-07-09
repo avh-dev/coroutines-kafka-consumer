@@ -90,6 +90,10 @@ Record-driven Micrometer tag schemas are declared in configuration. The per-reco
 lives in Spring beans annotated with `@CkcMicrometerRecordTags`:
 
 ```kotlin
+import avh.ckc.micrometer.RecordDrivenTagExtractors
+import avh.ckc.micrometer.recordDrivenTagExtractors
+import avh.ckc.spring.CkcMicrometerRecordTags
+
 @Bean
 @CkcMicrometerRecordTags(consumer = "orders")
 fun orderRecordTags(): RecordDrivenTagExtractors<String, OrderEvent> =
@@ -104,6 +108,9 @@ the selected schema.
 For `CUSTOM`, provide `ConsumerMetrics` beans annotated with `@CkcConsumerMetrics`:
 
 ```kotlin
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.spring.CkcConsumerMetrics
+
 @Bean
 @CkcConsumerMetrics(consumer = "orders")
 fun orderMetrics(): ConsumerMetrics<String, OrderEvent> =
