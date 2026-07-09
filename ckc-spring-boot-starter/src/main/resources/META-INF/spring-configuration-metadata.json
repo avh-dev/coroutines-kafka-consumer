@@ -1,0 +1,286 @@
+{
+  "groups": [
+    {
+      "name": "ckc",
+      "type": "avh.ckc.spring.CkcConsumerProperties",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.lifecycle",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Lifecycle",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.metrics",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Metrics",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.metrics.micrometer",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Micrometer",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$MicrometerSchema>",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.retry-schemas",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$RetrySchema>",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.clusters",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$Cluster>",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.consumers",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$Consumer>",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "ckc.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enables CKC Spring Boot auto-configuration.",
+      "defaultValue": true
+    },
+    {
+      "name": "ckc.lifecycle.phase",
+      "type": "java.lang.Integer",
+      "description": "Spring SmartLifecycle phase used by starter-managed CKC consumers.",
+      "defaultValue": 0
+    },
+    {
+      "name": "ckc.lifecycle.shutdown-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum time the starter waits for CKC consumers to stop gracefully.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.default-cluster",
+      "type": "java.lang.String",
+      "description": "Default cluster name used by consumers that do not set ckc.consumers.<name>.cluster."
+    },
+    {
+      "name": "ckc.default-retry-schema",
+      "type": "java.lang.String",
+      "description": "Default retry schema name used by consumers that do not set ckc.consumers.<name>.retry-schema."
+    },
+    {
+      "name": "ckc.metrics.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enables CKC consumer metrics wiring.",
+      "defaultValue": true
+    },
+    {
+      "name": "ckc.metrics.implementation",
+      "type": "avh.ckc.spring.CkcConsumerProperties$MetricsImplementation",
+      "description": "Metrics implementation used for starter-managed consumers.",
+      "defaultValue": "MICROMETER"
+    },
+    {
+      "name": "ckc.metrics.prefix",
+      "type": "java.lang.String",
+      "description": "Legacy Micrometer metric prefix used when no Micrometer schemas are configured.",
+      "defaultValue": "app"
+    },
+    {
+      "name": "ckc.metrics.micrometer.default-schema",
+      "type": "java.lang.String",
+      "description": "Default Micrometer schema name used when a consumer does not set ckc.consumers.<name>.metrics.schema."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.metric-prefix",
+      "type": "java.lang.String",
+      "description": "Metric prefix prepended to CKC Micrometer meter names.",
+      "defaultValue": "app"
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.static-tags",
+      "type": "java.util.List<avh.ckc.spring.CkcConsumerProperties$MetricTag>",
+      "description": "Static Micrometer tags attached to every meter created from this schema."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.static-tags[].name",
+      "type": "java.lang.String",
+      "description": "Static Micrometer tag name."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.static-tags[].value",
+      "type": "java.lang.String",
+      "description": "Static Micrometer tag value."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.record-driven-tags",
+      "type": "java.util.List<avh.ckc.spring.CkcConsumerProperties$RecordDrivenTag>",
+      "description": "Record-driven Micrometer tag schema entries."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.record-driven-tags[].name",
+      "type": "java.lang.String",
+      "description": "Record-driven Micrometer tag name."
+    },
+    {
+      "name": "ckc.metrics.micrometer.schemas.*.record-driven-tags[].default",
+      "type": "java.lang.String",
+      "description": "Default tag value used when no extractor is available or an extractor returns null.",
+      "defaultValue": "NONE"
+    },
+    {
+      "name": "ckc.retry-schemas.*.rules",
+      "type": "java.util.List<avh.ckc.spring.CkcConsumerProperties$RetryRule>",
+      "description": "Ordered retry rules. The first rule matching a thrown exception is used."
+    },
+    {
+      "name": "ckc.retry-schemas.*.rules[].exceptions",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Fully qualified Throwable class names matched by this retry rule."
+    },
+    {
+      "name": "ckc.retry-schemas.*.rules[].max-retries",
+      "type": "java.lang.Integer",
+      "description": "Maximum retry attempts after the initial processing failure.",
+      "defaultValue": 0
+    },
+    {
+      "name": "ckc.retry-schemas.*.rules[].delay",
+      "type": "java.time.Duration",
+      "description": "Delay between retry attempts.",
+      "defaultValue": "0s"
+    },
+    {
+      "name": "ckc.clusters.*.kafka-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Base Kafka consumer properties shared by consumers that reference this cluster."
+    },
+    {
+      "name": "ckc.consumers.*.auto-startup",
+      "type": "java.lang.Boolean",
+      "description": "Whether this consumer starts automatically with the Spring lifecycle.",
+      "defaultValue": true
+    },
+    {
+      "name": "ckc.consumers.*.cluster",
+      "type": "java.lang.String",
+      "description": "Cluster name used by this consumer."
+    },
+    {
+      "name": "ckc.consumers.*.topics",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Explicit topic list. Exactly one of topics or topic-pattern must be set."
+    },
+    {
+      "name": "ckc.consumers.*.topic-pattern",
+      "type": "java.lang.String",
+      "description": "Topic subscription regex. Exactly one of topics or topic-pattern must be set."
+    },
+    {
+      "name": "ckc.consumers.*.group-id",
+      "type": "java.lang.String",
+      "description": "Kafka group.id convenience property applied after raw Kafka properties."
+    },
+    {
+      "name": "ckc.consumers.*.client-id",
+      "type": "java.lang.String",
+      "description": "Kafka client.id convenience property applied after raw Kafka properties."
+    },
+    {
+      "name": "ckc.consumers.*.key-deserializer",
+      "type": "java.lang.String",
+      "description": "Kafka key.deserializer convenience property applied after raw Kafka properties."
+    },
+    {
+      "name": "ckc.consumers.*.value-deserializer",
+      "type": "java.lang.String",
+      "description": "Kafka value.deserializer convenience property applied after raw Kafka properties."
+    },
+    {
+      "name": "ckc.consumers.*.processing-mode",
+      "type": "avh.ckc.core.ProcessingMode",
+      "description": "CKC record processing mode.",
+      "defaultValue": "AT_LEAST_ONCE_UNORDERED"
+    },
+    {
+      "name": "ckc.consumers.*.worker-concurrency",
+      "type": "java.lang.Integer",
+      "description": "Number of worker coroutines used for record processing.",
+      "defaultValue": 1
+    },
+    {
+      "name": "ckc.consumers.*.consumer-poll-loop-concurrency",
+      "type": "java.lang.Integer",
+      "description": "Number of Kafka poll loops created for this consumer.",
+      "defaultValue": 1
+    },
+    {
+      "name": "ckc.consumers.*.commit-interval",
+      "type": "java.time.Duration",
+      "description": "Manual commit interval used by CKC processing runtimes.",
+      "defaultValue": "5s"
+    },
+    {
+      "name": "ckc.consumers.*.work-channel-capacity",
+      "type": "java.lang.Integer",
+      "description": "Bounded work-channel capacity used by the selected processing runtime.",
+      "defaultValue": 1024
+    },
+    {
+      "name": "ckc.consumers.*.metrics.schema",
+      "type": "java.lang.String",
+      "description": "Micrometer schema name used by this consumer when metrics implementation is MICROMETER."
+    },
+    {
+      "name": "ckc.consumers.*.retry-schema",
+      "type": "java.lang.String",
+      "description": "Retry schema name used by this consumer."
+    },
+    {
+      "name": "ckc.consumers.*.kafka-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Per-consumer raw Kafka properties overriding cluster Kafka properties."
+    }
+  ],
+  "hints": [
+    {
+      "name": "ckc.metrics.implementation",
+      "values": [
+        {
+          "value": "MICROMETER",
+          "description": "Create Micrometer-backed CKC consumer metrics from configured schemas."
+        },
+        {
+          "value": "CUSTOM",
+          "description": "Resolve custom ConsumerMetrics beans from the Spring context."
+        },
+        {
+          "value": "NONE",
+          "description": "Use no-op CKC consumer metrics."
+        }
+      ]
+    },
+    {
+      "name": "ckc.consumers.*.processing-mode",
+      "values": [
+        {
+          "value": "AT_LEAST_ONCE_UNORDERED"
+        },
+        {
+          "value": "AT_LEAST_ONCE_ORDERED_BY_KEY"
+        },
+        {
+          "value": "AT_LEAST_ONCE_ORDERED_BY_PARTITION"
+        },
+        {
+          "value": "FRESHNESS_FIRST"
+        },
+        {
+          "value": "FRESHNESS_FIRST_BY_KEY"
+        }
+      ]
+    }
+  ]
+}

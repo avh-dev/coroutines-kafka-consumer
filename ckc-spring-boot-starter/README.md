@@ -102,6 +102,77 @@ The starter is managed by Spring `SmartLifecycle`. `ckc.lifecycle.phase` control
 relative to other lifecycle beans, and `ckc.lifecycle.shutdown-timeout` bounds how long the starter
 waits for CKC consumers to stop gracefully.
 
+## Configuration Reference
+
+The full starter property structure is:
+
+```yaml
+ckc:
+  enabled: true
+
+  lifecycle:
+    phase: 0
+    shutdown-timeout: 30s
+
+  metrics:
+    enabled: true
+    implementation: MICROMETER # MICROMETER | CUSTOM | NONE
+    prefix: app # legacy fallback when no Micrometer schemas are configured
+    micrometer:
+      default-schema: default
+      schemas:
+        default:
+          metric-prefix: app
+          static-tags:
+            - name: app_name
+              value: my-service
+          record-driven-tags:
+            - name: event_type
+              default: NONE
+
+  default-retry-schema: default
+  retry-schemas:
+    default:
+      rules:
+        - exceptions:
+            - java.io.IOException
+          max-retries: 3
+          delay: 100ms
+
+  default-cluster: main
+  clusters:
+    main:
+      kafka-properties:
+        bootstrap.servers: localhost:9092
+        auto.offset.reset: earliest
+
+  consumers:
+    orders:
+      auto-startup: true
+      cluster: main
+      topics:
+        - orders.v1
+      # topic-pattern: orders\..*
+      group-id: orders-service
+      client-id: orders-service-1
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: com.example.OrderEventDeserializer
+      processing-mode: AT_LEAST_ONCE_UNORDERED
+      worker-concurrency: 1
+      consumer-poll-loop-concurrency: 1
+      commit-interval: 5s
+      work-channel-capacity: 1024
+      metrics:
+        schema: default
+      retry-schema: default
+      kafka-properties:
+        max.poll.records: 500
+```
+
+Map keys under `clusters`, `retry-schemas`, `metrics.micrometer.schemas`, and `consumers` are
+application-defined names. Per-consumer convenience properties are applied after raw Kafka
+properties, so they override values from `kafka-properties`.
+
 ## Metrics
 
 Set `ckc.metrics.implementation` to `MICROMETER`, `CUSTOM`, or `NONE`. `MICROMETER` uses the

@@ -208,6 +208,18 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
+    fun `configuration metadata is packaged`() {
+        val metadata = checkNotNull(
+            javaClass.classLoader.getResource("META-INF/spring-configuration-metadata.json")
+        ).readText()
+
+        assertThat(metadata)
+            .contains("ckc.lifecycle.shutdown-timeout")
+            .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
+            .contains("ckc.consumers.*.retry-schema")
+    }
+
+    @Test
     fun `binds configured micrometer metrics schema`() {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java, MetricsConfiguration::class.java)
