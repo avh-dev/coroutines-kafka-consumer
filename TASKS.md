@@ -39,6 +39,7 @@
 | [CORE-34](#core-34) | Add Spring Boot lifecycle phase, bounded shutdown, and lifecycle diagnostics for starter-managed CKC consumers.                                                                                            | DONE |
 | [CORE-35](#core-35) | Add a minimal CKC startup banner with starter version diagnostics.                                                                                                                                       | DONE |
 | [CORE-36](#core-36) | Add startup validation and diagnostics for Spring Boot starter consumer configuration.                                                                                                                    | DONE |
+| [CORE-37](#core-37) | Add Spring Boot configuration metadata and document the full CKC starter property structure.                                                                                                               | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1774,6 +1775,14 @@ _Date: 2026-07-09_
 Validate starter-managed consumer declarations before building CKC runtimes.
 Fail fast on duplicate handlers, missing handlers or configuration, invalid subscriptions, missing Kafka essentials, and unknown schemas.
 Improve startup diagnostics so each resolved consumer logs its handler, cluster, subscription, group, processing, retry, and metrics configuration.
+
+<a id="core-37"></a>
+### CORE-37 - Add Spring Boot configuration metadata
+
+_Date: 2026-07-09_
+
+Add starter configuration metadata so IDEs can offer completion and descriptions for `ckc.*` properties.
+Document the full configuration structure in the starter README, including lifecycle, metrics, retry schemas, clusters, and consumers.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
