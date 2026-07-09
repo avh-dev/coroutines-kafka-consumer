@@ -90,14 +90,14 @@ class CkcSpringBootMetricsConfiguration {
     @CkcMicrometerRecordTags(consumer = "order-events")
     fun orderEventRecordTags(): RecordDrivenTagExtractors<String, OrderLifecycleEvent> =
         recordDrivenTagExtractors {
-            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
+            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name }
         }
 
     @Bean
     @CkcMicrometerRecordTags(consumer = "batch-events")
     fun batchEventRecordTags(): RecordDrivenTagExtractors<String, BatchLifecycleEvent> =
         recordDrivenTagExtractors {
-            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
+            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name }
         }
 
     @Bean
@@ -109,7 +109,6 @@ class CkcSpringBootMetricsConfiguration {
 }
 
 private const val EVENT_TYPE_TAG = "event_type"
-private const val UNKNOWN_EVENT_TYPE = "UNKNOWN"
 
 private suspend fun latencyOnlyDelay() {
     delay((5L..8L).random())

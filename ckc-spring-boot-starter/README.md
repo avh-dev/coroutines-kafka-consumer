@@ -94,9 +94,12 @@ lives in Spring beans annotated with `@CkcMicrometerRecordTags`:
 @CkcMicrometerRecordTags(consumer = "orders")
 fun orderRecordTags(): RecordDrivenTagExtractors<String, OrderEvent> =
     recordDrivenTagExtractors {
-        tag("event_type") { record -> record.value()?.type ?: "UNKNOWN" }
+        tag("event_type") { record -> record.value()?.type }
     }
 ```
+
+If an extractor is absent or returns `null`, the tag value falls back to the `default` declared in
+the selected schema.
 
 For `CUSTOM`, provide `ConsumerMetrics` beans annotated with `@CkcConsumerMetrics`:
 
