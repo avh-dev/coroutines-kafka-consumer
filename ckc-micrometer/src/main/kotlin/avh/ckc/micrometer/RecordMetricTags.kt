@@ -6,73 +6,52 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 private val reservedRecordTagKeys = setOf("consumer_id", "topic", "error", "attempt", "success", "reason")
 
 /**
- * Schema for record-driven custom tags.
+ * Definition of one record-driven custom metric tag.
  *
  * Custom tags are schema, not ad-hoc labels: all record metrics created by a
- * single [MicrometerConsumerMetricsFactory] instance use the same declared tag keys.
+ * single [MicrometerConsumerMetricsSchema] instance use the same declared tag keys.
  * This keeps Prometheus/OpenMetrics output valid when different consumers emit
  * the same metric family.
  */
-class RecordDrivenTagSchema internal constructor(
-    private val tags: List<RecordMetricTagDefinition>
+data class RecordMetricTagDefinition(
+    val key: String,
+    val defaultValue: String
 ) {
-    internal val keys: Set<String> = tags.mapTo(LinkedHashSet()) { it.key }
-
     init {
-        val duplicateKeys = tags.groupBy { it.key }.filterValues { it.size > 1 }.keys
-        require(duplicateKeys.isEmpty()) { "Record-driven tag schema contains duplicate keys: ${duplicateKeys.joinToString()}" }
-    }
-
-    internal fun <K, V> tagsFrom(
-        provider: RecordDrivenTagValues<K, V>,
-        record: ConsumerRecord<K, V>
-    ): List<Tag> =
-        tags.map { schemaTag ->
-            val value = provider.extractors[schemaTag.key]?.extract(record)
-            Tag.of(schemaTag.key, value ?: schemaTag.defaultValue)
-        }
-
-    companion object {
-        fun empty(): RecordDrivenTagSchema = RecordDrivenTagSchema(emptyList())
+        validateRecordTagKey(key)
     }
 }
 
-internal data class RecordMetricTagDefinition(
-    val key: String,
-    val defaultValue: String
-)
-
 /**
- * Builder for [RecordDrivenTagSchema].
+ * Builder for record-driven custom metric tag definitions.
  */
-class RecordDrivenTagSchemaBuilder internal constructor() {
+class RecordDrivenTagsBuilder internal constructor() {
     private val tags = mutableListOf<RecordMetricTagDefinition>()
 
     /**
      * Declares a custom record tag key and the value used when no extractor value is available.
      */
     fun tag(key: String, defaultValue: String = "NONE") {
-        validateRecordTagKey(key)
         tags += RecordMetricTagDefinition(key, defaultValue)
     }
 
-    internal fun build(): RecordDrivenTagSchema =
-        RecordDrivenTagSchema(tags.toList())
+    internal fun build(): List<RecordMetricTagDefinition> =
+        tags.toList().also(::validateRecordDrivenTags)
 }
 
 /**
  * Creates a record-driven tag schema with default value `NONE` for every key.
  */
-fun recordDrivenTagSchema(vararg keys: String): RecordDrivenTagSchema =
-    recordDrivenTagSchema {
+fun recordDrivenTags(vararg keys: String): List<RecordMetricTagDefinition> =
+    recordDrivenTags {
         keys.forEach { tag(it) }
     }
 
 /**
  * Creates a record-driven tag schema from tag key to default value mappings.
  */
-fun recordDrivenTagSchema(defaultValuesByKey: Map<String, String>): RecordDrivenTagSchema =
-    recordDrivenTagSchema {
+fun recordDrivenTags(defaultValuesByKey: Map<String, String>): List<RecordMetricTagDefinition> =
+    recordDrivenTags {
         defaultValuesByKey.forEach { (key, defaultValue) ->
             tag(key, defaultValue)
         }
@@ -81,8 +60,25 @@ fun recordDrivenTagSchema(defaultValuesByKey: Map<String, String>): RecordDriven
 /**
  * Creates a record-driven tag schema with explicit keys and default values.
  */
-fun recordDrivenTagSchema(block: RecordDrivenTagSchemaBuilder.() -> Unit): RecordDrivenTagSchema =
-    RecordDrivenTagSchemaBuilder().apply(block).build()
+fun recordDrivenTags(block: RecordDrivenTagsBuilder.() -> Unit): List<RecordMetricTagDefinition> =
+    RecordDrivenTagsBuilder().apply(block).build()
+
+internal fun validateRecordDrivenTags(tags: List<RecordMetricTagDefinition>) {
+    val duplicateKeys = tags.groupBy { it.key }.filterValues { it.size > 1 }.keys
+    require(duplicateKeys.isEmpty()) { "Record-driven tags contain duplicate keys: ${duplicateKeys.joinToString()}" }
+}
+
+internal val List<RecordMetricTagDefinition>.keys: Set<String>
+    get() = mapTo(LinkedHashSet()) { it.key }
+
+internal fun <K, V> List<RecordMetricTagDefinition>.tagsFrom(
+    provider: RecordDrivenTagExtractors<K, V>,
+    record: ConsumerRecord<K, V>
+): List<Tag> =
+    map { tag ->
+        val value = provider.extractors[tag.key]?.extract(record)
+        Tag.of(tag.key, value ?: tag.defaultValue)
+    }
 
 private fun validateRecordTagKey(key: String) {
     require(key.isNotBlank()) { "Record metric tag key must not be blank" }
@@ -92,32 +88,32 @@ private fun validateRecordTagKey(key: String) {
 /**
  * Extracts one record-driven custom tag value from a Kafka record.
  */
-fun interface RecordDrivenTagValueExtractor<K, V> {
+fun interface RecordDrivenTagExtractor<K, V> {
     fun extract(record: ConsumerRecord<K, V>): String?
 }
 
 /**
- * Per-consumer values for tags declared by [RecordDrivenTagSchema].
+ * Per-consumer extractors for record-driven custom tags declared by [MicrometerConsumerMetricsSchema].
  */
-class RecordDrivenTagValues<K, V> internal constructor(
-    internal val extractors: Map<String, RecordDrivenTagValueExtractor<K, V>>
+class RecordDrivenTagExtractors<K, V> internal constructor(
+    internal val extractors: Map<String, RecordDrivenTagExtractor<K, V>>
 ) {
     companion object {
-        fun <K, V> none(): RecordDrivenTagValues<K, V> =
-            RecordDrivenTagValues(emptyMap())
+        fun <K, V> none(): RecordDrivenTagExtractors<K, V> =
+            RecordDrivenTagExtractors(emptyMap())
     }
 }
 
 /**
- * Builder for [RecordDrivenTagValues].
+ * Builder for [RecordDrivenTagExtractors].
  */
-class RecordDrivenTagValuesBuilder<K, V> internal constructor() {
-    private val extractors = linkedMapOf<String, RecordDrivenTagValueExtractor<K, V>>()
+class RecordDrivenTagExtractorsBuilder<K, V> internal constructor() {
+    private val extractors = linkedMapOf<String, RecordDrivenTagExtractor<K, V>>()
 
     /**
      * Declares an extractor for a custom record tag key.
      */
-    fun tag(key: String, extractor: RecordDrivenTagValueExtractor<K, V>) {
+    fun tag(key: String, extractor: RecordDrivenTagExtractor<K, V>) {
         extractors[key] = extractor
     }
 
@@ -125,25 +121,25 @@ class RecordDrivenTagValuesBuilder<K, V> internal constructor() {
      * Declares an extractor for a custom record tag key.
      */
     fun tag(key: String, extractor: (ConsumerRecord<K, V>) -> String?) {
-        extractors[key] = RecordDrivenTagValueExtractor(extractor)
+        extractors[key] = RecordDrivenTagExtractor(extractor)
     }
 
-    internal fun build(): RecordDrivenTagValues<K, V> =
-        RecordDrivenTagValues(extractors.toMap())
+    internal fun build(): RecordDrivenTagExtractors<K, V> =
+        RecordDrivenTagExtractors(extractors.toMap())
 }
 
 /**
- * Creates record-driven tag values from an extractor map.
+ * Creates record-driven tag extractors from an extractor map.
  */
-fun <K, V> recordDrivenTagValues(
-    extractors: Map<String, RecordDrivenTagValueExtractor<K, V>>
-): RecordDrivenTagValues<K, V> =
-    RecordDrivenTagValues(extractors.toMap())
+fun <K, V> recordDrivenTagExtractors(
+    extractors: Map<String, RecordDrivenTagExtractor<K, V>>
+): RecordDrivenTagExtractors<K, V> =
+    RecordDrivenTagExtractors(extractors.toMap())
 
 /**
- * Creates record-driven tag values with a Kotlin builder.
+ * Creates record-driven tag extractors with a Kotlin builder.
  */
-fun <K, V> recordDrivenTagValues(
-    block: RecordDrivenTagValuesBuilder<K, V>.() -> Unit
-): RecordDrivenTagValues<K, V> =
-    RecordDrivenTagValuesBuilder<K, V>().apply(block).build()
+fun <K, V> recordDrivenTagExtractors(
+    block: RecordDrivenTagExtractorsBuilder<K, V>.() -> Unit
+): RecordDrivenTagExtractors<K, V> =
+    RecordDrivenTagExtractorsBuilder<K, V>().apply(block).build()

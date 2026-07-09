@@ -33,6 +33,7 @@
 | [CORE-28](#core-28) | Add a freshness-first-by-key processing mode that keeps only the latest queued record per key and drops new keys when bounded admission is full.                                                        | DONE |
 | [CORE-29](#core-29) | Refactor the Micrometer adapter module into clearer public API, implementation, naming, and documentation pieces.                                                                                       | DONE |
 | [CORE-30](#core-30) | Add a Spring Boot starter that wires annotated CKC consumer beans from application configuration.                                                                                                        | DONE |
+| [CORE-31](#core-31) | Rename the Micrometer metrics factory API to schema-oriented naming and simplify record-driven tag configuration.                                                                                        | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1302,7 +1303,7 @@ _Date: 2026-07-05_
 Split the Micrometer adapter module into clearer API, implementation, naming, and record-tag schema pieces.
 Document the metric prefix, custom tag schema, Prometheus label-set constraints, and the exported metric surface.
 Remove counters duplicated by timer counts and export record age as a timer so histogram and percentile configuration is consistent for duration-like metrics.
-Rename the configured Micrometer entry point to `MicrometerConsumerMetricsFactory` and expose `metricPrefix` instead of an application-specific prefix name.
+Rename the configured Micrometer entry point to `MicrometerConsumerMetricsSchema` and expose `metricPrefix` instead of an application-specific prefix name.
 Require a metric prefix while keeping the `ckc` namespace permanent in every factory-created metric name.
 Keep `consumer_id` present on all CKC meters, using `default` when no logical consumer id is supplied, so Prometheus label sets stay stable.
 Replace object-handle custom tags with string-key record-driven tag schemas, per-consumer extractor maps, and default schema values for missing record-driven tags.
@@ -1714,6 +1715,15 @@ _Date: 2026-07-08_
 Added a production Spring Boot starter module for configuring CKC consumers from application properties.
 The starter discovers annotated `CkcConsumer` beans, binds each bean to a named consumer configuration, and manages CKC lifecycle through Spring.
 The first iteration keeps the API focused on class-level consumer declarations instead of Spring Kafka-style method listener annotations.
+
+<a id="core-31"></a>
+### CORE-31 - Rename Micrometer metrics schema API
+
+_Date: 2026-07-09_
+
+Rename the Micrometer consumer metrics entry point from factory-oriented naming to schema-oriented naming.
+Fold record-driven tag schema declarations into the metrics schema API so Spring configuration can model metric families directly.
+Update KDoc, README examples, demo wiring, and tests around the new naming.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
