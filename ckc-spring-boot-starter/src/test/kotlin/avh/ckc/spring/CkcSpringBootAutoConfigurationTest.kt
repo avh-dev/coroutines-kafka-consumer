@@ -1,11 +1,14 @@
 package avh.ckc.spring
 
 import avh.ckc.core.ProcessingMode
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.micrometer.RecordDrivenTagExtractors
+import avh.ckc.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
@@ -118,14 +121,76 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
-    fun `creates micrometer metrics schema when meter registry exists`() {
+    fun `binds configured micrometer metrics schema`() {
         contextRunner
-            .withUserConfiguration(MetricsConfiguration::class.java)
-            .withPropertyValues("ckc.metrics.prefix=testapp")
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java, MetricsConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.metrics.implementation=micrometer",
+                "ckc.metrics.micrometer.schemas.default.metric-prefix=testapp",
+                "ckc.metrics.micrometer.schemas.default.static-tags[0].name=app_name",
+                "ckc.metrics.micrometer.schemas.default.static-tags[0].value=test",
+                "ckc.metrics.micrometer.schemas.default.record-driven-tags[0].name=event_type",
+                "ckc.metrics.micrometer.schemas.default.record-driven-tags[0].default=UNKNOWN"
+            )
             .run { context ->
-                assertThat(context).hasSingleBean(MicrometerConsumerMetricsSchema::class.java)
-                assertThat(context.getBean(MicrometerConsumerMetricsSchema::class.java).metricPrefix)
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+
+                val metrics = context.getBean(CkcConsumerProperties::class.java).metrics
+                assertThat(metrics.implementation)
+                    .isEqualTo(CkcConsumerProperties.MetricsImplementation.MICROMETER)
+                assertThat(metrics.micrometer.schemas.getValue("default").metricPrefix)
                     .isEqualTo("testapp")
+                assertThat(metrics.micrometer.schemas.getValue("default").recordDrivenTags.single().default)
+                    .isEqualTo("UNKNOWN")
+            }
+    }
+
+    @Test
+    fun `uses annotated custom metrics bean`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java, CustomMetricsConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.metrics.implementation=custom"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+            }
+    }
+
+    @Test
+    fun `fails when custom metrics are enabled without a metrics bean`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.metrics.implementation=custom"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("CKC custom metrics are enabled")
             }
     }
 }
@@ -147,4 +212,20 @@ private class MetricsConfiguration {
     @Bean
     fun meterRegistry(): SimpleMeterRegistry =
         SimpleMeterRegistry()
+
+    @Bean
+    @CkcMicrometerRecordTags(consumer = "orders")
+    fun orderRecordTags(): RecordDrivenTagExtractors<String, String> =
+        recordDrivenTagExtractors {
+            tag("event_type") { "ORDER" }
+        }
+}
+
+@Configuration(proxyBeanMethods = false)
+private class CustomMetricsConfiguration {
+    @Bean
+    @CkcConsumerMetrics(consumer = "orders")
+    @Suppress("UNCHECKED_CAST")
+    fun orderMetrics(): ConsumerMetrics<String, String> =
+        ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
 }

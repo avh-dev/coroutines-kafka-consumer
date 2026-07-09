@@ -9,12 +9,15 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
+import avh.ckc.micrometer.RecordDrivenTagExtractors
 import avh.ckc.micrometer.recordDrivenTagExtractors
 import avh.ckc.spring.CkcConsumer
 import avh.ckc.spring.CkcKafkaConsumer
-import avh.ckc.spring.CkcMetricsCustomizer
+import avh.ckc.spring.CkcMicrometerRecordTags
 import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 
 @Profile("ckc-spring-boot")
@@ -36,13 +39,6 @@ class OrderLifecycleCkcSpringBootConsumer(
     override suspend fun handleFailure(record: ConsumerRecord<String, OrderLifecycleEvent>, reason: Throwable) {
         logFailed(record, properties.audit)
     }
-
-    override fun metricsCustomizer(): CkcMetricsCustomizer<String, OrderLifecycleEvent> =
-        CkcMetricsCustomizer {
-            recordDrivenTagExtractors {
-                tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
-            }
-        }
 }
 
 @Profile("ckc-spring-boot")
@@ -64,13 +60,6 @@ class BatchLifecycleCkcSpringBootConsumer(
     override suspend fun handleFailure(record: ConsumerRecord<String, BatchLifecycleEvent>, reason: Throwable) {
         logFailed(record, properties.audit)
     }
-
-    override fun metricsCustomizer(): CkcMetricsCustomizer<String, BatchLifecycleEvent> =
-        CkcMetricsCustomizer {
-            recordDrivenTagExtractors {
-                tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
-            }
-        }
 }
 
 @Profile("ckc-spring-boot")
@@ -92,17 +81,34 @@ class CauldronTelemetryCkcSpringBootConsumer(
     override suspend fun handleFailure(record: ConsumerRecord<String, CauldronTelemetryEvent>, reason: Throwable) {
         logFailed(record, properties.audit)
     }
+}
 
-    override fun metricsCustomizer(): CkcMetricsCustomizer<String, CauldronTelemetryEvent> =
-        CkcMetricsCustomizer {
-            recordDrivenTagExtractors {
-                tag(EVENT_TYPE_TAG) { "CAULDRON_TELEMETRY" }
-            }
+@Profile("ckc-spring-boot")
+@Configuration(proxyBeanMethods = false)
+class CkcSpringBootMetricsConfiguration {
+    @Bean
+    @CkcMicrometerRecordTags(consumer = "order-events")
+    fun orderEventRecordTags(): RecordDrivenTagExtractors<String, OrderLifecycleEvent> =
+        recordDrivenTagExtractors {
+            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name }
+        }
+
+    @Bean
+    @CkcMicrometerRecordTags(consumer = "batch-events")
+    fun batchEventRecordTags(): RecordDrivenTagExtractors<String, BatchLifecycleEvent> =
+        recordDrivenTagExtractors {
+            tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name }
+        }
+
+    @Bean
+    @CkcMicrometerRecordTags(consumer = "cauldron-events")
+    fun cauldronEventRecordTags(): RecordDrivenTagExtractors<String, CauldronTelemetryEvent> =
+        recordDrivenTagExtractors {
+            tag(EVENT_TYPE_TAG) { "CAULDRON_TELEMETRY" }
         }
 }
 
 private const val EVENT_TYPE_TAG = "event_type"
-private const val UNKNOWN_EVENT_TYPE = "UNKNOWN"
 
 private suspend fun latencyOnlyDelay() {
     delay((5L..8L).random())

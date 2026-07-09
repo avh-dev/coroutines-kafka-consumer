@@ -2,7 +2,17 @@ ckc:
   enabled: true
   metrics:
     enabled: ${CKC_METRICS_ENABLED:true}
-    prefix: demo
+    implementation: MICROMETER
+    micrometer:
+      schemas:
+        default:
+          metric-prefix: demo
+          static-tags:
+            - name: consumer_impl
+              value: ckc
+          record-driven-tags:
+            - name: event_type
+              default: UNKNOWN
   default-cluster: local
   clusters:
     local:

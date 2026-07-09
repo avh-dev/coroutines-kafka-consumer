@@ -34,6 +34,7 @@
 | [CORE-29](#core-29) | Refactor the Micrometer adapter module into clearer public API, implementation, naming, and documentation pieces.                                                                                       | DONE |
 | [CORE-30](#core-30) | Add a Spring Boot starter that wires annotated CKC consumer beans from application configuration.                                                                                                        | DONE |
 | [CORE-31](#core-31) | Rename the Micrometer metrics factory API to schema-oriented naming and simplify record-driven tag configuration.                                                                                        | DONE |
+| [CORE-32](#core-32) | Add Spring Boot metrics configuration for Micrometer schemas, custom metrics, and annotated record-driven tag extractors.                                                                                | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1724,6 +1725,15 @@ _Date: 2026-07-09_
 Rename the Micrometer consumer metrics entry point from factory-oriented naming to schema-oriented naming.
 Fold record-driven tag schema declarations into the metrics schema API so Spring configuration can model metric families directly.
 Update KDoc, README examples, demo wiring, and tests around the new naming.
+
+<a id="core-32"></a>
+### CORE-32 - Add Spring Boot metrics configuration
+
+_Date: 2026-07-09_
+
+Add Spring Boot configuration for choosing CKC metrics implementation and declaring Micrometer metric schemas.
+Move record-driven Micrometer tag extractors and custom `ConsumerMetrics` resolution to annotated beans.
+Keep business consumer interfaces focused on processing while metrics wiring stays in Spring infrastructure.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
