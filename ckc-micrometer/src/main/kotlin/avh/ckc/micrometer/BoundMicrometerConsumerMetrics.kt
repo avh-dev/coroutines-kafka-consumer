@@ -16,11 +16,11 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
 
 internal class BoundMicrometerConsumerMetrics<K, V>(
-    private val factory: MicrometerConsumerMetricsFactory,
+    private val schema: MicrometerConsumerMetricsSchema,
     consumerId: String,
     private val recordDrivenTagValues: RecordDrivenTagValues<K, V>
 ) : ConsumerMetrics<K, V> {
-    private val consumerTags: Tags = Tags.of(factory.staticTags).and("consumer_id", consumerId)
+    private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
     private val runtimeMeters = mutableListOf<Meter>()
     private val partitionMeters = mutableMapOf<Pair<String, Int>, Meter>()
 
@@ -39,7 +39,7 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     }
 
     override fun unbindRuntimeMetrics() {
-        runtimeMeters.forEach(factory.meterRegistry::remove)
+        runtimeMeters.forEach(schema.meterRegistry::remove)
         runtimeMeters.clear()
     }
 
@@ -49,18 +49,18 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
             return
         }
 
-        partitionMeters[key] = Gauge.builder(factory.metricName(OFFSETTRACKER_CAPACITY), stats) {
+        partitionMeters[key] = Gauge.builder(schema.metricName(OFFSETTRACKER_CAPACITY), stats) {
             it.offsetTrackerBitCapacity.toDouble()
         }
             .tags(consumerTags)
             .tag("topic", stats.topic)
             .tag("partition", stats.partition.toString())
-            .register(factory.meterRegistry)
+            .register(schema.meterRegistry)
     }
 
     override fun unbindPartitionMetrics(topic: String, partition: Int) {
         val meter = partitionMeters.remove(topic to partition) ?: return
-        factory.meterRegistry.remove(meter)
+        schema.meterRegistry.remove(meter)
     }
 
     override fun onPoll(recordsCount: Int, durationNanos: Long) {
@@ -136,26 +136,26 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     }
 
     private fun timer(suffix: String, tags: Iterable<Tag> = consumerTags): Timer =
-        factory.timer(suffix, tags)
+        schema.timer(suffix, tags)
 
     private fun summary(suffix: String, tags: Iterable<Tag> = consumerTags): DistributionSummary =
-        factory.summary(suffix, tags)
+        schema.summary(suffix, tags)
 
     private fun counter(suffix: String, tags: Iterable<Tag> = consumerTags): Counter =
-        factory.counter(suffix, tags)
+        schema.counter(suffix, tags)
 
     private fun gauge(
         suffix: String,
         stats: ConsumerRuntimeStats,
         valueFunction: (ConsumerRuntimeStats) -> Double
     ): Gauge =
-        Gauge.builder(factory.metricName(suffix), stats, valueFunction)
+        Gauge.builder(schema.metricName(suffix), stats, valueFunction)
             .tags(consumerTags)
-            .register(factory.meterRegistry)
+            .register(schema.meterRegistry)
 
     private fun tags(vararg pairs: Pair<String, String>): Tags =
-        factory.tags(consumerTags, *pairs)
+        schema.tags(consumerTags, *pairs)
 
     private fun recordTags(record: ConsumerRecord<K, V>): Tags =
-        factory.recordTags(consumerTags, recordDrivenTagValues, record)
+        schema.recordTags(consumerTags, recordDrivenTagValues, record)
 }

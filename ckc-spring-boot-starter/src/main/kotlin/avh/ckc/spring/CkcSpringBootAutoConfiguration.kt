@@ -4,7 +4,7 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.RetryRule
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
+import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -35,11 +35,11 @@ class CkcSpringBootAutoConfiguration {
     @ConditionalOnClass(MeterRegistry::class)
     @ConditionalOnBean(MeterRegistry::class)
     @ConditionalOnMissingBean
-    fun ckcMicrometerConsumerMetricsFactory(
+    fun ckcMicrometerConsumerMetricsSchema(
         meterRegistry: MeterRegistry,
         properties: CkcConsumerProperties
-    ): MicrometerConsumerMetricsFactory =
-        MicrometerConsumerMetricsFactory(
+    ): MicrometerConsumerMetricsSchema =
+        MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = properties.metrics.prefix
         )
@@ -225,11 +225,11 @@ private fun consumerMetrics(
     if (!properties.metrics.enabled) {
         return ConsumerMetrics.NOOP
     }
-    val factory = runCatching {
-        applicationContext.getBean(MicrometerConsumerMetricsFactory::class.java)
+    val schema = runCatching {
+        applicationContext.getBean(MicrometerConsumerMetricsSchema::class.java)
     }.getOrNull() ?: return ConsumerMetrics.NOOP
 
-    return micrometerConsumerMetrics(factory) {
+    return micrometerConsumerMetrics(schema) {
         consumerId = consumerName
         recordDrivenTagValues = consumerBean.metricsCustomizer().recordDrivenTagValues()
     }

@@ -1,7 +1,7 @@
 package avh.ckc.spring
 
 import avh.ckc.core.ProcessingMode
-import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
+import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -118,13 +118,13 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
-    fun `creates micrometer metrics factory when meter registry exists`() {
+    fun `creates micrometer metrics schema when meter registry exists`() {
         contextRunner
             .withUserConfiguration(MetricsConfiguration::class.java)
             .withPropertyValues("ckc.metrics.prefix=testapp")
             .run { context ->
-                assertThat(context).hasSingleBean(MicrometerConsumerMetricsFactory::class.java)
-                assertThat(context.getBean(MicrometerConsumerMetricsFactory::class.java).metricPrefix)
+                assertThat(context).hasSingleBean(MicrometerConsumerMetricsSchema::class.java)
+                assertThat(context.getBean(MicrometerConsumerMetricsSchema::class.java).metricPrefix)
                     .isEqualTo("testapp")
             }
     }

@@ -2,7 +2,7 @@ package avh.ckc.demo
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
+import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
@@ -29,8 +29,8 @@ class CkcNoopMetricsProfileContextTest(
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>
 ) {
     @Test
-    fun `noop metrics implementation does not create Micrometer factory`() {
-        assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetricsFactory::class.java).isNotEmpty())
+    fun `noop metrics implementation does not create Micrometer schema`() {
+        assertFalse(applicationContext.getBeansOfType(MicrometerConsumerMetricsSchema::class.java).isNotEmpty())
         assertSame<Any>(ConsumerMetrics.NOOP, consumerMetrics)
     }
 }

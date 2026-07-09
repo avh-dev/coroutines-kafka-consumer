@@ -70,6 +70,6 @@ class OrdersWarmup(
 }
 ```
 
-If a `MeterRegistry` is present, the starter creates a default `MicrometerConsumerMetricsFactory`
-using `ckc.metrics.prefix`. Applications can provide their own factory bean to customize tags and
+If a `MeterRegistry` is present, the starter creates a default `MicrometerConsumerMetricsSchema`
+using `ckc.metrics.prefix`. Applications can provide their own schema bean to customize tags and
 record-driven tag schemas.

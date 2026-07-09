@@ -4,9 +4,9 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.micrometer.MicrometerConsumerMetricsFactory
+import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.micrometer.micrometerConsumerMetrics
-import avh.ckc.micrometer.recordDrivenTagSchema
+import avh.ckc.micrometer.recordDrivenTags
 import avh.ckc.micrometer.recordDrivenTagValues
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
@@ -25,41 +25,41 @@ class MetricsConfiguration {
     @Bean
     @Profile("ckc", "ckc-sync", "ckc-sync-loom", "ckc-spring-boot")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun micrometerConsumerMetricsFactory(meterRegistry: MeterRegistry): MicrometerConsumerMetricsFactory =
-        MicrometerConsumerMetricsFactory(
+    fun micrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
+        MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = "demo",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
 
     @Bean
     @Profile("spring-kafka")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun springKafkaMicrometerConsumerMetricsFactory(meterRegistry: MeterRegistry): MicrometerConsumerMetricsFactory =
-        MicrometerConsumerMetricsFactory(
+    fun springKafkaMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
+        MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = "demo",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
 
     @Bean
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun springKafkaCoroutinesNaiveMicrometerConsumerMetricsFactory(meterRegistry: MeterRegistry): MicrometerConsumerMetricsFactory =
-        MicrometerConsumerMetricsFactory(
+    fun springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
+        MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = "demo",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
 
     @Bean
     @Profile("confluent-parallel", "confluent-parallel-reactor")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun confluentParallelMicrometerConsumerMetricsFactory(meterRegistry: MeterRegistry): MicrometerConsumerMetricsFactory =
-        MicrometerConsumerMetricsFactory(
+    fun confluentParallelMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
+        MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = "demo",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
 
     @Bean
@@ -79,9 +79,9 @@ class MetricsConfiguration {
     @Profile("ckc", "ckc-sync", "ckc-sync-loom")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun consumerMetrics(
-        @Qualifier("micrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("micrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
             recordDrivenTagValues = cauldronTelemetryTagValueProvider()
         }
@@ -90,9 +90,9 @@ class MetricsConfiguration {
     @Profile("ckc", "ckc-sync", "ckc-sync-loom")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun orderConsumerMetrics(
-        @Qualifier("micrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("micrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
             recordDrivenTagValues = orderLifecycleTagValueProvider()
         }
@@ -101,9 +101,9 @@ class MetricsConfiguration {
     @Profile("ckc", "ckc-sync", "ckc-sync-loom")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun batchConsumerMetrics(
-        @Qualifier("micrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("micrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
             recordDrivenTagValues = batchLifecycleTagValueProvider()
         }
@@ -112,9 +112,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaConsumerMetrics(
-        @Qualifier("springKafkaMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
             recordDrivenTagValues = cauldronTelemetryTagValueProvider()
         }
@@ -123,9 +123,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaOrderConsumerMetrics(
-        @Qualifier("springKafkaMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
             recordDrivenTagValues = orderLifecycleTagValueProvider()
         }
@@ -134,9 +134,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaBatchConsumerMetrics(
-        @Qualifier("springKafkaMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
             recordDrivenTagValues = batchLifecycleTagValueProvider()
         }
@@ -145,9 +145,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaCoroutinesNaiveConsumerMetrics(
-        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
             recordDrivenTagValues = cauldronTelemetryTagValueProvider()
         }
@@ -156,9 +156,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaCoroutinesNaiveOrderConsumerMetrics(
-        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
             recordDrivenTagValues = orderLifecycleTagValueProvider()
         }
@@ -167,9 +167,9 @@ class MetricsConfiguration {
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaCoroutinesNaiveBatchConsumerMetrics(
-        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
             recordDrivenTagValues = batchLifecycleTagValueProvider()
         }
@@ -178,9 +178,9 @@ class MetricsConfiguration {
     @Profile("confluent-parallel", "confluent-parallel-reactor")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun confluentParallelConsumerMetrics(
-        @Qualifier("confluentParallelMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("confluentParallelMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
             recordDrivenTagValues = cauldronTelemetryTagValueProvider()
         }
@@ -189,9 +189,9 @@ class MetricsConfiguration {
     @Profile("confluent-parallel", "confluent-parallel-reactor")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun confluentParallelOrderConsumerMetrics(
-        @Qualifier("confluentParallelMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("confluentParallelMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
             recordDrivenTagValues = orderLifecycleTagValueProvider()
         }
@@ -200,9 +200,9 @@ class MetricsConfiguration {
     @Profile("confluent-parallel", "confluent-parallel-reactor")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun confluentParallelBatchConsumerMetrics(
-        @Qualifier("confluentParallelMicrometerConsumerMetricsFactory") micrometerConsumerMetricsFactory: MicrometerConsumerMetricsFactory
+        @Qualifier("confluentParallelMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
-        micrometerConsumerMetrics(micrometerConsumerMetricsFactory) {
+        micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
             recordDrivenTagValues = batchLifecycleTagValueProvider()
         }

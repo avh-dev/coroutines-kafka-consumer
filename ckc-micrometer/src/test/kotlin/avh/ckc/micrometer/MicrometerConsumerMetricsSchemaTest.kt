@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class MicrometerConsumerMetricsFactoryTest {
+class MicrometerConsumerMetricsSchemaTest {
 
     private data class TestLifecycleEvent(
         val eventType: String
@@ -26,12 +26,12 @@ class MicrometerConsumerMetricsFactoryTest {
     @Test
     fun `when record is processed then processing and age timers are recorded`() {
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
             staticTags = listOf(Tag.of("app", "test"))
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory) {
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
                 consumerId = "orders"
             }
         }
@@ -70,7 +70,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when record fails then failure metrics include error tag`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onRecordFailed(
@@ -104,12 +104,12 @@ class MicrometerConsumerMetricsFactoryTest {
     @Test
     fun `when record is dropped then dropped counter is recorded`() {
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
             staticTags = listOf(Tag.of("app", "test"))
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory) {
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
                 consumerId = "telemetry"
             }
         }
@@ -135,7 +135,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when record is dropped with reason then dropped counter includes reason tag`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onRecordDropped(
@@ -157,7 +157,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when retry commit poll and consumer failure happen then corresponding meters are recorded`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
@@ -229,7 +229,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when metrics are recorded then timers are registered`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onPoll(recordsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(1))
@@ -242,11 +242,11 @@ class MicrometerConsumerMetricsFactoryTest {
     @Test
     fun `when metric prefix is configured then all meter names use it`() {
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "myapp"
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory)
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema)
         }
 
         metrics.onRetry("key", TestLifecycleEvent("ORDER_CREATED"), testRecord(partition = 0), 1, IOException("transient"))
@@ -258,9 +258,9 @@ class MicrometerConsumerMetricsFactoryTest {
     }
 
     @Test
-    fun `when metric prefix includes ckc suffix then factory rejects it`() {
+    fun `when metric prefix includes ckc suffix then schema rejects it`() {
         assertThrows(IllegalArgumentException::class.java) {
-            MicrometerConsumerMetricsFactory(
+            MicrometerConsumerMetricsSchema(
                 meterRegistry = SimpleMeterRegistry(),
                 metricPrefix = "myapp.ckc"
             )
@@ -271,7 +271,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when consumer id is omitted then default consumer id tag is recorded`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onPoll(recordsCount = 1, durationNanos = TimeUnit.MILLISECONDS.toNanos(1))
@@ -279,7 +279,7 @@ class MicrometerConsumerMetricsFactoryTest {
         assertEquals(
             1L,
             registry.get("test.ckc.poll.duration")
-                .tag("consumer_id", MicrometerConsumerMetricsFactory.DEFAULT_CONSUMER_ID)
+                .tag("consumer_id", MicrometerConsumerMetricsSchema.DEFAULT_CONSUMER_ID)
                 .timer()
                 .count()
         )
@@ -298,7 +298,7 @@ class MicrometerConsumerMetricsFactoryTest {
             maxObservedOrderingQueueSize = 6
         )
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         ) {
             consumerId = "telemetry"
         }
@@ -339,7 +339,7 @@ class MicrometerConsumerMetricsFactoryTest {
             offsetTrackerBitCapacity = 128
         )
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         ) {
             consumerId = "telemetry"
         }
@@ -384,12 +384,12 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when record tag value provider is configured then custom tags are attached to record metrics`() {
         val eventTypeTag = "event_type"
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory) {
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
                 recordDrivenTagValues = recordDrivenTagValues {
                     tag(eventTypeTag) { record -> record.value()?.eventType }
                 }
@@ -418,14 +418,14 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when tag value is omitted then schema missing value is used`() {
         val eventTypeTag = "event_type"
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
-            recordDrivenTagSchema = recordDrivenTagSchema {
+            recordDrivenTags = recordDrivenTags {
                 tag(eventTypeTag, defaultValue = "UNKNOWN")
             }
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory)
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema)
         }
 
         metrics.onRecordProcessed(
@@ -451,12 +451,12 @@ class MicrometerConsumerMetricsFactoryTest {
         val declaredTag = "event_type"
         val undeclaredTag = "tenant"
         val registry = SimpleMeterRegistry()
-        val metrics = MicrometerConsumerMetricsFactory(
+        val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
-            recordDrivenTagSchema = recordDrivenTagSchema(declaredTag)
-        ).let { factory ->
-            micrometerConsumerMetrics<String, TestLifecycleEvent>(factory) {
+            recordDrivenTags = recordDrivenTags(declaredTag)
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
                 recordDrivenTagValues = recordDrivenTagValues {
                     tag(undeclaredTag) { "acme" }
                 }
@@ -484,7 +484,7 @@ class MicrometerConsumerMetricsFactoryTest {
     @Test
     fun `when custom record tag uses consumer id then schema rejects it`() {
         assertThrows(IllegalArgumentException::class.java) {
-            recordDrivenTagSchema("consumer_id")
+            recordDrivenTags("consumer_id")
         }
     }
 
@@ -492,17 +492,17 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when prometheus metrics use the same tag keys then all topic series are exposed`() {
         val eventTypeTag = "event_type"
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-        val sharedMetrics = MicrometerConsumerMetricsFactory(
+        val sharedSchema = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
             metricPrefix = "test",
-            recordDrivenTagSchema = recordDrivenTagSchema(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
-        val staticTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedMetrics) {
+        val staticTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedSchema) {
             recordDrivenTagValues = recordDrivenTagValues {
                 tag(eventTypeTag) { "CAULDRON_TELEMETRY" }
             }
         }
-        val lifecycleTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedMetrics) {
+        val lifecycleTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedSchema) {
             recordDrivenTagValues = recordDrivenTagValues {
                 tag(eventTypeTag) { record -> record.value()?.eventType ?: "UNKNOWN" }
             }
@@ -533,7 +533,7 @@ class MicrometerConsumerMetricsFactoryTest {
     fun `when record age metrics are emitted for success and failure then prometheus exposes both series`() {
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsFactory(registry, metricPrefix = "test")
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
 
         metrics.onRecordProcessed(

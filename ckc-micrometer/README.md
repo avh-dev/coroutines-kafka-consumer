@@ -21,13 +21,13 @@ records, failures, and live runtime gauges.
 
 ## Minimal Usage
 
-Create one `MicrometerConsumerMetricsFactory` instance per metric family configuration, create one
+Create one `MicrometerConsumerMetricsSchema` instance per metric family configuration, create one
 `ConsumerMetrics` instance per CKC consumer, and pass that metrics instance to the consumer DSL:
 
 ```kotlin
 val meterRegistry = SimpleMeterRegistry()
 
-val ckcMetricsFactory = MicrometerConsumerMetricsFactory(
+val ckcMetricsSchema = MicrometerConsumerMetricsSchema(
     meterRegistry = meterRegistry,
     metricPrefix = "myapp"
 )
@@ -36,7 +36,7 @@ val orderConsumer = coroutinesKafkaConsumer<String, OrderEvent>(
     consumerProperties = orderConsumerProperties
 ) {
     topics("order.events")
-    metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFactory)
+    metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema)
 
     handle { record ->
         orderService.apply(record.value())
@@ -82,12 +82,12 @@ type and make slow event classes visible.
   </tr>
 </table>
 
-Metric identity and tag schema are configured at the `MicrometerConsumerMetricsFactory` level:
+Metric identity and tag schema are configured at the `MicrometerConsumerMetricsSchema` level:
 
 - `metricPrefix` is mandatory and is prepended before the permanent `.ckc` segment.
 - `consumerId` sets the value of the `consumer_id` tag. The tag is always present on CKC meters;
   if omitted, it uses `default`.
-- `recordDrivenTagSchema` declares custom record tag keys and their default values.
+- `recordDrivenTags` declares custom record tag keys and their default values.
 - `micrometerConsumerMetrics(...)` creates one `ConsumerMetrics` instance and may provide
   record-driven extractors for declared custom tags.
 
@@ -95,7 +95,7 @@ Why is `metricPrefix` mandatory?
 
 In most deployments Micrometer meters are exported to Prometheus. Prometheus expects one metric
 family to have a consistent set of label names. Reusing the same metric name with different custom
-tag schemas across applications or factories makes dashboard aggregation fragile and can produce
+tag schemas across applications or metric schemas makes dashboard aggregation fragile and can produce
 invalid or dropped series. Use a unique `metricPrefix` for each application, or for each independent
 metrics family when one application deliberately hosts consumers with different record-driven tag schemas.
 
@@ -105,19 +105,19 @@ For example, with `metricPrefix = "myapp"` the full name of `ckc.record.process.
 myapp.ckc.record.process.duration
 ```
 
-Declare custom record tag keys up front on the factory, then provide record-driven extractors when
+Declare custom record tag keys up front on the schema, then provide record-driven extractors when
 creating the consumer metrics instance:
 
 ```kotlin
-val ckcMetricsFactory = MicrometerConsumerMetricsFactory(
+val ckcMetricsSchema = MicrometerConsumerMetricsSchema(
     meterRegistry = meterRegistry,
     metricPrefix = "myapp",
-    recordDrivenTagSchema = recordDrivenTagSchema {
+    recordDrivenTags = recordDrivenTags {
         tag("event_type", defaultValue = "UNKNOWN")
     }
 )
 
-val orderMetrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFactory) {
+val orderMetrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
     consumerId = "order_events"
     recordDrivenTagValues = recordDrivenTagValues {
         tag("event_type") { record ->
@@ -127,10 +127,10 @@ val orderMetrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFacto
 }
 ```
 
-The schema is declared once at factory creation time. Every record-level meter created by that
-factory has the same custom tag keys, even when different consumers populate different values. If an
+The schema is declared once at schema creation time. Every record-level meter created by that
+schema has the same custom tag keys, even when different consumers populate different values. If an
 extractor is missing or returns `null`, the tag uses the default value from the schema. If a provider
-defines an extractor for a tag key that is not declared in the schema, the factory logs a warning
+defines an extractor for a tag key that is not declared in the schema, the schema logs a warning
 when the `ConsumerMetrics` instance is created and ignores that extractor.
 
 Custom record tags are attached to metrics that observe processing, failure, age, and retry signals:
@@ -145,7 +145,7 @@ ckc.record.retry
 They are not attached to poll, commit, pause/resume, runtime gauge, partition gauge, consumer
 failure, or dropped-record metrics.
 
-Reserved tag keys are owned by the factory and cannot be used as custom record tags:
+Reserved tag keys are owned by the schema and cannot be used as custom record tags:
 
 ```text
 consumer_id
@@ -333,32 +333,32 @@ derived from the count of `myapp.ckc.record.failed.duration`.
 </table>
 
 `consumer_id` is always present. If `micrometerConsumerMetrics(...)` is called without an explicit
-value, the factory uses `consumer_id=default`.
+value, the schema uses `consumer_id=default`.
 
 ## Public API
 
-`MicrometerConsumerMetricsFactory` holds the meter registry, metric name prefix, static tags, and
-record-driven tag schema for a metric family:
+`MicrometerConsumerMetricsSchema` holds the meter registry, metric name prefix, static tags, and
+record-driven tag definitions for a metric family:
 
 ```kotlin
-MicrometerConsumerMetricsFactory(
+MicrometerConsumerMetricsSchema(
     meterRegistry = meterRegistry,
     metricPrefix = "myapp",
     staticTags = listOf(Tag.of("service", "orders")),
-    recordDrivenTagSchema = recordDrivenTagSchema("event_type")
+    recordDrivenTags = recordDrivenTags("event_type")
 )
 ```
 
 - `meterRegistry`: Micrometer registry that receives CKC meters.
 - `metricPrefix`: required user-defined prefix before the permanent `.ckc` segment.
-- `staticTags`: optional tags attached to every meter created by the factory.
-- `recordDrivenTagSchema`: optional schema for record-driven custom tags.
+- `staticTags`: optional tags attached to every meter created by the schema.
+- `recordDrivenTags`: optional definitions for record-driven custom tags.
 
-`micrometerConsumerMetrics(factory) { ... }` creates the `ConsumerMetrics<K, V>` instance passed to a
+`micrometerConsumerMetrics(schema) { ... }` creates the `ConsumerMetrics<K, V>` instance passed to a
 CKC consumer:
 
 ```kotlin
-val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFactory) {
+val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
     consumerId = "order_events"
     recordDrivenTagValues = recordDrivenTagValues {
         tag("event_type") { record -> record.value()?.type?.name }
@@ -370,10 +370,10 @@ val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsFactory) {
   `default`.
 - `recordDrivenTagValues`: optional per-consumer extractors for record-driven custom tags.
 
-`recordDrivenTagSchema(...)` declares allowed custom record tag keys and defaults:
+`recordDrivenTags(...)` declares allowed custom record tag keys and defaults:
 
 ```kotlin
-recordDrivenTagSchema {
+recordDrivenTags {
     tag("event_type", defaultValue = "UNKNOWN")
     tag("tenant_class", defaultValue = "NONE")
 }
