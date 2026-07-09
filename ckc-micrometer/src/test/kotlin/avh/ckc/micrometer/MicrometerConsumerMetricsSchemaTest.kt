@@ -390,7 +390,7 @@ class MicrometerConsumerMetricsSchemaTest {
             recordDrivenTags = recordDrivenTags(eventTypeTag)
         ).let { schema ->
             micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
-                recordDrivenTagValues = recordDrivenTagValues {
+                recordDrivenTagExtractors = recordDrivenTagExtractors {
                     tag(eventTypeTag) { record -> record.value()?.eventType }
                 }
             }
@@ -457,7 +457,7 @@ class MicrometerConsumerMetricsSchemaTest {
             recordDrivenTags = recordDrivenTags(declaredTag)
         ).let { schema ->
             micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
-                recordDrivenTagValues = recordDrivenTagValues {
+                recordDrivenTagExtractors = recordDrivenTagExtractors {
                     tag(undeclaredTag) { "acme" }
                 }
             }
@@ -498,12 +498,12 @@ class MicrometerConsumerMetricsSchemaTest {
             recordDrivenTags = recordDrivenTags(eventTypeTag)
         )
         val staticTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedSchema) {
-            recordDrivenTagValues = recordDrivenTagValues {
+            recordDrivenTagExtractors = recordDrivenTagExtractors {
                 tag(eventTypeTag) { "CAULDRON_TELEMETRY" }
             }
         }
         val lifecycleTopicMetrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(sharedSchema) {
-            recordDrivenTagValues = recordDrivenTagValues {
+            recordDrivenTagExtractors = recordDrivenTagExtractors {
                 tag(eventTypeTag) { record -> record.value()?.eventType ?: "UNKNOWN" }
             }
         }

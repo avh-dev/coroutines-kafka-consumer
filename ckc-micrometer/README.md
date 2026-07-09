@@ -119,7 +119,7 @@ val ckcMetricsSchema = MicrometerConsumerMetricsSchema(
 
 val orderMetrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
     consumerId = "order_events"
-    recordDrivenTagValues = recordDrivenTagValues {
+    recordDrivenTagExtractors = recordDrivenTagExtractors {
         tag("event_type") { record ->
             record.value()?.type?.name
         }
@@ -360,7 +360,7 @@ CKC consumer:
 ```kotlin
 val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
     consumerId = "order_events"
-    recordDrivenTagValues = recordDrivenTagValues {
+    recordDrivenTagExtractors = recordDrivenTagExtractors {
         tag("event_type") { record -> record.value()?.type?.name }
     }
 }
@@ -368,7 +368,7 @@ val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
 
 - `consumerId`: logical CKC consumer id. It sets the value of the `consumer_id` tag and defaults to
   `default`.
-- `recordDrivenTagValues`: optional per-consumer extractors for record-driven custom tags.
+- `recordDrivenTagExtractors`: optional per-consumer extractors for record-driven custom tags.
 
 `recordDrivenTags(...)` declares allowed custom record tag keys and defaults:
 
@@ -379,7 +379,7 @@ recordDrivenTags {
 }
 ```
 
-`recordDrivenTagValues { ... }` declares extractor functions by tag key. Each extractor
+`recordDrivenTagExtractors { ... }` declares extractor functions by tag key. Each extractor
 receives the current Kafka `ConsumerRecord<K, V>` and returns a tag value or `null`.
 
 ## Filtering

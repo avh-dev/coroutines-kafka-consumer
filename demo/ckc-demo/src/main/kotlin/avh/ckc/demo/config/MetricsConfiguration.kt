@@ -7,7 +7,7 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.micrometer.micrometerConsumerMetrics
 import avh.ckc.micrometer.recordDrivenTags
-import avh.ckc.micrometer.recordDrivenTagValues
+import avh.ckc.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier
@@ -83,7 +83,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
-            recordDrivenTagValues = cauldronTelemetryTagValueProvider()
+            recordDrivenTagExtractors = cauldronTelemetryTagValueProvider()
         }
 
     @Bean
@@ -94,7 +94,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
-            recordDrivenTagValues = orderLifecycleTagValueProvider()
+            recordDrivenTagExtractors = orderLifecycleTagValueProvider()
         }
 
     @Bean
@@ -105,7 +105,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
-            recordDrivenTagValues = batchLifecycleTagValueProvider()
+            recordDrivenTagExtractors = batchLifecycleTagValueProvider()
         }
 
     @Bean
@@ -116,7 +116,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
-            recordDrivenTagValues = cauldronTelemetryTagValueProvider()
+            recordDrivenTagExtractors = cauldronTelemetryTagValueProvider()
         }
 
     @Bean
@@ -127,7 +127,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
-            recordDrivenTagValues = orderLifecycleTagValueProvider()
+            recordDrivenTagExtractors = orderLifecycleTagValueProvider()
         }
 
     @Bean
@@ -138,7 +138,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
-            recordDrivenTagValues = batchLifecycleTagValueProvider()
+            recordDrivenTagExtractors = batchLifecycleTagValueProvider()
         }
 
     @Bean
@@ -149,7 +149,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
-            recordDrivenTagValues = cauldronTelemetryTagValueProvider()
+            recordDrivenTagExtractors = cauldronTelemetryTagValueProvider()
         }
 
     @Bean
@@ -160,7 +160,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
-            recordDrivenTagValues = orderLifecycleTagValueProvider()
+            recordDrivenTagExtractors = orderLifecycleTagValueProvider()
         }
 
     @Bean
@@ -171,7 +171,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
-            recordDrivenTagValues = batchLifecycleTagValueProvider()
+            recordDrivenTagExtractors = batchLifecycleTagValueProvider()
         }
 
     @Bean
@@ -182,7 +182,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "cauldron_events"
-            recordDrivenTagValues = cauldronTelemetryTagValueProvider()
+            recordDrivenTagExtractors = cauldronTelemetryTagValueProvider()
         }
 
     @Bean
@@ -193,7 +193,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "order_events"
-            recordDrivenTagValues = orderLifecycleTagValueProvider()
+            recordDrivenTagExtractors = orderLifecycleTagValueProvider()
         }
 
     @Bean
@@ -204,7 +204,7 @@ class MetricsConfiguration {
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
         micrometerConsumerMetrics(micrometerConsumerMetricsSchema) {
             consumerId = "batch_events"
-            recordDrivenTagValues = batchLifecycleTagValueProvider()
+            recordDrivenTagExtractors = batchLifecycleTagValueProvider()
         }
 
     @Bean("consumerMetrics")
@@ -274,17 +274,17 @@ class MetricsConfiguration {
         noopMetrics()
 
     private fun cauldronTelemetryTagValueProvider() =
-        recordDrivenTagValues<String, CauldronTelemetryEvent> {
+        recordDrivenTagExtractors<String, CauldronTelemetryEvent> {
             tag(eventTypeTag) { "CAULDRON_TELEMETRY" }
         }
 
     private fun orderLifecycleTagValueProvider() =
-        recordDrivenTagValues<String, OrderLifecycleEvent> {
+        recordDrivenTagExtractors<String, OrderLifecycleEvent> {
             tag(eventTypeTag) { record -> record.value()?.eventType?.name ?: "UNKNOWN" }
         }
 
     private fun batchLifecycleTagValueProvider() =
-        recordDrivenTagValues<String, BatchLifecycleEvent> {
+        recordDrivenTagExtractors<String, BatchLifecycleEvent> {
             tag(eventTypeTag) { record -> record.value()?.eventType?.name ?: "UNKNOWN" }
         }
 

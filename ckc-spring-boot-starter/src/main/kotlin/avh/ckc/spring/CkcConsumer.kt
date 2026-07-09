@@ -1,6 +1,6 @@
 package avh.ckc.spring
 
-import avh.ckc.micrometer.RecordDrivenTagValues
+import avh.ckc.micrometer.RecordDrivenTagExtractors
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 /**
@@ -19,10 +19,10 @@ interface CkcConsumer<K, V> {
 }
 
 fun interface CkcMetricsCustomizer<K, V> {
-    fun recordDrivenTagValues(): RecordDrivenTagValues<K, V>
+    fun recordDrivenTagExtractors(): RecordDrivenTagExtractors<K, V>
 
     companion object {
         fun <K, V> none(): CkcMetricsCustomizer<K, V> =
-            CkcMetricsCustomizer { RecordDrivenTagValues.none() }
+            CkcMetricsCustomizer { RecordDrivenTagExtractors.none() }
     }
 }

@@ -231,7 +231,7 @@ private fun consumerMetrics(
 
     return micrometerConsumerMetrics(schema) {
         consumerId = consumerName
-        recordDrivenTagValues = consumerBean.metricsCustomizer().recordDrivenTagValues()
+        recordDrivenTagExtractors = consumerBean.metricsCustomizer().recordDrivenTagExtractors()
     }
 }
 

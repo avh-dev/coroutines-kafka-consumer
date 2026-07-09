@@ -9,7 +9,7 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
-import avh.ckc.micrometer.recordDrivenTagValues
+import avh.ckc.micrometer.recordDrivenTagExtractors
 import avh.ckc.spring.CkcConsumer
 import avh.ckc.spring.CkcKafkaConsumer
 import avh.ckc.spring.CkcMetricsCustomizer
@@ -39,7 +39,7 @@ class OrderLifecycleCkcSpringBootConsumer(
 
     override fun metricsCustomizer(): CkcMetricsCustomizer<String, OrderLifecycleEvent> =
         CkcMetricsCustomizer {
-            recordDrivenTagValues {
+            recordDrivenTagExtractors {
                 tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
             }
         }
@@ -67,7 +67,7 @@ class BatchLifecycleCkcSpringBootConsumer(
 
     override fun metricsCustomizer(): CkcMetricsCustomizer<String, BatchLifecycleEvent> =
         CkcMetricsCustomizer {
-            recordDrivenTagValues {
+            recordDrivenTagExtractors {
                 tag(EVENT_TYPE_TAG) { record -> record.value()?.eventType?.name ?: UNKNOWN_EVENT_TYPE }
             }
         }
@@ -95,7 +95,7 @@ class CauldronTelemetryCkcSpringBootConsumer(
 
     override fun metricsCustomizer(): CkcMetricsCustomizer<String, CauldronTelemetryEvent> =
         CkcMetricsCustomizer {
-            recordDrivenTagValues {
+            recordDrivenTagExtractors {
                 tag(EVENT_TYPE_TAG) { "CAULDRON_TELEMETRY" }
             }
         }

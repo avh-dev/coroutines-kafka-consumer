@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 internal class BoundMicrometerConsumerMetrics<K, V>(
     private val schema: MicrometerConsumerMetricsSchema,
     consumerId: String,
-    private val recordDrivenTagValues: RecordDrivenTagValues<K, V>
+    private val recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>
 ) : ConsumerMetrics<K, V> {
     private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
     private val runtimeMeters = mutableListOf<Meter>()
@@ -157,5 +157,5 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         schema.tags(consumerTags, *pairs)
 
     private fun recordTags(record: ConsumerRecord<K, V>): Tags =
-        schema.recordTags(consumerTags, recordDrivenTagValues, record)
+        schema.recordTags(consumerTags, recordDrivenTagExtractors, record)
 }

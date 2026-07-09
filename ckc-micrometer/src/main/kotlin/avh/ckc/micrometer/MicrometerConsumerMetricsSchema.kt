@@ -49,17 +49,17 @@ open class MicrometerConsumerMetricsSchema(
 
     internal fun <K, V> createConsumerMetrics(
         consumerId: String,
-        recordDrivenTagValues: RecordDrivenTagValues<K, V>
+        recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>
     ): ConsumerMetrics<K, V> {
         require(consumerId.isNotBlank()) { "Consumer id must not be blank" }
-        val unknownKeys = recordDrivenTagValues.extractors.keys - recordDrivenTags.keys
+        val unknownKeys = recordDrivenTagExtractors.extractors.keys - recordDrivenTags.keys
         if (unknownKeys.isNotEmpty()) {
             logger.warning(
                 "Ignoring record-driven tag extractors not declared in the Micrometer record-driven tag schema: " +
                     unknownKeys.joinToString()
             )
         }
-        return BoundMicrometerConsumerMetrics(this, consumerId, recordDrivenTagValues)
+        return BoundMicrometerConsumerMetrics(this, consumerId, recordDrivenTagExtractors)
     }
 
     internal fun timer(suffix: String, tags: Iterable<Tag> = staticTags): Timer =
@@ -85,13 +85,13 @@ open class MicrometerConsumerMetricsSchema(
 
     internal fun <K, V> recordTags(
         baseTags: Iterable<Tag>,
-        recordDrivenTagValues: RecordDrivenTagValues<K, V>,
+        recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>,
         record: ConsumerRecord<K, V>
     ): Tags {
         return tags(
             baseTags,
             "topic" to record.topic()
-        ).and(recordDrivenTags.tagsFrom(recordDrivenTagValues, record))
+        ).and(recordDrivenTags.tagsFrom(recordDrivenTagExtractors, record))
     }
 
     companion object {
@@ -104,7 +104,7 @@ open class MicrometerConsumerMetricsSchema(
  * Builder for a Micrometer-backed [ConsumerMetrics] instance bound to one CKC consumer.
  *
  * The builder is used by [micrometerConsumerMetrics]. If [consumerId] is not changed, the
- * bound metrics use `consumer_id=default`. [recordDrivenTagValues] may provide extractors for
+ * bound metrics use `consumer_id=default`. [recordDrivenTagExtractors] may provide extractors for
  * custom tags declared by the schema's [MicrometerConsumerMetricsSchema.recordDrivenTags].
  */
 class MicrometerConsumerMetricsBuilder<K, V> internal constructor() {
@@ -120,8 +120,8 @@ class MicrometerConsumerMetricsBuilder<K, V> internal constructor() {
      *
      * Missing extractors and `null` extractor results use defaults from the metrics schema.
      */
-    var recordDrivenTagValues: RecordDrivenTagValues<K, V> =
-        RecordDrivenTagValues.none()
+    var recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V> =
+        RecordDrivenTagExtractors.none()
 }
 
 /**
@@ -136,5 +136,5 @@ fun <K, V> micrometerConsumerMetrics(
     block: MicrometerConsumerMetricsBuilder<K, V>.() -> Unit = {}
 ): ConsumerMetrics<K, V> {
     val builder = MicrometerConsumerMetricsBuilder<K, V>().apply(block)
-    return schema.createConsumerMetrics(builder.consumerId, builder.recordDrivenTagValues)
+    return schema.createConsumerMetrics(builder.consumerId, builder.recordDrivenTagExtractors)
 }
