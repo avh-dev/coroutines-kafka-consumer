@@ -1,11 +1,13 @@
 package avh.ckc.demo
 
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.spring.CkcConsumerProperties
 import avh.ckc.spring.CkcConsumerRegistry
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
@@ -78,5 +80,16 @@ class CkcSpringBootProfileContextTest(
 
         assertNotNull(gauge)
         assertEquals(1.0, gauge.value())
+    }
+
+    @Test
+    fun `ckc spring boot profile uses custom metrics for audit wrapping`() {
+        val ckcProperties = applicationContext.getBean(CkcConsumerProperties::class.java)
+
+        assertEquals(CkcConsumerProperties.MetricsImplementation.CUSTOM, ckcProperties.metrics.implementation)
+        assertEquals(
+            setOf("orderConsumerMetrics", "batchConsumerMetrics", "cauldronConsumerMetrics"),
+            applicationContext.getBeansOfType(ConsumerMetrics::class.java).keys
+        )
     }
 }

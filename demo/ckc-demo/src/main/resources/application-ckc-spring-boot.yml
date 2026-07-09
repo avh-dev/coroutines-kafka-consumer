@@ -2,7 +2,7 @@ ckc:
   enabled: true
   metrics:
     enabled: ${CKC_METRICS_ENABLED:true}
-    implementation: MICROMETER
+    implementation: CUSTOM
     micrometer:
       schemas:
         default:

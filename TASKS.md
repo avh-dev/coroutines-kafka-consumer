@@ -97,6 +97,7 @@
 | [DEMO-59](#demo-59) | Stabilize demo Spring context tests that start Armeria on shared ports. | DONE |
 | [DEMO-60](#demo-60) | Add a CKC sync Loom profile that runs blocking demo handlers on virtual threads instead of `Dispatchers.IO`. | DONE |
 | [DEMO-61](#demo-61) | Add a `ckc-spring-boot` demo profile that uses the CKC Spring Boot starter for configuration-driven consumer wiring. | DONE |
+| [DEMO-62](#demo-62) | Wire custom metrics for the `ckc-spring-boot` demo profile so retry and drop audit records are emitted by the starter-backed consumers. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1753,6 +1754,15 @@ _Date: 2026-07-09_
 Added a parallel demo profile named `ckc-spring-boot` that exercises the Spring Boot starter in a normal application shape.
 Kept the existing hand-wired `ckc` profiles intact while moving the new profile's CKC runtime settings into application configuration.
 The demo profile keeps code focused on annotated consumer classes and business handling.
+
+<a id="demo-62"></a>
+### DEMO-62 - Add CKC Spring Boot audit metrics
+
+_Date: 2026-07-09_
+
+Use the starter custom metrics hook in the `ckc-spring-boot` demo profile.
+Keep Micrometer record metrics while wrapping retry and drop callbacks with demo audit logging.
+This lets internal-lab audit analysis see the same terminal and retry signals for starter-backed CKC consumers.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile
