@@ -15,6 +15,12 @@ ckc:
               default: UNKNOWN
   default-cluster: local
   default-retry-schema: default
+  default-processing-dispatcher: workers
+  dispatchers:
+    workers:
+      type: FIXED_THREAD_POOL
+      threads: ${WORKER_DISPATCHER_THREADS:8}
+      thread-name-prefix: ckc-spring-boot-worker-
   retry-schemas:
     default:
       rules:

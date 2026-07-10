@@ -10,7 +10,12 @@ import avh.ckc.micrometer.RecordMetricTagDefinition
 import avh.ckc.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.springframework.beans.factory.DisposableBean
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -23,6 +28,8 @@ import org.springframework.core.annotation.AnnotationUtils
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.logging.Logger
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.reflect.KClass
 import kotlin.time.toKotlinDuration
@@ -40,7 +47,11 @@ class CkcSpringBootAutoConfiguration {
 
 class CkcConsumersLifecycle internal constructor(
     private val applicationContext: ApplicationContext
-) : SmartLifecycle, CkcConsumerRegistry {
+) : SmartLifecycle, CkcConsumerRegistry, DisposableBean {
+    private val dispatcherRegistryLazy = lazy {
+        CkcDispatcherRegistry(applicationContext, properties)
+    }
+    private val dispatcherRegistry: CkcDispatcherRegistry by dispatcherRegistryLazy
     private val consumerRuntimes: List<NamedConsumerRuntime> by lazy { resolveConsumerRuntimes() }
     private val runningConsumerNames = linkedSetOf<String>()
     private val properties: CkcConsumerProperties
@@ -87,6 +98,12 @@ class CkcConsumersLifecycle internal constructor(
     override fun isAutoStartup(): Boolean = true
 
     override fun getPhase(): Int = properties.lifecycle.phase
+
+    override fun destroy() {
+        if (dispatcherRegistryLazy.isInitialized()) {
+            dispatcherRegistry.close()
+        }
+    }
 
     override fun isRunning(name: String): Boolean =
         synchronized(this) {
@@ -205,10 +222,12 @@ class CkcConsumersLifecycle internal constructor(
                 processingMode = consumerProperties.processingMode,
                 workerConcurrency = consumerProperties.workerConcurrency,
                 consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency,
+                processingDispatcher = resolvedProcessingDispatcherName(properties, consumerProperties),
                 retrySchema = resolvedRetrySchemaName(properties, consumerProperties.retrySchema),
                 metrics = resolvedMetricsDescription(properties, consumerName),
                 consumer = buildConsumer(
                     applicationContext,
+                    dispatcherRegistry,
                     properties,
                     consumerName,
                     consumerBean,
@@ -226,6 +245,7 @@ class CkcConsumersLifecycle internal constructor(
                             "clientId=${runtime.clientId ?: "<none>"}, processingMode=${runtime.processingMode}, " +
                             "workerConcurrency=${runtime.workerConcurrency}, " +
                             "consumerPollLoopConcurrency=${runtime.consumerPollLoopConcurrency}, " +
+                            "processingDispatcher=${runtime.processingDispatcher}, " +
                             "retrySchema=${runtime.retrySchema ?: "<none>"}, metrics=${runtime.metrics}"
                     )
                 }
@@ -245,6 +265,7 @@ private data class NamedConsumerRuntime(
     val processingMode: avh.ckc.core.ProcessingMode,
     val workerConcurrency: Int,
     val consumerPollLoopConcurrency: Int,
+    val processingDispatcher: String,
     val retrySchema: String?,
     val metrics: String,
     val consumer: avh.ckc.core.CoroutinesKafkaConsumer<Any?, Any?>
@@ -261,8 +282,119 @@ private data class ResolvedCluster(
     val kafkaProperties: Map<String, String>
 )
 
+private class CkcDispatcherRegistry(
+    private val applicationContext: ApplicationContext,
+    private val properties: CkcConsumerProperties
+) : AutoCloseable {
+    private val resolvedDispatchers = linkedMapOf<String, CoroutineDispatcher>()
+    private val ownedDispatchers = mutableListOf<ExecutorCoroutineDispatcher>()
+
+    fun processingDispatcher(
+        consumerName: String,
+        consumerProperties: CkcConsumerProperties.Consumer
+    ): CoroutineDispatcher {
+        val dispatcherName = resolvedProcessingDispatcherName(properties, consumerProperties)
+        return dispatcher(dispatcherName, consumerName)
+    }
+
+    private fun dispatcher(name: String, consumerName: String): CoroutineDispatcher =
+        resolvedDispatchers.getOrPut(name) {
+            when (name) {
+                DISPATCHERS_DEFAULT_NAME -> Dispatchers.Default
+                DISPATCHERS_IO_NAME -> Dispatchers.IO
+                else -> configuredDispatcher(name, consumerName)
+            }
+        }
+
+    private fun configuredDispatcher(name: String, consumerName: String): CoroutineDispatcher {
+        val dispatcher = properties.dispatchers[name]
+            ?: error("CKC consumer '$consumerName' references unknown processing dispatcher '$name'")
+        return when (dispatcher.type) {
+            CkcConsumerProperties.DispatcherType.DISPATCHERS_DEFAULT -> Dispatchers.Default
+            CkcConsumerProperties.DispatcherType.DISPATCHERS_IO -> Dispatchers.IO
+            CkcConsumerProperties.DispatcherType.FIXED_THREAD_POOL -> fixedThreadPoolDispatcher(name, dispatcher)
+            CkcConsumerProperties.DispatcherType.VIRTUAL_THREAD_PER_TASK -> virtualThreadPerTaskDispatcher(name, dispatcher)
+            CkcConsumerProperties.DispatcherType.BEAN -> beanDispatcher(name, consumerName, dispatcher)
+        }
+    }
+
+    private fun fixedThreadPoolDispatcher(
+        name: String,
+        dispatcher: CkcConsumerProperties.Dispatcher
+    ): ExecutorCoroutineDispatcher {
+        require(dispatcher.threads > 0) { "ckc.dispatchers.$name.threads must be > 0" }
+        val threadNumber = AtomicInteger()
+        val prefix = dispatcher.threadNamePrefix ?: "ckc-$name-worker-"
+        return Executors.newFixedThreadPool(dispatcher.threads) { runnable ->
+            Thread(runnable, "$prefix${threadNumber.incrementAndGet()}").apply {
+                isDaemon = true
+            }
+        }.asCoroutineDispatcher().also {
+            ownedDispatchers += it
+            logger.info(
+                "Resolved CKC dispatcher '$name': type=${dispatcher.type}, threads=${dispatcher.threads}, " +
+                    "threadNamePrefix=$prefix"
+            )
+        }
+    }
+
+    private fun virtualThreadPerTaskDispatcher(
+        name: String,
+        dispatcher: CkcConsumerProperties.Dispatcher
+    ): ExecutorCoroutineDispatcher {
+        val threadNumber = AtomicInteger()
+        val prefix = dispatcher.threadNamePrefix ?: "ckc-$name-virtual-"
+        return Executors.newThreadPerTaskExecutor { runnable ->
+            Thread.ofVirtual()
+                .name(prefix, threadNumber.incrementAndGet().toLong())
+                .factory()
+                .newThread(runnable)
+        }.asCoroutineDispatcher().also {
+            ownedDispatchers += it
+            logger.info(
+                "Resolved CKC dispatcher '$name': type=${dispatcher.type}, threadNamePrefix=$prefix"
+            )
+        }
+    }
+
+    private fun beanDispatcher(
+        name: String,
+        consumerName: String,
+        dispatcher: CkcConsumerProperties.Dispatcher
+    ): CoroutineDispatcher {
+        val beanName = requireNotNull(dispatcher.beanName?.takeIf { it.isNotBlank() }) {
+            "ckc.dispatchers.$name.bean-name must be specified for BEAN dispatchers"
+        }
+        val bean = runCatching {
+            applicationContext.getBean(beanName, CoroutineDispatcher::class.java)
+        }.getOrElse { reason ->
+            error(
+                "CKC consumer '$consumerName' references dispatcher '$name' backed by bean '$beanName', " +
+                    "but no CoroutineDispatcher bean with that name is available: ${reason.message}"
+            )
+        }
+        logger.info("Resolved CKC dispatcher '$name': type=${dispatcher.type}, beanName=$beanName")
+        return bean
+    }
+
+    override fun close() {
+        ownedDispatchers.asReversed().forEach { dispatcher ->
+            runCatching { dispatcher.close() }
+        }
+        ownedDispatchers.clear()
+        resolvedDispatchers.clear()
+    }
+
+    companion object {
+        const val DISPATCHERS_DEFAULT_NAME = "dispatchers-default"
+        const val DISPATCHERS_IO_NAME = "dispatchers-io"
+        val BUILT_IN_DISPATCHER_NAMES = setOf(DISPATCHERS_DEFAULT_NAME, DISPATCHERS_IO_NAME)
+    }
+}
+
 private fun buildConsumer(
     applicationContext: ApplicationContext,
+    dispatcherRegistry: CkcDispatcherRegistry,
     properties: CkcConsumerProperties,
     consumerName: String,
     consumerBean: CkcConsumer<Any?, Any?>,
@@ -279,6 +411,7 @@ private fun buildConsumer(
         consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency
         commitIntervalMs = consumerProperties.commitInterval.toMillis()
         workChannelCapacity = consumerProperties.workChannelCapacity
+        processingDispatcher = dispatcherRegistry.processingDispatcher(consumerName, consumerProperties)
         retryPolicy = retryPolicy(properties, consumerName, consumerProperties.retrySchema)
         this.metrics = metrics
         onProcessingFailure { record, reason -> consumerBean.handleFailure(record, reason) }
@@ -312,6 +445,8 @@ private fun validateConsumerSet(
     properties: CkcConsumerProperties,
     annotatedConsumers: List<AnnotatedConsumer>
 ) {
+    validateDispatcherSet(properties)
+
     val duplicateConsumers = annotatedConsumers
         .groupBy { it.consumerName }
         .filterValues { it.size > 1 }
@@ -362,7 +497,58 @@ private fun validateConsumerProperties(
         }
     }
     validateMetricsSchema(properties, consumerName)
+    validateProcessingDispatcher(properties, consumerName, consumerProperties)
 }
+
+private fun validateDispatcherSet(properties: CkcConsumerProperties) {
+    val reservedNames = CkcDispatcherRegistry.BUILT_IN_DISPATCHER_NAMES
+    val reservedConfiguredNames = properties.dispatchers.keys intersect reservedNames
+    require(reservedConfiguredNames.isEmpty()) {
+        "CKC dispatcher names are reserved and cannot be configured: ${reservedConfiguredNames.joinToString()}"
+    }
+    properties.defaultProcessingDispatcher?.takeIf { it.isNotBlank() }?.let { dispatcherName ->
+        require(dispatcherName in reservedNames || dispatcherName in properties.dispatchers) {
+            "CKC default processing dispatcher references unknown dispatcher '$dispatcherName'"
+        }
+    }
+    properties.dispatchers.forEach { (name, dispatcher) ->
+        require(name.isNotBlank()) { "CKC dispatcher name must not be blank" }
+        when (dispatcher.type) {
+            CkcConsumerProperties.DispatcherType.FIXED_THREAD_POOL -> {
+                require(dispatcher.threads > 0) { "ckc.dispatchers.$name.threads must be > 0" }
+            }
+
+            CkcConsumerProperties.DispatcherType.BEAN -> {
+                require(!dispatcher.beanName.isNullOrBlank()) {
+                    "ckc.dispatchers.$name.bean-name must be specified for BEAN dispatchers"
+                }
+            }
+
+            CkcConsumerProperties.DispatcherType.DISPATCHERS_DEFAULT,
+            CkcConsumerProperties.DispatcherType.DISPATCHERS_IO,
+            CkcConsumerProperties.DispatcherType.VIRTUAL_THREAD_PER_TASK -> Unit
+        }
+    }
+}
+
+private fun validateProcessingDispatcher(
+    properties: CkcConsumerProperties,
+    consumerName: String,
+    consumerProperties: CkcConsumerProperties.Consumer
+) {
+    val dispatcherName = resolvedProcessingDispatcherName(properties, consumerProperties)
+    require(dispatcherName in CkcDispatcherRegistry.BUILT_IN_DISPATCHER_NAMES || dispatcherName in properties.dispatchers) {
+        "CKC consumer '$consumerName' references unknown processing dispatcher '$dispatcherName'"
+    }
+}
+
+private fun resolvedProcessingDispatcherName(
+    properties: CkcConsumerProperties,
+    consumerProperties: CkcConsumerProperties.Consumer
+): String =
+    consumerProperties.processingDispatcher?.takeIf { it.isNotBlank() }
+        ?: properties.defaultProcessingDispatcher?.takeIf { it.isNotBlank() }
+        ?: CkcDispatcherRegistry.DISPATCHERS_DEFAULT_NAME
 
 private fun validateSubscription(
     consumerName: String,

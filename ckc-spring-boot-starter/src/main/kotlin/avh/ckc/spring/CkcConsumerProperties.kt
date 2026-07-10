@@ -9,6 +9,8 @@ import java.time.Duration
 data class CkcConsumerProperties(
     var enabled: Boolean = true,
     var lifecycle: Lifecycle = Lifecycle(),
+    var defaultProcessingDispatcher: String? = null,
+    var dispatchers: MutableMap<String, Dispatcher> = linkedMapOf(),
     var metrics: Metrics = Metrics(),
     var defaultRetrySchema: String? = null,
     var retrySchemas: MutableMap<String, RetrySchema> = linkedMapOf(),
@@ -20,6 +22,21 @@ data class CkcConsumerProperties(
         var phase: Int = 0,
         var shutdownTimeout: Duration = Duration.ofSeconds(30)
     )
+
+    data class Dispatcher(
+        var type: DispatcherType = DispatcherType.FIXED_THREAD_POOL,
+        var threads: Int = 1,
+        var threadNamePrefix: String? = null,
+        var beanName: String? = null
+    )
+
+    enum class DispatcherType {
+        DISPATCHERS_DEFAULT,
+        DISPATCHERS_IO,
+        FIXED_THREAD_POOL,
+        VIRTUAL_THREAD_PER_TASK,
+        BEAN
+    }
 
     data class Metrics(
         var enabled: Boolean = true,
@@ -73,6 +90,7 @@ data class CkcConsumerProperties(
         var consumerPollLoopConcurrency: Int = 1,
         var commitInterval: Duration = Duration.ofSeconds(5),
         var workChannelCapacity: Int = 1024,
+        var processingDispatcher: String? = null,
         var metrics: ConsumerMetricsProperties = ConsumerMetricsProperties(),
         var retrySchema: String? = null,
         var kafkaProperties: MutableMap<String, String> = linkedMapOf()
