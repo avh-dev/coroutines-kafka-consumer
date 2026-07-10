@@ -157,7 +157,8 @@ class CkcConsumersLifecycle internal constructor(
                     consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
                     processingDispatcher = runtime.processingDispatcher,
                     retrySchema = runtime.retrySchema,
-                    metrics = runtime.metrics
+                    metrics = runtime.metrics,
+                    runtime = runtime.consumer.stateSnapshot()
                 )
             }
         }
@@ -297,7 +298,8 @@ internal data class CkcConsumerStateSnapshot(
     val consumerPollLoopConcurrency: Int,
     val processingDispatcher: String,
     val retrySchema: String?,
-    val metrics: String
+    val metrics: String,
+    val runtime: avh.ckc.core.ConsumerStateSnapshot
 )
 
 private data class NamedConsumerRuntime(

@@ -144,6 +144,8 @@ internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
         releaseAllQueuedEnvelopes()
     }
 
+    override fun stateSnapshot() = runtimeStats.snapshot()
+
     override suspend fun stop() {
         acceptingRecords.set(false)
         try {
