@@ -40,6 +40,7 @@
 | [CORE-35](#core-35) | Add a minimal CKC startup banner with starter version diagnostics.                                                                                                                                       | DONE |
 | [CORE-36](#core-36) | Add startup validation and diagnostics for Spring Boot starter consumer configuration.                                                                                                                    | DONE |
 | [CORE-37](#core-37) | Add Spring Boot configuration metadata and document the full CKC starter property structure.                                                                                                               | DONE |
+| [CORE-38](#core-38) | Add Spring Boot dispatcher definitions so starter-managed consumers can choose configured processing dispatchers.                                                                                          | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1783,6 +1784,16 @@ _Date: 2026-07-09_
 
 Add starter configuration metadata so IDEs can offer completion and descriptions for `ckc.*` properties.
 Document the full configuration structure in the starter README, including lifecycle, metrics, retry schemas, clusters, and consumers.
+
+<a id="core-38"></a>
+### CORE-38 - Add Spring Boot dispatcher definitions
+
+_Date: 2026-07-10_
+
+Add named processing dispatcher definitions to the Spring Boot starter.
+Keep built-in coroutine dispatchers available through reserved names while allowing configured fixed-thread and virtual-thread dispatchers.
+Let consumers reference dispatchers by name so runtime threading remains visible in application configuration.
+Update the CKC Spring Boot demo profile to use a configured fixed-thread dispatcher definition.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

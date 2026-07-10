@@ -36,6 +36,12 @@ ckc:
               default: UNKNOWN
   default-cluster: main
   default-retry-schema: transient-errors
+  default-processing-dispatcher: shared-workers
+  dispatchers:
+    shared-workers:
+      type: FIXED_THREAD_POOL
+      threads: 16
+      thread-name-prefix: orders-worker-
   retry-schemas:
     transient-errors:
       rules:
@@ -60,6 +66,7 @@ ckc:
       value-deserializer: com.example.OrderEventDeserializer
       processing-mode: at-least-once-ordered-by-key
       worker-concurrency: 64
+      processing-dispatcher: shared-workers
       work-channel-capacity: 10000
       kafka-properties:
         max.poll.records: 500
@@ -98,6 +105,12 @@ Retry schemas are ordered lists of core retry rules. Each rule lists fully quali
 names, `max-retries`, and `delay`; the first matching rule is used. Consumers use
 `ckc.default-retry-schema` unless they override it with `ckc.consumers.<name>.retry-schema`.
 
+Processing dispatchers are named definitions under `ckc.dispatchers`. Consumers use
+`ckc.default-processing-dispatcher` unless they override it with
+`ckc.consumers.<name>.processing-dispatcher`. The reserved names `dispatchers-default` and
+`dispatchers-io` always map to Kotlin `Dispatchers.Default` and `Dispatchers.IO`.
+Starter-created fixed-thread and virtual-thread dispatchers are closed with the Spring context.
+
 The starter is managed by Spring `SmartLifecycle`. `ckc.lifecycle.phase` controls start/stop order
 relative to other lifecycle beans, and `ckc.lifecycle.shutdown-timeout` bounds how long the starter
 waits for CKC consumers to stop gracefully.
@@ -113,6 +126,16 @@ ckc:
   lifecycle:
     phase: 0
     shutdown-timeout: 30s
+
+  default-processing-dispatcher: dispatchers-default
+  dispatchers:
+    shared-workers:
+      type: FIXED_THREAD_POOL # DISPATCHERS_DEFAULT | DISPATCHERS_IO | FIXED_THREAD_POOL | VIRTUAL_THREAD_PER_TASK | BEAN
+      threads: 16
+      thread-name-prefix: ckc-worker-
+    loom-workers:
+      type: VIRTUAL_THREAD_PER_TASK
+      thread-name-prefix: ckc-loom-
 
   metrics:
     enabled: true
@@ -162,6 +185,7 @@ ckc:
       consumer-poll-loop-concurrency: 1
       commit-interval: 5s
       work-channel-capacity: 1024
+      processing-dispatcher: shared-workers
       metrics:
         schema: default
       retry-schema: default
@@ -169,9 +193,10 @@ ckc:
         max.poll.records: 500
 ```
 
-Map keys under `clusters`, `retry-schemas`, `metrics.micrometer.schemas`, and `consumers` are
-application-defined names. Per-consumer convenience properties are applied after raw Kafka
-properties, so they override values from `kafka-properties`.
+Map keys under `clusters`, `dispatchers`, `retry-schemas`, `metrics.micrometer.schemas`, and
+`consumers` are application-defined names, except for reserved dispatcher names
+`dispatchers-default` and `dispatchers-io`. Per-consumer convenience properties are applied after
+raw Kafka properties, so they override values from `kafka-properties`.
 
 ## Metrics
 

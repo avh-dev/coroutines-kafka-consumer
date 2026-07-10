@@ -5,6 +5,8 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.micrometer.RecordDrivenTagExtractors
 import avh.ckc.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
@@ -215,8 +217,106 @@ class CkcSpringBootAutoConfigurationTest {
 
         assertThat(metadata)
             .contains("ckc.lifecycle.shutdown-timeout")
+            .contains("ckc.dispatchers.*.type")
+            .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
             .contains("ckc.consumers.*.retry-schema")
+    }
+
+    @Test
+    fun `uses configured fixed thread processing dispatcher`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.default-processing-dispatcher=workers",
+                "ckc.dispatchers.workers.type=fixed-thread-pool",
+                "ckc.dispatchers.workers.threads=3",
+                "ckc.dispatchers.workers.thread-name-prefix=orders-worker-"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+
+                val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.defaultProcessingDispatcher)
+                    .isEqualTo("workers")
+                assertThat(properties.dispatchers.getValue("workers").threads)
+                    .isEqualTo(3)
+            }
+    }
+
+    @Test
+    fun `uses per consumer built in processing dispatcher`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-dispatcher=dispatchers-io"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+
+                val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.consumers.getValue("orders").processingDispatcher)
+                    .isEqualTo("dispatchers-io")
+            }
+    }
+
+    @Test
+    fun `uses bean backed processing dispatcher`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java, DispatcherBeanConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-dispatcher=custom",
+                "ckc.dispatchers.custom.type=bean",
+                "ckc.dispatchers.custom.bean-name=testDispatcher"
+            )
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                assertThat(registry.consumerNames)
+                    .containsExactly("orders")
+            }
+    }
+
+    @Test
+    fun `fails when processing dispatcher is unknown`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-dispatcher=missing"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("references unknown processing dispatcher 'missing'")
+            }
     }
 
     @Test
@@ -455,4 +555,11 @@ private class CustomMetricsConfiguration {
     @Suppress("UNCHECKED_CAST")
     fun orderMetrics(): ConsumerMetrics<String, String> =
         ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
+}
+
+@Configuration(proxyBeanMethods = false)
+private class DispatcherBeanConfiguration {
+    @Bean
+    fun testDispatcher(): CoroutineDispatcher =
+        Dispatchers.Default
 }

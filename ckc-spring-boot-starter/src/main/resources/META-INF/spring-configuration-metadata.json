@@ -16,6 +16,11 @@
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
     },
     {
+      "name": "ckc.dispatchers",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$Dispatcher>",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
       "name": "ckc.metrics.micrometer",
       "type": "avh.ckc.spring.CkcConsumerProperties$Micrometer",
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
@@ -69,6 +74,34 @@
       "name": "ckc.default-retry-schema",
       "type": "java.lang.String",
       "description": "Default retry schema name used by consumers that do not set ckc.consumers.<name>.retry-schema."
+    },
+    {
+      "name": "ckc.default-processing-dispatcher",
+      "type": "java.lang.String",
+      "description": "Default processing dispatcher name used by consumers that do not set ckc.consumers.<name>.processing-dispatcher.",
+      "defaultValue": "dispatchers-default"
+    },
+    {
+      "name": "ckc.dispatchers.*.type",
+      "type": "avh.ckc.spring.CkcConsumerProperties$DispatcherType",
+      "description": "Processing dispatcher implementation.",
+      "defaultValue": "FIXED_THREAD_POOL"
+    },
+    {
+      "name": "ckc.dispatchers.*.threads",
+      "type": "java.lang.Integer",
+      "description": "Fixed thread pool size for FIXED_THREAD_POOL dispatchers.",
+      "defaultValue": 1
+    },
+    {
+      "name": "ckc.dispatchers.*.thread-name-prefix",
+      "type": "java.lang.String",
+      "description": "Thread name prefix used by starter-created fixed-thread or virtual-thread dispatchers."
+    },
+    {
+      "name": "ckc.dispatchers.*.bean-name",
+      "type": "java.lang.String",
+      "description": "Spring bean name for BEAN dispatchers. The bean must be a CoroutineDispatcher."
     },
     {
       "name": "ckc.metrics.enabled",
@@ -229,6 +262,11 @@
       "defaultValue": 1024
     },
     {
+      "name": "ckc.consumers.*.processing-dispatcher",
+      "type": "java.lang.String",
+      "description": "Processing dispatcher name used for this consumer's record handler workers."
+    },
+    {
       "name": "ckc.consumers.*.metrics.schema",
       "type": "java.lang.String",
       "description": "Micrometer schema name used by this consumer when metrics implementation is MICROMETER."
@@ -259,6 +297,57 @@
         {
           "value": "NONE",
           "description": "Use no-op CKC consumer metrics."
+        }
+      ]
+    },
+    {
+      "name": "ckc.dispatchers.*.type",
+      "values": [
+        {
+          "value": "DISPATCHERS_DEFAULT",
+          "description": "Use kotlinx.coroutines.Dispatchers.Default."
+        },
+        {
+          "value": "DISPATCHERS_IO",
+          "description": "Use kotlinx.coroutines.Dispatchers.IO."
+        },
+        {
+          "value": "FIXED_THREAD_POOL",
+          "description": "Create a starter-owned fixed thread pool dispatcher."
+        },
+        {
+          "value": "VIRTUAL_THREAD_PER_TASK",
+          "description": "Create a starter-owned virtual-thread-per-task dispatcher."
+        },
+        {
+          "value": "BEAN",
+          "description": "Resolve a CoroutineDispatcher bean by name."
+        }
+      ]
+    },
+    {
+      "name": "ckc.default-processing-dispatcher",
+      "values": [
+        {
+          "value": "dispatchers-default",
+          "description": "Built-in kotlinx.coroutines.Dispatchers.Default."
+        },
+        {
+          "value": "dispatchers-io",
+          "description": "Built-in kotlinx.coroutines.Dispatchers.IO."
+        }
+      ]
+    },
+    {
+      "name": "ckc.consumers.*.processing-dispatcher",
+      "values": [
+        {
+          "value": "dispatchers-default",
+          "description": "Built-in kotlinx.coroutines.Dispatchers.Default."
+        },
+        {
+          "value": "dispatchers-io",
+          "description": "Built-in kotlinx.coroutines.Dispatchers.IO."
         }
       ]
     },
