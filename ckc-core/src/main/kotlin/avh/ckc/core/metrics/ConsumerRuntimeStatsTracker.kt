@@ -1,5 +1,6 @@
 package avh.ckc.core.metrics
 
+import avh.ckc.core.ProcessingRuntimeStateSnapshot
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -113,4 +114,15 @@ internal class ConsumerRuntimeStatsTracker(
             if (current > 0) current - 1 else 0
         }
     }
+
+    fun snapshot(): ProcessingRuntimeStateSnapshot =
+        ProcessingRuntimeStateSnapshot(
+            workerCount = workerCount,
+            activeWorkerCount = activeWorkerCount,
+            workQueueSize = workQueueSize,
+            workQueueCapacity = workQueueCapacity,
+            maxObservedWorkQueueSize = maxObservedWorkQueueSize,
+            orderingQueueSize = orderingQueueSize,
+            maxObservedOrderingQueueSize = maxObservedOrderingQueueSize
+        )
 }

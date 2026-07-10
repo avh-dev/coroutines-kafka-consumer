@@ -122,6 +122,8 @@ internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
         releaseBufferedKeyQueues()
     }
 
+    override fun stateSnapshot() = runtimeStats.snapshot()
+
     override suspend fun stop() {
         acceptingRecords.set(false)
         try {

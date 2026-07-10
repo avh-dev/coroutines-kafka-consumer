@@ -248,6 +248,16 @@ class CkcSpringBootAutoConfigurationTest {
                     .containsEntry("topics", listOf("orders.v1"))
                     .containsEntry("groupId", "orders-service")
                     .containsEntry("processingDispatcher", "dispatchers-io")
+
+                @Suppress("UNCHECKED_CAST")
+                val runtime = consumers.getValue("orders").getValue("runtime") as Map<String, Any?>
+                assertThat(runtime)
+                    .containsEntry("started", false)
+                    .containsEntry("stopped", false)
+                    .containsEntry("failed", false)
+                    .containsEntry("assignedPartitionCount", 0)
+                assertThat(runtime)
+                    .containsKeys("processing", "pollLoops")
             }
     }
 

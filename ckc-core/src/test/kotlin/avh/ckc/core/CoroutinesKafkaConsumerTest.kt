@@ -244,6 +244,49 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
+    fun `when consumer is running then state snapshot exposes runtime counters`() = runBlocking {
+        val firstRecordStarted = CompletableDeferred<Unit>()
+        val releaseFirstRecord = CompletableDeferred<Unit>()
+        val consumer = createTestConsumer(
+            records = listOf(
+                typedTestRecord(offset = 41L, key = "key-41", value = "value-41"),
+                typedTestRecord(offset = 42L, key = "key-42", value = "value-42")
+            ),
+            consumerProperties = stringSerdeProperties(),
+            runtime = testRuntime(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                workChannelCapacity = 64
+            ),
+            handler = KafkaRecordHandler<String, String> { record ->
+                if (record.offset() == 41L) {
+                    firstRecordStarted.complete(Unit)
+                    releaseFirstRecord.await()
+                }
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) { firstRecordStarted.await() }
+
+        val snapshot = consumer.stateSnapshot()
+
+        assertTrue(snapshot.started)
+        assertFalse(snapshot.stopped)
+        assertFalse(snapshot.failed)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, snapshot.processingMode)
+        assertEquals(1, snapshot.processing.workerCount)
+        assertEquals(1, snapshot.processing.activeWorkerCount)
+        assertEquals(1, snapshot.processing.workQueueSize)
+        assertEquals(64, snapshot.processing.workQueueCapacity)
+        assertEquals(1, snapshot.pollLoops.size)
+        assertTrue(snapshot.pollLoops.single().started)
+        assertEquals(listOf(AssignedPartitionSnapshot("topic-a", 0)), snapshot.pollLoops.single().assignedPartitions)
+
+        releaseFirstRecord.complete(Unit)
+        consumer.stop()
+    }
+
+    @Test
     fun `when poll loop fails then metrics receive consumer failure`() = runBlocking {
         val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
@@ -269,6 +312,19 @@ class CoroutinesKafkaConsumerTest {
                     }
 
                     override fun prepareForShutdown() = CompletableDeferred(Unit)
+
+                    override fun stateSnapshot(): PollLoopStateSnapshot =
+                        PollLoopStateSnapshot(
+                            id = 0,
+                            started = true,
+                            running = false,
+                            shutdownRequested = false,
+                            assignedPartitions = emptyList(),
+                            lastPollEpochMillis = null,
+                            lastPollRecordCount = null,
+                            lastCommitAttemptEpochMillis = null,
+                            lastCommitSucceeded = null
+                        )
                 }
             },
             processingRuntimeFactory = ::defaultProcessingRuntime

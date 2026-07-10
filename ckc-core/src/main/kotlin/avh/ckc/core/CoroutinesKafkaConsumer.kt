@@ -241,6 +241,23 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         failure.get()?.let { throw it }
     }
 
+    fun stateSnapshot(): ConsumerStateSnapshot {
+        val currentFailure = failure.get()
+        return ConsumerStateSnapshot(
+            started = started,
+            stopped = stopped,
+            failed = currentFailure != null,
+            failureClass = currentFailure?.javaClass?.name,
+            failureMessage = currentFailure?.message,
+            processingMode = processingMode,
+            workerConcurrency = workerConcurrency,
+            consumerPollLoopConcurrency = consumerPollLoopConcurrency,
+            workChannelCapacity = workChannelCapacity,
+            processing = processingRuntime.stateSnapshot(),
+            pollLoops = pollLoops.map { it.stateSnapshot() }
+        )
+    }
+
     private fun observeFailure(job: Job) {
         job.invokeOnCompletion { cause ->
             if (cause != null && !cause.isCancellation()) {

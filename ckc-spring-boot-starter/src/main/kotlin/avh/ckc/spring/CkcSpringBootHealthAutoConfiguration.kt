@@ -26,19 +26,23 @@ private class CkcHealthIndicator(
 ) : HealthIndicator {
     override fun health(): Health {
         val consumers = lifecycle.consumerStateSnapshots()
+        val failedConsumers = consumers
+            .filter { it.runtime.failed }
+            .map { it.name }
         val unavailableAutoStartupConsumers = consumers
             .filter { it.autoStartup && !it.running }
             .map { it.name }
-        val status = if (lifecycle.lifecycleStarted && unavailableAutoStartupConsumers.isNotEmpty()) {
-            Status.OUT_OF_SERVICE
-        } else {
-            Status.UP
+        val status = when {
+            failedConsumers.isNotEmpty() -> Status.DOWN
+            lifecycle.lifecycleStarted && unavailableAutoStartupConsumers.isNotEmpty() -> Status.OUT_OF_SERVICE
+            else -> Status.UP
         }
 
         return Health.status(status)
             .withDetail("lifecycleStarted", lifecycle.lifecycleStarted)
             .withDetail("runningConsumers", consumers.count { it.running })
             .withDetail("registeredConsumers", consumers.size)
+            .withDetail("failedConsumers", failedConsumers)
             .withDetail("unavailableAutoStartupConsumers", unavailableAutoStartupConsumers)
             .withDetail("consumers", consumers.associate { snapshot -> snapshot.name to snapshot.details() })
             .build()
@@ -59,6 +63,49 @@ private class CkcHealthIndicator(
             "consumerPollLoopConcurrency" to consumerPollLoopConcurrency,
             "processingDispatcher" to processingDispatcher,
             "retrySchema" to retrySchema,
-            "metrics" to metrics
+            "metrics" to metrics,
+            "runtime" to runtime.details()
+        )
+
+    private fun avh.ckc.core.ConsumerStateSnapshot.details(): Map<String, Any?> =
+        linkedMapOf(
+            "started" to started,
+            "stopped" to stopped,
+            "failed" to failed,
+            "failureClass" to failureClass,
+            "failureMessage" to failureMessage,
+            "assignedPartitionCount" to assignedPartitionCount,
+            "processing" to processing.details(),
+            "pollLoops" to pollLoops.map { it.details() }
+        )
+
+    private fun avh.ckc.core.ProcessingRuntimeStateSnapshot.details(): Map<String, Any> =
+        linkedMapOf(
+            "workerCount" to workerCount,
+            "activeWorkerCount" to activeWorkerCount,
+            "workQueueSize" to workQueueSize,
+            "workQueueCapacity" to workQueueCapacity,
+            "maxObservedWorkQueueSize" to maxObservedWorkQueueSize,
+            "orderingQueueSize" to orderingQueueSize,
+            "maxObservedOrderingQueueSize" to maxObservedOrderingQueueSize
+        )
+
+    private fun avh.ckc.core.PollLoopStateSnapshot.details(): Map<String, Any?> =
+        linkedMapOf(
+            "id" to id,
+            "started" to started,
+            "running" to running,
+            "shutdownRequested" to shutdownRequested,
+            "assignedPartitions" to assignedPartitions.map { it.details() },
+            "lastPollEpochMillis" to lastPollEpochMillis,
+            "lastPollRecordCount" to lastPollRecordCount,
+            "lastCommitAttemptEpochMillis" to lastCommitAttemptEpochMillis,
+            "lastCommitSucceeded" to lastCommitSucceeded
+        )
+
+    private fun avh.ckc.core.AssignedPartitionSnapshot.details(): Map<String, Any> =
+        linkedMapOf(
+            "topic" to topic,
+            "partition" to partition
         )
 }

@@ -1,6 +1,8 @@
 package avh.ckc.core.polling
 
+import avh.ckc.core.AssignedPartitionSnapshot
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
+import avh.ckc.core.PollLoopStateSnapshot
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
@@ -81,11 +83,32 @@ internal class ConsumerPollLoop<K, V>(
     /** Assigned partition states (mutated only on poll thread via rebalance callbacks). */
     private val assignedPartitions = mutableSetOf<PartitionState>()
 
+    @Volatile
+    private var assignedPartitionSnapshot: List<AssignedPartitionSnapshot> = emptyList()
+
     private val log = LoggerFactory.getLogger(this::class.java)
 
     /** Set from outside poll thread to initiate graceful shutdown. */
     @Volatile
     private var shutdownRequested = false
+
+    @Volatile
+    private var started = false
+
+    @Volatile
+    private var running = false
+
+    @Volatile
+    private var lastPollEpochMillis: Long? = null
+
+    @Volatile
+    private var lastPollRecordCount: Int? = null
+
+    @Volatile
+    private var lastCommitAttemptEpochMillis: Long? = null
+
+    @Volatile
+    private var lastCommitSucceeded: Boolean? = null
 
     /** Used to call wakeup() from outside poll thread. */
     @Volatile
@@ -96,6 +119,7 @@ internal class ConsumerPollLoop<K, V>(
 
     override fun start(): Job {
         check(job == null)
+        started = true
         job = scope.launch { runLoop() }
         return job!!
     }
@@ -110,13 +134,29 @@ internal class ConsumerPollLoop<K, V>(
         return readyForShutdownSignal
     }
 
+    override fun stateSnapshot(): PollLoopStateSnapshot =
+        PollLoopStateSnapshot(
+            id = id,
+            started = started,
+            running = running,
+            shutdownRequested = shutdownRequested,
+            assignedPartitions = assignedPartitionSnapshot,
+            lastPollEpochMillis = lastPollEpochMillis,
+            lastPollRecordCount = lastPollRecordCount,
+            lastCommitAttemptEpochMillis = lastCommitAttemptEpochMillis,
+            lastCommitSucceeded = lastCommitSucceeded
+        )
+
     private suspend fun runLoop() {
+        running = true
         val consumer = kafkaConsumerFactory(consumerProperties)
         consumerRef = consumer
         try {
             subscribe(consumer)
             consumerLoop(consumer)
         } finally {
+            running = false
+            assignedPartitionSnapshot = emptyList()
             withContext(NonCancellable) {
                 try {
                     consumer.close()
@@ -190,6 +230,7 @@ internal class ConsumerPollLoop<K, V>(
                 assignedPartitions.remove(partitionState)
             }
         }
+        refreshAssignedPartitionSnapshot()
         commitReadyOffsets(consumer, revokedPartitionStates)
         revokedPartitionStates.forEach {
             metrics.unbindPartitionMetrics(it.topic, it.partition)
@@ -220,6 +261,13 @@ internal class ConsumerPollLoop<K, V>(
             metrics.bindPartitionMetrics(it)
         }
         assignedPartitions += assignedPartitionStates
+        refreshAssignedPartitionSnapshot()
+    }
+
+    private fun refreshAssignedPartitionSnapshot() {
+        assignedPartitionSnapshot = assignedPartitions
+            .map { AssignedPartitionSnapshot(it.topic, it.partition) }
+            .sortedWith(compareBy(AssignedPartitionSnapshot::topic, AssignedPartitionSnapshot::partition))
     }
 
     private fun initPartitionState(
@@ -291,10 +339,13 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (!offsets.isEmpty()) {
             val startedAt = System.nanoTime()
+            lastCommitAttemptEpochMillis = System.currentTimeMillis()
             try {
                 consumer.commitSync(offsets)
+                lastCommitSucceeded = true
                 metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, true)
             } catch (e: Exception) {
+                lastCommitSucceeded = false
                 metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, false)
                 log.warn("Error committing offsets in manager #$id", e)
             }
@@ -418,6 +469,8 @@ internal class ConsumerPollLoop<K, V>(
         return try {
             val startedAt = System.nanoTime()
             val records = consumer.poll(state.pollTimeout)
+            lastPollEpochMillis = System.currentTimeMillis()
+            lastPollRecordCount = records.count()
             metrics.onPoll(records.count(), System.nanoTime() - startedAt)
             if (state.pollTimeout == Duration.ZERO && records.isEmpty) {
                 delay(State.ACTIVE.pollTimeout.toKotlinDuration())

@@ -120,8 +120,9 @@ waits for CKC consumers to stop gracefully.
 If Spring Boot Actuator is on the classpath, the starter contributes a `ckcHealthIndicator` bean.
 It reports starter lifecycle state and per-consumer configuration/state details: registered
 consumers, running consumers, auto-startup flags, subscription, cluster, group, processing mode,
-dispatcher, retry schema, and metrics mode. This first health layer is based on starter lifecycle
-state; deeper poll-loop, partition assignment, lag, and commit health require core runtime snapshots.
+dispatcher, retry schema, metrics mode, core lifecycle flags, processing worker/queue counters,
+poll-loop state, assigned partitions, and last local poll/commit observations. Kafka lag and
+downstream dependency health require separate probes and are not inferred by this indicator.
 
 ## Configuration Reference
 

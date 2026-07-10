@@ -93,6 +93,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         workChannel.close(cause)
     }
 
+    override fun stateSnapshot() = runtimeStats.snapshot()
+
     override suspend fun stop() {
         try {
             workChannel.close()

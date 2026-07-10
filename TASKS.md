@@ -42,6 +42,7 @@
 | [CORE-37](#core-37) | Add Spring Boot configuration metadata and document the full CKC starter property structure.                                                                                                               | DONE |
 | [CORE-38](#core-38) | Add Spring Boot dispatcher definitions so starter-managed consumers can choose configured processing dispatchers.                                                                                          | DONE |
 | [CORE-39](#core-39) | Add Spring Boot Actuator health indicators for starter-managed CKC consumers.                                                                                                                             | DONE |
+| [CORE-40](#core-40) | Add runtime state snapshots for CKC consumers and surface them through Spring Boot health details.                                                                                                         | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1804,6 +1805,15 @@ _Date: 2026-07-10_
 Add optional Spring Boot Actuator health integration for starter-managed CKC consumers.
 Report registered consumers, auto-startup settings, running state, subscriptions, cluster, and processing configuration.
 Keep this first health layer based on starter lifecycle state until core exposes deeper poll-loop and partition runtime snapshots.
+
+<a id="core-40"></a>
+### CORE-40 - Add runtime state snapshots
+
+_Date: 2026-07-10_
+
+Expose lightweight runtime state snapshots from CKC consumers.
+Include lifecycle, poll-loop, partition, and processing-runtime state that can be read without blocking Kafka poll threads.
+Use the snapshots in Spring Boot health details as the next step toward richer readiness and degraded-state diagnostics.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

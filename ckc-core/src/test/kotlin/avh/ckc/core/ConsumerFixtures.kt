@@ -49,16 +49,42 @@ internal class FakePollLoopControl<K, V>(
 ) : ConsumerPollLoopControl {
     private val scope = CoroutineScope(coroutineContext)
     private val stopSignal = CompletableDeferred<Unit>()
+    @Volatile
+    private var started = false
+    @Volatile
+    private var running = false
 
     override fun start(): Job = scope.launch {
-        for (record in records) {
-            recordSink.tryEmit(record)
+        started = true
+        running = true
+        try {
+            for (record in records) {
+                recordSink.tryEmit(record)
+            }
+            stopSignal.await()
+        } finally {
+            running = false
         }
-        stopSignal.await()
     }
 
     override fun prepareForShutdown(): Deferred<Unit> {
         stopSignal.complete(Unit)
         return CompletableDeferred(Unit)
     }
+
+    override fun stateSnapshot(): PollLoopStateSnapshot =
+        PollLoopStateSnapshot(
+            id = 0,
+            started = started,
+            running = running,
+            shutdownRequested = stopSignal.isCompleted,
+            assignedPartitions = records
+                .map { AssignedPartitionSnapshot(it.topic(), it.partition()) }
+                .distinct()
+                .sortedWith(compareBy(AssignedPartitionSnapshot::topic, AssignedPartitionSnapshot::partition)),
+            lastPollEpochMillis = null,
+            lastPollRecordCount = records.size.takeIf { started },
+            lastCommitAttemptEpochMillis = null,
+            lastCommitSucceeded = null
+        )
 }
