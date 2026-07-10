@@ -63,6 +63,10 @@ class CkcConsumersLifecycle internal constructor(
     @Volatile
     private var running = false
 
+    @Volatile
+    internal var lifecycleStarted = false
+        private set
+
     override fun start() {
         synchronized(this) {
             logStartupBanner()
@@ -73,6 +77,7 @@ class CkcConsumersLifecycle internal constructor(
             )
             autoStartupRuntimes.forEach { startRuntime(it) }
             running = runningConsumerNames.isNotEmpty()
+            lifecycleStarted = true
         }
     }
 
@@ -89,6 +94,7 @@ class CkcConsumersLifecycle internal constructor(
             } finally {
                 runningConsumerNames.clear()
                 running = false
+                lifecycleStarted = false
             }
         }
     }
@@ -132,6 +138,29 @@ class CkcConsumersLifecycle internal constructor(
             }
         }
     }
+
+    internal fun consumerStateSnapshots(): List<CkcConsumerStateSnapshot> =
+        synchronized(this) {
+            consumerRuntimes.map { runtime ->
+                CkcConsumerStateSnapshot(
+                    name = runtime.name,
+                    autoStartup = runtime.autoStartup,
+                    running = runtime.name in runningConsumerNames,
+                    handler = runtime.handler,
+                    cluster = runtime.cluster,
+                    topics = runtime.topics,
+                    topicPattern = runtime.topicPattern,
+                    groupId = runtime.groupId,
+                    clientId = runtime.clientId,
+                    processingMode = runtime.processingMode.name,
+                    workerConcurrency = runtime.workerConcurrency,
+                    consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
+                    processingDispatcher = runtime.processingDispatcher,
+                    retrySchema = runtime.retrySchema,
+                    metrics = runtime.metrics
+                )
+            }
+        }
 
     private fun startRuntime(runtime: NamedConsumerRuntime) {
         if (runtime.name in runningConsumerNames) {
@@ -252,6 +281,24 @@ class CkcConsumersLifecycle internal constructor(
             }
     }
 }
+
+internal data class CkcConsumerStateSnapshot(
+    val name: String,
+    val autoStartup: Boolean,
+    val running: Boolean,
+    val handler: String,
+    val cluster: String?,
+    val topics: List<String>,
+    val topicPattern: String?,
+    val groupId: String?,
+    val clientId: String?,
+    val processingMode: String,
+    val workerConcurrency: Int,
+    val consumerPollLoopConcurrency: Int,
+    val processingDispatcher: String,
+    val retrySchema: String?,
+    val metrics: String
+)
 
 private data class NamedConsumerRuntime(
     val name: String,
