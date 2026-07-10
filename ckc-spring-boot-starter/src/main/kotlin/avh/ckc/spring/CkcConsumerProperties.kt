@@ -9,6 +9,7 @@ import java.time.Duration
 data class CkcConsumerProperties(
     var enabled: Boolean = true,
     var lifecycle: Lifecycle = Lifecycle(),
+    var health: Health = Health(),
     var defaultProcessingDispatcher: String? = null,
     var dispatchers: MutableMap<String, Dispatcher> = linkedMapOf(),
     var metrics: Metrics = Metrics(),
@@ -21,6 +22,10 @@ data class CkcConsumerProperties(
     data class Lifecycle(
         var phase: Int = 0,
         var shutdownTimeout: Duration = Duration.ofSeconds(30)
+    )
+
+    data class Health(
+        var enabled: Boolean = true
     )
 
     data class Dispatcher(

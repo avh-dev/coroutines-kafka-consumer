@@ -22,6 +22,8 @@ ckc:
   lifecycle:
     phase: 0
     shutdown-timeout: 30s
+  health:
+    enabled: true
   metrics:
     implementation: MICROMETER
     micrometer:
@@ -115,6 +117,12 @@ The starter is managed by Spring `SmartLifecycle`. `ckc.lifecycle.phase` control
 relative to other lifecycle beans, and `ckc.lifecycle.shutdown-timeout` bounds how long the starter
 waits for CKC consumers to stop gracefully.
 
+If Spring Boot Actuator is on the classpath, the starter contributes a `ckcHealthIndicator` bean.
+It reports starter lifecycle state and per-consumer configuration/state details: registered
+consumers, running consumers, auto-startup flags, subscription, cluster, group, processing mode,
+dispatcher, retry schema, and metrics mode. This first health layer is based on starter lifecycle
+state; deeper poll-loop, partition assignment, lag, and commit health require core runtime snapshots.
+
 ## Configuration Reference
 
 The full starter property structure is:
@@ -126,6 +134,9 @@ ckc:
   lifecycle:
     phase: 0
     shutdown-timeout: 30s
+
+  health:
+    enabled: true
 
   default-processing-dispatcher: dispatchers-default
   dispatchers:

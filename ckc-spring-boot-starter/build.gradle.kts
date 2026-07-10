@@ -32,9 +32,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-autoconfigure")
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("io.micrometer:micrometer-core")
+    compileOnly("org.springframework.boot:spring-boot-actuator")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-actuator")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     constraints {

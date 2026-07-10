@@ -12,14 +12,22 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import org.springframework.boot.actuate.health.HealthIndicator
+import org.springframework.boot.actuate.health.Status
 import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.FilteredClassLoader
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
 class CkcSpringBootAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(CkcSpringBootAutoConfiguration::class.java))
+        .withConfiguration(
+            AutoConfigurations.of(
+                CkcSpringBootAutoConfiguration::class.java,
+                CkcSpringBootHealthAutoConfiguration::class.java
+            )
+        )
 
     @Test
     fun `creates lifecycle for annotated consumer configured by name`() {
@@ -200,6 +208,83 @@ class CkcSpringBootAutoConfigurationTest {
             .withPropertyValues("ckc.enabled=false")
             .run { context ->
                 assertThat(context).doesNotHaveBean(CkcConsumersLifecycle::class.java)
+                assertThat(context).doesNotHaveBean(HealthIndicator::class.java)
+            }
+    }
+
+    @Test
+    fun `creates ckc health indicator with consumer details`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-dispatcher=dispatchers-io"
+            )
+            .run { context ->
+                assertThat(context).hasBean("ckcHealthIndicator")
+
+                val health = context.getBean("ckcHealthIndicator", HealthIndicator::class.java).health()
+
+                assertThat(health.status)
+                    .isEqualTo(Status.UP)
+                assertThat(health.details)
+                    .containsEntry("registeredConsumers", 1)
+                    .containsEntry("runningConsumers", 0)
+                    .containsEntry("lifecycleStarted", true)
+
+                @Suppress("UNCHECKED_CAST")
+                val consumers = health.details["consumers"] as Map<String, Map<String, Any?>>
+                assertThat(consumers)
+                    .containsKey("orders")
+                assertThat(consumers.getValue("orders"))
+                    .containsEntry("autoStartup", false)
+                    .containsEntry("running", false)
+                    .containsEntry("cluster", "main")
+                    .containsEntry("topics", listOf("orders.v1"))
+                    .containsEntry("groupId", "orders-service")
+                    .containsEntry("processingDispatcher", "dispatchers-io")
+            }
+    }
+
+    @Test
+    fun `does not create ckc health indicator when health is disabled`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.health.enabled=false",
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThat(context).doesNotHaveBean("ckcHealthIndicator")
+            }
+    }
+
+    @Test
+    fun `does not require actuator on the classpath`() {
+        contextRunner
+            .withClassLoader(FilteredClassLoader(HealthIndicator::class.java))
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThat(context).hasSingleBean(CkcConsumersLifecycle::class.java)
+                assertThat(context).doesNotHaveBean("ckcHealthIndicator")
             }
     }
 
@@ -217,6 +302,7 @@ class CkcSpringBootAutoConfigurationTest {
 
         assertThat(metadata)
             .contains("ckc.lifecycle.shutdown-timeout")
+            .contains("ckc.health.enabled")
             .contains("ckc.dispatchers.*.type")
             .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")

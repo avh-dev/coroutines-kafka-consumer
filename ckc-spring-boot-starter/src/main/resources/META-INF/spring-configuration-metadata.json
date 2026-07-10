@@ -11,6 +11,11 @@
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
     },
     {
+      "name": "ckc.health",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Health",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
       "name": "ckc.metrics",
       "type": "avh.ckc.spring.CkcConsumerProperties$Metrics",
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
@@ -64,6 +69,12 @@
       "type": "java.time.Duration",
       "description": "Maximum time the starter waits for CKC consumers to stop gracefully.",
       "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.health.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enables CKC Spring Boot Actuator health indicator when Actuator is on the classpath.",
+      "defaultValue": true
     },
     {
       "name": "ckc.default-cluster",
