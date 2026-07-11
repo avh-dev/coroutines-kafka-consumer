@@ -172,6 +172,7 @@
 | [INFRA-65](#infra-65) | Add internal-lab network and host-service chaos steps for Redis and Kafka resiliency scenarios.                                          | DONE |
 | [INFRA-66](#infra-66) | Add a Grafana dashboard variable for toggling event-type metric aggregation.                                                             | DONE |
 | [INFRA-67](#infra-67) | Add internal-lab Helm and test-definition support for the `ckc-spring-boot` demo profile.                                               | DONE |
+| [INFRA-68](#infra-68) | Add selectable internal-lab Kafka broker implementation and broker CPU observability.                                                   | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1840,3 +1841,14 @@ _Date: 2026-07-09_
 
 Added internal-lab Helm deployment and test-bundle support for running the `ckc-spring-boot` demo profile.
 Kept it parallel to existing CKC profiles so the starter-backed application shape can be smoke-tested without replacing hand-wired CKC deployments.
+
+<a id="infra-68"></a>
+### INFRA-68 - Add selectable internal-lab Kafka broker
+
+_Date: 2026-07-10_
+
+Add an internal-lab broker selector so tests can run against either Redpanda or Apache Kafka while preserving the existing Kafka API endpoint.
+Run the Apache Kafka option on the official `apache/kafka:4.3.1` image with share-group broker settings enabled for single-node experiments.
+Keep topic/group reset scripts compatible with both broker implementations.
+Generalize Grafana broker CPU visibility so Redpanda and Apache Kafka runs can be inspected from the same dashboard.
+Carry the selected broker through run metadata, drain waiting, chaos service actions, and internal-lab documentation.

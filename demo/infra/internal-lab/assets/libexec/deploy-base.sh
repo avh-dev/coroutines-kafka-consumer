@@ -15,6 +15,22 @@ GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
 GENERATED_DIR="${LAB_ROOT}/state/generated"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
+LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
+
+normalize_kafka_implementation() {
+  case "$1" in
+    redpanda|rp) printf "%s\n" "redpanda" ;;
+    apache-kafka|apache|kafka) printf "%s\n" "apache-kafka" ;;
+    *)
+      echo "Unsupported LAB_KAFKA_IMPLEMENTATION: $1" >&2
+      echo "Expected redpanda or apache-kafka." >&2
+      exit 1
+      ;;
+  esac
+}
+
+LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
+KAFKA_SERVICE="${LAB_KAFKA_IMPLEMENTATION}"
 
 prometheus_target_exists() {
   curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
@@ -69,12 +85,20 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans kafka redis fluent-bit grafana process-exporter
-docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
-docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
+if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
+  docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+else
+  docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
+fi
+
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans "${KAFKA_SERVICE}" redis fluent-bit grafana process-exporter
+if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
+  docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
+  docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
+fi
 docker restart ckc-internal-process-exporter >/dev/null
-if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/null | grep -F 'namedprocess_namegroup_num_procs{groupname=\"redpanda\"}' >/dev/null 2>&1; do sleep 2; done"; then
-  echo "Process exporter did not expose the Redpanda process group within 30 seconds; continuing because it is observability-only." >&2
+if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/null | grep -F 'namedprocess_namegroup_num_procs{groupname=\"${KAFKA_SERVICE}\"}' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Process exporter did not expose the ${KAFKA_SERVICE} process group within 30 seconds; continuing because it is observability-only." >&2
   docker logs --tail 50 ckc-internal-process-exporter >&2 || true
 fi
 LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
@@ -93,6 +117,6 @@ echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST}:30080"
 echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  grafana:    http://${LAB_HOST}:3000"
-echo "  kafka:      ${LAB_NODE_IP}:9092"
+echo "  kafka:      ${LAB_NODE_IP}:9092 (${LAB_KAFKA_IMPLEMENTATION})"
 echo "  redis:      ${LAB_NODE_IP}:6379"
 echo "  audit-tcp:  ${LAB_NODE_IP}:5170"

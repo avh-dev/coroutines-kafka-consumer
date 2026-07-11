@@ -130,7 +130,7 @@ chaos_steps:
 
 Supported service targets are:
 
-- `kafka`: Redpanda Kafka API on port `9092`, container `ckc-perf-redpanda`.
+- `kafka`: selected Kafka API broker on port `9092`, container `ckc-perf-redpanda` or `ckc-perf-kafka`.
 - `redis`: Redis on port `6379`, container `ckc-perf-redis`.
 - `audit`: Fluent Bit TCP audit input on port `5170`, container `ckc-internal-fluent-bit`.
 

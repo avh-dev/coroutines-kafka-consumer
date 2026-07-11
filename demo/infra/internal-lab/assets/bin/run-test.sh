@@ -23,6 +23,7 @@ CONSUMER_DRAIN_STABLE_SECONDS="${CONSUMER_DRAIN_STABLE_SECONDS:-15}"
 CONSUMER_DRAIN_POLL_SECONDS="${CONSUMER_DRAIN_POLL_SECONDS:-5}"
 TEST_DEFINITION=""
 DEPLOYMENT_PROFILE=""
+LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
 METRICS_IMPLEMENTATION=""
@@ -33,6 +34,7 @@ RUN_INTERRUPTED=0
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
+          [--kafka-implementation redpanda|apache-kafka]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP]
           [--env KEY=VALUE]
@@ -47,6 +49,8 @@ Options:
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
   --skip-analysis  Finalize the raw audit log but leave analysis for a later step.
   --deployment     Select a Helm deployment profile without prompting.
+  --kafka-implementation
+                    Select the host Kafka API broker implementation.
   --processing-enabled
                     Override demo processing with true or false. Use false for noop mode.
   --audit-log-enabled
@@ -76,6 +80,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --deployment)
       DEPLOYMENT_PROFILE="${2:?--deployment requires a profile}"
+      shift 2
+      ;;
+    --kafka-implementation)
+      LAB_KAFKA_IMPLEMENTATION="${2:?--kafka-implementation requires redpanda or apache-kafka}"
       shift 2
       ;;
     --processing-enabled)
@@ -120,10 +128,13 @@ if [ ! -f "${LAB_ENV}" ]; then
   exit 1
 fi
 
+REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
+LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
 
 CURRENT_APP_PROFILE=""
+CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
 CURRENT_PROCESSING_ENABLED="true"
 CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
@@ -131,22 +142,36 @@ CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
+  REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
   REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
   REQUESTED_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS}"
   # shellcheck disable=SC1090
   . "${CURRENT_DEPLOYMENT_PATH}"
   CURRENT_APP_PROFILE="${APP_PROFILE:-}"
+  CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
   CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
   CURRENT_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-8}"
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
+  LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
   METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
   WORKER_DISPATCHER_THREADS="${REQUESTED_WORKER_DISPATCHER_THREADS}"
 fi
+
+normalize_kafka_implementation() {
+  case "$1" in
+    redpanda|rp) printf "%s\n" "redpanda" ;;
+    apache-kafka|apache|kafka) printf "%s\n" "apache-kafka" ;;
+    *)
+      echo "kafka-implementation must be redpanda or apache-kafka: $1" >&2
+      exit 1
+      ;;
+  esac
+}
 
 select_file() {
   local title="$1"
@@ -235,6 +260,15 @@ else
   DEPLOYMENT_PROFILE="$(resolve_yaml "${DEPLOYMENT_PROFILE_DIR}" "${DEPLOYMENT_PROFILE}")"
 fi
 
+if [ -z "${LAB_KAFKA_IMPLEMENTATION}" ]; then
+  if [ ! -t 0 ]; then
+    LAB_KAFKA_IMPLEMENTATION="${CURRENT_KAFKA_IMPLEMENTATION}"
+  else
+    LAB_KAFKA_IMPLEMENTATION="$(select_value "Kafka broker implementation" "${CURRENT_KAFKA_IMPLEMENTATION}" redpanda apache-kafka)"
+  fi
+fi
+LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
+
 if [ -z "${PROCESSING_ENABLED}" ]; then
   if [ ! -t 0 ]; then
     PROCESSING_ENABLED="${CURRENT_PROCESSING_ENABLED}"
@@ -307,6 +341,7 @@ if [ ! -f "${TEST_DEFINITION}" ]; then
 fi
 
 echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
+echo "Kafka broker implementation: ${LAB_KAFKA_IMPLEMENTATION}"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
@@ -387,6 +422,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     "${AUDIT_LOG_ENABLED}"
     "${METRICS_IMPLEMENTATION}"
     "${WORKER_DISPATCHER_THREADS}"
+    --kafka-implementation
+    "${LAB_KAFKA_IMPLEMENTATION}"
   )
   for override in "${ENV_OVERRIDES[@]}"; do
     PREPARE_ARGS+=(--env "${override}")
@@ -419,7 +456,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
-  export DEPLOYMENT_PROFILE TEST_DEFINITION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
+  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
@@ -478,6 +515,7 @@ metadata = {
         "worker_dispatcher_threads": env_int("WORKER_DISPATCHER_THREADS"),
     },
     "kafka": {
+        "implementation": env("LAB_KAFKA_IMPLEMENTATION", "redpanda"),
         "bootstrap_servers": "127.0.0.1:9092",
         "topics": topic_specs(env("TOPIC_SPECS")),
     },
@@ -609,6 +647,7 @@ echo "  log=${LOG_PATH}"
 echo "  audit=${RUN_AUDIT_DIR}"
 echo "  pid_file=${PID_PATH}"
 echo "  bootstrap=127.0.0.1:9092"
+echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
 echo "  test_definition=$(basename "${TEST_DEFINITION}")"
 if [ -n "${CHAOS_PID}" ]; then
   echo "  chaos_pid=${CHAOS_PID}"
@@ -727,6 +766,7 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
   DRAIN_WAIT_EXIT_CODE=0
   python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
+    --kafka-implementation "${LAB_KAFKA_IMPLEMENTATION}" \
     --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \

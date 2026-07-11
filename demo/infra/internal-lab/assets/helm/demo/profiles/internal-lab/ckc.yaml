@@ -11,14 +11,14 @@ lab:
 
 env:
   springProfilesActive: ckc
-  orderWorkerConcurrency: 20
+  orderWorkerConcurrency: 30
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024
-  batchWorkerConcurrency: 20
+  batchWorkerConcurrency: 30
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 1024
   telemetryProcessingMode: FRESHNESS_FIRST_BY_KEY
-  telemetryWorkerConcurrency: 20
+  telemetryWorkerConcurrency: 30
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 10000
 
