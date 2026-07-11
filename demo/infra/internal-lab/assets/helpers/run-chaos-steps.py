@@ -61,7 +61,17 @@ def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     target = str(params.get("target", "")).strip().lower()
     if target not in SERVICE_TARGETS:
         raise ValueError(f"Unsupported service target: {target!r}")
-    return target, SERVICE_TARGETS[target]
+    config = dict(SERVICE_TARGETS[target])
+    if target == "kafka" and kafka_implementation() == "apache-kafka":
+        config["container"] = "ckc-perf-kafka"
+    return target, config
+
+
+def kafka_implementation() -> str:
+    value = os.environ.get("LAB_KAFKA_IMPLEMENTATION", "redpanda").strip().lower()
+    if value in {"apache-kafka", "apache", "kafka"}:
+        return "apache-kafka"
+    return "redpanda"
 
 
 def tc_classid(handle: int, band: int) -> str:

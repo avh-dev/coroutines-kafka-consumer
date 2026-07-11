@@ -42,6 +42,7 @@ if command -v docker >/dev/null 2>&1; then
     ckc-perf/demo:latest \
     ckc-perf/demo-stubs:latest \
     docker.redpanda.com/redpandadata/redpanda:v25.1.3 \
+    apache/kafka:4.3.1 \
     redis:7.4-alpine \
     grafana/grafana:11.6.0 \
     danielqsj/kafka-exporter:v1.8.0 \

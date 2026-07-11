@@ -22,7 +22,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ssh-target")
     parser.add_argument("--broker", default="localhost:9092")
+    parser.add_argument("--kafka-implementation", default="redpanda")
     parser.add_argument("--redpanda-container", default="ckc-perf-redpanda")
+    parser.add_argument("--apache-kafka-container", default="ckc-perf-kafka")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--poll-seconds", type=int, default=5)
     parser.add_argument("--stable-seconds", type=int, default=15)
@@ -71,6 +73,36 @@ def query_rpk_lag(args: argparse.Namespace) -> float | None:
     return float(total_lag) if group_seen else None
 
 
+def query_apache_kafka_lag(args: argparse.Namespace) -> float | None:
+    total_lag = 0
+    group_seen = False
+    for group in [value.strip() for value in args.groups.split(",") if value.strip()]:
+        command = (
+            f"docker exec {shell_quote(args.apache_kafka_container)} "
+            f"/opt/kafka/bin/kafka-consumer-groups.sh "
+            f"--bootstrap-server {shell_quote(args.broker)} --describe --group {shell_quote(group)}"
+        )
+        run_command = ["ssh", args.ssh_target, command] if args.ssh_target else ["sh", "-c", command]
+        result = subprocess.run(
+            run_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = f"{result.stdout}\n{result.stderr}"
+        if result.returncode != 0:
+            lowered = output.lower()
+            if "not found" in lowered or "does not exist" in lowered:
+                continue
+            raise RuntimeError(f"kafka-consumer-groups describe failed for {group}: {output.strip()}")
+        parsed_lag = parse_apache_kafka_lag(output)
+        if parsed_lag is not None:
+            group_seen = True
+            total_lag += parsed_lag
+
+    return float(total_lag) if group_seen else None
+
+
 def parse_rpk_lag(output: str) -> int:
     total_lag: int | None = None
     lag_column: int | None = None
@@ -105,8 +137,39 @@ def parse_rpk_lag(output: str) -> int:
     return partition_lag
 
 
+def parse_apache_kafka_lag(output: str) -> int | None:
+    lag_column: int | None = None
+    rows = 0
+    total = 0
+
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if fields[0].upper() == "GROUP":
+            try:
+                lag_column = fields.index("LAG")
+            except ValueError:
+                lag_column = None
+            continue
+        if lag_column is not None and len(fields) > lag_column and re.fullmatch(r"-?\d+", fields[lag_column]):
+            total += max(0, int(fields[lag_column]))
+            rows += 1
+
+    return total if rows else None
+
+
 def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def normalize_kafka_implementation(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"redpanda", "rp"}:
+        return "redpanda"
+    if normalized in {"apache-kafka", "apache", "kafka"}:
+        return "apache-kafka"
+    raise ValueError(f"Unsupported kafka implementation: {value}")
 
 
 def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str]:
@@ -115,9 +178,15 @@ def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str
         if lag is not None:
             return lag, "prometheus"
 
-    lag = query_rpk_lag(args)
-    if lag is not None:
-        return lag, "rpk"
+    implementation = normalize_kafka_implementation(args.kafka_implementation)
+    if implementation == "redpanda":
+        lag = query_rpk_lag(args)
+        if lag is not None:
+            return lag, "rpk"
+    else:
+        lag = query_apache_kafka_lag(args)
+        if lag is not None:
+            return lag, "kafka-consumer-groups"
 
     return None, "missing"
 

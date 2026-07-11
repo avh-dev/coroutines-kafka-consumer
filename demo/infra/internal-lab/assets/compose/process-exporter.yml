@@ -2,6 +2,11 @@ process_names:
   - name: redpanda
     comm:
       - redpanda
+  - name: apache-kafka
+    comm:
+      - java
+    cmdline:
+      - kafka\.Kafka
   - name: redis
     comm:
       - redis-server

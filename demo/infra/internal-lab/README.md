@@ -2,7 +2,7 @@
 
 `demo/infra/internal-lab` runs the CKC demo on a dedicated Linux laptop with low overhead.
 
-The app, demo stubs, Prometheus, and metrics-server run in k3s. Redpanda, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.demo-infra/internal-lab/`, which is ignored by Git.
+The app, demo stubs, Prometheus, and metrics-server run in k3s. The selected Kafka API broker, Redis, and Grafana run on the lab host through Docker Compose. Local state is stored under the repository root in `.demo-infra/internal-lab/`, which is ignored by Git.
 
 ## Requirements
 
@@ -28,16 +28,16 @@ lab host
     ckc-demo-stubs Deployment, ClusterIP 8080
     ckc-prometheus Deployment, NodePort 30090
     metrics-server for kubectl top and HPA
-    ckc-external-kafka Service + Endpoints -> host Redpanda
+    ckc-external-kafka Service + Endpoints -> selected host Kafka API broker
     ckc-external-redis Service + Endpoints -> host Redis
     ckc-external-audit Service + Endpoints -> host Fluent Bit TCP collector
 
   Docker Compose
-    Redpanda -> host:9092
+    Redpanda or Apache Kafka -> host:9092
     Redis -> host:6379
     Fluent Bit -> host:5170 TCP audit ingest, localhost:2020 health
     Grafana -> host:3000 on all interfaces
-    process-exporter -> host:9256 for host Redpanda/Redis process CPU/memory
+    process-exporter -> host:9256 for host Kafka broker/Redis process CPU/memory
 
   Host runtime
     Docker build for ckc-perf/demo and ckc-perf/demo-stubs from synced dist layouts
@@ -70,7 +70,7 @@ For example, add the lab Wi-Fi address to your local hosts file:
 Then answer `optilab` when `install-lab.sh` prompts. The only local lab state
 value is `LAB_HOST=optilab`; scripts derive `root@optilab` for SSH. The
 resolved IP is written only into the lab-host config because k3s Endpoints and
-Redpanda's advertised listener need a concrete node address for pod traffic.
+the selected broker's advertised listener need a concrete node address for pod traffic.
 
 You can pre-create or edit the state file instead of using the prompt:
 
@@ -90,10 +90,10 @@ The installer:
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
 - keeps Prometheus history on a persistent lab-host directory and reloads Prometheus config during updates when possible instead of restarting it unconditionally
-- starts host Redpanda, Redis, Fluent Bit, and Grafana
+- starts host Redpanda by default, plus Redis, Fluent Bit, and Grafana
 - provisions Grafana datasource and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
-- verifies `kubectl`, Grafana, Prometheus, and the Redpanda Kafka API from the local machine
+- verifies `kubectl`, Grafana, Prometheus, and the Kafka API from the local machine
 
 After install:
 
@@ -188,6 +188,7 @@ worker thread count directly. Previous selections are marked as current or
 shown as defaults and used when Enter is pressed:
 
 - a Helm deployment profile, defaulting to the currently deployed profile
+- the host Kafka API broker implementation: `redpanda` or `apache-kafka`
 - whether business processing is enabled; select `false` for a noop run
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
@@ -205,12 +206,19 @@ Pass the same choices explicitly for a non-interactive run:
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --deployment ckc-sync \
+  --kafka-implementation apache-kafka \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
   --worker-dispatcher-threads 8 \
   baseline
 ```
+
+The `apache-kafka` option runs the official `apache/kafka:4.3.1` image and
+enables share groups through `group.coordinator.rebalance.protocols=classic,consumer,streams,share`.
+The single-node lab also sets the share coordinator state topic replication
+factor and min ISR to `1`, so share-group experiments do not wait for a
+multi-broker cluster.
 
 Any generated test environment value can also be overridden with repeated
 `--env KEY=VALUE` flags. These overrides are applied after the deployment
@@ -231,7 +239,7 @@ Before starting the load generator, the runner:
 - removes any old demo HPA and scales the demo app down so consumer groups are inactive
 - resets Redis on the lab host
 - deletes stale Kafka consumer groups for the demo app
-- deletes and recreates Redpanda topics on the lab host
+- deletes and recreates Kafka topics on the selected host broker
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
 - applies the selected app Helm profile with processing, audit logging, consumer metrics implementation, and suspend worker dispatcher threads overridden from the prompts
 
@@ -407,8 +415,8 @@ and stay there briefly before running audit analysis and printing the final
 summary. Audit analysis is intentionally not run in parallel with the load test
 so local CPU contention does not affect benchmark results.
 If the Kafka exporter metrics are temporarily unavailable, the runner falls back
-to `rpk group describe` against the host Redpanda broker so drain waiting still
-works after the Kafka-to-Redpanda migration.
+to the selected broker's host admin CLI: `rpk group describe` for Redpanda or
+`kafka-consumer-groups.sh --describe` for Apache Kafka.
 When audit logging is enabled, the runner also fails fast if the Fluent Bit
 collector health endpoint is unavailable before the test starts or during the
 load run. Override the lag wait with:
@@ -519,12 +527,12 @@ sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"potion-tr
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
 
-Host-managed Redpanda and Redis run outside Kubernetes. Redpanda CPU is scraped from Redpanda public metrics; Redis CPU and host-service memory are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
+The host-managed Kafka broker and Redis run outside Kubernetes. Broker CPU/RSS and Redis CPU/RSS are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
 
 ```promql
-1000 * sum(rate(redpanda_cpu_busy_seconds_total{job="ckc-redpanda-public-metrics"}[30s]))
+1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka"}[30s]))
+sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka", memtype="resident"})
 1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname="redis"}[30s]))
-sum(redpanda_memory_allocated_memory{job="ckc-redpanda-public-metrics"})
 sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname="redis", memtype="resident"})
 ```
 
@@ -546,6 +554,8 @@ Host checks:
 ssh "root@${LAB_HOST}" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redis redis-cli PING"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers=localhost:9092 topic list"
+# For an Apache Kafka run:
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
 ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:9308/metrics | grep kafka_consumergroup_lag | head"
 ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:2020/api/v1/health"
 ```
@@ -567,7 +577,7 @@ The default demo app values set memory limits but do not set CPU limits. CPU lim
 
 ## Typical Pitfalls
 
-- Redpanda's advertised Kafka address points at `localhost`.
+- The selected broker's advertised Kafka address points at `localhost`.
 - The app uses `localhost` for Redis, Kafka, or stubs from inside Kubernetes.
 - Images were rebuilt locally but not loaded into k3s.
 - Kafka topics were not recreated between tests.

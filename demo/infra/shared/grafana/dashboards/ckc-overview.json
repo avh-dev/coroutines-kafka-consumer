@@ -2503,13 +2503,13 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "1000 * sum(rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=\"redpanda\"}[$__rate_interval]))",
-              "legendFormat": "redpanda",
+              "expr": "1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job=\"ckc-host-process-exporter\", groupname=~\"redpanda|apache-kafka\"}[$__rate_interval]))",
+              "legendFormat": "{{groupname}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Redpanda CPU",
+          "title": "Kafka Broker CPU",
           "type": "timeseries",
           "id": 76
         },
@@ -2600,18 +2600,18 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(redpanda_memory_allocated_memory{job=\"ckc-redpanda-public-metrics\"})",
-              "legendFormat": "redpanda",
+              "expr": "sum by (groupname) (namedprocess_namegroup_memory_bytes{job=\"ckc-host-process-exporter\", groupname=~\"redpanda|apache-kafka\", memtype=\"resident\"})",
+              "legendFormat": "{{groupname}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Redpanda Memory",
+          "title": "Kafka Broker RSS",
           "type": "timeseries",
           "id": 77
         }
       ],
-      "title": "Host Services: Kafka (Redpanda)",
+      "title": "Host Services: Kafka Broker",
       "type": "row",
       "id": 75
     },

@@ -24,6 +24,7 @@ except ImportError as error:
 
 
 LEGACY_ENV_ARGS = {
+    "LAB_KAFKA_IMPLEMENTATION": "--kafka-implementation",
     "PROCESSING_ENABLED": "--processing-enabled",
     "AUDIT_LOG_ENABLED": "--audit-log-enabled",
     "METRICS_IMPLEMENTATION": "--metrics-implementation",
