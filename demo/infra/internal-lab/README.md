@@ -183,17 +183,33 @@ Start the interactive runner:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
-The runner presents fixed choices through numbered lists and prompts for the
-worker thread count directly. Previous selections are marked as current or
-shown as defaults and used when Enter is pressed:
+The runner presents fixed choices through numbered lists and prompts for scalar
+values directly. Previous selections are marked as current or shown as defaults
+and used when Enter is pressed:
 
-- a Helm deployment profile, defaulting to the currently deployed profile
+- a dynamic run profile, defaulting to the currently deployed profile
 - the host Kafka API broker implementation: `redpanda` or `apache-kafka`
 - whether business processing is enabled; select `false` for a noop run
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
 - the shared suspend worker dispatcher thread count
 - a load-test definition, defaulting to the previous run
+
+For dynamic profiles, `run-test.sh` generates a Helm values overlay under
+`/opt/ckc-lab/state/generated/run-plan-values.yaml` before it changes the lab.
+The plan uses the selected Spring profile, optional run preset, `base_tps`,
+per-topic traffic percentages, `capacity_model.average_processing_ms` from the
+test definition, processing-enabled mode, and a capacity factor to calculate
+topic partitions and either worker concurrency or Spring Kafka listener
+concurrency. If a test definition does not define the capacity model, the
+planner falls back to the older stub-latency estimate and marks that source in
+the printed plan. The full plan is printed before preparation and is included
+in each run's `run-metadata.json`.
+
+Before destructive setup starts, interactive runs ask whether to apply the plan,
+edit it manually, or abort. Manual editing exposes only the knobs supported by
+the selected profile. `spring-kafka` supports partitions and pollers; CKC and
+Confluent profiles support partitions, workers, and pollers.
 
 Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
 executor after the load-test process starts. Chaos offsets are measured from
@@ -205,7 +221,10 @@ Pass the same choices explicitly for a non-interactive run:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
-  --deployment ckc-sync \
+  --profile ckc-sync \
+  --preset ordered-by-partition \
+  --base-rate 3000 \
+  --capacity-factor 1.25 \
   --kafka-implementation apache-kafka \
   --processing-enabled false \
   --audit-log-enabled false \
@@ -213,6 +232,16 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --worker-dispatcher-threads 8 \
   baseline
 ```
+
+Use `--order-processing-mode`, `--batch-processing-mode`, and
+`--telemetry-processing-mode` to override the profile defaults. Explicit modes
+must be allowed by the selected profile. If the previous run used a mode that is
+not valid for the new profile, the profile default is used instead. Use
+`--dry-run-plan` to print the computed partitions, workers, listener
+concurrency, average latency assumptions, and generated values path without
+resetting Kafka or deploying the app. Non-interactive runs can override the
+computed numbers directly with `--order-partitions`, `--order-workers`,
+`--order-pollers`, and the equivalent `batch` and `telemetry` flags.
 
 The `apache-kafka` option runs the official `apache/kafka:4.3.1` image and
 enables share groups through `group.coordinator.rebalance.protocols=classic,consumer,streams,share`.
@@ -222,7 +251,8 @@ multi-broker cluster.
 
 Any generated test environment value can also be overridden with repeated
 `--env KEY=VALUE` flags. These overrides are applied after the deployment
-profile and test definition are rendered:
+profile and test definition are rendered. `--deployment` remains available as a
+legacy escape hatch for a hand-written Helm overlay:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
@@ -234,7 +264,7 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
 
 Before starting the load generator, the runner:
 
-- reads Kafka topics from `lab.kafkaTopics` in the selected Helm deployment profile
+- generates or reads Kafka topics from `lab.kafkaTopics` in the selected Helm deployment profile
 - reads mandatory stub baseline settings and load parameters from the selected lab test definition
 - removes any old demo HPA and scales the demo app down so consumer groups are inactive
 - resets Redis on the lab host
@@ -248,7 +278,7 @@ To rerun only the load generator without resetting Redis, topics, or the app dep
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --skip-prepare \
-  --deployment ckc-sync \
+  --profile ckc-sync \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
@@ -271,7 +301,7 @@ Run the bundled internal-lab chaos smoke explicitly with:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
-  --deployment ckc \
+  --profile ckc \
   chaos-smoke
 ```
 

@@ -23,6 +23,17 @@ CONSUMER_DRAIN_STABLE_SECONDS="${CONSUMER_DRAIN_STABLE_SECONDS:-15}"
 CONSUMER_DRAIN_POLL_SECONDS="${CONSUMER_DRAIN_POLL_SECONDS:-5}"
 TEST_DEFINITION=""
 DEPLOYMENT_PROFILE=""
+RUN_PROFILE=""
+EXPLICIT_RUN_PROFILE=0
+RUN_PRESETS=()
+EXPLICIT_RUN_PRESETS=0
+BASE_TPS_OVERRIDE=""
+CAPACITY_FACTOR=""
+ORDER_PROCESSING_MODE=""
+BATCH_PROCESSING_MODE=""
+TELEMETRY_PROCESSING_MODE=""
+PLAN_MANUAL_ARGS=()
+DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
@@ -34,13 +45,16 @@ RUN_INTERRUPTED=0
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
+          [--profile spring-profile] [--preset name] [--base-rate tps] [--capacity-factor value]
+          [--order-processing-mode mode] [--batch-processing-mode mode]
+          [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP]
           [--env KEY=VALUE]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
-Selects an internal-lab deployment and test definition, prepares the lab when
+Selects an internal-lab run profile and test definition, prepares the lab when
 needed, then runs the load-test generator on the lab host.
 
 Options:
@@ -49,6 +63,26 @@ Options:
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
   --skip-analysis  Finalize the raw audit log but leave analysis for a later step.
   --deployment     Select a Helm deployment profile without prompting.
+                   Legacy mode. When omitted, a dynamic run profile is planned.
+  --profile        Select a dynamic application profile without prompting.
+  --preset         Apply a named run preset. Can be repeated.
+  --base-rate      Override load_test.base_tps for this run plan and load test.
+                   --base-tps is accepted as a compatibility alias.
+  --capacity-factor
+                   Multiply calculated topic parallelism by this headroom factor.
+  --order-processing-mode
+                   Select processing mode for the order topic.
+  --batch-processing-mode
+                   Select processing mode for the batch topic.
+  --telemetry-processing-mode
+                   Select processing mode for the telemetry topic.
+  --dry-run-plan   Print the computed run plan and exit before preparing the lab.
+  --order-partitions, --batch-partitions, --telemetry-partitions
+                   Manually override generated topic partition counts.
+  --order-workers, --batch-workers, --telemetry-workers
+                   Manually override generated app worker concurrency.
+  --order-pollers, --batch-pollers, --telemetry-pollers
+                   Manually override generated poll loop concurrency.
   --kafka-implementation
                     Select the host Kafka API broker implementation.
   --processing-enabled
@@ -81,6 +115,44 @@ while [ "$#" -gt 0 ]; do
     --deployment)
       DEPLOYMENT_PROFILE="${2:?--deployment requires a profile}"
       shift 2
+      ;;
+    --profile)
+      RUN_PROFILE="${2:?--profile requires a profile}"
+      EXPLICIT_RUN_PROFILE=1
+      shift 2
+      ;;
+    --preset)
+      RUN_PRESETS+=("${2:?--preset requires a name}")
+      EXPLICIT_RUN_PRESETS=1
+      shift 2
+      ;;
+    --base-rate|--base-tps)
+      BASE_TPS_OVERRIDE="${2:?$1 requires a positive integer}"
+      shift 2
+      ;;
+    --capacity-factor)
+      CAPACITY_FACTOR="${2:?--capacity-factor requires a positive number}"
+      shift 2
+      ;;
+    --order-processing-mode)
+      ORDER_PROCESSING_MODE="${2:?--order-processing-mode requires a mode}"
+      shift 2
+      ;;
+    --batch-processing-mode)
+      BATCH_PROCESSING_MODE="${2:?--batch-processing-mode requires a mode}"
+      shift 2
+      ;;
+    --telemetry-processing-mode)
+      TELEMETRY_PROCESSING_MODE="${2:?--telemetry-processing-mode requires a mode}"
+      shift 2
+      ;;
+    --order-partitions|--batch-partitions|--telemetry-partitions|--order-workers|--batch-workers|--telemetry-workers|--order-pollers|--batch-pollers|--telemetry-pollers)
+      PLAN_MANUAL_ARGS+=("$1" "${2:?$1 requires a positive integer}")
+      shift 2
+      ;;
+    --dry-run-plan)
+      DRY_RUN_PLAN=1
+      shift
       ;;
     --kafka-implementation)
       LAB_KAFKA_IMPLEMENTATION="${2:?--kafka-implementation requires redpanda or apache-kafka}"
@@ -140,7 +212,22 @@ CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
 CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
+CURRENT_RUN_PROFILE=""
+CURRENT_RUN_PRESETS=""
+CURRENT_BASE_TPS=""
+CURRENT_CAPACITY_FACTOR=""
+CURRENT_ORDER_PROCESSING_MODE=""
+CURRENT_BATCH_PROCESSING_MODE=""
+CURRENT_TELEMETRY_PROCESSING_MODE=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
+  REQUESTED_RUN_PROFILE="${RUN_PROFILE}"
+  REQUESTED_RUN_PRESETS=("${RUN_PRESETS[@]}")
+  REQUESTED_EXPLICIT_RUN_PRESETS="${EXPLICIT_RUN_PRESETS}"
+  REQUESTED_BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE}"
+  REQUESTED_CAPACITY_FACTOR="${CAPACITY_FACTOR}"
+  REQUESTED_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE}"
+  REQUESTED_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE}"
+  REQUESTED_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE}"
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
   REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
@@ -155,6 +242,21 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
   CURRENT_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-8}"
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
+  CURRENT_RUN_PROFILE="${RUN_PROFILE:-${APP_PROFILE:-}}"
+  CURRENT_RUN_PRESETS="${RUN_PRESETS:-}"
+  CURRENT_BASE_TPS="${BASE_TPS:-}"
+  CURRENT_CAPACITY_FACTOR="${CAPACITY_FACTOR:-}"
+  CURRENT_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE:-}"
+  CURRENT_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE:-}"
+  CURRENT_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE:-}"
+  RUN_PROFILE="${REQUESTED_RUN_PROFILE}"
+  RUN_PRESETS=("${REQUESTED_RUN_PRESETS[@]}")
+  EXPLICIT_RUN_PRESETS="${REQUESTED_EXPLICIT_RUN_PRESETS}"
+  BASE_TPS_OVERRIDE="${REQUESTED_BASE_TPS_OVERRIDE}"
+  CAPACITY_FACTOR="${REQUESTED_CAPACITY_FACTOR}"
+  ORDER_PROCESSING_MODE="${REQUESTED_ORDER_PROCESSING_MODE}"
+  BATCH_PROCESSING_MODE="${REQUESTED_BATCH_PROCESSING_MODE}"
+  TELEMETRY_PROCESSING_MODE="${REQUESTED_TELEMETRY_PROCESSING_MODE}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
   LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
@@ -248,16 +350,164 @@ resolve_yaml() {
   esac
 }
 
-if [ -z "${DEPLOYMENT_PROFILE}" ]; then
-  if [ ! -t 0 ]; then
-    DEPLOYMENT_PROFILE="${CURRENT_APP_PROFILE:?--deployment is required without interactive input}"
-    DEPLOYMENT_PROFILE="$(resolve_yaml "${DEPLOYMENT_PROFILE_DIR}" "${DEPLOYMENT_PROFILE}")"
-  else
-    mapfile -t DEPLOYMENT_PROFILES < <(grep -l '^lab:' "${DEPLOYMENT_PROFILE_DIR}"/*.yaml | sort)
-    DEPLOYMENT_PROFILE="$(select_file "Available deployment profiles" "${DEPLOYMENT_PROFILE_DIR}" "${CURRENT_APP_PROFILE}" "${DEPLOYMENT_PROFILES[@]}")"
-  fi
-else
+list_run_profiles() {
+  python3 "${LAB_ROOT}/helpers/plan-run.py" \
+    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --list-profiles
+}
+
+list_run_presets() {
+  python3 "${LAB_ROOT}/helpers/plan-run.py" \
+    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --list-presets
+}
+
+run_profile_exists() {
+  local profile="$1"
+  list_run_profiles | grep -Fxq "${profile}"
+}
+
+run_preset_exists() {
+  local preset="$1"
+  list_run_presets | grep -Fxq "${preset}"
+}
+
+definition_base_tps() {
+  local definition="$1"
+  python3 - "${definition}" <<'PY'
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError as error:
+    raise SystemExit("PyYAML is required. Install python3-yaml on the lab host.") from error
+
+definition = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")) or {}
+load_test = definition.get("load_test") or {}
+print(load_test.get("base_tps", 10000))
+PY
+}
+
+print_run_plan() {
+  RUN_PLAN_PATH="${RUN_PLAN_PATH}" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+plan = json.loads(Path(os.environ["RUN_PLAN_PATH"]).read_text(encoding="utf-8"))
+adjustable = set(plan.get("adjustable", []))
+print("run_plan:")
+print(f"  profile: {plan['profile']}")
+print(f"  spring_profile: {plan['spring_profile']}")
+print(f"  parallelism: {plan['parallelism_strategy']}")
+print(f"  presets: {', '.join(plan['presets']) if plan['presets'] else '-'}")
+print(f"  base_rate: {plan['base_tps']}")
+print(f"  capacity_factor: {plan['capacity_factor']}")
+print(f"  replicas: {plan['replica_count']}")
+print("  topics:")
+for topic in plan["topics"]:
+    manual = topic.get("manual_overrides") or {}
+    print(f"    {topic['name']}:")
+    print(f"      kafka_topic: {topic['kafka_topic']}")
+    print(f"      target_tps: {topic['target_tps']:.2f}")
+    print(f"      average_processing_ms: {topic['average_processing_ms']:.2f}")
+    if topic.get("latency_source") != "capacity_model.average_processing_ms":
+        print(f"      latency_note: {topic.get('latency_source')}")
+    print(f"      required_parallelism: {topic['required_parallelism']}")
+    print(f"      processing_mode: {topic['processing_mode']}")
+    print(f"      partitions: {topic['partitions']}")
+    if "workers" in adjustable:
+        print(f"      workers: {topic['worker_concurrency']}")
+    if "pollers" in adjustable:
+        print(f"      pollers: {topic['poll_loop_concurrency']}")
+    if manual:
+        print("      manual_overrides:")
+        for key, value in manual.items():
+            print(f"        {key}: {value}")
+print(f"  values: {plan['values_path']}")
+PY
+}
+
+edit_run_plan_args() {
+  RUN_PLAN_PATH="${RUN_PLAN_PATH}" python3 - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+plan = json.loads(Path(os.environ["RUN_PLAN_PATH"]).read_text(encoding="utf-8"))
+adjustable = set(plan.get("adjustable", []))
+field_map = {
+    "partitions": ("partitions", "partitions"),
+    "workers": ("worker_concurrency", "workers"),
+    "pollers": ("poll_loop_concurrency", "pollers"),
+}
+args: list[str] = []
+for topic in plan["topics"]:
+    name = topic["name"]
+    print(f"{name}:", file=sys.stderr)
+    for knob in ("partitions", "workers", "pollers"):
+        if knob not in adjustable:
+            continue
+        field, suffix = field_map[knob]
+        current = int(topic[field])
+        print(f"  {knob} [{current}]: ", end="", file=sys.stderr, flush=True)
+        value = sys.stdin.readline().strip()
+        if not value:
+            continue
+        if not value.isdigit() or int(value) <= 0:
+            raise SystemExit(f"{name} {knob} must be a positive integer: {value}")
+        args.extend([f"--{name}-{suffix}", value])
+print("PLAN_MANUAL_ARGS_TEXT='" + " ".join(args) + "'")
+PY
+}
+
+if [ -n "${DEPLOYMENT_PROFILE}" ] && [ -n "${RUN_PROFILE}" ]; then
+  echo "--deployment and --profile cannot be used together." >&2
+  exit 1
+fi
+
+if [ -n "${DEPLOYMENT_PROFILE}" ]; then
   DEPLOYMENT_PROFILE="$(resolve_yaml "${DEPLOYMENT_PROFILE_DIR}" "${DEPLOYMENT_PROFILE}")"
+else
+  if [ -z "${RUN_PROFILE}" ]; then
+    if [ ! -t 0 ]; then
+      RUN_PROFILE="${CURRENT_RUN_PROFILE:-ckc}"
+      if ! run_profile_exists "${RUN_PROFILE}"; then
+        RUN_PROFILE="ckc"
+      fi
+    else
+      mapfile -t RUN_PROFILES < <(list_run_profiles)
+      RUN_PROFILE_DEFAULT="${CURRENT_RUN_PROFILE:-ckc}"
+      if ! printf '%s\n' "${RUN_PROFILES[@]}" | grep -Fxq "${RUN_PROFILE_DEFAULT}"; then
+        RUN_PROFILE_DEFAULT="ckc"
+      fi
+      RUN_PROFILE="$(select_value "Available run profiles" "${RUN_PROFILE_DEFAULT}" "${RUN_PROFILES[@]}")"
+    fi
+  elif [ "${EXPLICIT_RUN_PROFILE}" -eq 0 ] && ! run_profile_exists "${RUN_PROFILE}"; then
+    RUN_PROFILE="ckc"
+  fi
+  if [ "${EXPLICIT_RUN_PRESETS}" -eq 0 ]; then
+    if [ ! -t 0 ]; then
+      if [ -n "${CURRENT_RUN_PRESETS}" ]; then
+        IFS=',' read -r -a RUN_PRESETS <<< "${CURRENT_RUN_PRESETS}"
+      fi
+    else
+      mapfile -t AVAILABLE_RUN_PRESETS < <(list_run_presets)
+      RUN_PRESET_DEFAULT="none"
+      if [ -n "${CURRENT_RUN_PRESETS}" ]; then
+        first_current_preset="${CURRENT_RUN_PRESETS%%,*}"
+        if run_preset_exists "${first_current_preset}"; then
+          RUN_PRESET_DEFAULT="${first_current_preset}"
+        fi
+      fi
+      RUN_PRESET_CHOICE="$(select_value "Run preset" "${RUN_PRESET_DEFAULT}" none "${AVAILABLE_RUN_PRESETS[@]}")"
+      if [ "${RUN_PRESET_CHOICE}" != "none" ]; then
+        RUN_PRESETS=("${RUN_PRESET_CHOICE}")
+      fi
+    fi
+  fi
 fi
 
 if [ -z "${LAB_KAFKA_IMPLEMENTATION}" ]; then
@@ -331,25 +581,135 @@ else
   TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
 fi
 
-if [ ! -f "${DEPLOYMENT_PROFILE}" ]; then
-  echo "Deployment profile was not found: ${DEPLOYMENT_PROFILE}" >&2
-  exit 1
-fi
 if [ ! -f "${TEST_DEFINITION}" ]; then
   echo "Test definition was not found: ${TEST_DEFINITION}" >&2
   exit 1
 fi
 
-echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
+if [ -z "${DEPLOYMENT_PROFILE}" ]; then
+  if [ -z "${BASE_TPS_OVERRIDE}" ]; then
+    BASE_TPS_DEFAULT="${CURRENT_BASE_TPS:-$(definition_base_tps "${TEST_DEFINITION}")}"
+    if [ ! -t 0 ]; then
+      BASE_TPS_OVERRIDE="${BASE_TPS_DEFAULT}"
+    else
+      read -r -p "Base rate TPS [${BASE_TPS_DEFAULT}]: " BASE_TPS_OVERRIDE
+      BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE:-${BASE_TPS_DEFAULT}}"
+    fi
+  fi
+  if [ -z "${CAPACITY_FACTOR}" ] && [ -n "${CURRENT_CAPACITY_FACTOR}" ]; then
+    if [ ! -t 0 ]; then
+      CAPACITY_FACTOR="${CURRENT_CAPACITY_FACTOR}"
+    else
+      read -r -p "Capacity factor [${CURRENT_CAPACITY_FACTOR}]: " CAPACITY_FACTOR
+      CAPACITY_FACTOR="${CAPACITY_FACTOR:-${CURRENT_CAPACITY_FACTOR}}"
+    fi
+  fi
+  if [ -n "${BASE_TPS_OVERRIDE}" ] && ! [[ "${BASE_TPS_OVERRIDE}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "base-tps must be a positive integer: ${BASE_TPS_OVERRIDE}" >&2
+    exit 1
+  fi
+  if [ -n "${CAPACITY_FACTOR}" ] && ! [[ "${CAPACITY_FACTOR}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "capacity-factor must be a positive number: ${CAPACITY_FACTOR}" >&2
+    exit 1
+  fi
+
+  PLAN_OUTPUT_DIR="${LAB_ROOT}/state/generated"
+  PLAN_ENV_FILE="${PLAN_OUTPUT_DIR}/run-plan.env"
+  mkdir -p "${PLAN_OUTPUT_DIR}"
+  PLAN_ARGS=(
+    "${TEST_DEFINITION}"
+    --profile "${RUN_PROFILE}"
+    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml"
+    --output-dir "${PLAN_OUTPUT_DIR}"
+    --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}"
+    --processing-enabled "${PROCESSING_ENABLED}"
+    --repo-dir "${LAB_ROOT}"
+  )
+  for preset in "${RUN_PRESETS[@]}"; do
+    PLAN_ARGS+=(--preset "${preset}")
+  done
+  if [ -n "${BASE_TPS_OVERRIDE}" ]; then
+    PLAN_ARGS+=(--base-tps "${BASE_TPS_OVERRIDE}")
+  fi
+  if [ -n "${CAPACITY_FACTOR}" ]; then
+    PLAN_ARGS+=(--capacity-factor "${CAPACITY_FACTOR}")
+  fi
+  if [ -n "${ORDER_PROCESSING_MODE}" ]; then
+    PLAN_ARGS+=(--order-processing-mode "${ORDER_PROCESSING_MODE}")
+  fi
+  if [ -n "${BATCH_PROCESSING_MODE}" ]; then
+    PLAN_ARGS+=(--batch-processing-mode "${BATCH_PROCESSING_MODE}")
+  fi
+  if [ -n "${TELEMETRY_PROCESSING_MODE}" ]; then
+    PLAN_ARGS+=(--telemetry-processing-mode "${TELEMETRY_PROCESSING_MODE}")
+  fi
+  if [ "${#PLAN_MANUAL_ARGS[@]}" -gt 0 ]; then
+    PLAN_ARGS+=("${PLAN_MANUAL_ARGS[@]}")
+  fi
+  python3 "${LAB_ROOT}/helpers/plan-run.py" "${PLAN_ARGS[@]}" > "${PLAN_ENV_FILE}"
+  # shellcheck disable=SC1090
+  . "${PLAN_ENV_FILE}"
+  DEPLOYMENT_PROFILE="${RUN_PLAN_VALUES}"
+fi
+
+if [ ! -f "${DEPLOYMENT_PROFILE}" ]; then
+  echo "Deployment profile was not found: ${DEPLOYMENT_PROFILE}" >&2
+  exit 1
+fi
+
+if [ -n "${RUN_PROFILE}" ]; then
+  echo "Run profile: ${RUN_PROFILE}"
+else
+  echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
+fi
 echo "Kafka broker implementation: ${LAB_KAFKA_IMPLEMENTATION}"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
 echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
+if [ -n "${RUN_PLAN_PATH:-}" ]; then
+  print_run_plan
+  while [ -t 0 ] && [ "${DRY_RUN_PLAN}" -eq 0 ]; do
+    read -r -p "Apply this run plan? [Y]es/[e]dit/[a]bort: " PLAN_DECISION
+    PLAN_DECISION="${PLAN_DECISION:-y}"
+    case "${PLAN_DECISION}" in
+      y|Y|yes|YES)
+        break
+        ;;
+      a|A|abort|ABORT)
+        echo "Run plan was rejected; lab was not prepared and load test was not started."
+        exit 130
+        ;;
+      e|E|edit|EDIT)
+        PLAN_MANUAL_ENV_FILE="${PLAN_OUTPUT_DIR}/manual-plan.env"
+        edit_run_plan_args > "${PLAN_MANUAL_ENV_FILE}"
+        # shellcheck disable=SC1090
+        . "${PLAN_MANUAL_ENV_FILE}"
+        if [ -n "${PLAN_MANUAL_ARGS_TEXT:-}" ]; then
+          read -r -a PLAN_MANUAL_ARGS <<< "${PLAN_MANUAL_ARGS_TEXT}"
+          PLAN_ARGS+=("${PLAN_MANUAL_ARGS[@]}")
+          python3 "${LAB_ROOT}/helpers/plan-run.py" "${PLAN_ARGS[@]}" > "${PLAN_ENV_FILE}"
+          # shellcheck disable=SC1090
+          . "${PLAN_ENV_FILE}"
+          DEPLOYMENT_PROFILE="${RUN_PLAN_VALUES}"
+          print_run_plan
+        fi
+        ;;
+      *)
+        echo "Invalid selection: ${PLAN_DECISION}" >&2
+        ;;
+    esac
+  done
+fi
 if [ "${#ENV_OVERRIDES[@]}" -gt 0 ]; then
   echo "Environment overrides:"
   printf "  %s\n" "${ENV_OVERRIDES[@]}"
+fi
+
+if [ "${DRY_RUN_PLAN}" -eq 1 ]; then
+  echo "Dry run requested; lab was not prepared and load test was not started."
+  exit 0
 fi
 
 ENV_FILE="${LAB_ROOT}/config/test.env"
@@ -362,6 +722,9 @@ DEFINITION_ENV_ARGS=(
   --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
   --repo-dir "${LAB_ROOT}"
 )
+if [ -n "${RUN_PLAN_PATH:-}" ] && [ -n "${BASE_TPS:-}" ]; then
+  DEFINITION_ENV_ARGS+=(--env "BASE_TPS=${BASE_TPS}")
+fi
 for override in "${ENV_OVERRIDES[@]}"; do
   DEFINITION_ENV_ARGS+=(--env "${override}")
 done
@@ -457,6 +820,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
+  export RUN_PROFILE RUN_PRESETS RUN_PLAN_PATH CAPACITY_FACTOR ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
@@ -495,6 +859,15 @@ def topic_specs(value: str) -> list[dict[str, int | str]]:
     return result
 
 
+def optional_json_file(path: str) -> dict | None:
+    if not path:
+        return None
+    candidate = Path(path)
+    if not candidate.is_file():
+        return None
+    return json.loads(candidate.read_text(encoding="utf-8"))
+
+
 metadata = {
     "run_id": env("RUN_ID"),
     "started_at": env("RUN_STARTED_AT"),
@@ -509,10 +882,17 @@ metadata = {
     },
     "application": {
         "profile": env("APP_PROFILE"),
+        "run_profile": env("RUN_PROFILE"),
+        "run_presets": [item for item in env("RUN_PRESETS").split(",") if item],
         "processing_enabled": env_bool("PROCESSING_ENABLED"),
         "audit_log_enabled": env_bool("AUDIT_LOG_ENABLED"),
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),
         "worker_dispatcher_threads": env_int("WORKER_DISPATCHER_THREADS"),
+        "processing_modes": {
+            "order": env("ORDER_PROCESSING_MODE"),
+            "batch": env("BATCH_PROCESSING_MODE"),
+            "telemetry": env("TELEMETRY_PROCESSING_MODE"),
+        },
     },
     "kafka": {
         "implementation": env("LAB_KAFKA_IMPLEMENTATION", "redpanda"),
@@ -547,6 +927,9 @@ metadata = {
     "stubs": json.loads(env("STUB_SETTINGS_JSON", "{}")),
     "chaos_steps": json.loads(env("CHAOS_STEPS_JSON", "[]")),
 }
+run_plan = optional_json_file(env("RUN_PLAN_PATH"))
+if run_plan is not None:
+    metadata["run_plan"] = run_plan
 
 with Path(env("RUN_METADATA_FILE")).open("w", encoding="utf-8") as file:
     json.dump(metadata, file, indent=2, sort_keys=False)

@@ -137,11 +137,30 @@ Supported service targets are:
 The runner resets known internal-lab network chaos state during test preparation and after a run stops, so aborted
 tests do not leave `tc` or `iptables` rules behind.
 
-Internal-lab deployment settings are stored directly in local Helm profiles under
-`demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab`. AWS deployment profiles live under
-`demo/infra/aws/helm/demo/profiles/aws`. The `lab.kafkaTopics` block associates topic
-partition counts with app scaling settings without affecting rendered Kubernetes resources.
-Noop runs use the runtime Helm override `--set env.processingEnabled=false`.
+Internal-lab runs normally use dynamic profiles from
+`demo/infra/internal-lab/assets/config/run-profiles.yaml`. `run-test.sh`
+combines a run profile with the selected test definition and writes a generated
+Helm values overlay containing `lab.kafkaTopics`, app concurrency settings, and
+processing modes. Static internal-lab Helm profiles under
+`demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab` remain available
+for legacy `--deployment` runs and manual Helm debugging. AWS deployment
+profiles live under `demo/infra/aws/helm/demo/profiles/aws`. Noop runs use the
+runtime Helm override `--set env.processingEnabled=false`.
+
+Internal-lab definitions may define the measured capacity model used by the
+dynamic planner:
+
+```yaml
+capacity_model:
+  average_processing_ms:
+    order: 2
+    batch: 5
+    telemetry: 35
+```
+
+These values are intended to come from a short calibration run for the same
+consumer implementation and test shape. They override the older stub-latency
+estimate when `run-test.sh` computes topic parallelism.
 
 Available internal-lab tests:
 

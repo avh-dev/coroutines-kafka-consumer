@@ -18,6 +18,12 @@ stubs:
     delay_p99_ms: 4
     delay_p100_ms: 5
 
+capacity_model:
+  average_processing_ms:
+    order: 2
+    batch: 5
+    telemetry: 35
+
 load_test:
   shards: 1
   workers: 8
@@ -33,4 +39,3 @@ load_test:
   min_brewing_steps: 5
   max_brewing_steps: 10
   diagnostics_blob_size: 256
-
