@@ -61,3 +61,12 @@ internal fun ProcessingMode.tracksProcessedOffsets(): Boolean =
         ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
         ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> false
     }
+
+internal fun ProcessingMode.isFreshnessFirst(): Boolean =
+    when (this) {
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> false
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> true
+    }

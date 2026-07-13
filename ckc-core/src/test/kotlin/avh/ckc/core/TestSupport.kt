@@ -9,8 +9,12 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.header.internals.RecordHeaders
+import org.apache.kafka.common.record.TimestampType
 import org.apache.kafka.common.serialization.LongDeserializer
 import org.apache.kafka.common.serialization.StringDeserializer
+import java.util.Optional
+import kotlin.time.Duration
 
 suspend fun <T : Any> awaitFor(
     timeoutMillis: Long,
@@ -29,6 +33,7 @@ fun testRuntime(
     processingMode: ProcessingMode,
     commitIntervalMs: Long = 5_000L,
     workChannelCapacity: Int = 1024,
+    freshnessMaxRecordAge: Duration? = null,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 ): TestConsumerRuntime =
     TestConsumerRuntime(
@@ -37,6 +42,7 @@ fun testRuntime(
         consumerPollLoopConcurrency = 1,
         commitIntervalMs = commitIntervalMs,
         workChannelCapacity = workChannelCapacity,
+        freshnessMaxRecordAge = freshnessMaxRecordAge,
         processingDispatcher = processingDispatcher
     )
 
@@ -96,6 +102,27 @@ fun typedTestRecord(
     value: String = "value"
 ) = ConsumerRecord(topic, partition, offset, key, value)
 
+fun typedTestRecord(
+    topic: String = "topic-a",
+    partition: Int = 0,
+    offset: Long,
+    timestamp: Long,
+    key: String = "key",
+    value: String = "value"
+) = ConsumerRecord(
+    topic,
+    partition,
+    offset,
+    timestamp,
+    TimestampType.CREATE_TIME,
+    key.length,
+    value.length,
+    key,
+    value,
+    RecordHeaders(),
+    Optional.empty()
+)
+
 fun emptyRecords(): ConsumerRecords<ByteArray, ByteArray> =
     ConsumerRecords(emptyMap())
 
@@ -111,5 +138,6 @@ data class TestConsumerRuntime(
     val consumerPollLoopConcurrency: Int,
     val commitIntervalMs: Long,
     val workChannelCapacity: Int,
+    val freshnessMaxRecordAge: Duration?,
     val processingDispatcher: CoroutineDispatcher
 )

@@ -163,6 +163,7 @@ private class CkcConsumerRuntime(
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,
+            properties.consumers.freshnessFirstMaxRecordAgeSeconds,
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled

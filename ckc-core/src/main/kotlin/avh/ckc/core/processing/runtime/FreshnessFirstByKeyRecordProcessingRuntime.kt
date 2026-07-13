@@ -24,6 +24,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration
 
 /**
  * Freshness-first runtime that coalesces queued records by deserialized Kafka key.
@@ -39,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,
     workChannelCapacity: Int,
+    freshnessMaxRecordAge: Duration?,
     private val processingDispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
     private val metrics: ConsumerMetrics<K, V>,
@@ -54,6 +56,7 @@ internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed
     )
+    private val recordDropPolicy = FreshnessRecordAgeDropPolicy(freshnessMaxRecordAge, metrics)
     private val runtimeStats = ConsumerRuntimeStatsTracker(
         workerCount = workerConcurrency,
         workQueueCapacity = workChannelCapacity
@@ -163,7 +166,9 @@ internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
             val record = claim(envelope) ?: continue
             runtimeStats.onWorkerStarted()
             try {
-                recordProcessor.process(record)
+                if (!recordDropPolicy.shouldDrop(record)) {
+                    recordProcessor.process(record)
+                }
             } finally {
                 runtimeStats.onWorkerFinished()
                 finish(envelope.key)

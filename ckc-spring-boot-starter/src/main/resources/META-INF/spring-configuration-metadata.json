@@ -273,6 +273,11 @@
       "defaultValue": 1024
     },
     {
+      "name": "ckc.consumers.*.freshness-max-record-age",
+      "type": "java.time.Duration",
+      "description": "Maximum Kafka record age accepted by freshness-first processing modes before the record is dropped instead of handled."
+    },
+    {
       "name": "ckc.consumers.*.processing-dispatcher",
       "type": "java.lang.String",
       "description": "Processing dispatcher name used for this consumer's record handler workers."

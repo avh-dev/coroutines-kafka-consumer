@@ -24,6 +24,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 object DemoConsumers {
     fun orderConsumer(
@@ -115,6 +116,7 @@ object DemoConsumers {
         metrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         audit: DemoApplicationProperties.Audit,
         runtime: DemoApplicationProperties.ConsumerRuntime,
+        freshnessMaxRecordAgeSeconds: Long,
         retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
@@ -132,6 +134,9 @@ object DemoConsumers {
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
             workChannelCapacity = runtime.workChannelCapacity
+            freshnessMaxRecordAge = freshnessMaxRecordAgeSeconds
+                .takeIf { it > 0 }
+                ?.seconds
             this.processingDispatcher = processingDispatcher
             retryPolicy = demoRetryPolicy(retry)
             this.metrics = metrics.withAudit(audit)

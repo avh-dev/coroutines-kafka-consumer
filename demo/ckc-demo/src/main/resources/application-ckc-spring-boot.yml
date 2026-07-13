@@ -76,6 +76,7 @@ ckc:
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       consumer-poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}
+      freshness-max-record-age: ${FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS:10}s
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
       kafka-properties:
         enable.auto.commit: true

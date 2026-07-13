@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
 
 /**
  * Builder for the public Kotlin DSL used to create [CoroutinesKafkaConsumer] instances.
@@ -44,6 +45,14 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
      * capacity.
      */
     var workChannelCapacity: Int = 1024
+
+    /**
+     * Maximum Kafka record age accepted by freshness-first modes before user handling.
+     *
+     * When set, workers drop records older than this duration instead of invoking the handler. This is supported
+     * only by freshness-first processing modes because dropping by age would violate at-least-once semantics.
+     */
+    var freshnessMaxRecordAge: Duration? = null
 
     /**
      * Dispatcher used for the main user-defined record handler.
@@ -129,6 +138,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
             workChannelCapacity = workChannelCapacity,
+            freshnessMaxRecordAge = freshnessMaxRecordAge,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
             metrics = metrics,

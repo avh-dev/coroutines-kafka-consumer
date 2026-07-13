@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.util.regex.Pattern
+import kotlin.time.Duration.Companion.seconds
 
 class CoroutinesKafkaConsumerBuilderTest {
 
@@ -37,6 +38,37 @@ class CoroutinesKafkaConsumerBuilderTest {
         }
 
         assertEquals("Kafka record handler must be specified", error.message)
+    }
+
+    @Test
+    fun `when freshness max record age is configured for at least once mode then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+                freshnessMaxRecordAge = 10.seconds
+                topics("topic-a")
+                handle { }
+            }
+        }
+
+        assertEquals(
+            "freshnessMaxRecordAge is supported only for freshness-first processing modes",
+            error.message
+        )
+    }
+
+    @Test
+    fun `when freshness max record age is not positive then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
+                freshnessMaxRecordAge = 0.seconds
+                topics("topic-a")
+                handle { }
+            }
+        }
+
+        assertEquals("freshnessMaxRecordAge must be > 0", error.message)
     }
 
     @Test

@@ -13,10 +13,12 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration
 
 internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency: Int,
     workChannelCapacity: Int,
+    freshnessMaxRecordAge: Duration?,
     processingDispatcher: CoroutineDispatcher,
     scope: CoroutineScope,
     metrics: ConsumerMetrics<K, V>,
@@ -33,7 +35,8 @@ internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
     handler = handler,
     retryPolicy = retryPolicy,
     processingFailureHandler = processingFailureHandler,
-    processedRecordTracker = processedRecordTracker
+    processedRecordTracker = processedRecordTracker,
+    recordDropPolicy = FreshnessRecordAgeDropPolicy(freshnessMaxRecordAge, metrics)
 ) {
     private val acceptingRecords = AtomicBoolean(true)
 
