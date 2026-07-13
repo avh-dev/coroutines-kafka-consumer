@@ -35,15 +35,15 @@ env:
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500
   auditLogEnabled: true
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  orderProcessingMode: AT_LEAST_ONCE_KEY_ORDERING
   orderWorkerConcurrency: 2
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024
-  batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_KEY
+  batchProcessingMode: AT_LEAST_ONCE_KEY_ORDERING
   batchWorkerConcurrency: 2
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 1024
-  telemetryProcessingMode: FRESHNESS_FIRST
+  telemetryProcessingMode: FRESHNESS_FIRST_DROP_OLDEST
   telemetryWorkerConcurrency: 4
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 256

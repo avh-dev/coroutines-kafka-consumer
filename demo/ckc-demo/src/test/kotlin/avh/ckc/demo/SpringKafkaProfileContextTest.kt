@@ -65,8 +65,8 @@ class SpringKafkaProfileContextTest(
     fun `spring kafka lifecycle listeners use time based offset commits`() {
         val properties = DemoApplicationProperties().apply {
             kafka.consumer.commitIntervalMs = 1_234
-            consumers.order.processingMode = ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION
-            consumers.batch.processingMode = ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION
+            consumers.order.processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
+            consumers.batch.processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
         }
         val configuration = SpringKafkaProfileConfiguration()
 

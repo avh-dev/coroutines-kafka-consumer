@@ -90,7 +90,7 @@ data class CkcConsumerProperties(
         var clientId: String? = null,
         var keyDeserializer: String? = null,
         var valueDeserializer: String? = null,
-        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
         var workerConcurrency: Int = 1,
         var consumerPollLoopConcurrency: Int = 1,
         var commitInterval: Duration = Duration.ofSeconds(5),

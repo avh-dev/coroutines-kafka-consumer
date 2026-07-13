@@ -246,7 +246,7 @@
       "name": "ckc.consumers.*.processing-mode",
       "type": "avh.ckc.core.ProcessingMode",
       "description": "CKC record processing mode.",
-      "defaultValue": "AT_LEAST_ONCE_UNORDERED"
+      "defaultValue": "AT_LEAST_ONCE_NO_ORDERING"
     },
     {
       "name": "ckc.consumers.*.worker-concurrency",
@@ -366,19 +366,19 @@
       "name": "ckc.consumers.*.processing-mode",
       "values": [
         {
-          "value": "AT_LEAST_ONCE_UNORDERED"
+          "value": "AT_LEAST_ONCE_NO_ORDERING"
         },
         {
-          "value": "AT_LEAST_ONCE_ORDERED_BY_KEY"
+          "value": "AT_LEAST_ONCE_KEY_ORDERING"
         },
         {
-          "value": "AT_LEAST_ONCE_ORDERED_BY_PARTITION"
+          "value": "AT_LEAST_ONCE_PARTITION_ORDERING"
         },
         {
-          "value": "FRESHNESS_FIRST"
+          "value": "FRESHNESS_FIRST_DROP_OLDEST"
         },
         {
-          "value": "FRESHNESS_FIRST_BY_KEY"
+          "value": "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY"
         }
       ]
     }

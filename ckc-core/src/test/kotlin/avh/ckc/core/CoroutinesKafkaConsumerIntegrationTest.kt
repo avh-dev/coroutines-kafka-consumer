@@ -50,7 +50,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             topics(topic)
             handle { record ->
                 processed.complete(Triple(record.key(), record.value(), record.offset()))
@@ -71,8 +71,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST with auto commit then consumer processes produced record`() = runBlocking {
-        val topic = "FRESHNESS_FIRST-${UUID.randomUUID()}"
+    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST with auto commit then consumer processes produced record`() = runBlocking {
+        val topic = "FRESHNESS_FIRST_DROP_OLDEST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -82,7 +82,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "enable.auto.commit" to "true"
             )
         ) {
-            processingMode = ProcessingMode.FRESHNESS_FIRST
+            processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
             topics(topic)
             handle { record ->
                 processed.complete(record.value())
@@ -91,17 +91,17 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
         try {
             consumer.start()
-            produce(topic, "FRESHNESS_FIRST-key", "FRESHNESS_FIRST-payload")
+            produce(topic, "FRESHNESS_FIRST_DROP_OLDEST-key", "FRESHNESS_FIRST_DROP_OLDEST-payload")
 
-            assertEquals("FRESHNESS_FIRST-payload", withTimeout(15_000) { processed.await() })
+            assertEquals("FRESHNESS_FIRST_DROP_OLDEST-payload", withTimeout(15_000) { processed.await() })
         } finally {
             consumer.stop()
         }
     }
 
     @Test
-    fun `when FRESHNESS_FIRST consumer receives burst then it stays live and processes recent records`() = runBlocking {
-        val topic = "FRESHNESS_FIRST-burst-${UUID.randomUUID()}"
+    fun `when FRESHNESS_FIRST_DROP_OLDEST consumer receives burst then it stays live and processes recent records`() = runBlocking {
+        val topic = "FRESHNESS_FIRST_DROP_OLDEST-burst-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -112,7 +112,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "enable.auto.commit" to "true"
             )
         ) {
-            processingMode = ProcessingMode.FRESHNESS_FIRST
+            processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
             workerConcurrency = 1
             workChannelCapacity = 1
             this.metrics = metrics
@@ -126,7 +126,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         try {
             consumer.start()
             repeat(20) { index ->
-                produce(topic, "FRESHNESS_FIRST-key-$index", "FRESHNESS_FIRST-value-$index")
+                produce(topic, "FRESHNESS_FIRST_DROP_OLDEST-key-$index", "FRESHNESS_FIRST_DROP_OLDEST-value-$index")
             }
 
             awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
@@ -151,7 +151,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             topicsPattern(Pattern.compile("orders-.*"))
             handle { record ->
                 processed.complete(record.key() to record.value())
@@ -183,7 +183,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             topicsPattern(Pattern.compile("orders-.*"))
             handle { record ->
                 processed += record.value()!!
@@ -217,7 +217,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             topics(topic)
             onProcessingFailure { record, error ->
                 recovered.complete("${record.key()}:${error.message}" to record.value())
@@ -251,7 +251,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             this.metrics = metrics
             topics(topic)
             onProcessingFailure { _, _ ->
@@ -276,8 +276,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when handler is slow in AT_LEAST_ONCE_UNORDERED mode then all produced records are eventually processed`() = runBlocking {
-        val topic = "AT_LEAST_ONCE_UNORDERED-${UUID.randomUUID()}"
+    fun `when handler is slow in AT_LEAST_ONCE_NO_ORDERING mode then all produced records are eventually processed`() = runBlocking {
+        val topic = "AT_LEAST_ONCE_NO_ORDERING-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -287,7 +287,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "max.poll.records" to "5"
             )
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             workerConcurrency = 1
             workChannelCapacity = 1
             topics(topic)
@@ -314,7 +314,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when AT_LEAST_ONCE_UNORDERED commits offset then offset metadata is stored in kafka`() = runBlocking {
+    fun `when AT_LEAST_ONCE_NO_ORDERING commits offset then offset metadata is stored in kafka`() = runBlocking {
         val topic = "metadata-commit-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
@@ -323,7 +323,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             commitIntervalMs = 100L
             topics(topic)
             handle { record ->
@@ -372,7 +372,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             commitIntervalMs = 100L
             topics(topic)
             handle { record ->
@@ -412,7 +412,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 "value.deserializer" to LongDeserializer::class.java
             )
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             this.metrics = metrics
             topics(topic)
             handle { }
@@ -456,7 +456,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val consumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             retryPolicy = retryPolicy {
                 retry<IOException> {
                     maxRetries = 2
@@ -506,7 +506,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val firstConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             parentContext = firstConsumerJob
             topics(topic)
             handle {
@@ -525,7 +525,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val secondConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             topics(topic)
             handle { record ->
                 redelivered.complete(record.value())
@@ -551,7 +551,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val firstConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             workerConcurrency = 1
             topics(topic)
             handle { record ->
@@ -563,7 +563,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val secondConsumer = coroutinesKafkaConsumer<String, String>(
             consumerProperties = consumerProperties(groupId)
         ) {
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             workerConcurrency = 1
             topics(topic)
             handle { record ->

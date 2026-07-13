@@ -46,13 +46,13 @@ import java.util.concurrent.atomic.AtomicReference
 class ConsumerPollLoopTest {
 
     @Nested
-    inner class FRESHNESS_FIRST {
+    inner class FRESHNESS_FIRST_DROP_OLDEST {
 
         @Test
-        fun `when FRESHNESS_FIRST loop polls records then they are sent to work channel`() = runBlocking {
+        fun `when FRESHNESS_FIRST_DROP_OLDEST loop polls records then they are sent to work channel`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
                 workChannelCapacity = 16,
                 pollAnswer = {
                     if (firstPoll.compareAndSet(true, false)) {
@@ -82,9 +82,9 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when prepare for shutdown called in FRESHNESS_FIRST mode then ready signal completes`() = runBlocking {
+        fun `when prepare for shutdown called in FRESHNESS_FIRST_DROP_OLDEST mode then ready signal completes`() = runBlocking {
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
                 workChannelCapacity = 16,
                 pollAnswer = {
                     Thread.sleep(50)
@@ -109,10 +109,10 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when FRESHNESS_FIRST channel overflows then oldest buffered records are dropped`() = runBlocking {
+        fun `when FRESHNESS_FIRST_DROP_OLDEST channel overflows then oldest buffered records are dropped`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
                 workChannelCapacity = 1,
                 pollAnswer = {
                     if (firstPoll.compareAndSet(true, false)) {
@@ -146,13 +146,13 @@ class ConsumerPollLoopTest {
     }
 
     @Nested
-    inner class AT_LEAST_ONCE_UNORDERED {
+    inner class AT_LEAST_ONCE_NO_ORDERING {
 
         @Test
-        fun `when work channel is full in AT_LEAST_ONCE_UNORDERED mode then consumer is paused`() = runBlocking {
+        fun `when work channel is full in AT_LEAST_ONCE_NO_ORDERING mode then consumer is paused`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 metrics = metrics,
                 workChannelCapacity = 2,
                 assignmentPosition = 100L,
@@ -192,7 +192,7 @@ class ConsumerPollLoopTest {
             val firstPoll = AtomicBoolean(true)
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 metrics = metrics,
                 workChannelCapacity = 1,
                 assignmentPosition = 100L,
@@ -243,10 +243,10 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when partitions assigned in AT_LEAST_ONCE_UNORDERED mode then registry is updated and position is queried`() = runBlocking {
+        fun `when partitions assigned in AT_LEAST_ONCE_NO_ORDERING mode then registry is updated and position is queried`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 42L,
@@ -276,7 +276,7 @@ class ConsumerPollLoopTest {
             restoredTracker.markProcessed(43L)
             val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
                 committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L, metadata)),
                 pollAnswer = { emptyRecords() }
@@ -304,7 +304,7 @@ class ConsumerPollLoopTest {
             val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
                 committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L, metadata)),
                 pollAnswer = {
@@ -336,7 +336,7 @@ class ConsumerPollLoopTest {
         @Test
         fun `when prepare for shutdown called then wakeup is invoked`() = runBlocking {
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 16,
                 pollAnswer = {
                     Thread.sleep(50)
@@ -360,11 +360,11 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when partition is revoked in AT_LEAST_ONCE_UNORDERED mode then ready offsets are committed`() = runBlocking {
+        fun `when partition is revoked in AT_LEAST_ONCE_NO_ORDERING mode then ready offsets are committed`() = runBlocking {
             val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 101L,
@@ -392,10 +392,10 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when commit interval elapses in AT_LEAST_ONCE_UNORDERED mode then ready offsets are committed`() = runBlocking {
+        fun `when commit interval elapses in AT_LEAST_ONCE_NO_ORDERING mode then ready offsets are committed`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 metrics = metrics,
                 workChannelCapacity = 4,
                 assignmentPosition = 201L,
@@ -423,7 +423,7 @@ class ConsumerPollLoopTest {
         @Test
         fun `when commit fails then next commit still advances to newer processed offset`() = runBlocking {
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
                 assignmentPosition = 300L,
                 commitIntervalMs = 25L,
@@ -460,7 +460,7 @@ class ConsumerPollLoopTest {
         fun `when shutdown drains stashed records then ready signal completes without resume`() = runBlocking {
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 1,
                 assignmentPosition = 100L,
                 initialChannelRecords = listOf(record(topic = "prefill", offset = 0L)),
@@ -515,11 +515,11 @@ private class PollLoopFixture(
     val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
         capacity = workChannelCapacity,
         onBufferOverflow = when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> BufferOverflow.SUSPEND
-            ProcessingMode.FRESHNESS_FIRST,
-            ProcessingMode.FRESHNESS_FIRST_BY_KEY -> BufferOverflow.DROP_OLDEST
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> BufferOverflow.SUSPEND
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> BufferOverflow.DROP_OLDEST
         }
     )
     private val recordSink = object : PolledRecordSink<ByteArray, ByteArray> {

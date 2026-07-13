@@ -148,7 +148,7 @@ class RecordProcessorTest {
     }
 
     @Test
-    fun `when processing succeeds in AT_LEAST_ONCE_UNORDERED mode then partition is marked processed`() = runBlocking {
+    fun `when processing succeeds in AT_LEAST_ONCE_NO_ORDERING mode then partition is marked processed`() = runBlocking {
         val record = ConsumerRecord("topic-a", 0, 25L, 0L, 0L)
         var processedRecordOffset: Long? = null
         val processor = RecordProcessor(

@@ -10,7 +10,7 @@ enum class ProcessingMode {
      * The poll loop applies backpressure when workers cannot keep up, slowing down polling
      * from Kafka instead of dropping records.
      */
-    AT_LEAST_ONCE_UNORDERED,
+    AT_LEAST_ONCE_NO_ORDERING,
 
     /**
      * At-least-once processing with ordering preserved for records that have equal deserialized Kafka keys.
@@ -18,14 +18,14 @@ enum class ProcessingMode {
      * Records with different keys may be processed concurrently. Records with a null Kafka key share a
      * single ordering lane and are therefore processed sequentially relative to each other.
      */
-    AT_LEAST_ONCE_ORDERED_BY_KEY,
+    AT_LEAST_ONCE_KEY_ORDERING,
 
     /**
      * At-least-once processing with ordering preserved within each Kafka topic partition.
      *
      * Records from different partitions may be processed concurrently.
      */
-    AT_LEAST_ONCE_ORDERED_BY_PARTITION,
+    AT_LEAST_ONCE_PARTITION_ORDERING,
 
     /**
      * Freshness-first processing backed by a bounded queue that drops the oldest buffered records.
@@ -35,7 +35,7 @@ enum class ProcessingMode {
      *
      * This mode intentionally trades reliability for throughput.
      */
-    FRESHNESS_FIRST,
+    FRESHNESS_FIRST_DROP_OLDEST,
 
     /**
      * Freshness-first processing that keeps at most one queued record per deserialized Kafka key.
@@ -50,14 +50,14 @@ enum class ProcessingMode {
      *
      * This mode intentionally trades reliability for freshness and throughput.
      */
-    FRESHNESS_FIRST_BY_KEY
+    FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
 }
 
 internal fun ProcessingMode.tracksProcessedOffsets(): Boolean =
     when (this) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> true
-        ProcessingMode.FRESHNESS_FIRST,
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> false
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> true
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> false
     }

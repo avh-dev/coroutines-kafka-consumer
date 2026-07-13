@@ -2,8 +2,8 @@ replicaCount: 1
 
 env:
   springProfilesActive: spring-kafka
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
-  batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  orderProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
+  batchProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
 
 resources:
   requests:

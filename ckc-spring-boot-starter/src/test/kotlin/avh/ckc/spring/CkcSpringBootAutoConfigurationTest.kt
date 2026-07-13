@@ -44,7 +44,7 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.group-id=orders-service",
                 "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
                 "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
-                "ckc.consumers.orders.processing-mode=at-least-once-ordered-by-key",
+                "ckc.consumers.orders.processing-mode=at-least-once-key-ordering",
                 "ckc.consumers.orders.worker-concurrency=4",
                 "ckc.consumers.orders.consumer-poll-loop-concurrency=2",
                 "ckc.consumers.orders.commit-interval=2s",
@@ -68,7 +68,7 @@ class CkcSpringBootAutoConfigurationTest {
                 assertThat(properties.lifecycle.shutdownTimeout)
                     .isEqualTo(java.time.Duration.ofSeconds(15))
                 assertThat(properties.consumers["orders"]?.processingMode)
-                    .isEqualTo(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY)
+                    .isEqualTo(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING)
                 assertThat(
                     properties.consumers["orders"]?.kafkaProperties(
                         properties.clusters.getValue("main").kafkaProperties

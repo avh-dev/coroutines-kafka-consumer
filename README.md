@@ -10,11 +10,11 @@ CKC targets Kotlin services that need more control than a conventional listener 
 
 The core problem is not just polling Kafka from coroutines. The hard part is allowing useful parallelism while preserving the processing guarantees the application asked for:
 
-- at-least-once unordered processing;
-- at-least-once processing ordered by Kafka message key;
-- at-least-once processing ordered by topic partition;
-- freshness-first processing for telemetry-style workloads where stale buffered records may be discarded intentionally;
-- freshness-first-by-key processing where only the latest queued record for each key is retained;
+- at-least-once processing with no ordering guarantee;
+- at-least-once processing with key ordering;
+- at-least-once processing with partition ordering;
+- freshness-first processing that drops the oldest buffered records;
+- freshness-first processing that replaces a pending same-key record with the newer record;
 - safe offset advancement when records complete out of order;
 - runtime metrics that explain throughput, latency, backpressure, and offset progress.
 
@@ -22,23 +22,23 @@ The core problem is not just polling Kafka from coroutines. The hard part is all
 
 CKC supports tracked at-least-once modes and lossy freshness-first modes.
 
-`AT_LEAST_ONCE_UNORDERED`, `AT_LEAST_ONCE_ORDERED_BY_KEY`, and
-`AT_LEAST_ONCE_ORDERED_BY_PARTITION` track processed offsets and commit only the
+`AT_LEAST_ONCE_NO_ORDERING`, `AT_LEAST_ONCE_KEY_ORDERING`, and
+`AT_LEAST_ONCE_PARTITION_ORDERING` track processed offsets and commit only the
 safe contiguous frontier.
 
-`FRESHNESS_FIRST` and `FRESHNESS_FIRST_BY_KEY` intentionally trade reliability
-for throughput and freshness. They require Kafka auto-commit and do not use CKC
+`FRESHNESS_FIRST_DROP_OLDEST` and `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`
+intentionally trade reliability for throughput and freshness. They require Kafka auto-commit and do not use CKC
 offset tracking. Dropped records are not processed by the current consumer
 instance and may be redelivered only if partition ownership changes before Kafka
 commits past them.
 
-`FRESHNESS_FIRST_BY_KEY` is intended for finite-key telemetry streams, such as
-sensor, vehicle, courier, or device state updates. The runtime keeps at most one
-queued record per deserialized Kafka key. When a newer record arrives for a key
-that is already waiting, it replaces the older queued record. Records with a
-null Kafka key share one freshness lane.
+`FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY` is intended for finite-key telemetry
+streams, such as sensor, vehicle, courier, or device state updates. The runtime
+keeps at most one queued record per deserialized Kafka key. When a newer record
+arrives for a key that is already waiting, it replaces the older queued record.
+Records with a null Kafka key share one freshness lane.
 
-For `FRESHNESS_FIRST_BY_KEY`, `workChannelCapacity` limits the number of
+For `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`, `workChannelCapacity` limits the number of
 distinct keys that may wait in the runtime queue at the same time. It is not a
 total Kafka-record buffer size. Set it at or above the expected concurrently
 active key cardinality per consumer instance, with headroom for bursts. If the
@@ -46,7 +46,7 @@ capacity is full and a record for a new key arrives, CKC drops that incoming
 record instead of applying backpressure.
 
 Drop metrics include a `reason` tag. `replaced_by_newer_key_record` is expected
-during same-key bursts in `FRESHNESS_FIRST_BY_KEY`; `new_key_queue_full` means
+during same-key bursts in `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`; `new_key_queue_full` means
 the queued key-lane capacity is saturated and should normally stay near zero.
 If `new_key_queue_full` appears regularly, increase `workChannelCapacity`,
 reduce active keys per consumer instance, increase worker throughput, or split

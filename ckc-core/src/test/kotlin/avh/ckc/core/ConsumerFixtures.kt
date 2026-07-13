@@ -19,7 +19,7 @@ internal fun <K, V> createTestConsumer(
     metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
-    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,

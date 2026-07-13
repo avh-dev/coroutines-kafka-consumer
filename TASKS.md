@@ -43,6 +43,7 @@
 | [CORE-38](#core-38) | Add Spring Boot dispatcher definitions so starter-managed consumers can choose configured processing dispatchers.                                                                                          | DONE |
 | [CORE-39](#core-39) | Add Spring Boot Actuator health indicators for starter-managed CKC consumers.                                                                                                                             | DONE |
 | [CORE-40](#core-40) | Add runtime state snapshots for CKC consumers and surface them through Spring Boot health details.                                                                                                         | DONE |
+| [CORE-41](#core-41) | Rename `ProcessingMode` values so config strings describe ordering and freshness behavior directly.                                                                                                       | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -461,7 +462,7 @@ Keep each migration step isolated so imports, tests, and public package choices 
 _Date: 2026-05-21_
 
 Renamed the public processing enum from delivery-oriented terminology to `ProcessingMode`.
-The existing backpressure and lossy modes became `AT_LEAST_ONCE_UNORDERED` and `FRESHNESS_FIRST`.
+The existing backpressure and lossy modes became `AT_LEAST_ONCE_NO_ORDERING` and `FRESHNESS_FIRST_DROP_OLDEST`.
 The current channel-backed implementation was renamed to `UnorderedRecordProcessingRuntime`, with mode-specific overflow behavior selected at runtime creation.
 Future ordered and keyed freshness modes will be added with their dedicated runtime implementations in follow-up tasks.
 
@@ -728,7 +729,7 @@ Add coverage around the Confluent profile context to guard the demo metrics dist
 _Date: 2026-05-22_
 
 Add a CKC order lifecycle consumer setting for selecting the processing mode used by the demo.
-Keep the default as `AT_LEAST_ONCE_UNORDERED` so existing demo behavior remains unchanged.
+Keep the default as `AT_LEAST_ONCE_NO_ORDERING` so existing demo behavior remains unchanged.
 Allow load tests and local runs to opt into key-ordered lifecycle processing through configuration.
 Preserve telemetry's freshness-first default through the same runtime settings shape.
 
@@ -1624,7 +1625,7 @@ _Date: 2026-06-15_
 
 Add audit analyzer metrics that show per-key telemetry processing fairness under lossy freshness-first modes.
 Report distribution skew, starvation gaps, and processed/dropped ratios for cauldron telemetry keys.
-Add internal-lab test and deployment profiles that generate telemetry-only fixed-fleet pressure for comparing `FRESHNESS_FIRST`, `FRESHNESS_FIRST_BY_KEY`, and stale-threshold discard behavior.
+Add internal-lab test and deployment profiles that generate telemetry-only fixed-fleet pressure for comparing `FRESHNESS_FIRST_DROP_OLDEST`, `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`, and stale-threshold discard behavior.
 
 <a id="infra-57"></a>
 ### INFRA-57 - Add test definition chaos steps
@@ -1816,6 +1817,15 @@ _Date: 2026-07-10_
 Expose lightweight runtime state snapshots from CKC consumers.
 Include lifecycle, poll-loop, partition, and processing-runtime state that can be read without blocking Kafka poll threads.
 Use the snapshots in Spring Boot health details as the next step toward richer readiness and degraded-state diagnostics.
+
+<a id="core-41"></a>
+### CORE-41 - Rename ProcessingMode values
+
+_Date: 2026-07-13_
+
+Rename public `ProcessingMode` enum values to make ordering and freshness behavior clearer in configuration.
+Update repository-owned demo, infra, starter metadata, and documentation references to the new names.
+Do not keep compatibility aliases for the old pre-release names.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

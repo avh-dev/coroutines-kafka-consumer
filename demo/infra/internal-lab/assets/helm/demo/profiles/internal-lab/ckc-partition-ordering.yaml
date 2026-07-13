@@ -10,15 +10,15 @@ lab:
       partitions: 2
 
 env:
-  springProfilesActive: confluent-parallel-reactor
+  springProfilesActive: ckc
   orderWorkerConcurrency: 10
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  orderProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
   batchWorkerConcurrency: 15
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 512
-  batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  batchProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
   telemetryWorkerConcurrency: 30
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512

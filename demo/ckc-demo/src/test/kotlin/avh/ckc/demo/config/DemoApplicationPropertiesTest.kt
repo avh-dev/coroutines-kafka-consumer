@@ -24,11 +24,11 @@ class DemoApplicationPropertiesTest {
         assertEquals(2, properties.consumers.order.workerConcurrency)
         assertEquals(1, properties.consumers.order.pollLoopConcurrency)
         assertEquals(1024, properties.consumers.order.workChannelCapacity)
-        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, properties.consumers.order.processingMode)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING, properties.consumers.order.processingMode)
         assertEquals(4, properties.consumers.telemetry.workerConcurrency)
         assertEquals(1, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(256, properties.consumers.telemetry.workChannelCapacity)
-        assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
+        assertEquals(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST, properties.consumers.telemetry.processingMode)
         assertEquals(true, properties.audit.enabled)
         assertEquals("127.0.0.1", properties.audit.host)
         assertEquals(5170, properties.audit.port)
@@ -56,11 +56,11 @@ class DemoApplicationPropertiesTest {
                 "demo.consumers.order.worker-concurrency" to "12",
                 "demo.consumers.order.poll-loop-concurrency" to "3",
                 "demo.consumers.order.work-channel-capacity" to "2048",
-                "demo.consumers.order.processing-mode" to "at-least-once-ordered-by-key",
+                "demo.consumers.order.processing-mode" to "at-least-once-key-ordering",
                 "demo.consumers.telemetry.worker-concurrency" to "8",
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
                 "demo.consumers.telemetry.work-channel-capacity" to "512",
-                "demo.consumers.telemetry.processing-mode" to "freshness-first",
+                "demo.consumers.telemetry.processing-mode" to "freshness-first-drop-oldest",
                 "demo.audit.enabled" to "false",
                 "demo.audit.host" to "audit-host",
                 "demo.audit.port" to "5511",
@@ -86,11 +86,11 @@ class DemoApplicationPropertiesTest {
         assertEquals(12, properties.consumers.order.workerConcurrency)
         assertEquals(3, properties.consumers.order.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.order.workChannelCapacity)
-        assertEquals(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY, properties.consumers.order.processingMode)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING, properties.consumers.order.processingMode)
         assertEquals(8, properties.consumers.telemetry.workerConcurrency)
         assertEquals(2, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)
-        assertEquals(ProcessingMode.FRESHNESS_FIRST, properties.consumers.telemetry.processingMode)
+        assertEquals(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST, properties.consumers.telemetry.processingMode)
         assertEquals(false, properties.audit.enabled)
         assertEquals("audit-host", properties.audit.host)
         assertEquals(5511, properties.audit.port)

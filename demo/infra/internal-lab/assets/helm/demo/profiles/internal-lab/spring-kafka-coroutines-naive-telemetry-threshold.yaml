@@ -12,15 +12,15 @@ lab:
 env:
   springProfilesActive: spring-kafka-coroutines-naive
   freshnessFirstMaxRecordAgeSeconds: 1
-  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
+  orderProcessingMode: AT_LEAST_ONCE_NO_ORDERING
   orderWorkerConcurrency: 2
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 128
-  batchProcessingMode: AT_LEAST_ONCE_UNORDERED
+  batchProcessingMode: AT_LEAST_ONCE_NO_ORDERING
   batchWorkerConcurrency: 2
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 128
-  telemetryProcessingMode: FRESHNESS_FIRST
+  telemetryProcessingMode: FRESHNESS_FIRST_DROP_OLDEST
   telemetryWorkerConcurrency: 16
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 256
