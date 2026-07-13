@@ -37,7 +37,7 @@ import kotlin.time.Duration
  * Offset tracking is intentionally disabled by the consumer wiring for this runtime. Drops rely on Kafka
  * auto-commit semantics, matching the broader freshness-first contract.
  */
-internal class FreshnessFirstByKeyRecordProcessingRuntime<K, V>(
+internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,
     workChannelCapacity: Int,
     freshnessMaxRecordAge: Duration?,

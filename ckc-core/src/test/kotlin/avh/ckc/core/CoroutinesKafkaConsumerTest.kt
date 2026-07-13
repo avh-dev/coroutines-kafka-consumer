@@ -6,10 +6,10 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
-import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstByKeyRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,35 +36,35 @@ class CoroutinesKafkaConsumerTest {
     fun `when processing mode is AT_LEAST_ONCE_NO_ORDERING then default factory creates at least once runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
 
-        assertInstanceOf(AtLeastOnceUnorderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(AtLeastOnceNoOrderingRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
     fun `when processing mode is AT_LEAST_ONCE_KEY_ORDERING then default factory creates ordered runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING)
 
-        assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(AtLeastOnceOrderingRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
     fun `when processing mode is AT_LEAST_ONCE_PARTITION_ORDERING then default factory creates ordered runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING)
 
-        assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(AtLeastOnceOrderingRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
     fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then default factory creates freshness first runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
 
-        assertInstanceOf(FreshnessFirstUnorderedRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(FreshnessFirstDropOldestRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
     fun `when processing mode is FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY then default factory creates freshness first by key runtime`() {
         val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY)
 
-        assertInstanceOf(FreshnessFirstByKeyRecordProcessingRuntime::class.java, runtime)
+        assertInstanceOf(FreshnessFirstReplacePendingByKeyRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
