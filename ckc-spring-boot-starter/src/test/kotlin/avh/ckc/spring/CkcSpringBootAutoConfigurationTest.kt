@@ -69,6 +69,8 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo(java.time.Duration.ofSeconds(15))
                 assertThat(properties.consumers["orders"]?.processingMode)
                     .isEqualTo(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING)
+                assertThat(properties.consumers["orders"]?.freshnessMaxRecordAge)
+                    .isNull()
                 assertThat(
                     properties.consumers["orders"]?.kafkaProperties(
                         properties.clusters.getValue("main").kafkaProperties
@@ -77,6 +79,56 @@ class CkcSpringBootAutoConfigurationTest {
                     .containsEntry(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
                     .containsEntry(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
                     .containsEntry(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "500")
+            }
+    }
+
+    @Test
+    fun `binds freshness max record age for freshness-first consumer`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-mode=freshness-first-drop-oldest",
+                "ckc.consumers.orders.freshness-max-record-age=10s",
+                "ckc.consumers.orders.kafka-properties.${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}=true"
+            )
+            .run { context ->
+                assertThat(context).hasSingleBean(CkcConsumersLifecycle::class.java)
+
+                val properties = context.getBean(CkcConsumerProperties::class.java)
+                assertThat(properties.consumers["orders"]?.processingMode)
+                    .isEqualTo(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
+                assertThat(properties.consumers["orders"]?.freshnessMaxRecordAge)
+                    .isEqualTo(java.time.Duration.ofSeconds(10))
+            }
+    }
+
+    @Test
+    fun `fails when freshness max record age is configured for at least once consumer`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.processing-mode=at-least-once-no-ordering",
+                "ckc.consumers.orders.freshness-max-record-age=10s"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining(
+                        "ckc.consumers.orders.freshness-max-record-age is supported only for freshness-first processing modes"
+                    )
             }
     }
 
@@ -315,6 +367,7 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.health.enabled")
             .contains("ckc.dispatchers.*.type")
             .contains("ckc.consumers.*.processing-dispatcher")
+            .contains("ckc.consumers.*.freshness-max-record-age")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
             .contains("ckc.consumers.*.retry-schema")
     }

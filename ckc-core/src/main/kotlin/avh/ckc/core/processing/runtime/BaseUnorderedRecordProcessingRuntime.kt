@@ -27,7 +27,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -58,7 +59,9 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                     runtimeStats.onWorkDequeued()
                     runtimeStats.onWorkerStarted()
                     try {
-                        recordProcessor.process(record)
+                        if (recordDropPolicy?.shouldDrop(record) != true) {
+                            recordProcessor.process(record)
+                        }
                     } finally {
                         runtimeStats.onWorkerFinished()
                     }

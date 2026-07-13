@@ -460,6 +460,7 @@ private fun buildConsumer(
         consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency
         commitIntervalMs = consumerProperties.commitInterval.toMillis()
         workChannelCapacity = consumerProperties.workChannelCapacity
+        freshnessMaxRecordAge = consumerProperties.freshnessMaxRecordAge?.toKotlinDuration()
         processingDispatcher = dispatcherRegistry.processingDispatcher(consumerName, consumerProperties)
         retryPolicy = retryPolicy(properties, consumerName, consumerProperties.retrySchema)
         this.metrics = metrics
@@ -528,6 +529,14 @@ private fun validateConsumerProperties(
     validatePositive(consumerName, "worker-concurrency", consumerProperties.workerConcurrency)
     validatePositive(consumerName, "consumer-poll-loop-concurrency", consumerProperties.consumerPollLoopConcurrency)
     validatePositive(consumerName, "work-channel-capacity", consumerProperties.workChannelCapacity)
+    consumerProperties.freshnessMaxRecordAge?.let { maxRecordAge ->
+        require(!maxRecordAge.isNegative && !maxRecordAge.isZero) {
+            "ckc.consumers.$consumerName.freshness-max-record-age must be > 0"
+        }
+        require(consumerProperties.processingMode.isFreshnessFirstMode()) {
+            "ckc.consumers.$consumerName.freshness-max-record-age is supported only for freshness-first processing modes"
+        }
+    }
     require(!consumerProperties.commitInterval.isNegative && !consumerProperties.commitInterval.isZero) {
         "ckc.consumers.$consumerName.commit-interval must be > 0"
     }
@@ -548,6 +557,15 @@ private fun validateConsumerProperties(
     validateMetricsSchema(properties, consumerName)
     validateProcessingDispatcher(properties, consumerName, consumerProperties)
 }
+
+private fun avh.ckc.core.ProcessingMode.isFreshnessFirstMode(): Boolean =
+    when (this) {
+        avh.ckc.core.ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        avh.ckc.core.ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        avh.ckc.core.ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> false
+        avh.ckc.core.ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+        avh.ckc.core.ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> true
+    }
 
 private fun validateDispatcherSet(properties: CkcConsumerProperties) {
     val reservedNames = CkcDispatcherRegistry.BUILT_IN_DISPATCHER_NAMES

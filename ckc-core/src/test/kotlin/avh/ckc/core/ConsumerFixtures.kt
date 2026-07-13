@@ -28,6 +28,7 @@ internal fun <K, V> createTestConsumer(
         consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
         commitIntervalMs = runtime.commitIntervalMs,
         workChannelCapacity = runtime.workChannelCapacity,
+        freshnessMaxRecordAge = runtime.freshnessMaxRecordAge,
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
         metrics = metrics,

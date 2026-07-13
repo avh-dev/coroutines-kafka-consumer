@@ -197,6 +197,7 @@ ckc:
       consumer-poll-loop-concurrency: 1
       commit-interval: 5s
       work-channel-capacity: 1024
+      # freshness-max-record-age: 10s
       processing-dispatcher: shared-workers
       metrics:
         schema: default
@@ -209,6 +210,8 @@ Map keys under `clusters`, `dispatchers`, `retry-schemas`, `metrics.micrometer.s
 `consumers` are application-defined names, except for reserved dispatcher names
 `dispatchers-default` and `dispatchers-io`. Per-consumer convenience properties are applied after
 raw Kafka properties, so they override values from `kafka-properties`.
+`freshness-max-record-age` is supported only for freshness-first processing
+modes and causes stale records to be dropped before the user handler runs.
 
 ## Metrics
 

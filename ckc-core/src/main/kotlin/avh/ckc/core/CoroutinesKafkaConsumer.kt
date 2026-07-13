@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
 
 fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
@@ -73,6 +74,7 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     processingMode: ProcessingMode,
     workerConcurrency: Int,
     workChannelCapacity: Int,
+    freshnessMaxRecordAge: Duration?,
     processingDispatcher: CoroutineDispatcher,
     metrics: ConsumerMetrics<K, V>,
     handler: KafkaRecordHandler<K, V>,
@@ -98,6 +100,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
     private val workChannelCapacity: Int,
+    private val freshnessMaxRecordAge: Duration?,
     private val processingDispatcher: CoroutineDispatcher,
     private val consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
@@ -131,6 +134,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         processingMode,
         workerConcurrency,
         workChannelCapacity,
+        freshnessMaxRecordAge,
         processingDispatcher,
         metrics,
         handler,
@@ -169,6 +173,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerPollLoopConcurrency > 0) { "consumerPollLoopConcurrency must be > 0" }
         require(commitIntervalMs > 0) { "commitIntervalMs must be > 0" }
         require(workChannelCapacity > 0) { "workChannelCapacity must be > 0" }
+        freshnessMaxRecordAge?.let {
+            require(it.isPositive()) { "freshnessMaxRecordAge must be > 0" }
+            require(processingMode.isFreshnessFirst()) {
+                "freshnessMaxRecordAge is supported only for freshness-first processing modes"
+            }
+        }
         require((topics == null) != (topicsPattern == null)) {
             "Exactly one of topics or topicsPattern must be specified"
         }
@@ -192,6 +202,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
         workChannelCapacity: Int = 1024,
+        freshnessMaxRecordAge: Duration? = null,
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
@@ -207,6 +218,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
         workChannelCapacity = workChannelCapacity,
+        freshnessMaxRecordAge = freshnessMaxRecordAge,
         processingDispatcher = processingDispatcher,
         consumerProperties = consumerProperties,
         handler = handler,
@@ -323,6 +335,7 @@ internal fun <K, V> defaultProcessingRuntime(
     processingMode: ProcessingMode,
     workerConcurrency: Int,
     workChannelCapacity: Int,
+    freshnessMaxRecordAge: Duration?,
     processingDispatcher: CoroutineDispatcher,
     metrics: ConsumerMetrics<K, V>,
     handler: KafkaRecordHandler<K, V>,
@@ -372,6 +385,7 @@ internal fun <K, V> defaultProcessingRuntime(
         ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstUnorderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
+            freshnessMaxRecordAge = freshnessMaxRecordAge,
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
@@ -384,6 +398,7 @@ internal fun <K, V> defaultProcessingRuntime(
         ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
+            freshnessMaxRecordAge = freshnessMaxRecordAge,
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,

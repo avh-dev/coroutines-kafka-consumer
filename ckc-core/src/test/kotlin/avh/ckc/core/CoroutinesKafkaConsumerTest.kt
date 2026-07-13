@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.time.Duration.Companion.seconds
 
 class CoroutinesKafkaConsumerTest {
 
@@ -101,6 +102,41 @@ class CoroutinesKafkaConsumerTest {
         consumer.stop()
 
         assertEquals(listOf(2L), metrics.dropped.map { it.record.offset() })
+    }
+
+    @Test
+    fun `when freshness-first record is older than max age then handler is not invoked`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val handled = mutableListOf<Long>()
+        val consumer = createTestConsumer(
+            records = listOf(
+                typedTestRecord(
+                    offset = 1L,
+                    timestamp = System.currentTimeMillis() - 20_000L,
+                    key = "key-1",
+                    value = "value-1"
+                )
+            ),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            runtime = testRuntime(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                freshnessMaxRecordAge = 10.seconds
+            ),
+            handler = KafkaRecordHandler<String, String> { record ->
+                handled += record.offset()
+            }
+        )
+
+        consumer.start()
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            metrics.dropped.singleOrNull()
+        }
+        consumer.stop()
+
+        assertEquals(emptyList<Long>(), handled)
+        assertEquals(listOf(1L), metrics.dropped.map { it.record.offset() })
+        assertEquals(listOf(avh.ckc.core.metrics.RecordDropReason.STALE_AGE), metrics.dropped.map { it.reason })
     }
 
     @Test
@@ -296,6 +332,7 @@ class CoroutinesKafkaConsumerTest {
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,
             workChannelCapacity = 16,
+            freshnessMaxRecordAge = null,
             processingDispatcher = kotlinx.coroutines.Dispatchers.Default,
             consumerProperties = stringSerdeProperties(),
             retryPolicy = RetryPolicy.none(),
@@ -353,6 +390,7 @@ class CoroutinesKafkaConsumerTest {
             processingMode = processingMode,
             workerConcurrency = 1,
             workChannelCapacity = 16,
+            freshnessMaxRecordAge = null,
             processingDispatcher = Dispatchers.Default,
             metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
             handler = KafkaRecordHandler { },

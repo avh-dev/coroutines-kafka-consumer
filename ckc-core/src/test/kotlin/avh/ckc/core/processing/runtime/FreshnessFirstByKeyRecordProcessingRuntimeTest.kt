@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class FreshnessFirstByKeyRecordProcessingRuntimeTest {
     @Test
@@ -177,15 +179,53 @@ class FreshnessFirstByKeyRecordProcessingRuntimeTest {
         )
     }
 
+    @Test
+    fun `when queued key record is older than max age then it is dropped before handler`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val processedOffsets = CopyOnWriteArrayList<Long>()
+        val runtime = freshnessByKeyRuntime(
+            workerConcurrency = 1,
+            workChannelCapacity = 1,
+            freshnessMaxRecordAge = 10.seconds,
+            metrics = metrics,
+            handler = KafkaRecordHandler { record ->
+                processedOffsets += record.offset()
+            }
+        )
+
+        runtime.start { throw it }
+        assertTrue(
+            runtime.tryEmit(
+                typedTestRecord(
+                    offset = 1L,
+                    timestamp = System.currentTimeMillis() - 20_000L,
+                    key = "key-1",
+                    value = "value-1"
+                )
+            )
+        )
+
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            metrics.dropped.singleOrNull()
+        }
+        runtime.stop()
+
+        assertEquals(emptyList<Long>(), processedOffsets.toList())
+        assertEquals(listOf(1L), metrics.dropped.map { it.record.offset() })
+        assertEquals(listOf(RecordDropReason.STALE_AGE), metrics.dropped.map { it.reason })
+    }
+
     private fun freshnessByKeyRuntime(
         workerConcurrency: Int,
         workChannelCapacity: Int,
+        freshnessMaxRecordAge: Duration? = null,
         metrics: ConsumerMetrics<String, String>,
         handler: KafkaRecordHandler<String, String>
     ): FreshnessFirstByKeyRecordProcessingRuntime<String, String> =
         FreshnessFirstByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
+            freshnessMaxRecordAge = freshnessMaxRecordAge,
             processingDispatcher = Dispatchers.Default,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             metrics = metrics,

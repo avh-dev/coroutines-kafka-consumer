@@ -32,6 +32,12 @@ offset tracking. Dropped records are not processed by the current consumer
 instance and may be redelivered only if partition ownership changes before Kafka
 commits past them.
 
+Freshness-first modes can also be configured with `freshnessMaxRecordAge`.
+When set, a worker drops records older than that duration before invoking the
+handler and reports `stale_age` as the drop reason. This option is rejected for
+tracked at-least-once modes because age-based drops would violate their delivery
+semantics.
+
 `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY` is intended for finite-key telemetry
 streams, such as sensor, vehicle, courier, or device state updates. The runtime
 keeps at most one queued record per deserialized Kafka key. When a newer record
