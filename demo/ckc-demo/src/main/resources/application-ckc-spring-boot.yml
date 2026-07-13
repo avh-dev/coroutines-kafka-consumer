@@ -44,7 +44,7 @@ ckc:
       group-id: ${ORDER_GROUP_ID:potion-tracking-orders}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
-      processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
       consumer-poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${ORDER_WORK_CHANNEL_CAPACITY:1024}
@@ -58,7 +58,7 @@ ckc:
       group-id: ${BATCH_GROUP_ID:potion-tracking-batches}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
-      processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_UNORDERED}
+      processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
       worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}
       consumer-poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
@@ -72,7 +72,7 @@ ckc:
       group-id: ${CAULDRON_GROUP_ID:potion-tracking-cauldrons}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
-      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_BY_KEY}
+      processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       consumer-poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}

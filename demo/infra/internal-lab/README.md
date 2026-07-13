@@ -222,7 +222,7 @@ Pass the same choices explicitly for a non-interactive run:
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --profile ckc-sync \
-  --preset ordered-by-partition \
+  --preset partition-ordering \
   --base-rate 3000 \
   --capacity-factor 1.25 \
   --kafka-implementation apache-kafka \
@@ -430,8 +430,8 @@ metadata/status but leaves `summary.yaml` generation for a later analyzer pass.
 This is the mode used by `run-bundle.sh`.
 
 For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
-test definition with `ckc-telemetry-freshness-first`,
-`ckc-telemetry-freshness-first-by-key`, and
+test definition with `ckc-telemetry-freshness-first-drop-oldest`,
+`ckc-telemetry-freshness-first-replace-pending-by-key`, and
 `spring-kafka-coroutines-naive-telemetry-threshold`. The cauldron topic summary
 then includes `key_fairness` metrics for processed/dropped ratio skew,
 per-key processed gaps, and processed/dropped record age. Keep this definition

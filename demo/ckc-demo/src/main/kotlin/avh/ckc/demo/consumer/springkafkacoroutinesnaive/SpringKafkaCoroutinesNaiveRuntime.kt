@@ -254,11 +254,11 @@ class SpringKafkaCoroutinesNaiveRuntime(
 
 internal fun ProcessingMode.requireSupportedBySpringKafkaCoroutinesNaive(): ProcessingMode =
     when (this) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.FRESHNESS_FIRST -> this
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION,
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> this
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING,
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY ->
             throw IllegalArgumentException(
                 "Processing mode $this is not supported by the spring-kafka-coroutines-naive demo profile"
             )

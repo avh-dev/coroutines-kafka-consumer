@@ -66,7 +66,7 @@ ckc:
       group-id: orders-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: com.example.OrderEventDeserializer
-      processing-mode: at-least-once-ordered-by-key
+      processing-mode: at-least-once-key-ordering
       worker-concurrency: 64
       processing-dispatcher: shared-workers
       work-channel-capacity: 10000
@@ -192,7 +192,7 @@ ckc:
       client-id: orders-service-1
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: com.example.OrderEventDeserializer
-      processing-mode: AT_LEAST_ONCE_UNORDERED
+      processing-mode: AT_LEAST_ONCE_NO_ORDERING
       worker-concurrency: 1
       consumer-poll-loop-concurrency: 1
       commit-interval: 5s

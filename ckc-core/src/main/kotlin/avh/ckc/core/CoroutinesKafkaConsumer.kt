@@ -115,11 +115,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
     private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> PartitionProcessedRecordTracker(partitionRegistry)
-        ProcessingMode.FRESHNESS_FIRST,
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> NoopProcessedRecordTracker
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> PartitionProcessedRecordTracker(partitionRegistry)
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> NoopProcessedRecordTracker
     }
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
@@ -178,7 +178,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerProperties.containsKey(VALUE_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$VALUE_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
-        if (processingMode == ProcessingMode.FRESHNESS_FIRST || processingMode == ProcessingMode.FRESHNESS_FIRST_BY_KEY) {
+        if (processingMode == ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST || processingMode == ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY) {
             require(consumerConfigAdapter.getBoolean(ENABLE_AUTO_COMMIT_CONFIG) == true) {
                 "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when processingMode=$processingMode"
             }
@@ -331,7 +331,7 @@ internal fun <K, V> defaultProcessingRuntime(
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
     when (processingMode) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED -> AtLeastOnceUnorderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceUnorderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             processingDispatcher = processingDispatcher,
@@ -343,7 +343,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY -> AtLeastOnceOrderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
@@ -356,7 +356,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> AtLeastOnceOrderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> AtLeastOnceOrderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_PARTITION,
@@ -369,7 +369,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.FRESHNESS_FIRST -> FreshnessFirstUnorderedRecordProcessingRuntime(
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstUnorderedRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             processingDispatcher = processingDispatcher,
@@ -381,7 +381,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY -> FreshnessFirstByKeyRecordProcessingRuntime(
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             processingDispatcher = processingDispatcher,

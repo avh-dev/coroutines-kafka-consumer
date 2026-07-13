@@ -12,9 +12,9 @@ lab:
 env:
   springProfilesActive: spring-kafka
   javaToolOptions: "-Xms512m -Xmx1024m -XX:+UseSerialGC"
-  orderProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  orderProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
   orderPollLoopConcurrency: 1
-  batchProcessingMode: AT_LEAST_ONCE_ORDERED_BY_PARTITION
+  batchProcessingMode: AT_LEAST_ONCE_PARTITION_ORDERING
   batchPollLoopConcurrency: 1
   telemetryPollLoopConcurrency: 1
 

@@ -17,7 +17,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
      * Processing semantics used by the consumer runtime.
      */
-    var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+    var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
 
     /**
      * Number of worker coroutines processing records from the internal work channel.
@@ -39,7 +39,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /**
      * Capacity of the internal work channel between poll loops and workers.
      *
-     * In [ProcessingMode.FRESHNESS_FIRST_BY_KEY], this limits queued distinct keys rather than total buffered
+     * In [ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY], this limits queued distinct keys rather than total buffered
      * Kafka records. Existing queued keys can still be replaced by newer records without consuming additional
      * capacity.
      */

@@ -7,21 +7,21 @@ import org.springframework.stereotype.Component
 
 internal fun ProcessingMode.toConfluentProcessingOrder(): ParallelConsumerOptions.ProcessingOrder =
     when (this) {
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.FRESHNESS_FIRST -> ParallelConsumerOptions.ProcessingOrder.UNORDERED
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY -> ParallelConsumerOptions.ProcessingOrder.KEY
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> ParallelConsumerOptions.ProcessingOrder.PARTITION
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> ParallelConsumerOptions.ProcessingOrder.UNORDERED
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> ParallelConsumerOptions.ProcessingOrder.KEY
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> ParallelConsumerOptions.ProcessingOrder.PARTITION
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY ->
             throw IllegalArgumentException("Processing mode $this is not supported by the confluent demo profile")
     }
 
 internal fun ProcessingMode.requireSupportedBySpringKafka(): ProcessingMode =
     when (this) {
-        ProcessingMode.FRESHNESS_FIRST,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> this
-        ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-        ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-        ProcessingMode.FRESHNESS_FIRST_BY_KEY ->
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> this
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY ->
             throw IllegalArgumentException("Processing mode $this is not supported by the spring-kafka demo profile")
     }
 
@@ -34,8 +34,8 @@ class FreshnessFirstRecordFilter(
         recordTimestamp: Long,
         nowMillis: Long = System.currentTimeMillis()
     ): Boolean {
-        val freshnessFirstMode = runtime.processingMode == ProcessingMode.FRESHNESS_FIRST ||
-                runtime.processingMode == ProcessingMode.FRESHNESS_FIRST_BY_KEY
+        val freshnessFirstMode = runtime.processingMode == ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST ||
+                runtime.processingMode == ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
         if (!freshnessFirstMode || recordTimestamp <= 0L) {
             return false
         }

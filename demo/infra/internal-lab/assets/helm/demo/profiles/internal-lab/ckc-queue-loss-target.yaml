@@ -15,11 +15,11 @@ env:
   orderWorkerConcurrency: 2
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 2000
-  orderProcessingMode: AT_LEAST_ONCE_UNORDERED
+  orderProcessingMode: AT_LEAST_ONCE_NO_ORDERING
   batchWorkerConcurrency: 2
   batchPollLoopConcurrency: 1
   batchWorkChannelCapacity: 2000
-  batchProcessingMode: AT_LEAST_ONCE_UNORDERED
+  batchProcessingMode: AT_LEAST_ONCE_NO_ORDERING
   telemetryWorkerConcurrency: 4
   telemetryPollLoopConcurrency: 1
   telemetryWorkChannelCapacity: 512

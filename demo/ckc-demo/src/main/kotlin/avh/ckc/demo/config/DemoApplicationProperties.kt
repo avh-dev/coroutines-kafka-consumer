@@ -64,7 +64,7 @@ data class DemoApplicationProperties(
         var telemetry: ConsumerRuntime = ConsumerRuntime(
             workerConcurrency = 4,
             workChannelCapacity = 256,
-            processingMode = ProcessingMode.FRESHNESS_FIRST
+            processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
         )
     )
 
@@ -90,6 +90,6 @@ data class DemoApplicationProperties(
         var workerConcurrency: Int = 1,
         var pollLoopConcurrency: Int = 1,
         var workChannelCapacity: Int = 1024,
-        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED
+        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
     )
 }

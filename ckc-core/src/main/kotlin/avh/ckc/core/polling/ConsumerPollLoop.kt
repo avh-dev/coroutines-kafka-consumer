@@ -33,12 +33,12 @@ import kotlin.time.toKotlinDuration
  * - Kafka performs configured key and value deserialization inside poll().
  *
  * Processing modes:
- * - AT_LEAST_ONCE_UNORDERED: non-blocking dispatch via `trySend` + `pause/resume`
+ * - AT_LEAST_ONCE_NO_ORDERING: non-blocking dispatch via `trySend` + `pause/resume`
  *   with bounded local stash and explicit contiguous commits.
- * - FRESHNESS_FIRST modes: best-effort dispatch, intended for setups relying on
+ * - Freshness-first modes: best-effort dispatch, intended for setups relying on
  *   runtime-level dropping and auto-commit.
  *
- * Invariants (AT_LEAST_ONCE_UNORDERED):
+ * Invariants (AT_LEAST_ONCE_NO_ORDERING):
  * - Poll loop never suspends on dispatch.
  * - Pause/resume applies to all assigned partitions.
  * - Offsets are committed only when contiguous-ready (via [PartitionState]).
@@ -177,8 +177,8 @@ internal class ConsumerPollLoop<K, V>(
     /**
      * Rebalance listener selection.
      *
-     * - AT_LEAST_ONCE_UNORDERED: requires rebalance hooks for partition state tracking + commit on revoke.
-     * - FRESHNESS_FIRST: does not maintain commit tracking; no-op listener is sufficient.
+     * - AT_LEAST_ONCE_NO_ORDERING: requires rebalance hooks for partition state tracking + commit on revoke.
+     * - Freshness-first modes: do not maintain commit tracking; no-op listener is sufficient.
      */
     private fun createRebalanceListener(
         consumer: KafkaConsumer<K, V>,
@@ -295,11 +295,11 @@ internal class ConsumerPollLoop<K, V>(
 
     private suspend fun consumerLoop(consumer: KafkaConsumer<K, V>) = try {
         when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION -> consumerLoopAtLeastOnceUnordered(consumer)
-            ProcessingMode.FRESHNESS_FIRST,
-            ProcessingMode.FRESHNESS_FIRST_BY_KEY -> consumerLoopFreshnessFirst(consumer)
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> consumerLoopAtLeastOnceUnordered(consumer)
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> consumerLoopFreshnessFirst(consumer)
         }
     } catch (_: CancellationException) {
         log.info("Kafka consumer loop #$id cancelled")

@@ -13,6 +13,6 @@ Sync CKC profiles:
 
 Telemetry freshness fairness profiles:
 
-- `ckc-telemetry-freshness-first`: CKC telemetry overload using queue-level `FRESHNESS_FIRST`.
-- `ckc-telemetry-freshness-first-by-key`: CKC telemetry overload using key-coalescing `FRESHNESS_FIRST_BY_KEY`.
-- `spring-kafka-coroutines-naive-telemetry-threshold`: naive Spring Kafka coroutine worker overload using `FRESHNESS_FIRST` stale-threshold discard.
+- `ckc-telemetry-freshness-first-drop-oldest`: CKC telemetry overload using queue-level `FRESHNESS_FIRST_DROP_OLDEST`.
+- `ckc-telemetry-freshness-first-replace-pending-by-key`: CKC telemetry overload using key-coalescing `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`.
+- `spring-kafka-coroutines-naive-telemetry-threshold`: naive Spring Kafka coroutine worker overload using `FRESHNESS_FIRST_DROP_OLDEST` stale-threshold discard.

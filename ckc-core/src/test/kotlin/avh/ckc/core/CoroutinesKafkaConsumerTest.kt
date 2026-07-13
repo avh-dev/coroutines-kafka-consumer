@@ -32,36 +32,36 @@ import kotlin.coroutines.EmptyCoroutineContext
 class CoroutinesKafkaConsumerTest {
 
     @Test
-    fun `when processing mode is AT_LEAST_ONCE_UNORDERED then default factory creates at least once runtime`() {
-        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_UNORDERED)
+    fun `when processing mode is AT_LEAST_ONCE_NO_ORDERING then default factory creates at least once runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
 
         assertInstanceOf(AtLeastOnceUnorderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
-    fun `when processing mode is AT_LEAST_ONCE_ORDERED_BY_KEY then default factory creates ordered runtime`() {
-        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY)
+    fun `when processing mode is AT_LEAST_ONCE_KEY_ORDERING then default factory creates ordered runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING)
 
         assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
-    fun `when processing mode is AT_LEAST_ONCE_ORDERED_BY_PARTITION then default factory creates ordered runtime`() {
-        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION)
+    fun `when processing mode is AT_LEAST_ONCE_PARTITION_ORDERING then default factory creates ordered runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING)
 
         assertInstanceOf(AtLeastOnceOrderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST then default factory creates freshness first runtime`() {
-        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST)
+    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then default factory creates freshness first runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
 
         assertInstanceOf(FreshnessFirstUnorderedRecordProcessingRuntime::class.java, runtime)
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_BY_KEY then default factory creates freshness first by key runtime`() {
-        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_BY_KEY)
+    fun `when processing mode is FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY then default factory creates freshness first by key runtime`() {
+        val runtime = createDefaultProcessingRuntime(ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY)
 
         assertInstanceOf(FreshnessFirstByKeyRecordProcessingRuntime::class.java, runtime)
     }
@@ -80,7 +80,7 @@ class CoroutinesKafkaConsumerTest {
             consumerProperties = stringSerdeProperties(),
             metrics = metrics,
             runtime = testRuntime(
-                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
                 workChannelCapacity = 1
             ),
             handler = KafkaRecordHandler<String, String> { record ->
@@ -116,7 +116,7 @@ class CoroutinesKafkaConsumerTest {
             consumerProperties = stringSerdeProperties(),
             metrics = metrics,
             runtime = testRuntime(
-                processingMode = ProcessingMode.FRESHNESS_FIRST,
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
                 workChannelCapacity = 2
             ),
             handler = KafkaRecordHandler<String, String> { record ->
@@ -190,7 +190,7 @@ class CoroutinesKafkaConsumerTest {
                 records = listOf(typedTestRecord(offset = 22L)),
                 consumerProperties = stringSerdeProperties(),
                 runtime = testRuntime(
-                    processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                     processingDispatcher = dispatcher
                 ),
                 handler = KafkaRecordHandler<String, String> {
@@ -254,7 +254,7 @@ class CoroutinesKafkaConsumerTest {
             ),
             consumerProperties = stringSerdeProperties(),
             runtime = testRuntime(
-                processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 64
             ),
             handler = KafkaRecordHandler<String, String> { record ->
@@ -273,7 +273,7 @@ class CoroutinesKafkaConsumerTest {
         assertTrue(snapshot.started)
         assertFalse(snapshot.stopped)
         assertFalse(snapshot.failed)
-        assertEquals(ProcessingMode.AT_LEAST_ONCE_UNORDERED, snapshot.processingMode)
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING, snapshot.processingMode)
         assertEquals(1, snapshot.processing.workerCount)
         assertEquals(1, snapshot.processing.activeWorkerCount)
         assertEquals(1, snapshot.processing.workQueueSize)
@@ -291,7 +291,7 @@ class CoroutinesKafkaConsumerTest {
         val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
-            processingMode = ProcessingMode.AT_LEAST_ONCE_UNORDERED,
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
             workerConcurrency = 1,
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,

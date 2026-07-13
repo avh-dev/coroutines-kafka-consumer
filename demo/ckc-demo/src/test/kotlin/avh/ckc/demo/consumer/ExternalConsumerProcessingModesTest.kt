@@ -14,43 +14,43 @@ class ExternalConsumerProcessingModesTest {
     fun `confluent processing order follows configured processing mode`() {
         assertEquals(
             ParallelConsumerOptions.ProcessingOrder.UNORDERED,
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED.toConfluentProcessingOrder()
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING.toConfluentProcessingOrder()
         )
         assertEquals(
             ParallelConsumerOptions.ProcessingOrder.KEY,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY.toConfluentProcessingOrder()
+            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING.toConfluentProcessingOrder()
         )
         assertEquals(
             ParallelConsumerOptions.ProcessingOrder.PARTITION,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION.toConfluentProcessingOrder()
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING.toConfluentProcessingOrder()
         )
         assertEquals(
             ParallelConsumerOptions.ProcessingOrder.UNORDERED,
-            ProcessingMode.FRESHNESS_FIRST.toConfluentProcessingOrder()
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST.toConfluentProcessingOrder()
         )
         assertFailsWith<IllegalArgumentException> {
-            ProcessingMode.FRESHNESS_FIRST_BY_KEY.toConfluentProcessingOrder()
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY.toConfluentProcessingOrder()
         }
     }
 
     @Test
     fun `spring kafka accepts only freshness first and partition ordering`() {
         assertEquals(
-            ProcessingMode.FRESHNESS_FIRST,
-            ProcessingMode.FRESHNESS_FIRST.requireSupportedBySpringKafka()
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST.requireSupportedBySpringKafka()
         )
         assertEquals(
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION,
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION.requireSupportedBySpringKafka()
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING.requireSupportedBySpringKafka()
         )
         assertFailsWith<IllegalArgumentException> {
-            ProcessingMode.AT_LEAST_ONCE_UNORDERED.requireSupportedBySpringKafka()
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING.requireSupportedBySpringKafka()
         }
         assertFailsWith<IllegalArgumentException> {
-            ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_KEY.requireSupportedBySpringKafka()
+            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING.requireSupportedBySpringKafka()
         }
         assertFailsWith<IllegalArgumentException> {
-            ProcessingMode.FRESHNESS_FIRST_BY_KEY.requireSupportedBySpringKafka()
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY.requireSupportedBySpringKafka()
         }
     }
 
@@ -60,12 +60,12 @@ class ExternalConsumerProcessingModesTest {
             consumers = DemoApplicationProperties.Consumers(freshnessFirstMaxRecordAgeSeconds = 10)
         )
         val filter = FreshnessFirstRecordFilter(properties)
-        val freshnessFirst = DemoApplicationProperties.ConsumerRuntime(processingMode = ProcessingMode.FRESHNESS_FIRST)
+        val freshnessFirst = DemoApplicationProperties.ConsumerRuntime(processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
         val freshnessFirstByKey = DemoApplicationProperties.ConsumerRuntime(
-            processingMode = ProcessingMode.FRESHNESS_FIRST_BY_KEY
+            processingMode = ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
         )
         val ordered = DemoApplicationProperties.ConsumerRuntime(
-            processingMode = ProcessingMode.AT_LEAST_ONCE_ORDERED_BY_PARTITION
+            processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
         )
 
         assertFalse(filter.shouldDiscard(freshnessFirst, recordTimestamp = 90_000, nowMillis = 100_000))
