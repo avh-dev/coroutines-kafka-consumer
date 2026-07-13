@@ -305,6 +305,7 @@ def main() -> None:
         "RUN_PRESETS": ",".join(str(item) for item in run_plan_presets),
         "RUN_PLAN_PATH": run_plan_path,
         "CAPACITY_FACTOR": str(run_plan_capacity_factor),
+        "PROCESSING_DISPATCHER_TYPE": str(deployment_env.get("processingDispatcherType", "")),
         "ORDER_PROCESSING_MODE": str(deployment_env.get("orderProcessingMode", "")),
         "BATCH_PROCESSING_MODE": str(deployment_env.get("batchProcessingMode", "")),
         "TELEMETRY_PROCESSING_MODE": str(deployment_env.get("telemetryProcessingMode", "")),

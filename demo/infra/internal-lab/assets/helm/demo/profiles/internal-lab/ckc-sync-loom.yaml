@@ -10,7 +10,8 @@ lab:
       partitions: 2
 
 env:
-  springProfilesActive: ckc-sync-loom
+  springProfilesActive: ckc-sync
+  processingDispatcherType: VIRTUAL
   orderWorkerConcurrency: 20
   orderPollLoopConcurrency: 1
   orderWorkChannelCapacity: 1024

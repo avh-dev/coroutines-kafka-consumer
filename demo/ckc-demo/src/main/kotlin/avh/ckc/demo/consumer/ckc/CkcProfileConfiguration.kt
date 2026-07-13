@@ -3,6 +3,8 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
+import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -13,37 +15,31 @@ import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.beans.factory.annotation.Qualifier
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @Configuration(proxyBeanMethods = false)
 @Profile("ckc")
 class CkcProfileConfiguration {
     @Bean(destroyMethod = "close")
-    fun ckcWorkerDispatcher(properties: DemoApplicationProperties): ExecutorCoroutineDispatcher {
-        val threads = properties.consumers.workerDispatcherThreads
-        require(threads > 0) {
-            "demo.consumers.worker-dispatcher-threads must be > 0 for ckc"
-        }
-        val threadNumber = AtomicInteger()
-        return Executors.newFixedThreadPool(threads) { runnable ->
-            Thread(runnable, "ckc-worker-${threadNumber.incrementAndGet()}").apply {
-                isDaemon = true
-            }
-        }.asCoroutineDispatcher()
-    }
+    fun ckcWorkerDispatcher(properties: DemoApplicationProperties): DemoProcessingDispatcher =
+        DemoProcessingDispatcherFactory.create(
+            properties,
+            dispatcherName = "ckc-worker",
+            defaultType = DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+            allowedTypes = setOf(
+                DemoApplicationProperties.ProcessingDispatcherType.DEFAULT,
+                DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+                DemoApplicationProperties.ProcessingDispatcherType.IO,
+                DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL
+            )
+        )
 
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
@@ -70,27 +66,19 @@ class CkcProfileConfiguration {
 }
 
 @Configuration(proxyBeanMethods = false)
-@Profile("ckc-sync", "ckc-sync-loom")
+@Profile("ckc-sync")
 class CkcSyncProfileConfiguration {
-    @Bean("ckcSyncProcessingDispatcher", destroyMethod = "")
-    @Profile("ckc-sync & !ckc-sync-loom")
-    fun ckcSyncIoDispatcher(): CoroutineDispatcher =
-        Dispatchers.IO
-
     @Bean("ckcSyncProcessingDispatcher", destroyMethod = "close")
-    @Profile("ckc-sync-loom")
-    fun ckcSyncLoomDispatcher(
-        @Value("\${demo.consumers.virtual-thread-name-prefix:ckc-sync-loom-worker-}")
-        threadNamePrefix: String
-    ): ExecutorCoroutineDispatcher {
-        val threadNumber = AtomicInteger()
-        return Executors.newThreadPerTaskExecutor { runnable ->
-            Thread.ofVirtual()
-                .name(threadNamePrefix, threadNumber.incrementAndGet().toLong())
-                .factory()
-                .newThread(runnable)
-        }.asCoroutineDispatcher()
-    }
+    fun ckcSyncProcessingDispatcher(properties: DemoApplicationProperties): DemoProcessingDispatcher =
+        DemoProcessingDispatcherFactory.create(
+            properties,
+            dispatcherName = "ckc-sync-worker",
+            defaultType = DemoApplicationProperties.ProcessingDispatcherType.IO,
+            allowedTypes = setOf(
+                DemoApplicationProperties.ProcessingDispatcherType.IO,
+                DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL
+            )
+        )
 
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")

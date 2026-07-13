@@ -9,9 +9,9 @@ import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.api.OrderHttpService
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -45,7 +45,7 @@ class CkcProfileContextTest(
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     @Autowired
     @Qualifier("ckcWorkerDispatcher")
-    private val workerDispatcher: ExecutorCoroutineDispatcher
+    private val workerDispatcher: DemoProcessingDispatcher
 ) {
     @Test
     fun contextLoads() {
@@ -77,7 +77,7 @@ class CkcProfileContextTest(
 
     @Test
     fun `ckc profile creates shared named worker dispatcher`() {
-        assertEquals(1, applicationContext.getBeansOfType(ExecutorCoroutineDispatcher::class.java).size)
+        assertEquals(1, applicationContext.getBeansOfType(DemoProcessingDispatcher::class.java).size)
         val threadName = runBlocking {
             withContext(workerDispatcher) {
                 Thread.currentThread().name

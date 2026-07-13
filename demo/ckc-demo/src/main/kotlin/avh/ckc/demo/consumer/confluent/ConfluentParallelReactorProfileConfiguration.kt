@@ -1,6 +1,8 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
+import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
 import avh.ckc.demo.consumer.toConfluentProcessingOrder
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -13,8 +15,6 @@ import io.confluent.parallelconsumer.RecordContext
 import io.confluent.parallelconsumer.reactor.ReactorProcessor
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -26,8 +26,6 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import reactor.core.scheduler.Schedulers
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @Configuration(proxyBeanMethods = false)
 @Profile("confluent-parallel-reactor")
@@ -35,18 +33,18 @@ class ConfluentParallelReactorProfileConfiguration {
     @Bean(destroyMethod = "close")
     fun confluentParallelReactorWorkerDispatcher(
         properties: DemoApplicationProperties
-    ): ExecutorCoroutineDispatcher {
-        val threads = properties.consumers.workerDispatcherThreads
-        require(threads > 0) {
-            "demo.consumers.worker-dispatcher-threads must be > 0 for confluent-parallel-reactor"
-        }
-        val threadNumber = AtomicInteger()
-        return Executors.newFixedThreadPool(threads) { runnable ->
-            Thread(runnable, "pc-reactor-worker-${threadNumber.incrementAndGet()}").apply {
-                isDaemon = true
-            }
-        }.asCoroutineDispatcher()
-    }
+    ): DemoProcessingDispatcher =
+        DemoProcessingDispatcherFactory.create(
+            properties,
+            dispatcherName = "pc-reactor-worker",
+            defaultType = DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+            allowedTypes = setOf(
+                DemoApplicationProperties.ProcessingDispatcherType.DEFAULT,
+                DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+                DemoApplicationProperties.ProcessingDispatcherType.IO,
+                DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL
+            )
+        )
 
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")

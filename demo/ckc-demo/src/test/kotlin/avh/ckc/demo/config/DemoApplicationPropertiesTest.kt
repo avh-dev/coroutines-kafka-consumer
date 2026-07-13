@@ -13,7 +13,9 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(true, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.MICROMETER, properties.consumers.metricsImplementation)
+        assertEquals(DemoApplicationProperties.ProcessingDispatcherType.AUTO, properties.consumers.processingDispatcherType)
         assertEquals(8, properties.consumers.workerDispatcherThreads)
+        assertEquals("demo-processing-virtual-", properties.consumers.virtualThreadNamePrefix)
         assertEquals(10, properties.consumers.freshnessFirstMaxRecordAgeSeconds)
         assertEquals(3, properties.consumers.retry.maxAttempts)
         assertEquals(250, properties.consumers.retry.backoffMs)
@@ -46,7 +48,9 @@ class DemoApplicationPropertiesTest {
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
                 "demo.consumers.metrics-implementation" to "noop",
+                "demo.consumers.processing-dispatcher-type" to "virtual",
                 "demo.consumers.worker-dispatcher-threads" to "6",
+                "demo.consumers.virtual-thread-name-prefix" to "demo-test-virtual-",
                 "demo.consumers.freshness-first-max-record-age-seconds" to "15",
                 "demo.consumers.retry.max-attempts" to "5",
                 "demo.consumers.retry.backoff-ms" to "750",
@@ -75,7 +79,9 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(false, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.NOOP, properties.consumers.metricsImplementation)
+        assertEquals(DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL, properties.consumers.processingDispatcherType)
         assertEquals(6, properties.consumers.workerDispatcherThreads)
+        assertEquals("demo-test-virtual-", properties.consumers.virtualThreadNamePrefix)
         assertEquals(15, properties.consumers.freshnessFirstMaxRecordAgeSeconds)
         assertEquals(5, properties.consumers.retry.maxAttempts)
         assertEquals(750, properties.consumers.retry.backoffMs)

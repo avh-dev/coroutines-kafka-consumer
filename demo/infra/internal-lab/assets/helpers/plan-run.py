@@ -219,6 +219,7 @@ def profile_summary(plan: dict[str, Any]) -> str:
         f"  base_rate: {plan['base_tps']}",
         f"  capacity_factor: {plan['capacity_factor']}",
         f"  replicas: {plan['replica_count']}",
+        f"  processing_dispatcher_type: {plan.get('processing_dispatcher_type') or '-'}",
         "  topics:",
     ]
     for topic in plan["topics"]:
@@ -317,6 +318,8 @@ def main() -> None:
     topic_plans: list[dict[str, Any]] = []
     kafka_topics: list[dict[str, Any]] = []
     env: dict[str, Any] = {"springProfilesActive": profile["springProfilesActive"]}
+    if isinstance(preset.get("env"), dict):
+        env.update(preset["env"])
 
     for topic_name in TOPIC_ORDER:
         topic_config = topics_config[topic_name]
@@ -433,6 +436,7 @@ def main() -> None:
         "base_tps": base_tps,
         "capacity_factor": capacity_factor,
         "replica_count": replica_count,
+        "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),
         "processing_enabled": args.processing_enabled == "true",
         "test_definition": definition_path.stem,
         "values_path": str(values_path),

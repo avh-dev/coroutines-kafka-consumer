@@ -4,10 +4,10 @@ import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.service.DemoRecordMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import io.micrometer.core.instrument.MeterRegistry
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
@@ -35,7 +35,7 @@ class ConfluentParallelReactorProfileContextTest(
     @Autowired private val meterRegistry: MeterRegistry,
     @Autowired
     @Qualifier("confluentParallelReactorWorkerDispatcher")
-    private val workerDispatcher: ExecutorCoroutineDispatcher
+    private val workerDispatcher: DemoProcessingDispatcher
 ) {
     @Test
     fun contextLoads() {
@@ -68,7 +68,7 @@ class ConfluentParallelReactorProfileContextTest(
 
     @Test
     fun `confluent parallel reactor profile creates shared named worker dispatcher`() {
-        assertEquals(1, applicationContext.getBeansOfType(ExecutorCoroutineDispatcher::class.java).size)
+        assertEquals(1, applicationContext.getBeansOfType(DemoProcessingDispatcher::class.java).size)
         val threadName = runBlocking {
             withContext(workerDispatcher) {
                 Thread.currentThread().name

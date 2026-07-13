@@ -3,6 +3,8 @@ package avh.ckc.demo.consumer.springkafkacoroutinesnaive
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
+import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -13,8 +15,6 @@ import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -28,8 +28,6 @@ import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.util.backoff.FixedBackOff
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @Configuration(proxyBeanMethods = false)
 @Profile("spring-kafka-coroutines-naive")
@@ -37,18 +35,18 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
     @Bean(destroyMethod = "close")
     fun springKafkaCoroutinesNaiveWorkerDispatcher(
         properties: DemoApplicationProperties
-    ): ExecutorCoroutineDispatcher {
-        val threads = properties.consumers.workerDispatcherThreads
-        require(threads > 0) {
-            "demo.consumers.worker-dispatcher-threads must be > 0 for spring-kafka-coroutines-naive"
-        }
-        val threadNumber = AtomicInteger()
-        return Executors.newFixedThreadPool(threads) { runnable ->
-            Thread(runnable, "spring-kafka-coroutines-naive-worker-${threadNumber.incrementAndGet()}").apply {
-                isDaemon = true
-            }
-        }.asCoroutineDispatcher()
-    }
+    ): DemoProcessingDispatcher =
+        DemoProcessingDispatcherFactory.create(
+            properties,
+            dispatcherName = "spring-kafka-coroutines-naive-worker",
+            defaultType = DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+            allowedTypes = setOf(
+                DemoApplicationProperties.ProcessingDispatcherType.DEFAULT,
+                DemoApplicationProperties.ProcessingDispatcherType.FIXED,
+                DemoApplicationProperties.ProcessingDispatcherType.IO,
+                DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL
+            )
+        )
 
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
@@ -64,7 +62,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         @Qualifier("springKafkaCoroutinesNaiveBatchConsumerMetrics")
         batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         @Qualifier("springKafkaCoroutinesNaiveWorkerDispatcher")
-        workerDispatcher: ExecutorCoroutineDispatcher
+        workerDispatcher: DemoProcessingDispatcher
     ): SpringKafkaCoroutinesNaiveRuntime =
         SpringKafkaCoroutinesNaiveRuntime(
             properties = properties,

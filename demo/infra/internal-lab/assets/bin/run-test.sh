@@ -405,6 +405,7 @@ print(f"  presets: {', '.join(plan['presets']) if plan['presets'] else '-'}")
 print(f"  base_rate: {plan['base_tps']}")
 print(f"  capacity_factor: {plan['capacity_factor']}")
 print(f"  replicas: {plan['replica_count']}")
+print(f"  processing_dispatcher_type: {plan.get('processing_dispatcher_type') or '-'}")
 print("  topics:")
 for topic in plan["topics"]:
     manual = topic.get("manual_overrides") or {}
@@ -820,7 +821,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
-  export RUN_PROFILE RUN_PRESETS RUN_PLAN_PATH CAPACITY_FACTOR ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
+  export RUN_PROFILE RUN_PRESETS RUN_PLAN_PATH CAPACITY_FACTOR PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
@@ -887,6 +888,7 @@ metadata = {
         "processing_enabled": env_bool("PROCESSING_ENABLED"),
         "audit_log_enabled": env_bool("AUDIT_LOG_ENABLED"),
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),
+        "processing_dispatcher_type": env("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env_int("WORKER_DISPATCHER_THREADS"),
         "processing_modes": {
             "order": env("ORDER_PROCESSING_MODE"),

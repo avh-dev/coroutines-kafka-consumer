@@ -39,6 +39,7 @@ profiles:
       batch: [AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
       telemetry: [FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY, FRESHNESS_FIRST_DROP_OLDEST, AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
     env:
+      processingDispatcherType: AUTO
       orderPollLoopConcurrency: 1
       orderWorkChannelCapacity: 1024
       batchPollLoopConcurrency: 1
@@ -61,10 +62,6 @@ profiles:
   ckc-sync:
     extends: ckc
     springProfilesActive: ckc-sync
-
-  ckc-sync-loom:
-    extends: ckc
-    springProfilesActive: ckc-sync-loom
 
   confluent-sync:
     extends: ckc
@@ -103,6 +100,22 @@ profiles:
         memory: 1Gi
 
 presets:
+  default-dispatcher:
+    env:
+      processingDispatcherType: DEFAULT
+
+  fixed-dispatcher:
+    env:
+      processingDispatcherType: FIXED
+
+  io-dispatcher:
+    env:
+      processingDispatcherType: IO
+
+  virtual-dispatcher:
+    env:
+      processingDispatcherType: VIRTUAL
+
   partition-ordering:
     processingModes:
       order: AT_LEAST_ONCE_PARTITION_ORDERING

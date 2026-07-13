@@ -24,13 +24,15 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
+        "demo.consumers.processing-dispatcher-type=virtual",
+        "demo.consumers.virtual-thread-name-prefix=ckc-sync-virtual-test-",
         "SERVER_PORT=0",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
     ]
 )
-@ActiveProfiles("ckc-sync-loom")
-class CkcSyncLoomProfileContextTest(
+@ActiveProfiles("ckc-sync")
+class CkcSyncVirtualDispatcherProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
     @Autowired
@@ -45,7 +47,7 @@ class CkcSyncLoomProfileContextTest(
     }
 
     @Test
-    fun `ckc sync loom profile creates only sync model clients`() {
+    fun `ckc sync profile with virtual dispatcher creates only sync model clients`() {
         assertFalse(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
         assertFalse(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
         assertTrue(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
@@ -53,10 +55,10 @@ class CkcSyncLoomProfileContextTest(
     }
 
     @Test
-    fun `consumer profile info metric identifies ckc sync loom as ckc implementation`() {
+    fun `consumer profile info metric identifies ckc sync as ckc implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "ckc")
-            .tag("spring_profile", "ckc-sync-loom")
+            .tag("spring_profile", "ckc-sync")
             .gauge()
 
         assertNotNull(gauge)
@@ -64,12 +66,12 @@ class CkcSyncLoomProfileContextTest(
     }
 
     @Test
-    fun `ckc sync loom profile publishes CKC record metrics`() {
+    fun `ckc sync profile with virtual dispatcher publishes CKC record metrics`() {
         assertNotNull(consumerMetrics)
     }
 
     @Test
-    fun `ckc sync loom profile runs processing dispatcher on virtual threads`() = runBlocking {
+    fun `ckc sync profile can run processing dispatcher on virtual threads`() = runBlocking {
         assertFalse(applicationContext.containsBean("ckcWorkerDispatcher"))
 
         val virtual = withContext(processingDispatcher) {

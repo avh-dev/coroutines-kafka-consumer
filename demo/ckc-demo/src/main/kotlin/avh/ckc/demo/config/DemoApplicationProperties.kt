@@ -56,7 +56,9 @@ data class DemoApplicationProperties(
     data class Consumers(
         var processingEnabled: Boolean = true,
         var metricsImplementation: MetricsImplementation = MetricsImplementation.MICROMETER,
+        var processingDispatcherType: ProcessingDispatcherType = ProcessingDispatcherType.AUTO,
         var workerDispatcherThreads: Int = 8,
+        var virtualThreadNamePrefix: String = "demo-processing-virtual-",
         var freshnessFirstMaxRecordAgeSeconds: Long = 10,
         var retry: Retry = Retry(),
         var order: ConsumerRuntime = ConsumerRuntime(workerConcurrency = 2, workChannelCapacity = 1024),
@@ -71,6 +73,14 @@ data class DemoApplicationProperties(
     enum class MetricsImplementation {
         MICROMETER,
         NOOP
+    }
+
+    enum class ProcessingDispatcherType {
+        AUTO,
+        DEFAULT,
+        IO,
+        FIXED,
+        VIRTUAL
     }
 
     data class Retry(
