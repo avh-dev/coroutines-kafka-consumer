@@ -15,7 +15,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 
-internal class FreshnessFirstUnorderedRecordProcessingRuntime<K, V>(
+internal class FreshnessFirstDropOldestRecordProcessingRuntime<K, V>(
     workerConcurrency: Int,
     workChannelCapacity: Int,
     freshnessMaxRecordAge: Duration?,

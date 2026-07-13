@@ -12,7 +12,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
-internal class AtLeastOnceUnorderedRecordProcessingRuntime<K, V>(
+internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     workerConcurrency: Int,
     workChannelCapacity: Int,
     processingDispatcher: CoroutineDispatcher,

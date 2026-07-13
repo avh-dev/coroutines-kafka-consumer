@@ -45,6 +45,7 @@
 | [CORE-40](#core-40) | Add runtime state snapshots for CKC consumers and surface them through Spring Boot health details.                                                                                                         | DONE |
 | [CORE-41](#core-41) | Rename `ProcessingMode` values so config strings describe ordering and freshness behavior directly.                                                                                                       | DONE |
 | [CORE-42](#core-42) | Add an optional freshness max record age so freshness-first runtimes can drop stale records before handling.                                                                                              | DONE |
+| [CORE-43](#core-43) | Rename internal processing runtime classes to match the current processing mode terminology.                                                                                                              | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1836,6 +1837,14 @@ _Date: 2026-07-13_
 Add an optional freshness-first max record age setting for dropping stale records before user handling.
 Reject non-null freshness expiry configuration for at-least-once modes so delivery semantics stay explicit.
 Expose the setting through repository-owned Spring Boot and demo configuration.
+
+<a id="core-43"></a>
+### CORE-43 - Rename processing runtimes
+
+_Date: 2026-07-13_
+
+Rename internal record processing runtime classes so their names align with the current `ProcessingMode` values.
+Keep behavior unchanged while updating core wiring and tests.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

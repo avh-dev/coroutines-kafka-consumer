@@ -26,14 +26,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
-class AtLeastOnceOrderedRecordProcessingRuntimeTest {
+class AtLeastOnceOrderingRecordProcessingRuntimeTest {
     @Test
     fun `when ordered by key then records with same key are processed sequentially in poll order`() = runBlocking {
         val processedOffsets = CopyOnWriteArrayList<Long>()
         val activeByKey = ConcurrentHashMap<String, AtomicInteger>()
         val maxActiveByKey = ConcurrentHashMap<String, AtomicInteger>()
         val runtime = orderedRuntime(
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 4,
             workChannelCapacity = 16,
             handler = KafkaRecordHandler<String, String> { record ->
@@ -66,7 +66,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
         val secondStarted = CompletableDeferred<Unit>()
         val releaseFirst = CompletableDeferred<Unit>()
         val runtime = orderedRuntime(
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 2,
             workChannelCapacity = 8,
             handler = KafkaRecordHandler<String, String> { record ->
@@ -98,7 +98,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             val releaseFirstPartitionRecord = CompletableDeferred<Unit>()
             val processedOffsets = CopyOnWriteArrayList<Long>()
             val runtime = orderedRuntime(
-                ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_PARTITION,
+                ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_PARTITION,
                 workerConcurrency = 2,
                 workChannelCapacity = 8,
                 handler = KafkaRecordHandler<String, String> { record ->
@@ -138,7 +138,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
             val releaseFirst = CompletableDeferred<Unit>()
             val processedOffsets = CopyOnWriteArrayList<Long>()
             val runtime = orderedRuntime(
-                ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+                ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
                 workerConcurrency = 1,
                 workChannelCapacity = 2,
                 handler = KafkaRecordHandler<String, String> { record ->
@@ -176,7 +176,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
         val releaseFirst = CompletableDeferred<Unit>()
         val metrics = RecordingMetrics<String, String>()
         val runtime = orderedRuntime(
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 1,
             workChannelCapacity = 4,
             metrics = metrics,
@@ -214,7 +214,7 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
         val metrics = RecordingMetrics<String, String>()
         val handledRecords = CopyOnWriteArrayList<Long>()
         val runtime = orderedRuntime(
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 1,
             workChannelCapacity = 4,
             metrics = metrics,
@@ -237,14 +237,14 @@ class AtLeastOnceOrderedRecordProcessingRuntimeTest {
     }
 
     private fun orderedRuntime(
-        ordering: AtLeastOnceOrderedRecordProcessingRuntime.Ordering,
+        ordering: AtLeastOnceOrderingRecordProcessingRuntime.Ordering,
         workerConcurrency: Int,
         workChannelCapacity: Int,
         metrics: ConsumerMetrics<String, String> = noopMetrics(),
         processedRecordTracker: ProcessedRecordTracker = NoopProcessedRecordTracker,
         handler: KafkaRecordHandler<String, String>
-    ): AtLeastOnceOrderedRecordProcessingRuntime<String, String> {
-        return AtLeastOnceOrderedRecordProcessingRuntime(
+    ): AtLeastOnceOrderingRecordProcessingRuntime<String, String> {
+        return AtLeastOnceOrderingRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             ordering = ordering,

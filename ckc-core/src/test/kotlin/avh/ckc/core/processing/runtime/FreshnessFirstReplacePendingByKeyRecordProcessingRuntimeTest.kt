@@ -23,7 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-class FreshnessFirstByKeyRecordProcessingRuntimeTest {
+class FreshnessFirstReplacePendingByKeyRecordProcessingRuntimeTest {
     @Test
     fun `when same key record is already queued then newer record replaces it`() = runBlocking {
         val firstStarted = CompletableDeferred<Unit>()
@@ -221,8 +221,8 @@ class FreshnessFirstByKeyRecordProcessingRuntimeTest {
         freshnessMaxRecordAge: Duration? = null,
         metrics: ConsumerMetrics<String, String>,
         handler: KafkaRecordHandler<String, String>
-    ): FreshnessFirstByKeyRecordProcessingRuntime<String, String> =
-        FreshnessFirstByKeyRecordProcessingRuntime(
+    ): FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<String, String> =
+        FreshnessFirstReplacePendingByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,

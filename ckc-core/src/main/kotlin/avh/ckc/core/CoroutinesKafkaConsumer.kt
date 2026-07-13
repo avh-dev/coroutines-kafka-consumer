@@ -11,10 +11,10 @@ import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
-import avh.ckc.core.processing.runtime.AtLeastOnceOrderedRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.AtLeastOnceUnorderedRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstByKeyRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstUnorderedRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
@@ -344,7 +344,7 @@ internal fun <K, V> defaultProcessingRuntime(
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
     when (processingMode) {
-        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceUnorderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceNoOrderingRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             processingDispatcher = processingDispatcher,
@@ -356,10 +356,10 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_KEY,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
@@ -369,10 +369,10 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> AtLeastOnceOrderedRecordProcessingRuntime(
+        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
-            ordering = AtLeastOnceOrderedRecordProcessingRuntime.Ordering.BY_PARTITION,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_PARTITION,
             processingDispatcher = processingDispatcher,
             scope = parentScope,
             metrics = metrics,
@@ -382,7 +382,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstUnorderedRecordProcessingRuntime(
+        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstDropOldestRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
@@ -395,7 +395,7 @@ internal fun <K, V> defaultProcessingRuntime(
             processedRecordTracker = processedRecordTracker
         )
 
-        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstByKeyRecordProcessingRuntime(
+        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstReplacePendingByKeyRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,

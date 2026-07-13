@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-internal class AtLeastOnceOrderedRecordProcessingRuntime<K, V>(
+internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,
     workChannelCapacity: Int,
     private val ordering: Ordering,
