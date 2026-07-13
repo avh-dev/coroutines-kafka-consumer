@@ -9,7 +9,7 @@ Starter-backed CKC profiles:
 Sync CKC profiles:
 
 - `ckc-sync`: CKC with blocking demo services on `Dispatchers.IO`.
-- `ckc-sync-loom`: CKC with the same blocking demo services on virtual threads.
+- `ckc-sync-loom`: legacy overlay that runs `ckc-sync` with `PROCESSING_DISPATCHER_TYPE=VIRTUAL`.
 
 Telemetry freshness fairness profiles:
 

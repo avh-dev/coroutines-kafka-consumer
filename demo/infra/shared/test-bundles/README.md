@@ -31,7 +31,7 @@ final phase.
 
 Use `smoke-repeat` for quick bundle smoke checks; it runs the short `smoke`
 definition twice. Use `ckc-sync-loom-comparison` to run suspend CKC plus the
-blocking CKC sync IO and virtual-thread profiles on the baseline definition.
+blocking CKC sync IO and virtual-thread dispatcher modes on the baseline definition.
 Use `queue-backlog-crash-comparison` to stress large in-memory order/batch
 worker queues under downstream slowdown and app crashes, targeting listener
 implementations that can acknowledge Kafka records before queued worker

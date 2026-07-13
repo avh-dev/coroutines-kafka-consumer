@@ -59,8 +59,12 @@ spec:
               value: {{ .Values.env.processingEnabled | quote }}
             - name: METRICS_IMPLEMENTATION
               value: {{ .Values.env.metricsImplementation | quote }}
+            - name: PROCESSING_DISPATCHER_TYPE
+              value: {{ .Values.env.processingDispatcherType | quote }}
             - name: WORKER_DISPATCHER_THREADS
               value: {{ .Values.env.workerDispatcherThreads | quote }}
+            - name: PROCESSING_DISPATCHER_VIRTUAL_THREAD_NAME_PREFIX
+              value: {{ .Values.env.processingDispatcherVirtualThreadNamePrefix | quote }}
             - name: FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS
               value: {{ .Values.env.freshnessFirstMaxRecordAgeSeconds | quote }}
             - name: DEMO_CONSUMER_RETRY_MAX_ATTEMPTS

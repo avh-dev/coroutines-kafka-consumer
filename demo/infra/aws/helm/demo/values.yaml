@@ -27,7 +27,9 @@ env:
   registryBaseUrl: ""
   processingEnabled: true
   metricsImplementation: MICROMETER
+  processingDispatcherType: AUTO
   workerDispatcherThreads: 8
+  processingDispatcherVirtualThreadNamePrefix: demo-processing-virtual-
   freshnessFirstMaxRecordAgeSeconds: 10
   consumerRetryMaxAttempts: 3
   consumerRetryBackoffMs: 250

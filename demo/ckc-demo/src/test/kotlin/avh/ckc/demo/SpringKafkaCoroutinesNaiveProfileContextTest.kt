@@ -1,6 +1,7 @@
 package avh.ckc.demo
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.springkafkacoroutinesnaive.SpringKafkaCoroutinesNaiveProfileConfiguration
 import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
@@ -9,7 +10,6 @@ import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import io.micrometer.core.instrument.MeterRegistry
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -43,7 +43,7 @@ class SpringKafkaCoroutinesNaiveProfileContextTest(
     @Autowired private val meterRegistry: MeterRegistry,
     @Autowired
     @Qualifier("springKafkaCoroutinesNaiveWorkerDispatcher")
-    private val workerDispatcher: ExecutorCoroutineDispatcher
+    private val workerDispatcher: DemoProcessingDispatcher
 ) {
     @Test
     fun contextLoads() {

@@ -108,6 +108,7 @@
 | [DEMO-60](#demo-60) | Add a CKC sync Loom profile that runs blocking demo handlers on virtual threads instead of `Dispatchers.IO`. | DONE |
 | [DEMO-61](#demo-61) | Add a `ckc-spring-boot` demo profile that uses the CKC Spring Boot starter for configuration-driven consumer wiring. | DONE |
 | [DEMO-62](#demo-62) | Wire custom metrics for the `ckc-spring-boot` demo profile so retry and drop audit records are emitted by the starter-backed consumers. | DONE |
+| [DEMO-63](#demo-63) | Add configurable demo processing dispatchers and replace the `ckc-sync-loom` Spring profile with a runtime dispatcher setting. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1863,6 +1864,16 @@ _Date: 2026-07-09_
 Use the starter custom metrics hook in the `ckc-spring-boot` demo profile.
 Keep Micrometer record metrics while wrapping retry and drop callbacks with demo audit logging.
 This lets internal-lab audit analysis see the same terminal and retry signals for starter-backed CKC consumers.
+
+<a id="demo-63"></a>
+### DEMO-63 - Add configurable demo processing dispatchers
+
+_Date: 2026-07-13_
+
+Replace profile-specific dispatcher experiments with a runtime dispatcher setting for demo consumers that use coroutine dispatchers.
+Keep existing default behavior while allowing fixed threads, `Dispatchers.Default`, `Dispatchers.IO`, or virtual threads where the profile supports them.
+Remove the need for a separate `ckc-sync-loom` Spring profile by selecting virtual threads through configuration.
+Keep the legacy internal-lab `ckc-sync-loom` overlay as a compatibility alias for `ckc-sync` plus virtual dispatcher mode until the Helm profile cleanup task removes it.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile

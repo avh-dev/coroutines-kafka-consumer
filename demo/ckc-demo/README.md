@@ -14,8 +14,7 @@ The demo uses a potion workshop domain:
 The application is intended for functional checks and for comparing consumer implementations under the same workload:
 
 - `ckc` profile uses `coroutines-kafka-consumer` with suspend business services;
-- `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services on `Dispatchers.IO`;
-- `ckc-sync-loom` profile uses `coroutines-kafka-consumer` with blocking business services on virtual threads;
+- `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services and a configurable processing dispatcher;
 - `spring-kafka` profile uses `@KafkaListener` as a legacy baseline;
 - `spring-kafka-coroutines-naive` profile uses Spring Kafka batch listeners that enqueue records into bounded channels drained by coroutine workers;
 - `confluent-parallel` profile uses a blocking Confluent Parallel Consumer implementation with key-ordered parallel processing.
@@ -58,7 +57,8 @@ Run the demo with CKC and blocking business services:
 Run the demo with CKC and blocking business services on virtual threads:
 
 ```bash
-./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc-sync-loom --demo.kafka.enabled=true'
+PROCESSING_DISPATCHER_TYPE=VIRTUAL \
+./gradlew :ckc-demo:bootRun --args='--spring.profiles.active=ckc-sync --demo.kafka.enabled=true'
 ```
 
 Run the demo with Spring Kafka listeners:
@@ -98,7 +98,8 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 The consumer profiles expose demo-only switches for consumer experiments:
 
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
-- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool used by all consumers in the suspend `ckc`, `spring-kafka-coroutines-naive`, and `confluent-parallel-reactor` profiles. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds. The blocking `ckc-sync` profile continues to use `Dispatchers.IO`, while `ckc-sync-loom` uses virtual threads.
+- `PROCESSING_DISPATCHER_TYPE=AUTO` selects the dispatcher used by profiles that run work through a coroutine dispatcher. `AUTO` preserves each profile's default: fixed threads for `ckc`, `spring-kafka-coroutines-naive`, and `confluent-parallel-reactor`; `Dispatchers.IO` for `ckc-sync`. Supported explicit values are `DEFAULT`, `FIXED`, `IO`, and `VIRTUAL`, depending on profile.
+- `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool when `PROCESSING_DISPATCHER_TYPE=FIXED` or a profile's `AUTO` default resolves to fixed threads. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds.
 - `TELEMETRY_PROCESSING_MODE=FRESHNESS_FIRST_DROP_OLDEST` selects the CKC telemetry processing mode. `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY` is available for CKC telemetry runs when only the latest queued cauldron update per key should be retained.
 - `TELEMETRY_WORK_CHANNEL_CAPACITY=256` is the telemetry runtime queue capacity. With `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`, it limits queued distinct telemetry keys, not total Kafka records. Records for already queued keys can replace older queued values without consuming extra capacity; records for new keys are dropped when the queued key-lane capacity is full.
 - `FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=10` limits record age for freshness-first handling. CKC telemetry consumers pass it to core `freshnessMaxRecordAge`; external adapter profiles apply the same stale-record check before demo business logic. Stale records are acknowledged without running demo business logic, but still emit dropped audit records and `demo.ckc.record.dropped{reason="stale_age"}` metrics.
