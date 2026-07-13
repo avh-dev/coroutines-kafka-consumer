@@ -287,8 +287,27 @@ def main() -> None:
     stub_settings = stub_settings_from_definition(stubs, definition_path)
     chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
 
+    deployment_env = value_at(deployment_profile, "env", default={})
+    if not isinstance(deployment_env, dict):
+        deployment_env = {}
+    run_plan_path = str(value_at(deployment_profile, "lab", "runPlanPath", default=""))
+    run_plan_profile = str(value_at(deployment_profile, "lab", "runPlanProfile", default=""))
+    run_plan_presets = value_at(deployment_profile, "lab", "runPlanPresets", default=[])
+    if not isinstance(run_plan_presets, list):
+        run_plan_presets = []
+    run_plan_base_tps = value_at(deployment_profile, "lab", "runPlanBaseTps", default=None)
+    run_plan_capacity_factor = value_at(deployment_profile, "lab", "runPlanCapacityFactor", default="")
+    app_profile = str(deployment_env.get("springProfilesActive") or run_plan_profile or deployment_profile_path.stem)
+
     assignments = {
-        "APP_PROFILE": deployment_profile_path.stem,
+        "APP_PROFILE": app_profile,
+        "RUN_PROFILE": run_plan_profile,
+        "RUN_PRESETS": ",".join(str(item) for item in run_plan_presets),
+        "RUN_PLAN_PATH": run_plan_path,
+        "CAPACITY_FACTOR": str(run_plan_capacity_factor),
+        "ORDER_PROCESSING_MODE": str(deployment_env.get("orderProcessingMode", "")),
+        "BATCH_PROCESSING_MODE": str(deployment_env.get("batchProcessingMode", "")),
+        "TELEMETRY_PROCESSING_MODE": str(deployment_env.get("telemetryProcessingMode", "")),
         "PROCESSING_ENABLED": args.processing_enabled,
         "METRICS_IMPLEMENTATION": args.metrics_implementation,
         "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
@@ -296,7 +315,7 @@ def main() -> None:
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "CHAOS_STEPS_JSON": json.dumps(chaos_steps, separators=(",", ":")),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
-        "BASE_TPS": str(load_test.get("base_tps", 10000)),
+        "BASE_TPS": str(run_plan_base_tps if run_plan_base_tps not in (None, "") else load_test.get("base_tps", 10000)),
         "ORDER_EVENT_PERCENT": str(load_test.get("order_event_percent", 40)),
         "BATCH_EVENT_PERCENT": str(load_test.get("batch_event_percent", 20)),
         "CAULDRON_TELEMETRY_PERCENT": str(load_test.get("cauldron_telemetry_percent", 40)),

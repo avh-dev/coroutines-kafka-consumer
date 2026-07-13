@@ -173,6 +173,7 @@
 | [INFRA-66](#infra-66) | Add a Grafana dashboard variable for toggling event-type metric aggregation.                                                             | DONE |
 | [INFRA-67](#infra-67) | Add internal-lab Helm and test-definition support for the `ckc-spring-boot` demo profile.                                               | DONE |
 | [INFRA-68](#infra-68) | Add selectable internal-lab Kafka broker implementation and broker CPU observability.                                                   | DONE |
+| [INFRA-69](#infra-69) | Add a dynamic internal-lab run planner that computes topics, concurrency, and processing modes from profile and load settings.          | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1852,3 +1853,13 @@ Run the Apache Kafka option on the official `apache/kafka:4.3.1` image with shar
 Keep topic/group reset scripts compatible with both broker implementations.
 Generalize Grafana broker CPU visibility so Redpanda and Apache Kafka runs can be inspected from the same dashboard.
 Carry the selected broker through run metadata, drain waiting, chaos service actions, and internal-lab documentation.
+
+<a id="infra-69"></a>
+### INFRA-69 - Add dynamic internal-lab run planner
+
+_Date: 2026-07-11_
+
+Replace static internal-lab deployment profile selection with a generated run plan based on consumer profile, base TPS, capacity factor, stubs latency, and processing modes.
+Keep existing runner controls for processing, audit logging, metrics, worker dispatcher threads, Kafka implementation, and environment overrides.
+Print the full computed plan before destructive setup and persist it in run metadata and generated lab state for post-run analysis.
+Use measured per-topic capacity models from test definitions when available, support named run presets, and allow profile-scoped manual plan edits before setup.
