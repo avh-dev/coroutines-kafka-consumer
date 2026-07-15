@@ -2,6 +2,7 @@ package avh.ckc.spring
 
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.RetryRule
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
@@ -14,7 +15,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.slf4j.MDCContext
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -26,7 +29,9 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.core.annotation.AnnotationUtils
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.slf4j.MDC
 import java.util.logging.Logger
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -464,10 +469,56 @@ private fun buildConsumer(
         processingDispatcher = dispatcherRegistry.processingDispatcher(consumerName, consumerProperties)
         retryPolicy = retryPolicy(properties, consumerName, consumerProperties.retrySchema)
         this.metrics = metrics
+        recordProcessingContext = recordProcessingContext(properties, consumerName, consumerProperties)
         onProcessingFailure { record, reason -> consumerBean.handleFailure(record, reason) }
         configureSubscription(consumerName, consumerProperties)
         handle { record -> consumerBean.process(record) }
     }
+}
+
+private fun recordProcessingContext(
+    properties: CkcConsumerProperties,
+    consumerName: String,
+    consumerProperties: CkcConsumerProperties.Consumer
+): RecordProcessingContext<Any?, Any?>? {
+    val mdc = properties.observability.mdc
+    if (!mdc.enabled) {
+        return null
+    }
+    require(mdc.maxKeyLength > 0) {
+        "ckc.observability.mdc.max-key-length must be > 0"
+    }
+    return MdcRecordProcessingContext(
+        consumerName = consumerName,
+        processingMode = consumerProperties.processingMode.name,
+        includeKey = mdc.includeKey,
+        maxKeyLength = mdc.maxKeyLength
+    )
+}
+
+internal class MdcRecordProcessingContext(
+    private val consumerName: String,
+    private val processingMode: String,
+    private val includeKey: Boolean,
+    private val maxKeyLength: Int
+) : RecordProcessingContext<Any?, Any?> {
+    override suspend fun withRecordContext(record: ConsumerRecord<Any?, Any?>, block: suspend () -> Unit) {
+        val contextMap = MDC.getCopyOfContextMap()?.toMutableMap() ?: linkedMapOf()
+        contextMap["ckc.consumer"] = consumerName
+        contextMap["ckc.processing.mode"] = processingMode
+        contextMap["kafka.topic"] = record.topic()
+        contextMap["kafka.partition"] = record.partition().toString()
+        contextMap["kafka.offset"] = record.offset().toString()
+        if (includeKey) {
+            record.key()?.let { contextMap["kafka.key"] = it.toString().truncate(maxKeyLength) }
+        }
+        withContext(MDCContext(contextMap)) {
+            block()
+        }
+    }
+
+    private fun String.truncate(maxLength: Int): String =
+        if (length <= maxLength) this else take(maxLength)
 }
 
 private fun resolveCluster(

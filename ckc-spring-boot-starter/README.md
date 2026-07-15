@@ -24,6 +24,11 @@ ckc:
     shutdown-timeout: 30s
   health:
     enabled: true
+  observability:
+    mdc:
+      enabled: true
+      include-key: false
+      max-key-length: 128
   metrics:
     implementation: MICROMETER
     micrometer:
@@ -124,6 +129,12 @@ dispatcher, retry schema, metrics mode, core lifecycle flags, processing worker/
 poll-loop state, assigned partitions, and last local poll/commit observations. Kafka lag and
 downstream dependency health require separate probes and are not inferred by this indicator.
 
+Starter-managed consumers add coroutine-safe MDC around `process` and `handleFailure` callbacks by
+default. The MDC context includes `ckc.consumer`, `ckc.processing.mode`, `kafka.topic`,
+`kafka.partition`, and `kafka.offset`. `kafka.key` is disabled by default to avoid per-record key
+string conversion and high-cardinality log context; enable it with `ckc.observability.mdc.include-key`.
+Set `ckc.observability.mdc.enabled=false` to keep the record processing path direct.
+
 ## Configuration Reference
 
 The full starter property structure is:
@@ -138,6 +149,12 @@ ckc:
 
   health:
     enabled: true
+
+  observability:
+    mdc:
+      enabled: true
+      include-key: false
+      max-key-length: 128
 
   default-processing-dispatcher: dispatchers-default
   dispatchers:

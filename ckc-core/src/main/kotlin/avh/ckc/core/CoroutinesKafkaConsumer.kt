@@ -79,6 +79,7 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     metrics: ConsumerMetrics<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
+    recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     processedRecordTracker: ProcessedRecordTracker
 ) -> RecordProcessingRuntime<K, V>
@@ -106,6 +107,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val metrics: ConsumerMetrics<K, V>,
+    private val recordProcessingContext: RecordProcessingContext<K, V>?,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
@@ -139,6 +141,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         metrics,
         handler,
         retryPolicy,
+        recordProcessingContext,
         processingFailureHandler,
         processedRecordTracker
     )
@@ -207,6 +210,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
+        recordProcessingContext: RecordProcessingContext<K, V>? = null,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
@@ -224,6 +228,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         handler = handler,
         retryPolicy = retryPolicy,
         metrics = metrics,
+        recordProcessingContext = recordProcessingContext,
         processingFailureHandler = processingFailureHandler,
         parentContext = parentContext,
         topics = topics,
@@ -340,6 +345,7 @@ internal fun <K, V> defaultProcessingRuntime(
     metrics: ConsumerMetrics<K, V>,
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
+    recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     processedRecordTracker: ProcessedRecordTracker
 ): RecordProcessingRuntime<K, V> =
@@ -352,6 +358,7 @@ internal fun <K, V> defaultProcessingRuntime(
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             processedRecordTracker = processedRecordTracker
         )
@@ -365,6 +372,7 @@ internal fun <K, V> defaultProcessingRuntime(
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             processedRecordTracker = processedRecordTracker
         )
@@ -378,6 +386,7 @@ internal fun <K, V> defaultProcessingRuntime(
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             processedRecordTracker = processedRecordTracker
         )
@@ -391,6 +400,7 @@ internal fun <K, V> defaultProcessingRuntime(
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             processedRecordTracker = processedRecordTracker
         )
@@ -404,6 +414,7 @@ internal fun <K, V> defaultProcessingRuntime(
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             processedRecordTracker = processedRecordTracker
         )

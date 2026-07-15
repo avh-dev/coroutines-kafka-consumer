@@ -165,6 +165,47 @@ class RecordProcessorTest {
     }
 
     @Test
+    fun `when record context configured then handler runs inside it`() = runBlocking {
+        val seen = CompletableDeferred<Boolean>()
+        val processor = createRecordProcessor<Long, Long>(
+            handler = KafkaRecordHandler {
+                seen.complete(true)
+            },
+            recordProcessingContext = RecordProcessingContext { _, block ->
+                seen.complete(false)
+                block()
+            }
+        )
+
+        processor.process(ConsumerRecord("topic-a", 0, 26L, 0L, 0L))
+
+        assertEquals(false, withTimeout(2_000) { seen.await() })
+    }
+
+    @Test
+    fun `when processing fails then failure handler runs inside record context`() = runBlocking {
+        val events = mutableListOf<String>()
+        val processor = createRecordProcessor<Long, Long>(
+            handler = KafkaRecordHandler {
+                events += "handler"
+                throw IllegalStateException("boom")
+            },
+            processingFailureHandler = ProcessingFailureHandler { _, _ ->
+                events += "failure-handler"
+            },
+            recordProcessingContext = RecordProcessingContext { _, block ->
+                events += "context-before"
+                block()
+                events += "context-after"
+            }
+        )
+
+        processor.process(ConsumerRecord("topic-a", 0, 27L, 0L, 0L))
+
+        assertEquals(listOf("context-before", "handler", "failure-handler", "context-after"), events)
+    }
+
+    @Test
     fun `when failed record is skipped then later offsets can advance commit frontier`() = runBlocking {
         val tracker = OffsetTracker(lastCommitedOffset = -1)
         val processor = createRecordProcessor<Long, Long>(
@@ -188,13 +229,15 @@ class RecordProcessorTest {
         @Suppress("UNCHECKED_CAST")
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
-        onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {}
+        onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {},
+        recordProcessingContext: RecordProcessingContext<K, V>? = null
     ): RecordProcessor<K, V> = RecordProcessor(
         handler = handler,
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
-        onRecordProcessed = onRecordProcessed
+        onRecordProcessed = onRecordProcessed,
+        recordProcessingContext = recordProcessingContext
     )
 }
 

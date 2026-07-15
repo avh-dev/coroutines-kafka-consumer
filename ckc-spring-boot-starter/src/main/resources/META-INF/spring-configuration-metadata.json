@@ -16,6 +16,16 @@
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
     },
     {
+      "name": "ckc.observability",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Observability",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.observability.mdc",
+      "type": "avh.ckc.spring.CkcConsumerProperties$Mdc",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
       "name": "ckc.metrics",
       "type": "avh.ckc.spring.CkcConsumerProperties$Metrics",
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
@@ -75,6 +85,24 @@
       "type": "java.lang.Boolean",
       "description": "Enables CKC Spring Boot Actuator health indicator when Actuator is on the classpath.",
       "defaultValue": true
+    },
+    {
+      "name": "ckc.observability.mdc.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enables coroutine-safe MDC context around starter-managed record processing callbacks.",
+      "defaultValue": true
+    },
+    {
+      "name": "ckc.observability.mdc.include-key",
+      "type": "java.lang.Boolean",
+      "description": "Adds the Kafka record key to MDC as kafka.key. Disabled by default to avoid key string conversion and high-cardinality log context.",
+      "defaultValue": false
+    },
+    {
+      "name": "ckc.observability.mdc.max-key-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum kafka.key MDC value length when key inclusion is enabled.",
+      "defaultValue": 128
     },
     {
       "name": "ckc.default-cluster",

@@ -32,6 +32,7 @@ internal fun <K, V> createTestConsumer(
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
         metrics = metrics,
+        recordProcessingContext = null,
         processingFailureHandler = processingFailureHandler,
         parentContext = kotlinx.coroutines.Dispatchers.Default,
         topics = listOf("topic-a"),

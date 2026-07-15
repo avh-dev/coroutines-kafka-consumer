@@ -2,6 +2,7 @@ package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
@@ -35,6 +36,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
+    recordProcessingContext: RecordProcessingContext<K, V>?,
     private val processedRecordTracker: ProcessedRecordTracker
 ) : RecordProcessingRuntime<K, V> {
     enum class Ordering {
@@ -47,7 +49,8 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
-        onRecordProcessed = processedRecordTracker::markProcessed
+        onRecordProcessed = processedRecordTracker::markProcessed,
+        recordProcessingContext = recordProcessingContext
     )
     private val runtimeStats = ConsumerRuntimeStatsTracker(
         workerCount = workerConcurrency,

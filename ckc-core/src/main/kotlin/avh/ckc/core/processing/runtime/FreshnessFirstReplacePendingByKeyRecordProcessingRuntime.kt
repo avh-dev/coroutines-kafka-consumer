@@ -2,6 +2,7 @@ package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
@@ -47,6 +48,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
+    recordProcessingContext: RecordProcessingContext<K, V>?,
     private val processedRecordTracker: ProcessedRecordTracker
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
@@ -54,7 +56,8 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
-        onRecordProcessed = processedRecordTracker::markProcessed
+        onRecordProcessed = processedRecordTracker::markProcessed,
+        recordProcessingContext = recordProcessingContext
     )
     private val recordDropPolicy = FreshnessRecordAgeDropPolicy(freshnessMaxRecordAge, metrics)
     private val runtimeStats = ConsumerRuntimeStatsTracker(

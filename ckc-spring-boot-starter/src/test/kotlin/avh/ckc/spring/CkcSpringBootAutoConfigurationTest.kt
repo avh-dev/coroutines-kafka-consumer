@@ -7,6 +7,8 @@ import avh.ckc.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
@@ -19,6 +21,7 @@ import org.springframework.boot.test.context.FilteredClassLoader
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.slf4j.MDC
 
 class CkcSpringBootAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
@@ -351,6 +354,39 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
+    fun `mdc record context propagates across coroutine dispatch`() = runBlocking {
+        val context = MdcRecordProcessingContext(
+            consumerName = "orders",
+            processingMode = "AT_LEAST_ONCE_NO_ORDERING",
+            includeKey = true,
+            maxKeyLength = 6
+        )
+        val record = ConsumerRecord<Any?, Any?>("orders.v1", 2, 42L, "very-long-key", "value")
+        val observed = mutableMapOf<String, String?>()
+
+        context.withRecordContext(record) {
+            withContext(Dispatchers.Default) {
+                observed["ckc.consumer"] = MDC.get("ckc.consumer")
+                observed["ckc.processing.mode"] = MDC.get("ckc.processing.mode")
+                observed["kafka.topic"] = MDC.get("kafka.topic")
+                observed["kafka.partition"] = MDC.get("kafka.partition")
+                observed["kafka.offset"] = MDC.get("kafka.offset")
+                observed["kafka.key"] = MDC.get("kafka.key")
+            }
+        }
+
+        assertThat(observed)
+            .containsEntry("ckc.consumer", "orders")
+            .containsEntry("ckc.processing.mode", "AT_LEAST_ONCE_NO_ORDERING")
+            .containsEntry("kafka.topic", "orders.v1")
+            .containsEntry("kafka.partition", "2")
+            .containsEntry("kafka.offset", "42")
+            .containsEntry("kafka.key", "very-l")
+        assertThat(MDC.getCopyOfContextMap())
+            .isNull()
+    }
+
+    @Test
     fun `starter version has development fallback on plain classpath`() {
         assertThat(ckcStarterVersion())
             .isNotBlank()
@@ -365,6 +401,8 @@ class CkcSpringBootAutoConfigurationTest {
         assertThat(metadata)
             .contains("ckc.lifecycle.shutdown-timeout")
             .contains("ckc.health.enabled")
+            .contains("ckc.observability.mdc.enabled")
+            .contains("ckc.observability.mdc.include-key")
             .contains("ckc.dispatchers.*.type")
             .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.consumers.*.freshness-max-record-age")

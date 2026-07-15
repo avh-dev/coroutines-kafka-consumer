@@ -2,6 +2,7 @@ package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
@@ -21,6 +22,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     handler: KafkaRecordHandler<K, V>,
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
+    recordProcessingContext: RecordProcessingContext<K, V>?,
     processedRecordTracker: ProcessedRecordTracker
 ) : BaseUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency = workerConcurrency,
@@ -31,6 +33,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     handler = handler,
     retryPolicy = retryPolicy,
     processingFailureHandler = processingFailureHandler,
+    recordProcessingContext = recordProcessingContext,
     processedRecordTracker = processedRecordTracker
 ) {
     override fun createChannel(

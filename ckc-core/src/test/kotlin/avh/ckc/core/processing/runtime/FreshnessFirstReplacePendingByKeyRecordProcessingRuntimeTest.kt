@@ -232,6 +232,7 @@ class FreshnessFirstReplacePendingByKeyRecordProcessingRuntimeTest {
             handler = handler,
             retryPolicy = RetryPolicy.none(),
             processingFailureHandler = ProcessingFailureHandler.skip(),
+            recordProcessingContext = null,
             processedRecordTracker = NoopProcessedRecordTracker
         )
 

@@ -10,6 +10,7 @@ data class CkcConsumerProperties(
     var enabled: Boolean = true,
     var lifecycle: Lifecycle = Lifecycle(),
     var health: Health = Health(),
+    var observability: Observability = Observability(),
     var defaultProcessingDispatcher: String? = null,
     var dispatchers: MutableMap<String, Dispatcher> = linkedMapOf(),
     var metrics: Metrics = Metrics(),
@@ -26,6 +27,16 @@ data class CkcConsumerProperties(
 
     data class Health(
         var enabled: Boolean = true
+    )
+
+    data class Observability(
+        var mdc: Mdc = Mdc()
+    )
+
+    data class Mdc(
+        var enabled: Boolean = true,
+        var includeKey: Boolean = false,
+        var maxKeyLength: Int = 128
     )
 
     data class Dispatcher(
