@@ -8,6 +8,12 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
 
+/**
+ * Spring Boot auto-configuration entrypoint for the CKC starter.
+ *
+ * The heavy lifting lives in internal collaborators; this class only exposes
+ * the starter lifecycle bean when CKC is enabled.
+ */
 @AutoConfiguration
 @ConditionalOnClass(CkcConsumer::class)
 @ConditionalOnProperty(prefix = "ckc", name = ["enabled"], havingValue = "true", matchIfMissing = true)

@@ -6,6 +6,12 @@ import org.springframework.beans.factory.DisposableBean
 import org.springframework.context.ApplicationContext
 import org.springframework.context.SmartLifecycle
 
+/**
+ * Spring-managed lifecycle and registry implementation for starter-managed CKC consumers.
+ *
+ * Consumers configured with `auto-startup: true` start with the application context;
+ * manual consumers are registered here and can be controlled through [CkcConsumerRegistry].
+ */
 class CkcConsumersLifecycle internal constructor(
     private val applicationContext: ApplicationContext
 ) : SmartLifecycle, CkcConsumerRegistry, DisposableBean {

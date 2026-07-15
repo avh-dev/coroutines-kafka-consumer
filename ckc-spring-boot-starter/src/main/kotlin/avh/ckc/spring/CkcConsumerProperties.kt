@@ -5,6 +5,12 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
+/**
+ * Configuration model bound from `ckc.*` application properties.
+ *
+ * The starter treats this object as the authoritative source for clusters,
+ * consumer runtimes, retry policies, metrics, dispatchers, and lifecycle settings.
+ */
 @ConfigurationProperties(prefix = "ckc")
 data class CkcConsumerProperties(
     var enabled: Boolean = true,
@@ -20,25 +26,40 @@ data class CkcConsumerProperties(
     var clusters: MutableMap<String, Cluster> = linkedMapOf(),
     var consumers: MutableMap<String, Consumer> = linkedMapOf()
 ) {
+    /**
+     * Spring lifecycle settings for starter-managed consumers.
+     */
     data class Lifecycle(
         var phase: Int = 0,
         var shutdownTimeout: Duration = Duration.ofSeconds(30)
     )
 
+    /**
+     * Actuator health indicator settings for CKC consumers.
+     */
     data class Health(
         var enabled: Boolean = true
     )
 
+    /**
+     * Optional observability hooks applied around record processing.
+     */
     data class Observability(
         var mdc: Mdc = Mdc()
     )
 
+    /**
+     * Per-record SLF4J MDC settings for starter-managed processing coroutines.
+     */
     data class Mdc(
         var enabled: Boolean = true,
         var includeKey: Boolean = false,
         var maxKeyLength: Int = 128
     )
 
+    /**
+     * Named processing dispatcher definition referenced by consumers.
+     */
     data class Dispatcher(
         var type: DispatcherType = DispatcherType.FIXED_THREAD_POOL,
         var threads: Int = 1,
@@ -72,6 +93,9 @@ data class CkcConsumerProperties(
         var schemas: MutableMap<String, MicrometerSchema> = linkedMapOf()
     )
 
+    /**
+     * Micrometer metric naming and tag schema used by one or more consumers.
+     */
     data class MicrometerSchema(
         var metricPrefix: String = "app",
         var staticTags: List<MetricTag> = emptyList(),
@@ -92,6 +116,9 @@ data class CkcConsumerProperties(
         var kafkaProperties: MutableMap<String, String> = linkedMapOf()
     )
 
+    /**
+     * Runtime configuration for one `@CkcKafkaConsumer` bean.
+     */
     data class Consumer(
         var autoStartup: Boolean = true,
         var cluster: String? = null,
@@ -128,6 +155,9 @@ data class CkcConsumerProperties(
         var schema: String? = null
     )
 
+    /**
+     * Named retry policy made of ordered exception matching rules.
+     */
     data class RetrySchema(
         var rules: List<RetryRule> = emptyList()
     )
