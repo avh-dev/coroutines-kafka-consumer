@@ -14,11 +14,13 @@ except ImportError as error:
     raise SystemExit("PyYAML is required. Install python3-yaml on the lab host.") from error
 
 
-def positive_int(value: str) -> int:
+def optional_positive_int(value: str) -> str:
+    if value == "":
+        return ""
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer")
-    return parsed
+    return value
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--audit-log-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--metrics-implementation", choices=["MICROMETER", "NOOP"], default="MICROMETER")
-    parser.add_argument("--worker-dispatcher-threads", type=positive_int, default=8)
+    parser.add_argument("--worker-dispatcher-threads", type=optional_positive_int, default="")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Override a generated environment value.")
     parser.add_argument("--repo-dir", default=".")
     return parser.parse_args()
@@ -292,9 +294,6 @@ def main() -> None:
         deployment_env = {}
     run_plan_path = str(value_at(deployment_profile, "lab", "runPlanPath", default=""))
     run_plan_profile = str(value_at(deployment_profile, "lab", "runPlanProfile", default=""))
-    run_plan_presets = value_at(deployment_profile, "lab", "runPlanPresets", default=[])
-    if not isinstance(run_plan_presets, list):
-        run_plan_presets = []
     run_plan_base_tps = value_at(deployment_profile, "lab", "runPlanBaseTps", default=None)
     run_plan_capacity_factor = value_at(deployment_profile, "lab", "runPlanCapacityFactor", default="")
     app_profile = str(deployment_env.get("springProfilesActive") or run_plan_profile or deployment_profile_path.stem)
@@ -302,7 +301,6 @@ def main() -> None:
     assignments = {
         "APP_PROFILE": app_profile,
         "RUN_PROFILE": run_plan_profile,
-        "RUN_PRESETS": ",".join(str(item) for item in run_plan_presets),
         "RUN_PLAN_PATH": run_plan_path,
         "CAPACITY_FACTOR": str(run_plan_capacity_factor),
         "PROCESSING_DISPATCHER_TYPE": str(deployment_env.get("processingDispatcherType", "")),

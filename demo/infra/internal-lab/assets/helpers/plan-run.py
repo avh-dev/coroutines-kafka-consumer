@@ -17,6 +17,12 @@ except ImportError as error:
 
 
 TOPIC_ORDER = ("order", "batch", "telemetry")
+PARTITION_PARALLELISM_MODES = {
+    "AT_LEAST_ONCE_PARTITION_ORDERING",
+}
+PROCESSING_MODE_RUNTIME_ALIASES = {
+    "HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED": "FRESHNESS_FIRST_DROP_OLDEST",
+}
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -95,13 +101,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("test_definition", nargs="?")
     parser.add_argument("--profiles-config", required=True)
     parser.add_argument("--profile")
-    parser.add_argument("--preset", action="append", default=[])
     parser.add_argument("--output-dir")
     parser.add_argument("--repo-dir", default=".")
     parser.add_argument("--current-deployment-env")
     parser.add_argument("--base-tps", "--base-rate", dest="base_tps", type=positive_int)
     parser.add_argument("--capacity-factor", type=positive_float)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
+    parser.add_argument("--processing-dispatcher-type")
     parser.add_argument("--order-processing-mode")
     parser.add_argument("--batch-processing-mode")
     parser.add_argument("--telemetry-processing-mode")
@@ -110,7 +116,8 @@ def parse_args() -> argparse.Namespace:
         parser.add_argument(f"--{topic}-workers", type=positive_int)
         parser.add_argument(f"--{topic}-pollers", type=positive_int)
     parser.add_argument("--list-profiles", action="store_true")
-    parser.add_argument("--list-presets", action="store_true")
+    parser.add_argument("--profile-dispatchers", action="store_true")
+    parser.add_argument("--profile-processing-modes", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     return parser.parse_args()
 
@@ -155,7 +162,10 @@ def round_up_to_multiple(value: int, multiple: int) -> int:
     return int(math.ceil(value / multiple) * multiple)
 
 
-def current_mode(current: dict[str, str], topic: str) -> str:
+def current_mode(current: dict[str, str], topic: str, profile_name: str) -> str:
+    current_profile = current.get("RUN_PROFILE") or current.get("APP_PROFILE") or ""
+    if current_profile != profile_name:
+        return ""
     key = {
         "order": "ORDER_PROCESSING_MODE",
         "batch": "BATCH_PROCESSING_MODE",
@@ -169,6 +179,7 @@ def select_processing_mode(
     topic: str,
     explicit: str | None,
     profile: dict[str, Any],
+    profile_name: str,
     current: dict[str, str],
 ) -> str:
     allowed = list(value_at(profile, "allowedProcessingModes", topic, default=[]))
@@ -177,7 +188,7 @@ def select_processing_mode(
         raise ValueError(f"Profile does not define allowedProcessingModes.{topic}")
     if not default:
         default = str(allowed[0])
-    candidate = explicit or current_mode(current, topic) or default
+    candidate = explicit or current_mode(current, topic, profile_name) or default
     if candidate not in allowed:
         if explicit:
             raise ValueError(f"{topic} processing mode {candidate!r} is not valid for profile. Allowed: {', '.join(allowed)}")
@@ -185,17 +196,18 @@ def select_processing_mode(
     return candidate
 
 
-def resolve_presets(config: dict[str, Any], names: list[str]) -> dict[str, Any]:
-    presets = config.get("presets", {})
-    merged: dict[str, Any] = {}
-    for name in names:
-        if name not in presets:
-            raise ValueError(f"Unknown run preset {name!r}. Available: {', '.join(sorted(presets))}")
-        raw = presets[name]
-        if not isinstance(raw, dict):
-            raise ValueError(f"Preset must be an object: {name}")
-        merged = merge_dicts(merged, raw)
-    return merged
+def runtime_processing_mode(mode: str) -> str:
+    return PROCESSING_MODE_RUNTIME_ALIASES.get(mode, mode)
+
+
+def topic_parallelism_strategy(profile_strategy: str, processing_mode: str, adjustable: set[str]) -> str:
+    if processing_mode in PARTITION_PARALLELISM_MODES:
+        if "partitions" not in adjustable:
+            raise ValueError(f"Processing mode {processing_mode} requires partition adjustment support")
+        if profile_strategy == "workers":
+            return "workers_with_partition_capacity"
+        return "partitions"
+    return profile_strategy
 
 
 def profile_list(config: dict[str, Any]) -> None:
@@ -203,9 +215,36 @@ def profile_list(config: dict[str, Any]) -> None:
         print(name)
 
 
-def preset_list(config: dict[str, Any]) -> None:
-    for name in sorted(config.get("presets", {})):
-        print(name)
+def dispatcher_settings(profile: dict[str, Any]) -> tuple[str, list[str]]:
+    allowed = [str(item).upper() for item in profile.get("allowedProcessingDispatchers", [])]
+    default = str(profile.get("defaultProcessingDispatcher", "") or "").upper()
+    if allowed and not default:
+        default = allowed[0]
+    if default and default not in allowed:
+        raise ValueError(f"defaultProcessingDispatcher {default!r} is not in allowedProcessingDispatchers")
+    return default, allowed
+
+
+def print_profile_dispatchers(profile: dict[str, Any]) -> None:
+    default, allowed = dispatcher_settings(profile)
+    print(f"PROCESSING_DISPATCHER_DEFAULT={shell_quote(default)}")
+    print(f"PROCESSING_DISPATCHER_ALLOWED={shell_quote(' '.join(allowed))}")
+
+
+def print_profile_processing_modes(profile: dict[str, Any], profile_name: str, current: dict[str, str]) -> None:
+    for topic in TOPIC_ORDER:
+        allowed = [str(item) for item in value_at(profile, "allowedProcessingModes", topic, default=[])]
+        default = str(value_at(profile, "defaultProcessingModes", topic, default="")).strip()
+        if not allowed:
+            raise ValueError(f"Profile does not define allowedProcessingModes.{topic}")
+        if not default:
+            default = allowed[0]
+        candidate = current_mode(current, topic, profile_name) or default
+        if candidate not in allowed:
+            candidate = default
+        prefix = topic.upper()
+        print(f"{prefix}_PROCESSING_MODE_DEFAULT={shell_quote(candidate)}")
+        print(f"{prefix}_PROCESSING_MODE_ALLOWED={shell_quote(' '.join(allowed))}")
 
 
 def profile_summary(plan: dict[str, Any]) -> str:
@@ -215,7 +254,6 @@ def profile_summary(plan: dict[str, Any]) -> str:
         f"  profile: {plan['profile']}",
         f"  spring_profile: {plan['spring_profile']}",
         f"  parallelism: {plan['parallelism_strategy']}",
-        f"  presets: {', '.join(plan['presets']) if plan['presets'] else '-'}",
         f"  base_rate: {plan['base_tps']}",
         f"  capacity_factor: {plan['capacity_factor']}",
         f"  replicas: {plan['replica_count']}",
@@ -249,6 +287,8 @@ def profile_summary(plan: dict[str, Any]) -> str:
             lines.append("      manual_overrides:")
             for key, value in manual.items():
                 lines.append(f"        {key}: {value}")
+        if topic.get("parallelism_strategy") != plan["parallelism_strategy"]:
+            lines.append(f"      parallelism: {topic['parallelism_strategy']}")
     lines.append(f"  values: {plan['values_path']}")
     return "\n".join(lines)
 
@@ -259,8 +299,16 @@ def main() -> None:
     if args.list_profiles:
         profile_list(profiles_config)
         return
-    if args.list_presets:
-        preset_list(profiles_config)
+    if args.profile_dispatchers:
+        if not args.profile:
+            raise SystemExit("--profile is required with --profile-dispatchers")
+        print_profile_dispatchers(resolve_profile(profiles_config, args.profile))
+        return
+    if args.profile_processing_modes:
+        if not args.profile:
+            raise SystemExit("--profile is required with --profile-processing-modes")
+        current = parse_env_file(Path(args.current_deployment_env)) if args.current_deployment_env else {}
+        print_profile_processing_modes(resolve_profile(profiles_config, args.profile), args.profile, current)
         return
     if not args.test_definition or not args.profile or not args.output_dir:
         raise SystemExit("test_definition, --profile, and --output-dir are required unless --list-profiles is used")
@@ -271,8 +319,13 @@ def main() -> None:
         definition_path = definition_path.resolve() if definition_path.is_file() else repo_dir / definition_path
     definition = load_yaml(definition_path)
     profile = resolve_profile(profiles_config, args.profile)
-    preset = resolve_presets(profiles_config, args.preset)
     current = parse_env_file(Path(args.current_deployment_env)) if args.current_deployment_env else {}
+    default_dispatcher, allowed_dispatchers = dispatcher_settings(profile)
+    explicit_dispatcher = str(args.processing_dispatcher_type or "").upper()
+    if explicit_dispatcher and explicit_dispatcher not in allowed_dispatchers:
+        allowed_text = ", ".join(allowed_dispatchers) if allowed_dispatchers else "none"
+        raise ValueError(f"processing dispatcher {explicit_dispatcher!r} is not valid for {args.profile}. Allowed: {allowed_text}")
+    processing_dispatcher = explicit_dispatcher or default_dispatcher
 
     load_test = value_at(definition, "load_test", default={})
     stubs = value_at(definition, "stubs", default={})
@@ -289,7 +342,7 @@ def main() -> None:
 
     global_config = profiles_config.get("global", {})
     topics_config = profiles_config.get("topics", {})
-    capacity_factor = args.capacity_factor or float(preset.get("capacityFactor", profile.get("defaultCapacityFactor", global_config.get("defaultCapacityFactor", 1.2))))
+    capacity_factor = args.capacity_factor or float(profile.get("defaultCapacityFactor", global_config.get("defaultCapacityFactor", 1.2)))
     base_tps = args.base_tps or int(load_test.get("base_tps", 10000))
     replica_count = int(profile.get("replicaCount", 1))
     strategy, adjustable = profile_parallelism(profile)
@@ -299,9 +352,9 @@ def main() -> None:
     default_partitions = int(profile.get("defaultPartitions", min_partitions))
 
     explicit_modes = {
-        "order": args.order_processing_mode or value_at(preset, "processingModes", "order", default=None),
-        "batch": args.batch_processing_mode or value_at(preset, "processingModes", "batch", default=None),
-        "telemetry": args.telemetry_processing_mode or value_at(preset, "processingModes", "telemetry", default=None),
+        "order": args.order_processing_mode,
+        "batch": args.batch_processing_mode,
+        "telemetry": args.telemetry_processing_mode,
     }
     manual_overrides = {
         topic: {
@@ -318,11 +371,19 @@ def main() -> None:
     topic_plans: list[dict[str, Any]] = []
     kafka_topics: list[dict[str, Any]] = []
     env: dict[str, Any] = {"springProfilesActive": profile["springProfilesActive"]}
-    if isinstance(preset.get("env"), dict):
-        env.update(preset["env"])
+    if processing_dispatcher:
+        env["processingDispatcherType"] = processing_dispatcher
 
     for topic_name in TOPIC_ORDER:
         topic_config = topics_config[topic_name]
+        mode = select_processing_mode(
+            topic=topic_name,
+            explicit=explicit_modes[topic_name],
+            profile=profile,
+            profile_name=args.profile,
+            current=current,
+        )
+        topic_strategy = topic_parallelism_strategy(strategy, mode, adjustable)
         percent = float(load_test.get(topic_config["percentKey"], 0))
         target_tps = base_tps * percent / 100.0
         measured_average_ms = value_at(capacity_model, "average_processing_ms", topic_name, default=None)
@@ -341,20 +402,24 @@ def main() -> None:
             latency_source = "noop_default"
         required = max(1, math.ceil(target_tps * average_ms / 1000.0 * capacity_factor))
 
-        if strategy == "partitions":
+        if topic_strategy == "partitions":
             partitions = round_up_to_multiple(max(min_partitions, required), replica_count)
             worker_concurrency = int(value_at(profile, "env", env_key(topic_name, "WorkerConcurrency"), default=1) or 1)
             poll_loop_concurrency = max(1, partitions // replica_count)
-        elif strategy == "workers":
+        elif topic_strategy == "workers":
             partitions = max(min_partitions, default_partitions)
             worker_concurrency = max(1, math.ceil(required / replica_count))
             poll_loop_concurrency = int(value_at(profile, "env", env_key(topic_name, "PollLoopConcurrency"), default=1) or 1)
+        elif topic_strategy == "workers_with_partition_capacity":
+            partitions = round_up_to_multiple(max(min_partitions, required), replica_count)
+            worker_concurrency = max(1, math.ceil(required / replica_count))
+            poll_loop_concurrency = int(value_at(profile, "env", env_key(topic_name, "PollLoopConcurrency"), default=1) or 1)
         else:
-            raise ValueError(f"Unsupported profile parallelism strategy: {strategy}")
+            raise ValueError(f"Unsupported profile parallelism strategy: {topic_strategy}")
 
         overrides = manual_overrides[topic_name]
         manual_fields: dict[str, int] = {}
-        if overrides["pollers"] is not None and overrides["partitions"] is None and strategy == "partitions":
+        if overrides["pollers"] is not None and overrides["partitions"] is None and topic_strategy == "partitions":
             partitions = overrides["pollers"] * replica_count
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = overrides["pollers"]
@@ -362,7 +427,7 @@ def main() -> None:
         if overrides["partitions"] is not None:
             partitions = overrides["partitions"]
             manual_fields["partitions"] = partitions
-            if strategy == "partitions" and overrides["pollers"] is None:
+            if topic_strategy == "partitions" and overrides["pollers"] is None:
                 poll_loop_concurrency = max(1, math.ceil(partitions / replica_count))
         if overrides["workers"] is not None:
             worker_concurrency = overrides["workers"]
@@ -370,7 +435,7 @@ def main() -> None:
         if overrides["pollers"] is not None:
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = poll_loop_concurrency
-        if strategy == "partitions" and overrides["partitions"] is not None and overrides["pollers"] is not None:
+        if topic_strategy == "partitions" and overrides["partitions"] is not None and overrides["pollers"] is not None:
             expected_partitions = overrides["pollers"] * replica_count
             if partitions != expected_partitions:
                 raise ValueError(
@@ -378,12 +443,13 @@ def main() -> None:
                     f"{partitions} != {overrides['pollers']} * {replica_count}"
                 )
 
-        mode = select_processing_mode(topic=topic_name, explicit=explicit_modes[topic_name], profile=profile, current=current)
-        env[env_key(topic_name, "ProcessingMode")] = mode
+        env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)
         env[env_key(topic_name, "WorkerConcurrency")] = worker_concurrency
         env[env_key(topic_name, "PollLoopConcurrency")] = poll_loop_concurrency
         if isinstance(profile.get("env"), dict):
             for key, value in profile["env"].items():
+                if key == "processingDispatcherType" and not processing_dispatcher:
+                    continue
                 env.setdefault(key, value)
 
         kafka_topic = topic_config["kafkaTopic"]
@@ -401,6 +467,8 @@ def main() -> None:
                 "worker_concurrency": worker_concurrency,
                 "poll_loop_concurrency": poll_loop_concurrency,
                 "processing_mode": mode,
+                "allowed_processing_modes": list(value_at(profile, "allowedProcessingModes", topic_name, default=[])),
+                "parallelism_strategy": topic_strategy,
                 "manual_overrides": manual_fields,
             }
         )
@@ -409,7 +477,6 @@ def main() -> None:
         "replicaCount": replica_count,
         "lab": {
             "runPlanProfile": args.profile,
-            "runPlanPresets": args.preset,
             "runPlanBaseTps": base_tps,
             "runPlanCapacityFactor": capacity_factor,
             "kafkaTopics": kafka_topics,
@@ -429,7 +496,6 @@ def main() -> None:
 
     plan = {
         "profile": args.profile,
-        "presets": args.preset,
         "spring_profile": profile["springProfilesActive"],
         "parallelism_strategy": strategy,
         "adjustable": sorted(adjustable),

@@ -10,7 +10,7 @@ AUDIT_DIR="${LAB_ROOT}/audit"
 AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
 AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles/internal-lab"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
 TEST_DIR="${LAB_ROOT}/test-definitions"
 AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
@@ -25,8 +25,6 @@ TEST_DEFINITION=""
 DEPLOYMENT_PROFILE=""
 RUN_PROFILE=""
 EXPLICIT_RUN_PROFILE=0
-RUN_PRESETS=()
-EXPLICIT_RUN_PRESETS=0
 BASE_TPS_OVERRIDE=""
 CAPACITY_FACTOR=""
 ORDER_PROCESSING_MODE=""
@@ -35,20 +33,23 @@ TELEMETRY_PROCESSING_MODE=""
 PLAN_MANUAL_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
+PROCESSING_DISPATCHER_TYPE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
 METRICS_IMPLEMENTATION=""
 WORKER_DISPATCHER_THREADS=""
+EXPLICIT_WORKER_DISPATCHER_THREADS=0
 ENV_OVERRIDES=()
 RUN_INTERRUPTED=0
 
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
-          [--profile spring-profile] [--preset name] [--base-rate tps] [--capacity-factor value]
+          [--profile spring-profile] [--base-rate tps] [--capacity-factor value]
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
+          [--processing-dispatcher-type DEFAULT|FIXED|IO|VIRTUAL]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP]
           [--env KEY=VALUE]
@@ -65,7 +66,6 @@ Options:
   --deployment     Select a Helm deployment profile without prompting.
                    Legacy mode. When omitted, a dynamic run profile is planned.
   --profile        Select a dynamic application profile without prompting.
-  --preset         Apply a named run preset. Can be repeated.
   --base-rate      Override load_test.base_tps for this run plan and load test.
                    --base-tps is accepted as a compatibility alias.
   --capacity-factor
@@ -85,6 +85,8 @@ Options:
                    Manually override generated poll loop concurrency.
   --kafka-implementation
                     Select the host Kafka API broker implementation.
+  --processing-dispatcher-type
+                    Select the coroutine processing dispatcher when the profile supports it.
   --processing-enabled
                     Override demo processing with true or false. Use false for noop mode.
   --audit-log-enabled
@@ -92,7 +94,7 @@ Options:
   --metrics-implementation
                     Select MICROMETER or NOOP consumer metrics.
   --worker-dispatcher-threads
-                    Set the shared suspend worker dispatcher thread count.
+                    Set the fixed worker dispatcher thread count.
   --env             Override any generated test environment value. Can be repeated.
   -h, --help       Show this help.
 EOF
@@ -119,11 +121,6 @@ while [ "$#" -gt 0 ]; do
     --profile)
       RUN_PROFILE="${2:?--profile requires a profile}"
       EXPLICIT_RUN_PROFILE=1
-      shift 2
-      ;;
-    --preset)
-      RUN_PRESETS+=("${2:?--preset requires a name}")
-      EXPLICIT_RUN_PRESETS=1
       shift 2
       ;;
     --base-rate|--base-tps)
@@ -158,6 +155,10 @@ while [ "$#" -gt 0 ]; do
       LAB_KAFKA_IMPLEMENTATION="${2:?--kafka-implementation requires redpanda or apache-kafka}"
       shift 2
       ;;
+    --processing-dispatcher-type)
+      PROCESSING_DISPATCHER_TYPE="${2:?--processing-dispatcher-type requires DEFAULT, FIXED, IO, or VIRTUAL}"
+      shift 2
+      ;;
     --processing-enabled)
       PROCESSING_ENABLED="${2:?--processing-enabled requires true or false}"
       shift 2
@@ -172,6 +173,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --worker-dispatcher-threads)
       WORKER_DISPATCHER_THREADS="${2:?--worker-dispatcher-threads requires a positive integer}"
+      EXPLICIT_WORKER_DISPATCHER_THREADS=1
       shift 2
       ;;
     --env)
@@ -210,10 +212,10 @@ CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
 CURRENT_PROCESSING_ENABLED="true"
 CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
+CURRENT_PROCESSING_DISPATCHER_TYPE=""
 CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
 CURRENT_RUN_PROFILE=""
-CURRENT_RUN_PRESETS=""
 CURRENT_BASE_TPS=""
 CURRENT_CAPACITY_FACTOR=""
 CURRENT_ORDER_PROCESSING_MODE=""
@@ -221,18 +223,18 @@ CURRENT_BATCH_PROCESSING_MODE=""
 CURRENT_TELEMETRY_PROCESSING_MODE=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_RUN_PROFILE="${RUN_PROFILE}"
-  REQUESTED_RUN_PRESETS=("${RUN_PRESETS[@]}")
-  REQUESTED_EXPLICIT_RUN_PRESETS="${EXPLICIT_RUN_PRESETS}"
   REQUESTED_BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE}"
   REQUESTED_CAPACITY_FACTOR="${CAPACITY_FACTOR}"
   REQUESTED_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE}"
   REQUESTED_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE}"
   REQUESTED_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE}"
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
+  REQUESTED_PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_TYPE}"
   REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
   REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
   REQUESTED_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS}"
+  REQUESTED_EXPLICIT_WORKER_DISPATCHER_THREADS="${EXPLICIT_WORKER_DISPATCHER_THREADS}"
   # shellcheck disable=SC1090
   . "${CURRENT_DEPLOYMENT_PATH}"
   CURRENT_APP_PROFILE="${APP_PROFILE:-}"
@@ -240,28 +242,28 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
   CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
+  CURRENT_PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_TYPE:-}"
   CURRENT_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-8}"
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
   CURRENT_RUN_PROFILE="${RUN_PROFILE:-${APP_PROFILE:-}}"
-  CURRENT_RUN_PRESETS="${RUN_PRESETS:-}"
   CURRENT_BASE_TPS="${BASE_TPS:-}"
   CURRENT_CAPACITY_FACTOR="${CAPACITY_FACTOR:-}"
   CURRENT_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE:-}"
   CURRENT_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE:-}"
   CURRENT_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE:-}"
   RUN_PROFILE="${REQUESTED_RUN_PROFILE}"
-  RUN_PRESETS=("${REQUESTED_RUN_PRESETS[@]}")
-  EXPLICIT_RUN_PRESETS="${REQUESTED_EXPLICIT_RUN_PRESETS}"
   BASE_TPS_OVERRIDE="${REQUESTED_BASE_TPS_OVERRIDE}"
   CAPACITY_FACTOR="${REQUESTED_CAPACITY_FACTOR}"
   ORDER_PROCESSING_MODE="${REQUESTED_ORDER_PROCESSING_MODE}"
   BATCH_PROCESSING_MODE="${REQUESTED_BATCH_PROCESSING_MODE}"
   TELEMETRY_PROCESSING_MODE="${REQUESTED_TELEMETRY_PROCESSING_MODE}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
+  PROCESSING_DISPATCHER_TYPE="${REQUESTED_PROCESSING_DISPATCHER_TYPE}"
   LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
   METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
   WORKER_DISPATCHER_THREADS="${REQUESTED_WORKER_DISPATCHER_THREADS}"
+  EXPLICIT_WORKER_DISPATCHER_THREADS="${REQUESTED_EXPLICIT_WORKER_DISPATCHER_THREADS}"
 fi
 
 normalize_kafka_implementation() {
@@ -356,20 +358,26 @@ list_run_profiles() {
     --list-profiles
 }
 
-list_run_presets() {
-  python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
-    --list-presets
-}
-
 run_profile_exists() {
   local profile="$1"
   list_run_profiles | grep -Fxq "${profile}"
 }
 
-run_preset_exists() {
-  local preset="$1"
-  list_run_presets | grep -Fxq "${preset}"
+profile_dispatcher_info() {
+  local profile="$1"
+  python3 "${LAB_ROOT}/helpers/plan-run.py" \
+    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --profile "${profile}" \
+    --profile-dispatchers
+}
+
+profile_processing_mode_info() {
+  local profile="$1"
+  python3 "${LAB_ROOT}/helpers/plan-run.py" \
+    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --profile "${profile}" \
+    --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}" \
+    --profile-processing-modes
 }
 
 definition_base_tps() {
@@ -401,7 +409,6 @@ print("run_plan:")
 print(f"  profile: {plan['profile']}")
 print(f"  spring_profile: {plan['spring_profile']}")
 print(f"  parallelism: {plan['parallelism_strategy']}")
-print(f"  presets: {', '.join(plan['presets']) if plan['presets'] else '-'}")
 print(f"  base_rate: {plan['base_tps']}")
 print(f"  capacity_factor: {plan['capacity_factor']}")
 print(f"  replicas: {plan['replica_count']}")
@@ -445,27 +452,72 @@ field_map = {
     "pollers": ("poll_loop_concurrency", "pollers"),
 }
 args: list[str] = []
+try:
+    input_stream = open("/dev/tty", "r", encoding="utf-8")
+except OSError:
+    input_stream = sys.stdin
+
+def read_value(prompt: str) -> str:
+    print(prompt, end="", file=sys.stderr, flush=True)
+    value = input_stream.readline()
+    print("", file=sys.stderr)
+    if value == "":
+        return ""
+    return value.strip()
+
 for topic in plan["topics"]:
     name = topic["name"]
     print(f"{name}:", file=sys.stderr)
+    allowed_modes = list(topic.get("allowed_processing_modes") or [])
+    current_mode = str(topic.get("processing_mode", ""))
+    if allowed_modes:
+        print(f"  processing_mode: {current_mode}", file=sys.stderr)
+        for index, mode in enumerate(allowed_modes, start=1):
+            suffix = " [current]" if mode == current_mode else ""
+            print(f"    {index}) {mode}{suffix}", file=sys.stderr)
+        value = read_value("    new mode number/name (Enter to keep): ")
+        if value:
+            if value.isdigit() and 1 <= int(value) <= len(allowed_modes):
+                value = allowed_modes[int(value) - 1]
+            if value not in allowed_modes:
+                raise SystemExit(f"{name} processing_mode must be one of: {', '.join(allowed_modes)}")
+            args.extend([f"--{name}-processing-mode", value])
     for knob in ("partitions", "workers", "pollers"):
         if knob not in adjustable:
             continue
         field, suffix = field_map[knob]
         current = int(topic[field])
-        print(f"  {knob} [{current}]: ", end="", file=sys.stderr, flush=True)
-        value = sys.stdin.readline().strip()
+        print(f"  {knob}: {current}", file=sys.stderr)
+        value = read_value("    new value (Enter to keep): ")
         if not value:
             continue
         if not value.isdigit() or int(value) <= 0:
             raise SystemExit(f"{name} {knob} must be a positive integer: {value}")
         args.extend([f"--{name}-{suffix}", value])
+    print("", file=sys.stderr)
 print("PLAN_MANUAL_ARGS_TEXT='" + " ".join(args) + "'")
 PY
 }
 
 if [ -n "${DEPLOYMENT_PROFILE}" ] && [ -n "${RUN_PROFILE}" ]; then
   echo "--deployment and --profile cannot be used together." >&2
+  exit 1
+fi
+
+if [ -z "${TEST_DEFINITION}" ]; then
+  if [ ! -t 0 ]; then
+    TEST_DEFINITION="${CURRENT_TEST_DEFINITION:?test definition is required without interactive input}"
+    TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
+  else
+    mapfile -t TEST_DEFINITIONS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
+    TEST_DEFINITION="$(select_file "Available test definitions" "${TEST_DIR}" "${CURRENT_TEST_DEFINITION}" "${TEST_DEFINITIONS[@]}")"
+  fi
+else
+  TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
+fi
+
+if [ ! -f "${TEST_DEFINITION}" ]; then
+  echo "Test definition was not found: ${TEST_DEFINITION}" >&2
   exit 1
 fi
 
@@ -489,26 +541,6 @@ else
   elif [ "${EXPLICIT_RUN_PROFILE}" -eq 0 ] && ! run_profile_exists "${RUN_PROFILE}"; then
     RUN_PROFILE="ckc"
   fi
-  if [ "${EXPLICIT_RUN_PRESETS}" -eq 0 ]; then
-    if [ ! -t 0 ]; then
-      if [ -n "${CURRENT_RUN_PRESETS}" ]; then
-        IFS=',' read -r -a RUN_PRESETS <<< "${CURRENT_RUN_PRESETS}"
-      fi
-    else
-      mapfile -t AVAILABLE_RUN_PRESETS < <(list_run_presets)
-      RUN_PRESET_DEFAULT="none"
-      if [ -n "${CURRENT_RUN_PRESETS}" ]; then
-        first_current_preset="${CURRENT_RUN_PRESETS%%,*}"
-        if run_preset_exists "${first_current_preset}"; then
-          RUN_PRESET_DEFAULT="${first_current_preset}"
-        fi
-      fi
-      RUN_PRESET_CHOICE="$(select_value "Run preset" "${RUN_PRESET_DEFAULT}" none "${AVAILABLE_RUN_PRESETS[@]}")"
-      if [ "${RUN_PRESET_CHOICE}" != "none" ]; then
-        RUN_PRESETS=("${RUN_PRESET_CHOICE}")
-      fi
-    fi
-  fi
 fi
 
 if [ -z "${LAB_KAFKA_IMPLEMENTATION}" ]; then
@@ -529,61 +561,6 @@ if [ -z "${PROCESSING_ENABLED}" ]; then
 fi
 if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false" ]; then
   echo "processing-enabled must be true or false: ${PROCESSING_ENABLED}" >&2
-  exit 1
-fi
-
-if [ -z "${AUDIT_LOG_ENABLED}" ]; then
-  if [ ! -t 0 ]; then
-    AUDIT_LOG_ENABLED="${CURRENT_AUDIT_LOG_ENABLED}"
-  else
-    AUDIT_LOG_ENABLED="$(select_value "Enable audit logging" "${CURRENT_AUDIT_LOG_ENABLED}" true false)"
-  fi
-fi
-if [ "${AUDIT_LOG_ENABLED}" != "true" ] && [ "${AUDIT_LOG_ENABLED}" != "false" ]; then
-  echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
-  exit 1
-fi
-
-if [ -z "${METRICS_IMPLEMENTATION}" ]; then
-  if [ ! -t 0 ]; then
-    METRICS_IMPLEMENTATION="${CURRENT_METRICS_IMPLEMENTATION}"
-  else
-    METRICS_IMPLEMENTATION="$(select_value "Consumer metrics implementation" "${CURRENT_METRICS_IMPLEMENTATION}" MICROMETER NOOP)"
-  fi
-fi
-METRICS_IMPLEMENTATION="$(printf '%s' "${METRICS_IMPLEMENTATION}" | tr '[:lower:]' '[:upper:]')"
-if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATION}" != "NOOP" ]; then
-  echo "metrics-implementation must be MICROMETER or NOOP: ${METRICS_IMPLEMENTATION}" >&2
-  exit 1
-fi
-
-if [ -z "${WORKER_DISPATCHER_THREADS}" ]; then
-  if [ ! -t 0 ]; then
-    WORKER_DISPATCHER_THREADS="${CURRENT_WORKER_DISPATCHER_THREADS}"
-  else
-    read -r -p "Worker dispatcher threads [${CURRENT_WORKER_DISPATCHER_THREADS}]: " WORKER_DISPATCHER_THREADS
-    WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-${CURRENT_WORKER_DISPATCHER_THREADS}}"
-  fi
-fi
-if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
-  exit 1
-fi
-
-if [ -z "${TEST_DEFINITION}" ]; then
-  if [ ! -t 0 ]; then
-    TEST_DEFINITION="${CURRENT_TEST_DEFINITION:?test definition is required without interactive input}"
-    TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
-  else
-    mapfile -t TEST_DEFINITIONS < <(find "${TEST_DIR}" -maxdepth 1 -type f -name '*.yaml' | sort)
-    TEST_DEFINITION="$(select_file "Available test definitions" "${TEST_DIR}" "${CURRENT_TEST_DEFINITION}" "${TEST_DEFINITIONS[@]}")"
-  fi
-else
-  TEST_DEFINITION="$(resolve_yaml "${TEST_DIR}" "${TEST_DEFINITION}")"
-fi
-
-if [ ! -f "${TEST_DEFINITION}" ]; then
-  echo "Test definition was not found: ${TEST_DEFINITION}" >&2
   exit 1
 fi
 
@@ -614,6 +591,113 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
     exit 1
   fi
 
+  if [ -n "${RUN_PROFILE}" ]; then
+    eval "$(profile_processing_mode_info "${RUN_PROFILE}")"
+    if [ -z "${ORDER_PROCESSING_MODE}" ]; then
+      if [ ! -t 0 ]; then
+        ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE_DEFAULT}"
+      else
+        # shellcheck disable=SC2206
+        ORDER_PROCESSING_MODE_ALLOWED_VALUES=(${ORDER_PROCESSING_MODE_ALLOWED})
+        ORDER_PROCESSING_MODE="$(select_value "Order processing mode" "${ORDER_PROCESSING_MODE_DEFAULT}" "${ORDER_PROCESSING_MODE_ALLOWED_VALUES[@]}")"
+      fi
+    fi
+    if [ -z "${BATCH_PROCESSING_MODE}" ]; then
+      if [ ! -t 0 ]; then
+        BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE_DEFAULT}"
+      else
+        # shellcheck disable=SC2206
+        BATCH_PROCESSING_MODE_ALLOWED_VALUES=(${BATCH_PROCESSING_MODE_ALLOWED})
+        BATCH_PROCESSING_MODE="$(select_value "Batch processing mode" "${BATCH_PROCESSING_MODE_DEFAULT}" "${BATCH_PROCESSING_MODE_ALLOWED_VALUES[@]}")"
+      fi
+    fi
+    if [ -z "${TELEMETRY_PROCESSING_MODE}" ]; then
+      if [ ! -t 0 ]; then
+        TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE_DEFAULT}"
+      else
+        # shellcheck disable=SC2206
+        TELEMETRY_PROCESSING_MODE_ALLOWED_VALUES=(${TELEMETRY_PROCESSING_MODE_ALLOWED})
+        TELEMETRY_PROCESSING_MODE="$(select_value "Telemetry processing mode" "${TELEMETRY_PROCESSING_MODE_DEFAULT}" "${TELEMETRY_PROCESSING_MODE_ALLOWED_VALUES[@]}")"
+      fi
+    fi
+  fi
+
+  if [ -n "${RUN_PROFILE}" ]; then
+    eval "$(profile_dispatcher_info "${RUN_PROFILE}")"
+    read -r -a PROCESSING_DISPATCHER_ALLOWED_VALUES <<< "${PROCESSING_DISPATCHER_ALLOWED:-}"
+    PROCESSING_DISPATCHER_TYPE="$(printf '%s' "${PROCESSING_DISPATCHER_TYPE}" | tr '[:lower:]' '[:upper:]')"
+    CURRENT_PROCESSING_DISPATCHER_TYPE="$(printf '%s' "${CURRENT_PROCESSING_DISPATCHER_TYPE}" | tr '[:lower:]' '[:upper:]')"
+    if [ "${#PROCESSING_DISPATCHER_ALLOWED_VALUES[@]}" -eq 0 ]; then
+      if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
+        echo "processing-dispatcher-type is not supported for profile ${RUN_PROFILE}." >&2
+        exit 1
+      fi
+      PROCESSING_DISPATCHER_TYPE=""
+    else
+      if [ -z "${PROCESSING_DISPATCHER_TYPE}" ]; then
+        PROCESSING_DISPATCHER_DEFAULT="${PROCESSING_DISPATCHER_DEFAULT:-${PROCESSING_DISPATCHER_ALLOWED_VALUES[0]}}"
+        if printf '%s\n' "${PROCESSING_DISPATCHER_ALLOWED_VALUES[@]}" | grep -Fxq "${CURRENT_PROCESSING_DISPATCHER_TYPE}"; then
+          PROCESSING_DISPATCHER_DEFAULT="${CURRENT_PROCESSING_DISPATCHER_TYPE}"
+        fi
+        if [ ! -t 0 ]; then
+          PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_DEFAULT}"
+        else
+          PROCESSING_DISPATCHER_TYPE="$(select_value "Processing dispatcher" "${PROCESSING_DISPATCHER_DEFAULT}" "${PROCESSING_DISPATCHER_ALLOWED_VALUES[@]}")"
+        fi
+      elif ! printf '%s\n' "${PROCESSING_DISPATCHER_ALLOWED_VALUES[@]}" | grep -Fxq "${PROCESSING_DISPATCHER_TYPE}"; then
+        echo "processing-dispatcher-type ${PROCESSING_DISPATCHER_TYPE} is not valid for profile ${RUN_PROFILE}." >&2
+        echo "Allowed: ${PROCESSING_DISPATCHER_ALLOWED:-none}" >&2
+        exit 1
+      fi
+    fi
+    if [ "${PROCESSING_DISPATCHER_TYPE:-}" = "FIXED" ]; then
+      if [ -z "${WORKER_DISPATCHER_THREADS}" ]; then
+        if [ ! -t 0 ]; then
+          WORKER_DISPATCHER_THREADS="${CURRENT_WORKER_DISPATCHER_THREADS}"
+        else
+          read -r -p "Worker dispatcher threads [${CURRENT_WORKER_DISPATCHER_THREADS}]: " WORKER_DISPATCHER_THREADS
+          WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-${CURRENT_WORKER_DISPATCHER_THREADS}}"
+        fi
+      fi
+      if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
+        exit 1
+      fi
+    elif [ "${EXPLICIT_WORKER_DISPATCHER_THREADS}" -eq 1 ]; then
+      echo "worker-dispatcher-threads is only valid with PROCESSING_DISPATCHER_TYPE=FIXED." >&2
+      exit 1
+    else
+      WORKER_DISPATCHER_THREADS=""
+    fi
+  fi
+fi
+
+if [ -z "${AUDIT_LOG_ENABLED}" ]; then
+  if [ ! -t 0 ]; then
+    AUDIT_LOG_ENABLED="${CURRENT_AUDIT_LOG_ENABLED}"
+  else
+    AUDIT_LOG_ENABLED="$(select_value "Enable audit logging" "${CURRENT_AUDIT_LOG_ENABLED}" true false)"
+  fi
+fi
+if [ "${AUDIT_LOG_ENABLED}" != "true" ] && [ "${AUDIT_LOG_ENABLED}" != "false" ]; then
+  echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
+  exit 1
+fi
+
+if [ -z "${METRICS_IMPLEMENTATION}" ]; then
+  if [ ! -t 0 ]; then
+    METRICS_IMPLEMENTATION="${CURRENT_METRICS_IMPLEMENTATION}"
+  else
+    METRICS_IMPLEMENTATION="$(select_value "Consumer metrics implementation" "${CURRENT_METRICS_IMPLEMENTATION}" MICROMETER NOOP)"
+  fi
+fi
+METRICS_IMPLEMENTATION="$(printf '%s' "${METRICS_IMPLEMENTATION}" | tr '[:lower:]' '[:upper:]')"
+if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATION}" != "NOOP" ]; then
+  echo "metrics-implementation must be MICROMETER or NOOP: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+
+if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   PLAN_OUTPUT_DIR="${LAB_ROOT}/state/generated"
   PLAN_ENV_FILE="${PLAN_OUTPUT_DIR}/run-plan.env"
   mkdir -p "${PLAN_OUTPUT_DIR}"
@@ -626,14 +710,14 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
     --processing-enabled "${PROCESSING_ENABLED}"
     --repo-dir "${LAB_ROOT}"
   )
-  for preset in "${RUN_PRESETS[@]}"; do
-    PLAN_ARGS+=(--preset "${preset}")
-  done
   if [ -n "${BASE_TPS_OVERRIDE}" ]; then
     PLAN_ARGS+=(--base-tps "${BASE_TPS_OVERRIDE}")
   fi
   if [ -n "${CAPACITY_FACTOR}" ]; then
     PLAN_ARGS+=(--capacity-factor "${CAPACITY_FACTOR}")
+  fi
+  if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
+    PLAN_ARGS+=(--processing-dispatcher-type "${PROCESSING_DISPATCHER_TYPE}")
   fi
   if [ -n "${ORDER_PROCESSING_MODE}" ]; then
     PLAN_ARGS+=(--order-processing-mode "${ORDER_PROCESSING_MODE}")
@@ -667,7 +751,12 @@ echo "Kafka broker implementation: ${LAB_KAFKA_IMPLEMENTATION}"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
-echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
+if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
+  echo "Processing dispatcher: ${PROCESSING_DISPATCHER_TYPE}"
+fi
+if [ "${PROCESSING_DISPATCHER_TYPE:-}" = "FIXED" ]; then
+  echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
+fi
 echo "Test definition: $(basename "${TEST_DEFINITION}" .yaml)"
 if [ -n "${RUN_PLAN_PATH:-}" ]; then
   print_run_plan
@@ -720,9 +809,11 @@ DEFINITION_ENV_ARGS=(
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
-  --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
   --repo-dir "${LAB_ROOT}"
 )
+if [ -n "${WORKER_DISPATCHER_THREADS}" ]; then
+  DEFINITION_ENV_ARGS+=(--worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}")
+fi
 if [ -n "${RUN_PLAN_PATH:-}" ] && [ -n "${BASE_TPS:-}" ]; then
   DEFINITION_ENV_ARGS+=(--env "BASE_TPS=${BASE_TPS}")
 fi
@@ -744,8 +835,12 @@ if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATIO
   echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
   exit 1
 fi
-if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+if [ -n "${WORKER_DISPATCHER_THREADS}" ] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "WORKER_DISPATCHER_THREADS must be a positive integer after overrides: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
+if [ -n "${WORKER_DISPATCHER_THREADS}" ] && [ "${PROCESSING_DISPATCHER_TYPE:-}" != "FIXED" ]; then
+  echo "WORKER_DISPATCHER_THREADS is only valid when PROCESSING_DISPATCHER_TYPE=FIXED." >&2
   exit 1
 fi
 
@@ -785,10 +880,21 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     "${PROCESSING_ENABLED}"
     "${AUDIT_LOG_ENABLED}"
     "${METRICS_IMPLEMENTATION}"
-    "${WORKER_DISPATCHER_THREADS}"
     --kafka-implementation
     "${LAB_KAFKA_IMPLEMENTATION}"
   )
+  if [ -n "${WORKER_DISPATCHER_THREADS}" ]; then
+    PREPARE_ARGS=(
+      "${DEPLOYMENT_PROFILE}"
+      "${TEST_DEFINITION}"
+      "${PROCESSING_ENABLED}"
+      "${AUDIT_LOG_ENABLED}"
+      "${METRICS_IMPLEMENTATION}"
+      "${WORKER_DISPATCHER_THREADS}"
+      --kafka-implementation
+      "${LAB_KAFKA_IMPLEMENTATION}"
+    )
+  fi
   for override in "${ENV_OVERRIDES[@]}"; do
     PREPARE_ARGS+=(--env "${override}")
   done
@@ -821,7 +927,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
-  export RUN_PROFILE RUN_PRESETS RUN_PLAN_PATH CAPACITY_FACTOR PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
+  export RUN_PROFILE RUN_PLAN_PATH CAPACITY_FACTOR PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
@@ -884,7 +990,6 @@ metadata = {
     "application": {
         "profile": env("APP_PROFILE"),
         "run_profile": env("RUN_PROFILE"),
-        "run_presets": [item for item in env("RUN_PRESETS").split(",") if item],
         "processing_enabled": env_bool("PROCESSING_ENABLED"),
         "audit_log_enabled": env_bool("AUDIT_LOG_ENABLED"),
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),

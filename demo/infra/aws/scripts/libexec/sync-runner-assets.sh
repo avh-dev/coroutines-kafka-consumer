@@ -37,9 +37,9 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/audit \
   demo/infra/aws/helm \
   demo/infra/aws/runner-assets \
+  demo/infra/aws/test-definitions \
   demo/infra/shared/audit \
   demo/infra/shared/grafana \
-  demo/infra/shared/test-definitions \
   demo/infra/shared/test-orchestration
 
 BUNDLE_BASE64="$(base64 < "${BUNDLE_FILE}" | tr -d '\n')"

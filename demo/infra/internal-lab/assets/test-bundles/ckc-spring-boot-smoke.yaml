@@ -9,5 +9,5 @@ defaults:
 
 tests:
   - name: ckc-spring-boot
-    deployment: ckc-spring-boot
+    profile: ckc-spring-boot
     test_definition: smoke

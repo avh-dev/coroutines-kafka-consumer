@@ -6,15 +6,21 @@ defaults:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
-    WORKER_DISPATCHER_THREADS: 2
     LOAD_TEST_WORKERS: 1
-    BASE_TPS: 100
 
 tests:
   - name: ckc-smoke-1
-    deployment: ckc
+    profile: ckc
+    base_rate: 100
     test_definition: smoke
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
 
   - name: ckc-smoke-2
-    deployment: ckc
+    profile: ckc
+    base_rate: 100
     test_definition: smoke
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2

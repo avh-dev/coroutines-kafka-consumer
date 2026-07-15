@@ -6,7 +6,7 @@
 
 - `local-dev/`: local Kafka, Redis, Prometheus, and Grafana for fast demo development with Docker Compose
 - `internal-lab/`: lightweight k3s environment for a dedicated Linux laptop, with host-managed Kafka, Redis, Grafana, and stubs
-- `shared/`: Helm charts, test definitions, test orchestration, Grafana provisioning, and dashboards shared by lab environments
+- `shared/`: test orchestration, audit tooling, Grafana provisioning, and dashboards shared by lab environments
 - `aws/terraform/`: long-lived AWS Terraform stacks for `runner` and `ecr`
 - `aws/assets/`: AWS-only assets uploaded to the runner, including disposable `load-lab` Terraform
 - `aws/runner-assets/`: scripts executed inside the AWS runner
@@ -60,7 +60,7 @@ Start long-running AWS lab work from the runner, preferably inside `tmux`:
 tmux new -s ckc
 cd /opt/ckc-runner/assets/repo
 ./demo/infra/aws/runner-assets/bin/create-lab.sh us-east-1 dev default
-./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/shared/test-definitions/ckc-baseline.yaml
+./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/aws/test-definitions/ckc-baseline.yaml
 ```
 
 Update images and runner assets from your local machine when the code changes:

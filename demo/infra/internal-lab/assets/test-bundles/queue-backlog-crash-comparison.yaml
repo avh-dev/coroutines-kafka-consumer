@@ -1,0 +1,46 @@
+name: queue-backlog-crash-comparison
+description: Compare queue-backlog crash behavior with large worker queues, low order/batch worker concurrency, and downstream slowdown.
+
+defaults:
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+
+tests:
+  - name: ckc
+    profile: ckc
+    test_definition: queue_backlog_crash
+    capacity_factor: 0.5
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: FRESHNESS_FIRST_DROP_OLDEST
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+
+  - name: cpc-react
+    profile: confluent-reactor
+    test_definition: queue_backlog_crash
+    capacity_factor: 0.5
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+
+  - name: spring
+    profile: spring-kafka
+    test_definition: queue_backlog_crash
+
+  - name: spring-naive
+    profile: spring-kafka-coroutines-naive
+    test_definition: queue_backlog_crash
+    capacity_factor: 0.5
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2

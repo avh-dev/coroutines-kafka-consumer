@@ -1,4 +1,4 @@
-name: baseline
+name: 45min
 
 stubs:
   error_rate_percent: 0
