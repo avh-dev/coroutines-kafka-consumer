@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.slf4j.MDC
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CkcSpringBootAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
@@ -62,6 +63,8 @@ class CkcSpringBootAutoConfigurationTest {
                 val lifecycle = context.getBean(CkcConsumersLifecycle::class.java)
                 assertThat(lifecycle.phase)
                     .isEqualTo(1500)
+                assertThat(lifecycle.isRunning)
+                    .isTrue()
                 assertThat(registry.consumerNames)
                     .containsExactly("orders")
                 assertThat(registry.isRunning("orders"))
@@ -82,6 +85,38 @@ class CkcSpringBootAutoConfigurationTest {
                     .containsEntry(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
                     .containsEntry(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
                     .containsEntry(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "500")
+            }
+    }
+
+    @Test
+    fun `manual only lifecycle invokes stop callback and marks lifecycle stopped`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                val lifecycle = context.getBean(CkcConsumersLifecycle::class.java)
+                val callbackInvoked = AtomicBoolean(false)
+
+                assertThat(lifecycle.isRunning)
+                    .isTrue()
+
+                lifecycle.stop {
+                    callbackInvoked.set(true)
+                }
+
+                assertThat(callbackInvoked)
+                    .isTrue()
+                assertThat(lifecycle.isRunning)
+                    .isFalse()
+                assertThat(lifecycle.lifecycleStarted)
+                    .isFalse()
             }
     }
 
@@ -154,6 +189,28 @@ class CkcSpringBootAutoConfigurationTest {
 
                 assertThat(registry.consumerNames)
                     .containsExactly("orders")
+            }
+    }
+
+    @Test
+    fun `fails when default cluster is unknown even if consumer uses explicit cluster`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.default-cluster=missing",
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.cluster=main",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("CKC default cluster references unknown cluster 'missing'")
             }
     }
 
@@ -440,6 +497,27 @@ class CkcSpringBootAutoConfigurationTest {
     }
 
     @Test
+    fun `fails when lifecycle shutdown timeout is not positive`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.lifecycle.shutdown-timeout=0ms",
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("ckc.lifecycle.shutdown-timeout must be > 0")
+            }
+    }
+
+    @Test
     fun `uses per consumer built in processing dispatcher`() {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java)
@@ -536,6 +614,31 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo("testapp")
                 assertThat(metrics.micrometer.schemas.getValue("default").recordDrivenTags.single().default)
                     .isEqualTo("UNKNOWN")
+            }
+    }
+
+    @Test
+    fun `fails when configured micrometer schema has blank record driven tag name`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java, MetricsConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.metrics.implementation=micrometer",
+                "ckc.metrics.micrometer.schemas.default.metric-prefix=testapp",
+                "ckc.metrics.micrometer.schemas.default.record-driven-tags[0].default=UNKNOWN"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining(
+                        "ckc.metrics.micrometer.schemas.default.record-driven-tags[0].name must not be blank"
+                    )
             }
     }
 
@@ -683,6 +786,29 @@ class CkcSpringBootAutoConfigurationTest {
                     context.getBean(CkcConsumerRegistry::class.java).consumerNames
                 }
                     .hasStackTraceContaining("but it is not a Throwable")
+            }
+    }
+
+    @Test
+    fun `fails when unreferenced retry schema is invalid`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.retry-schemas.bad.rules[0].max-retries=1"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining(
+                        "ckc.retry-schemas.bad.rules[0].exceptions must not be empty for CKC consumer 'startup validation'"
+                    )
             }
     }
 
