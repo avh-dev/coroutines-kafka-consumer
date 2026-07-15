@@ -1,5 +1,15 @@
 ckc:
   enabled: true
+  lifecycle:
+    phase: 0
+    shutdown-timeout: ${CKC_SHUTDOWN_TIMEOUT:30s}
+  health:
+    enabled: true
+  observability:
+    mdc:
+      enabled: ${CKC_MDC_ENABLED:true}
+      include-key: ${CKC_MDC_INCLUDE_KEY:false}
+      max-key-length: ${CKC_MDC_MAX_KEY_LENGTH:128}
   metrics:
     enabled: ${CKC_METRICS_ENABLED:true}
     implementation: CUSTOM
