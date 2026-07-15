@@ -374,6 +374,8 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
             command.extend(["--base-rate", env_value(test["base_rate"])])
         if "capacity_factor" in test:
             command.extend(["--capacity-factor", env_value(test["capacity_factor"])])
+        if "replicas" in test:
+            command.extend(["--replicas", env_value(test["replicas"])])
         for topic in ("order", "batch", "telemetry"):
             mode_key = f"{topic}_processing_mode"
             if mode_key in test:

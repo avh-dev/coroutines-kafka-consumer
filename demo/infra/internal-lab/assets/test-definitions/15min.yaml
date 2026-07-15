@@ -20,9 +20,9 @@ stubs:
 
 capacity_model:
   average_processing_ms:
-    order: 8
-    batch: 10
-    telemetry: 45
+    order: 16
+    batch: 20
+    telemetry: 75
 
 load_test:
   shards: 1

@@ -70,6 +70,7 @@ tests:
     profile: ckc
     base_rate: 2000
     capacity_factor: 1.2
+    replicas: 2
     order_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
     order_partitions: 8
@@ -90,5 +91,5 @@ tests:
 
 Use `/opt/ckc-lab/bin/bundle-snippet.sh` after a tuned `run-test.sh` run to
 print a ready-to-paste `tests:` item with the run's profile, base rate, capacity
-factor, processing modes, generated partitions, workers, pollers, and environment
-settings.
+factor, replicas, processing modes, generated partitions, workers, pollers, and
+environment settings.

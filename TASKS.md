@@ -184,6 +184,7 @@
 | [INFRA-68](#infra-68) | Add selectable internal-lab Kafka broker implementation and broker CPU observability.                                                   | DONE |
 | [INFRA-69](#infra-69) | Add a dynamic internal-lab run planner that computes topics, concurrency, and processing modes from profile and load settings.          | DONE |
 | [INFRA-70](#infra-70) | Simplify internal-lab Helm profiles around generated run plans and remove static topic partition settings from legacy overlays.        | DONE |
+| [INFRA-71](#infra-71) | Make internal-lab run replica count selectable before dynamic plan generation.                                                          | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1974,3 +1975,14 @@ Give worker-based `AT_LEAST_ONCE_PARTITION_ORDERING` topics enough partitions wh
 Reuse previous processing modes only when the selected run profile is unchanged; otherwise fall back to the new profile defaults.
 Let interactive run-plan edits change per-topic processing modes and show each editable field on its own prompt block.
 Prompt for per-topic processing modes before generating the run plan so capacity calculations use the selected modes.
+
+<a id="infra-71"></a>
+### INFRA-71 - Add selectable run replicas
+
+_Date: 2026-07-15_
+
+Make the internal-lab dynamic run replica count selectable before plan generation.
+Use the selected replica count when rounding topic partitions and computing per-pod workers or pollers.
+Keep the profile default as the fallback for non-interactive runs and unchanged previous-profile launches.
+Persist the chosen replica count into run metadata/current deployment state and carry it through bundle snippets.
+Keep generated worker-based topic partitions at least equal to replica count so every pod can receive an assignment.
