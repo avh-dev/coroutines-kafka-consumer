@@ -50,6 +50,7 @@
 | [CORE-45](#core-45) | Harden Spring Boot starter startup diagnostics, validation gaps, and lifecycle shutdown tests before the first release.                                                                                   | DONE |
 | [CORE-46](#core-46) | Split the Spring Boot starter auto-configuration implementation into focused internal files without changing behavior.                                                                                    | DONE |
 | [CORE-47](#core-47) | Add concise KDoc for the Spring Boot starter public API surface.                                                                                                                                          | DONE |
+| [CORE-48](#core-48) | Polish Spring Boot starter metadata, documentation, demo configuration, and defaults before release.                                                                                                      | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1890,6 +1891,16 @@ Add concise KDoc to the Spring Boot starter contracts that users and code reader
 Document the consumer contract, binding annotation, registry, properties root, and metrics annotations.
 Keep implementation helpers undocumented unless a short comment clarifies their role.
 Cover lifecycle and auto-configuration entrypoints without adding noisy comments to internal helper code.
+
+<a id="core-48"></a>
+### CORE-48 - Polish starter release surface
+
+_Date: 2026-07-15_
+
+Review the Spring Boot starter release surface after the recent configuration additions.
+Keep configuration metadata, README examples, demo profile settings, and documented defaults aligned with the implementation.
+Use starter and demo profile tests as regression coverage.
+Document the full demo profile as the runnable reference and add profile assertions for lifecycle, health, MDC, dispatcher, retry, and cluster defaults.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile

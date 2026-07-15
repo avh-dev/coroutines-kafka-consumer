@@ -157,7 +157,7 @@
     {
       "name": "ckc.metrics.prefix",
       "type": "java.lang.String",
-      "description": "Legacy Micrometer metric prefix used when no Micrometer schemas are configured.",
+      "description": "Micrometer metric prefix used when no Micrometer schemas are configured.",
       "defaultValue": "app"
     },
     {

@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
+import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -91,5 +92,20 @@ class CkcSpringBootProfileContextTest(
             setOf("orderConsumerMetrics", "batchConsumerMetrics", "cauldronConsumerMetrics"),
             applicationContext.getBeansOfType(ConsumerMetrics::class.java).keys
         )
+    }
+
+    @Test
+    fun `ckc spring boot profile exposes canonical starter defaults`() {
+        val ckcProperties = applicationContext.getBean(CkcConsumerProperties::class.java)
+
+        assertEquals(0, ckcProperties.lifecycle.phase)
+        assertEquals(Duration.ofSeconds(30), ckcProperties.lifecycle.shutdownTimeout)
+        assertTrue(ckcProperties.health.enabled)
+        assertTrue(ckcProperties.observability.mdc.enabled)
+        assertFalse(ckcProperties.observability.mdc.includeKey)
+        assertEquals(128, ckcProperties.observability.mdc.maxKeyLength)
+        assertEquals("local", ckcProperties.defaultCluster)
+        assertEquals("default", ckcProperties.defaultRetrySchema)
+        assertEquals("workers", ckcProperties.defaultProcessingDispatcher)
     }
 }

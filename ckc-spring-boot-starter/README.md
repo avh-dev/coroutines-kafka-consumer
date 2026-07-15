@@ -83,6 +83,9 @@ Each `@CkcKafkaConsumer` bean is bound to `ckc.consumers.<name>`. The starter ke
 settings in Spring configuration and leaves record handling in a dedicated consumer class instead
 of using method-level listener annotations.
 
+For a full runnable configuration, see the demo application's
+[`application-ckc-spring-boot.yml`](../demo/ckc-demo/src/main/resources/application-ckc-spring-boot.yml).
+
 Startup validation is strict: every annotated consumer must have matching configuration, every
 configured consumer must have a matching annotated bean, consumer names must be unique, and merged
 Kafka properties must include `bootstrap.servers`, `group.id`, `key.deserializer`, and
@@ -169,7 +172,7 @@ ckc:
   metrics:
     enabled: true
     implementation: MICROMETER # MICROMETER | CUSTOM | NONE
-    prefix: app # legacy fallback when no Micrometer schemas are configured
+    prefix: app # fallback when no Micrometer schemas are configured
     micrometer:
       default-schema: default
       schemas:
@@ -269,3 +272,6 @@ fun orderMetrics(): ConsumerMetrics<String, OrderEvent> =
 
 Leaving `consumer` blank declares a default bean. For custom metrics, a single unannotated
 `ConsumerMetrics` bean is also accepted as the default.
+
+The demo `ckc-spring-boot` profile uses `CUSTOM` metrics to wrap Micrometer metrics with demo audit
+side effects while still reading the Micrometer schema section from application configuration.
