@@ -74,6 +74,9 @@ class CkcConsumersLifecycle internal constructor(
 
     override fun start() {
         synchronized(this) {
+            if (lifecycleStarted) {
+                return
+            }
             logStartupBanner()
             val autoStartupRuntimes = consumerRuntimes.filter { it.autoStartup }
             logger.info(
@@ -81,14 +84,14 @@ class CkcConsumersLifecycle internal constructor(
                     "${consumerRuntimes.size - autoStartupRuntimes.size} manual consumer(s) registered"
             )
             autoStartupRuntimes.forEach { startRuntime(it) }
-            running = runningConsumerNames.isNotEmpty()
             lifecycleStarted = true
+            running = true
         }
     }
 
     override fun stop() {
         synchronized(this) {
-            if (!running) {
+            if (!lifecycleStarted && runningConsumerNames.isEmpty()) {
                 return
             }
             try {
@@ -101,6 +104,14 @@ class CkcConsumersLifecycle internal constructor(
                 running = false
                 lifecycleStarted = false
             }
+        }
+    }
+
+    override fun stop(callback: Runnable) {
+        try {
+            stop()
+        } finally {
+            callback.run()
         }
     }
 
@@ -125,7 +136,7 @@ class CkcConsumersLifecycle internal constructor(
     override fun start(name: String) {
         synchronized(this) {
             startRuntime(requireConsumerRuntime(name))
-            running = runningConsumerNames.isNotEmpty()
+            running = true
         }
     }
 
@@ -546,6 +557,7 @@ private fun validateConsumerSet(
     properties: CkcConsumerProperties,
     annotatedConsumers: List<AnnotatedConsumer>
 ) {
+    validateGlobalProperties(properties)
     validateDispatcherSet(properties)
 
     val duplicateConsumers = annotatedConsumers
@@ -568,6 +580,35 @@ private fun validateConsumerSet(
     require(missingHandlers.isEmpty()) {
         "Missing @CkcKafkaConsumer bean(s) for configured consumer(s): ${missingHandlers.joinToString()}"
     }
+}
+
+private fun validateGlobalProperties(properties: CkcConsumerProperties) {
+    require(!properties.lifecycle.shutdownTimeout.isNegative && !properties.lifecycle.shutdownTimeout.isZero) {
+        "ckc.lifecycle.shutdown-timeout must be > 0"
+    }
+    if (properties.observability.mdc.enabled) {
+        require(properties.observability.mdc.maxKeyLength > 0) {
+            "ckc.observability.mdc.max-key-length must be > 0"
+        }
+    }
+    properties.defaultCluster?.takeIf { it.isNotBlank() }?.let { clusterName ->
+        require(clusterName in properties.clusters) {
+            "CKC default cluster references unknown cluster '$clusterName'"
+        }
+    }
+    properties.clusters.forEach { (name, _) ->
+        require(name.isNotBlank()) { "CKC cluster name must not be blank" }
+    }
+    properties.defaultRetrySchema?.takeIf { it.isNotBlank() }?.let { schemaName ->
+        require(schemaName in properties.retrySchemas) {
+            "CKC default retry schema references unknown retry schema '$schemaName'"
+        }
+    }
+    properties.retrySchemas.forEach { (schemaName, schema) ->
+        require(schemaName.isNotBlank()) { "CKC retry schema name must not be blank" }
+        retryPolicyFromSchema("startup validation", schemaName, schema)
+    }
+    validateMicrometerSchemas(properties)
 }
 
 private fun validateConsumerProperties(
@@ -701,6 +742,33 @@ private fun validateMetricsSchema(properties: CkcConsumerProperties, consumerNam
         return
     }
     resolveMicrometerSchemaProperties(properties, consumerName)
+}
+
+private fun validateMicrometerSchemas(properties: CkcConsumerProperties) {
+    if (!properties.metrics.enabled || properties.metrics.implementation != CkcConsumerProperties.MetricsImplementation.MICROMETER) {
+        return
+    }
+    properties.metrics.micrometer.defaultSchema?.takeIf { it.isNotBlank() }?.let { schemaName ->
+        require(schemaName in properties.metrics.micrometer.schemas) {
+            "CKC default Micrometer schema references unknown schema '$schemaName'"
+        }
+    }
+    properties.metrics.micrometer.schemas.forEach { (schemaName, schema) ->
+        require(schemaName.isNotBlank()) { "CKC Micrometer schema name must not be blank" }
+        require(schema.metricPrefix.isNotBlank()) {
+            "ckc.metrics.micrometer.schemas.$schemaName.metric-prefix must not be blank"
+        }
+        schema.staticTags.forEachIndexed { index, tag ->
+            require(tag.name.isNotBlank()) {
+                "ckc.metrics.micrometer.schemas.$schemaName.static-tags[$index].name must not be blank"
+            }
+        }
+        schema.recordDrivenTags.forEachIndexed { index, tag ->
+            require(tag.name.isNotBlank()) {
+                "ckc.metrics.micrometer.schemas.$schemaName.record-driven-tags[$index].name must not be blank"
+            }
+        }
+    }
 }
 
 private fun resolvedRetrySchemaName(
