@@ -71,6 +71,11 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>
 
     /**
+     * Optional context wrapper applied around user record processing callbacks.
+     */
+    var recordProcessingContext: RecordProcessingContext<K, V>? = null
+
+    /**
      * Fallback callback invoked after handler retries are exhausted.
      */
     var processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip()
@@ -142,6 +147,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
             metrics = metrics,
+            recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,
             topics = topics,

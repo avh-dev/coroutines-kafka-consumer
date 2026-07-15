@@ -2,6 +2,7 @@ package avh.ckc.core.processing
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
@@ -21,12 +22,23 @@ internal class RecordProcessor<K, V>(
     private val retryPolicy: RetryPolicy,
     private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit
+    private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit,
+    private val recordProcessingContext: RecordProcessingContext<K, V>? = null
 ) {
     /**
      * Processes a single Kafka record end-to-end.
      */
     suspend fun process(record: ConsumerRecord<K, V>) {
+        if (recordProcessingContext == null) {
+            processDirect(record)
+        } else {
+            recordProcessingContext.withRecordContext(record) {
+                processDirect(record)
+            }
+        }
+    }
+
+    private suspend fun processDirect(record: ConsumerRecord<K, V>) {
         val startedAt = System.nanoTime()
         val recordAgeMillis = (System.currentTimeMillis() - record.timestamp()).coerceAtLeast(0L)
         val key = record.key()

@@ -2,6 +2,7 @@ package avh.ckc.core.processing.runtime
 
 import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
@@ -28,6 +29,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val processedRecordTracker: ProcessedRecordTracker,
+    private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
@@ -35,7 +37,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
-        onRecordProcessed = processedRecordTracker::markProcessed
+        onRecordProcessed = processedRecordTracker::markProcessed,
+        recordProcessingContext = recordProcessingContext
     )
     private val runtimeStats = ConsumerRuntimeStatsTracker(
         workerCount = workerConcurrency,

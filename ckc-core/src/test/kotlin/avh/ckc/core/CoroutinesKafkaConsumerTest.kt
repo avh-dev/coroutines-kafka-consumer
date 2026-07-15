@@ -338,6 +338,7 @@ class CoroutinesKafkaConsumerTest {
             retryPolicy = RetryPolicy.none(),
             metrics = metrics,
             handler = KafkaRecordHandler<String, String> { },
+            recordProcessingContext = null,
             processingFailureHandler = ProcessingFailureHandler.skip<String, String>(),
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
@@ -395,6 +396,7 @@ class CoroutinesKafkaConsumerTest {
             metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
             handler = KafkaRecordHandler { },
             retryPolicy = RetryPolicy.none(),
+            recordProcessingContext = null,
             processingFailureHandler = ProcessingFailureHandler.skip(),
             processedRecordTracker = NoopProcessedRecordTracker
         )

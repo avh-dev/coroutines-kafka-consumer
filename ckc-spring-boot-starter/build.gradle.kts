@@ -29,6 +29,7 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j")
     implementation("org.springframework.boot:spring-boot-autoconfigure")
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("io.micrometer:micrometer-core")
@@ -43,6 +44,11 @@ dependencies {
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core") {
             version { require(coroutinesVersion) }
             because("Starter lifecycle uses runBlocking for graceful CKC shutdown")
+        }
+
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j") {
+            version { require(coroutinesVersion) }
+            because("Starter MDC context propagation must match coroutines core")
         }
     }
 }

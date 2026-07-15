@@ -46,6 +46,7 @@
 | [CORE-41](#core-41) | Rename `ProcessingMode` values so config strings describe ordering and freshness behavior directly.                                                                                                       | DONE |
 | [CORE-42](#core-42) | Add an optional freshness max record age so freshness-first runtimes can drop stale records before handling.                                                                                              | DONE |
 | [CORE-43](#core-43) | Rename internal processing runtime classes to match the current processing mode terminology.                                                                                                              | DONE |
+| [CORE-44](#core-44) | Add optional coroutine-safe MDC context for starter-managed record processing.                                                                                                                            | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1847,6 +1848,15 @@ _Date: 2026-07-13_
 
 Rename internal record processing runtime classes so their names align with the current `ProcessingMode` values.
 Keep behavior unchanged while updating core wiring and tests.
+
+<a id="core-44"></a>
+### CORE-44 - Add processing MDC context
+
+_Date: 2026-07-15_
+
+Add an optional record processing context hook to CKC core.
+Wire the Spring Boot starter to provide coroutine-safe MDC context for record processing and failure handling.
+Keep the disabled path lightweight so applications can turn MDC off without per-record map or MDCContext allocation.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
