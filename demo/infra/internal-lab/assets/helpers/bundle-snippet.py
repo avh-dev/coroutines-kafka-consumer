@@ -107,6 +107,10 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
         entry["base_rate"] = load_test["base_tps"]
     if run_plan.get("capacity_factor") is not None:
         entry["capacity_factor"] = run_plan["capacity_factor"]
+    if run_plan.get("replica_count") is not None:
+        entry["replicas"] = run_plan["replica_count"]
+    elif application.get("replica_count") is not None:
+        entry["replicas"] = application["replica_count"]
 
     for topic_name in TOPICS:
         topic = topic_plan(run_plan, topic_name)

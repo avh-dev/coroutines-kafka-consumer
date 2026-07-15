@@ -106,6 +106,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--current-deployment-env")
     parser.add_argument("--base-tps", "--base-rate", dest="base_tps", type=positive_int)
     parser.add_argument("--capacity-factor", type=positive_float)
+    parser.add_argument("--replicas", type=positive_int)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
     parser.add_argument("--order-processing-mode")
@@ -232,6 +233,13 @@ def print_profile_dispatchers(profile: dict[str, Any]) -> None:
 
 
 def print_profile_processing_modes(profile: dict[str, Any], profile_name: str, current: dict[str, str]) -> None:
+    profile_replicas = int(profile.get("replicaCount", 1))
+    current_profile = current.get("RUN_PROFILE") or current.get("APP_PROFILE") or ""
+    current_replicas = current.get("REPLICA_COUNT", "")
+    replica_default = profile_replicas
+    if current_profile == profile_name and current_replicas.isdigit() and int(current_replicas) > 0:
+        replica_default = int(current_replicas)
+    print(f"REPLICA_COUNT_DEFAULT={shell_quote(str(replica_default))}")
     for topic in TOPIC_ORDER:
         allowed = [str(item) for item in value_at(profile, "allowedProcessingModes", topic, default=[])]
         default = str(value_at(profile, "defaultProcessingModes", topic, default="")).strip()
@@ -344,7 +352,7 @@ def main() -> None:
     topics_config = profiles_config.get("topics", {})
     capacity_factor = args.capacity_factor or float(profile.get("defaultCapacityFactor", global_config.get("defaultCapacityFactor", 1.2)))
     base_tps = args.base_tps or int(load_test.get("base_tps", 10000))
-    replica_count = int(profile.get("replicaCount", 1))
+    replica_count = args.replicas or int(profile.get("replicaCount", 1))
     strategy, adjustable = profile_parallelism(profile)
     overhead_ms = float(global_config.get("overheadMs", 3.0))
     noop_latency_ms = float(global_config.get("noopProcessingLatencyMs", 6.5))
@@ -407,7 +415,7 @@ def main() -> None:
             worker_concurrency = int(value_at(profile, "env", env_key(topic_name, "WorkerConcurrency"), default=1) or 1)
             poll_loop_concurrency = max(1, partitions // replica_count)
         elif topic_strategy == "workers":
-            partitions = max(min_partitions, default_partitions)
+            partitions = round_up_to_multiple(max(min_partitions, default_partitions, replica_count), replica_count)
             worker_concurrency = max(1, math.ceil(required / replica_count))
             poll_loop_concurrency = int(value_at(profile, "env", env_key(topic_name, "PollLoopConcurrency"), default=1) or 1)
         elif topic_strategy == "workers_with_partition_capacity":
@@ -519,6 +527,7 @@ def main() -> None:
             "RUN_PROFILE": args.profile,
             "BASE_TPS": str(base_tps),
             "CAPACITY_FACTOR": str(capacity_factor),
+            "REPLICA_COUNT": str(replica_count),
         }
         for key, value in assignments.items():
             print(f"{key}={shell_quote(value)}")
