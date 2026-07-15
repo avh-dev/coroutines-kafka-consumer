@@ -49,6 +49,7 @@
 | [CORE-44](#core-44) | Add optional coroutine-safe MDC context for starter-managed record processing.                                                                                                                            | DONE |
 | [CORE-45](#core-45) | Harden Spring Boot starter startup diagnostics, validation gaps, and lifecycle shutdown tests before the first release.                                                                                   | DONE |
 | [CORE-46](#core-46) | Split the Spring Boot starter auto-configuration implementation into focused internal files without changing behavior.                                                                                    | DONE |
+| [CORE-47](#core-47) | Add concise KDoc for the Spring Boot starter public API surface.                                                                                                                                          | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1879,6 +1880,16 @@ Refactor the large Spring Boot starter auto-configuration source file into focus
 Keep the existing public annotations, properties, lifecycle, registry, and configuration behavior unchanged.
 Use the existing starter and demo profile tests as regression coverage.
 Leave `CkcSpringBootAutoConfiguration` as the small Spring entrypoint and move lifecycle, runtime resolution, validation, metrics, retry, dispatcher, MDC, and banner logic into internal files.
+
+<a id="core-47"></a>
+### CORE-47 - Add starter public API KDoc
+
+_Date: 2026-07-15_
+
+Add concise KDoc to the Spring Boot starter contracts that users and code readers are expected to see.
+Document the consumer contract, binding annotation, registry, properties root, and metrics annotations.
+Keep implementation helpers undocumented unless a short comment clarifies their role.
+Cover lifecycle and auto-configuration entrypoints without adding noisy comments to internal helper code.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
