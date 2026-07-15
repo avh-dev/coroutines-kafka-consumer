@@ -48,6 +48,7 @@
 | [CORE-43](#core-43) | Rename internal processing runtime classes to match the current processing mode terminology.                                                                                                              | DONE |
 | [CORE-44](#core-44) | Add optional coroutine-safe MDC context for starter-managed record processing.                                                                                                                            | DONE |
 | [CORE-45](#core-45) | Harden Spring Boot starter startup diagnostics, validation gaps, and lifecycle shutdown tests before the first release.                                                                                   | DONE |
+| [CORE-46](#core-46) | Split the Spring Boot starter auto-configuration implementation into focused internal files without changing behavior.                                                                                    | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -1868,6 +1869,16 @@ Audit the Spring Boot starter validation surface before the first release.
 Close gaps in startup diagnostics and lifecycle shutdown behavior tests.
 Keep the work focused on starter-managed consumers without changing demo infrastructure.
 Align `SmartLifecycle.isRunning()` with the lifecycle bean state so manual-only consumers still receive shutdown callbacks.
+
+<a id="core-46"></a>
+### CORE-46 - Split starter auto-configuration internals
+
+_Date: 2026-07-15_
+
+Refactor the large Spring Boot starter auto-configuration source file into focused internal implementation files.
+Keep the existing public annotations, properties, lifecycle, registry, and configuration behavior unchanged.
+Use the existing starter and demo profile tests as regression coverage.
+Leave `CkcSpringBootAutoConfiguration` as the small Spring entrypoint and move lifecycle, runtime resolution, validation, metrics, retry, dispatcher, MDC, and banner logic into internal files.
 
 <a id="demo-61"></a>
 ### DEMO-61 - Add CKC Spring Boot demo profile
