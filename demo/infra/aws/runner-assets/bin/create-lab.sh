@@ -5,7 +5,7 @@ set -euo pipefail
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
 PROFILE_NAME="${3:-default}"
-TEST_DEFINITION_PATH="${4:-demo/infra/shared/test-definitions/ckc-baseline.yaml}"
+TEST_DEFINITION_PATH="${4:-demo/infra/aws/test-definitions/ckc-baseline.yaml}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 TERRAFORM_DIR="${REPO_DIR}/demo/infra/aws/assets/terraform/load-lab"

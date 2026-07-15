@@ -146,8 +146,8 @@ sync_internal_lab_assets() {
 
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
-  sync_path "${REPO_ROOT}/demo/infra/shared/test-definitions/internal-lab" "${LAB_ROOT}/test-definitions"
-  sync_path "${REPO_ROOT}/demo/infra/shared/test-bundles/internal-lab" "${LAB_ROOT}/test-bundles"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/test-definitions" "${LAB_ROOT}/test-definitions"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/test-bundles" "${LAB_ROOT}/test-bundles"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
 }
@@ -251,8 +251,8 @@ ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-l
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/grafana \
-  demo/infra/shared/test-definitions/internal-lab \
-  demo/infra/shared/test-bundles/internal-lab)"
+  demo/infra/internal-lab/assets/test-definitions \
+  demo/infra/internal-lab/assets/test-bundles)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \

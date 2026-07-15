@@ -1,4 +1,4 @@
-name: 20K_tps
+name: 15min_chaos
 
 stubs:
   error_rate_percent: 0
@@ -27,7 +27,7 @@ capacity_model:
 load_test:
   shards: 1
   workers: 8
-  base_tps: 20000
+  base_tps: 3000
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40
@@ -39,3 +39,30 @@ load_test:
   min_brewing_steps: 5
   max_brewing_steps: 10
   diagnostics_blob_size: 256
+
+chaos_steps:
+  - at: 180s
+    type: delete_random_pod
+  - at: 360s
+    type: set_stubs_profile
+    params:
+      error_rate_percent: 5
+      eta:
+        delay_p90_ms: 200
+        delay_p95_ms: 400
+        delay_p99_ms: 800
+        delay_p100_ms: 1200
+      flavour:
+        delay_p90_ms: 200
+        delay_p95_ms: 400
+        delay_p99_ms: 800
+        delay_p100_ms: 1200
+      registry:
+        delay_p90_ms: 20
+        delay_p95_ms: 40
+        delay_p99_ms: 80
+        delay_p100_ms: 120
+  - at: 480s
+    type: crash_random_pod
+  - at: 600s
+    type: reset_stubs_profile

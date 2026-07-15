@@ -24,7 +24,7 @@ Typical perf-lab workflow after that:
 tmux new -s ckc
 cd /opt/ckc-runner/assets/repo
 ./demo/infra/aws/runner-assets/bin/create-lab.sh us-east-1 dev default
-./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/shared/test-definitions/ckc-baseline.yaml
+./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/aws/test-definitions/ckc-baseline.yaml
 ./demo/infra/aws/runner-assets/bin/destroy-lab.sh us-east-1 dev
 ```
 

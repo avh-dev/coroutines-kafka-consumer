@@ -178,6 +178,7 @@
 | [INFRA-67](#infra-67) | Add internal-lab Helm and test-definition support for the `ckc-spring-boot` demo profile.                                               | DONE |
 | [INFRA-68](#infra-68) | Add selectable internal-lab Kafka broker implementation and broker CPU observability.                                                   | DONE |
 | [INFRA-69](#infra-69) | Add a dynamic internal-lab run planner that computes topics, concurrency, and processing modes from profile and load settings.          | DONE |
+| [INFRA-70](#infra-70) | Simplify internal-lab Helm profiles around generated run plans and remove static topic partition settings from legacy overlays.        | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1902,4 +1903,20 @@ _Date: 2026-07-11_
 Replace static internal-lab deployment profile selection with a generated run plan based on consumer profile, base TPS, capacity factor, stubs latency, and processing modes.
 Keep existing runner controls for processing, audit logging, metrics, worker dispatcher threads, Kafka implementation, and environment overrides.
 Print the full computed plan before destructive setup and persist it in run metadata and generated lab state for post-run analysis.
-Use measured per-topic capacity models from test definitions when available, support named run presets, and allow profile-scoped manual plan edits before setup.
+Use measured per-topic capacity models from test definitions when available, support explicit per-topic processing modes, and allow profile-scoped manual plan edits before setup.
+
+<a id="infra-70"></a>
+### INFRA-70 - Simplify internal-lab Helm profiles
+
+_Date: 2026-07-13_
+
+Reduce internal-lab Helm overlays to a single generic manual/debug profile while generated run plans own Spring profile, topic partitions, and tuning.
+Move experiment variants such as partition ordering, freshness-first, queue-loss, and virtual dispatcher selection into explicit run-test flags and bundle entries.
+Move test definitions and internal-lab bundles out of `demo/infra/shared` into `demo/infra/internal-lab/assets` and AWS-owned directories so shared infra only carries orchestration, audit, and Grafana assets.
+Add a bundle snippet helper that converts the latest tuned single run into a ready-to-paste bundle `tests:` item.
+Make dispatcher selection profile-aware and allow fixed worker thread tuning only when the selected dispatcher is `FIXED`.
+Show external hardcoded stale-record filtering as `HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED` while mapping generated application values to the existing enum.
+Give worker-based `AT_LEAST_ONCE_PARTITION_ORDERING` topics enough partitions while keeping pollers fixed and scaling workers.
+Reuse previous processing modes only when the selected run profile is unchanged; otherwise fall back to the new profile defaults.
+Let interactive run-plan edits change per-topic processing modes and show each editable field on its own prompt block.
+Prompt for per-topic processing modes before generating the run plan so capacity calculations use the selected modes.

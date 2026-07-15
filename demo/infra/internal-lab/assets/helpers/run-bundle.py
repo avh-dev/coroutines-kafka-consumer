@@ -25,6 +25,7 @@ except ImportError as error:
 
 LEGACY_ENV_ARGS = {
     "LAB_KAFKA_IMPLEMENTATION": "--kafka-implementation",
+    "PROCESSING_DISPATCHER_TYPE": "--processing-dispatcher-type",
     "PROCESSING_ENABLED": "--processing-enabled",
     "AUDIT_LOG_ENABLED": "--audit-log-enabled",
     "METRICS_IMPLEMENTATION": "--metrics-implementation",
@@ -160,8 +161,8 @@ def normalize_tests(bundle: dict[str, Any], path: Path) -> list[dict[str, Any]]:
     for index, test in enumerate(tests, start=1):
         if not isinstance(test, dict):
             raise ValueError(f"Bundle tests[{index}] must be an object: {path}")
-        if "deployment" not in test:
-            raise ValueError(f"Bundle tests[{index}] must define deployment: {path}")
+        if "deployment" not in test and "profile" not in test:
+            raise ValueError(f"Bundle tests[{index}] must define profile or deployment: {path}")
         if "test_definition" not in test:
             raise ValueError(f"Bundle tests[{index}] must define test_definition: {path}")
     return tests
@@ -365,8 +366,24 @@ def notify(hook: Path | None, event: str, payload: dict[str, Any], log_dir: Path
         print(f"Notification hook failed for {event}: {error}", file=sys.stderr)
 
 
-def command_for_run(run_test: Path, deployment: str, test_definition: str, env: dict[str, str]) -> list[str]:
-    command = [str(run_test), "--skip-analysis", "--deployment", deployment]
+def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
+    command = [str(run_test), "--skip-analysis"]
+    if "profile" in test:
+        command.extend(["--profile", str(test["profile"])])
+        if "base_rate" in test:
+            command.extend(["--base-rate", env_value(test["base_rate"])])
+        if "capacity_factor" in test:
+            command.extend(["--capacity-factor", env_value(test["capacity_factor"])])
+        for topic in ("order", "batch", "telemetry"):
+            mode_key = f"{topic}_processing_mode"
+            if mode_key in test:
+                command.extend([f"--{topic}-processing-mode", env_value(test[mode_key])])
+            for knob in ("partitions", "workers", "pollers"):
+                key = f"{topic}_{knob}"
+                if key in test:
+                    command.extend([f"--{topic}-{knob}", env_value(test[key])])
+    else:
+        command.extend(["--deployment", str(test["deployment"])])
     for key, flag in LEGACY_ENV_ARGS.items():
         if key in env:
             command.extend([flag, env[key]])
@@ -388,11 +405,12 @@ def run_one(
     hook: Path | None,
     log_dir: Path,
 ) -> dict[str, Any]:
-    name = str(test.get("name") or test["deployment"])
-    deployment = str(test["deployment"])
+    name = str(test.get("name") or test.get("profile") or test.get("deployment"))
+    profile = str(test.get("profile", ""))
+    deployment = str(test.get("deployment", ""))
     test_definition = str(test["test_definition"])
     env = merge_env(defaults, global_env, test)
-    command = command_for_run(run_test, deployment, test_definition, env)
+    command = command_for_run(run_test, test, test_definition, env)
     expected_seconds = test_expected_seconds(lab_root, test_definition)
 
     before = audit_dirs(lab_root)
@@ -402,7 +420,7 @@ def run_one(
     log_file.flush()
     print(f"\n=== Running bundle entry {index}/{total}: {name} ===", flush=True)
     print(f"Expected load phase duration: {format_duration(expected_seconds)}", flush=True)
-    notify(hook, "test_started", {"name": name, "deployment": deployment, "test_definition": test_definition, "index": index, "total": total}, log_dir)
+    notify(hook, "test_started", {"name": name, "profile": profile, "deployment": deployment, "test_definition": test_definition, "index": index, "total": total}, log_dir)
 
     process = subprocess.Popen(
         command,
@@ -462,6 +480,7 @@ def run_one(
     exit_code = 130 if stop_requested else int(status.get("exit_code", child_exit_code))
     result = {
         "name": name,
+        "profile": profile,
         "deployment": deployment,
         "test_definition": test_definition,
         "env": env,

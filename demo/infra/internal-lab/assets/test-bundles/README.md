@@ -1,6 +1,6 @@
 # Test Bundles
 
-`demo/infra/shared/test-bundles` contains sequential internal-lab comparison
+`demo/infra/internal-lab/assets/test-bundles` contains sequential internal-lab comparison
 bundles. A bundle calls the existing single-test runner several times with a
 shared default environment and per-test overrides.
 
@@ -30,7 +30,7 @@ Bundle runs collect raw audit logs first and run audit analysis as a separate
 final phase.
 
 Use `smoke-repeat` for quick bundle smoke checks; it runs the short `smoke`
-definition twice. Use `ckc-sync-loom-comparison` to run suspend CKC plus the
+definition twice. Use `ckc-sync-dispatcher-comparison` to run suspend CKC plus the
 blocking CKC sync IO and virtual-thread dispatcher modes on the baseline definition.
 Use `queue-backlog-crash-comparison` to stress large in-memory order/batch
 worker queues under downstream slowdown and app crashes, targeting listener
@@ -64,16 +64,31 @@ defaults:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
-    WORKER_DISPATCHER_THREADS: 2
 
 tests:
   - name: ckc
-    deployment: ckc
-    test_definition: telemetry-freshness-fairness
-
-  - name: spring-naive
-    deployment: spring-kafka-coroutines-naive
+    profile: ckc
+    base_rate: 2000
+    capacity_factor: 1.2
+    order_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+    order_partitions: 8
+    order_workers: 4
+    order_pollers: 1
     test_definition: telemetry-freshness-fairness
     env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+
+  - name: spring-naive
+    profile: spring-kafka-coroutines-naive
+    test_definition: telemetry-freshness-fairness
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 4
 ```
+
+Use `/opt/ckc-lab/bin/bundle-snippet.sh` after a tuned `run-test.sh` run to
+print a ready-to-paste `tests:` item with the run's profile, base rate, capacity
+factor, processing modes, generated partitions, workers, pollers, and environment
+settings.

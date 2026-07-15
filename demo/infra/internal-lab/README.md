@@ -187,24 +187,29 @@ The runner presents fixed choices through numbered lists and prompts for scalar
 values directly. Previous selections are marked as current or shown as defaults
 and used when Enter is pressed:
 
+- a load-test definition, defaulting to the previous run
 - a dynamic run profile, defaulting to the currently deployed profile
 - the host Kafka API broker implementation: `redpanda` or `apache-kafka`
 - whether business processing is enabled; select `false` for a noop run
+- the base load rate and capacity factor used for run-plan calculation
+- the coroutine processing dispatcher when the selected profile supports one
+- the shared fixed worker dispatcher thread count, only when the dispatcher is `FIXED`
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
-- the shared suspend worker dispatcher thread count
-- a load-test definition, defaulting to the previous run
 
 For dynamic profiles, `run-test.sh` generates a Helm values overlay under
 `/opt/ckc-lab/state/generated/run-plan-values.yaml` before it changes the lab.
-The plan uses the selected Spring profile, optional run preset, `base_tps`,
-per-topic traffic percentages, `capacity_model.average_processing_ms` from the
-test definition, processing-enabled mode, and a capacity factor to calculate
-topic partitions and either worker concurrency or Spring Kafka listener
-concurrency. If a test definition does not define the capacity model, the
-planner falls back to the older stub-latency estimate and marks that source in
-the printed plan. The full plan is printed before preparation and is included
-in each run's `run-metadata.json`.
+The plan uses the selected Spring profile, `base_tps`, per-topic traffic
+percentages, `capacity_model.average_processing_ms` from the test definition,
+processing-enabled mode, explicit processing-mode overrides, and a capacity
+factor to calculate topic partitions and either worker concurrency or Spring
+Kafka listener concurrency. Dispatcher selection is profile-scoped:
+`spring-kafka` and `confluent-sync` do not expose it, `ckc-sync` exposes only
+`IO` and `VIRTUAL`, and coroutine-worker profiles expose `DEFAULT`, `FIXED`,
+`IO`, and `VIRTUAL`. If a test definition does not define the capacity
+model, the planner falls back to the older stub-latency estimate and marks that
+source in the printed plan. The full plan is printed before preparation and is
+included in each run's `run-metadata.json`.
 
 Before destructive setup starts, interactive runs ask whether to apply the plan,
 edit it manually, or abort. Manual editing exposes only the knobs supported by
@@ -222,14 +227,15 @@ Pass the same choices explicitly for a non-interactive run:
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --profile ckc-sync \
-  --preset partition-ordering \
+  --order-processing-mode AT_LEAST_ONCE_PARTITION_ORDERING \
+  --batch-processing-mode AT_LEAST_ONCE_PARTITION_ORDERING \
   --base-rate 3000 \
   --capacity-factor 1.25 \
   --kafka-implementation apache-kafka \
+  --processing-dispatcher-type VIRTUAL \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
-  --worker-dispatcher-threads 8 \
   baseline
 ```
 
@@ -242,6 +248,11 @@ concurrency, average latency assumptions, and generated values path without
 resetting Kafka or deploying the app. Non-interactive runs can override the
 computed numbers directly with `--order-partitions`, `--order-workers`,
 `--order-pollers`, and the equivalent `batch` and `telemetry` flags.
+For non-CKC consumers, `HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED` means the demo
+consumer uses its built-in stale-record filter; it is rendered to the existing
+application enum value internally but shown separately in run plans and bundles
+to avoid confusing it with CKC's `FRESHNESS_FIRST_DROP_OLDEST` queue-overflow
+mode.
 
 The `apache-kafka` option runs the official `apache/kafka:4.3.1` image and
 enables share groups through `group.coordinator.rebalance.protocols=classic,consumer,streams,share`.
@@ -250,28 +261,30 @@ factor and min ISR to `1`, so share-group experiments do not wait for a
 multi-broker cluster.
 
 Any generated test environment value can also be overridden with repeated
-`--env KEY=VALUE` flags. These overrides are applied after the deployment
-profile and test definition are rendered. `--deployment` remains available as a
-legacy escape hatch for a hand-written Helm overlay:
+`--env KEY=VALUE` flags. These overrides are applied after the run profile and
+test definition are rendered. Static Helm profiles are no longer used for normal
+test runs; `demo/infra/internal-lab/assets/helm/demo/profiles/demo.yaml`
+is kept only as a manual Helm/debug overlay.
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
-  --deployment ckc \
-  --env WORKER_DISPATCHER_THREADS=2 \
-  --env BASE_TPS=3000 \
+  --profile ckc \
+  --processing-dispatcher-type FIXED \
+  --worker-dispatcher-threads 2 \
+  --base-rate 3000 \
   telemetry-freshness-fairness
 ```
 
 Before starting the load generator, the runner:
 
-- generates or reads Kafka topics from `lab.kafkaTopics` in the selected Helm deployment profile
+- generates Kafka topics from the computed run plan
 - reads mandatory stub baseline settings and load parameters from the selected lab test definition
 - removes any old demo HPA and scales the demo app down so consumer groups are inactive
 - resets Redis on the lab host
 - deletes stale Kafka consumer groups for the demo app
 - deletes and recreates Kafka topics on the selected host broker
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
-- applies the selected app Helm profile with processing, audit logging, consumer metrics implementation, and suspend worker dispatcher threads overridden from the prompts
+- applies the generated app Helm overlay with processing, audit logging, consumer metrics implementation, dispatcher, and worker settings overridden from the prompts
 
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
@@ -282,15 +295,15 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --processing-enabled false \
   --audit-log-enabled false \
   --metrics-implementation NOOP \
-  --worker-dispatcher-threads 8 \
+  --processing-dispatcher-type IO \
   baseline
 ```
 
 Even with `--skip-prepare`, stub baseline settings are applied before the load generator starts.
 `--worker-dispatcher-threads` limits the shared fixed worker pool when the
-selected profile uses a fixed processing dispatcher. `ckc-sync` uses
-`Dispatchers.IO` by default; use the `virtual-dispatcher` preset to run its
-blocking handlers on virtual threads.
+selected profile uses `--processing-dispatcher-type FIXED`; it is rejected for
+other dispatcher types and for profiles that do not use the demo processing
+dispatcher.
 The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
 
 ```text
@@ -317,10 +330,10 @@ Or run a specific bundle with:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison
 ```
 
-Compare suspend CKC, blocking CKC sync IO, and blocking CKC sync Loom profiles with:
+Compare suspend CKC, blocking CKC sync IO, and blocking CKC sync virtual-dispatcher mode with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh ckc-sync-loom-comparison
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh ckc-sync-dispatcher-comparison
 ```
 
 Run every synced bundle sequentially with:
@@ -336,6 +349,20 @@ After the initial bundle selection and bundle-wide settings prompt, tests run
 unattended. Type `q` and press Enter while a bundle is running to ask the
 current test to stop, finalize its raw audit log, and abort the rest of the
 bundle.
+
+After tuning a single run with `run-test.sh`, print a ready-to-paste bundle
+`tests:` item from the latest completed run:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/bundle-snippet.sh
+```
+
+Pass a run id or audit directory to use a specific run, and `--name` to set the
+bundle test name:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/bundle-snippet.sh 20260713T120000Z --name ckc-baseline-final
+```
 
 For a short end-to-end bundle smoke test, run:
 
@@ -430,14 +457,13 @@ metadata/status but leaves `summary.yaml` generation for a later analyzer pass.
 This is the mode used by `run-bundle.sh`.
 
 For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
-test definition with `ckc-telemetry-freshness-first-drop-oldest`,
-`ckc-telemetry-freshness-first-replace-pending-by-key`, and
-`spring-kafka-coroutines-naive-telemetry-threshold`. The cauldron topic summary
-then includes `key_fairness` metrics for processed/dropped ratio skew,
-per-key processed gaps, and processed/dropped record age. Keep this definition
-on one load-test worker unless you intentionally want one fixed fleet per
-worker; otherwise active key cardinality increases and can trigger
-`new_key_queue_full` before the key-coalescing behavior is measured.
+test definition and select the telemetry processing mode explicitly with
+`--telemetry-processing-mode`. The cauldron topic summary then includes
+`key_fairness` metrics for processed/dropped ratio skew, per-key processed
+gaps, and processed/dropped record age. Keep this definition on one load-test
+worker unless you intentionally want one fixed fleet per worker; otherwise
+active key cardinality increases and can trigger `new_key_queue_full` before
+the key-coalescing behavior is measured.
 
 After the local generator exits, the runner waits for Prometheus
 `kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
@@ -525,22 +551,15 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
 
-Switch only the app profile or explicit Helm settings. For example:
+Apply the generic manual/debug Helm overlay without changing the generated run
+profile model:
 
 ```sh
 helm upgrade --install ckc-demo demo/infra/internal-lab/assets/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab/ckc.yaml
-```
-
-```sh
-helm upgrade --install ckc-demo demo/infra/internal-lab/assets/helm/demo \
-  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
-  --namespace ckc-perf \
-  -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/internal-lab/assets/helm/demo/profiles/internal-lab/spring-kafka.yaml
+  -f demo/infra/internal-lab/assets/helm/demo/profiles/demo.yaml
 ```
 
 Useful Prometheus queries:

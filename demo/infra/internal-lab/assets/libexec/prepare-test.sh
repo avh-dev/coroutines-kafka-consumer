@@ -4,7 +4,7 @@ set -euo pipefail
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles/internal-lab"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
 TEST_DIR="${LAB_ROOT}/test-definitions"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 
@@ -25,7 +25,7 @@ LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
 PROCESSING_ENABLED="true"
 AUDIT_LOG_ENABLED="true"
 METRICS_IMPLEMENTATION="MICROMETER"
-WORKER_DISPATCHER_THREADS="8"
+WORKER_DISPATCHER_THREADS=""
 AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
 ENV_OVERRIDES=()
 POSITIONAL_ARGS=()
@@ -82,7 +82,7 @@ if [[ "${PROCESSING_ENABLED}" != "true" && "${PROCESSING_ENABLED}" != "false" ]]
   echo "processing-enabled must be true or false: ${PROCESSING_ENABLED}" >&2
   exit 1
 fi
-if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
   exit 1
 fi
@@ -127,9 +127,11 @@ DEFINITION_ENV_ARGS=(
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
-  --worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}" \
   --repo-dir "${LAB_ROOT}"
 )
+if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
+  DEFINITION_ENV_ARGS+=(--worker-dispatcher-threads "${WORKER_DISPATCHER_THREADS}")
+fi
 for override in "${ENV_OVERRIDES[@]}"; do
   DEFINITION_ENV_ARGS+=(--env "${override}")
 done
@@ -148,8 +150,12 @@ if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}"
   echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
   exit 1
 fi
-if ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "WORKER_DISPATCHER_THREADS must be a positive integer after overrides: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
+if [[ -n "${WORKER_DISPATCHER_THREADS}" && "${PROCESSING_DISPATCHER_TYPE:-}" != "FIXED" ]]; then
+  echo "WORKER_DISPATCHER_THREADS is only valid when PROCESSING_DISPATCHER_TYPE=FIXED." >&2
   exit 1
 fi
 
@@ -176,15 +182,20 @@ CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-
 
 "${LAB_ROOT}/libexec/deploy-stubs.sh"
 
-helm upgrade --install ckc-demo "${LAB_ROOT}/helm/demo" \
+HELM_ARGS=(
+  upgrade --install ckc-demo "${LAB_ROOT}/helm/demo"
   --namespace ckc-perf \
   -f "${LAB_ROOT}/config/defaults/demo-values.yaml" \
   -f "${DEPLOYMENT_PROFILE}" \
   --set "env.processingEnabled=${PROCESSING_ENABLED}" \
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
   --set "env.auditRunId=${AUDIT_RUN_ID}" \
-  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
-  --set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}"
+  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}"
+)
+if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
+  HELM_ARGS+=(--set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}")
+fi
+helm "${HELM_ARGS[@]}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
 "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
@@ -193,7 +204,6 @@ kubectl -n ckc-perf get pods,svc,endpoints -o wide
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF
 APP_PROFILE='${APP_PROFILE}'
 RUN_PROFILE='${RUN_PROFILE:-}'
-RUN_PRESETS='${RUN_PRESETS:-}'
 RUN_PLAN_PATH='${RUN_PLAN_PATH:-}'
 CAPACITY_FACTOR='${CAPACITY_FACTOR:-}'
 PROCESSING_DISPATCHER_TYPE='${PROCESSING_DISPATCHER_TYPE:-}'
@@ -216,7 +226,12 @@ echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
 echo "  processing_enabled=${PROCESSING_ENABLED}"
 echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
 echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"
-echo "  worker_dispatcher_threads=${WORKER_DISPATCHER_THREADS}"
+if [[ -n "${PROCESSING_DISPATCHER_TYPE:-}" ]]; then
+  echo "  processing_dispatcher_type=${PROCESSING_DISPATCHER_TYPE}"
+fi
+if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
+  echo "  worker_dispatcher_threads=${WORKER_DISPATCHER_THREADS}"
+fi
 echo "  topics=${TOPIC_SPECS}"
 if [[ -n "${RUN_PLAN_PATH:-}" ]]; then
   echo "  run_plan=${RUN_PLAN_PATH}"

@@ -18,7 +18,10 @@
   Remote entrypoints that execute on the runner host.
 
 - `../shared/`
-  Helm charts, test definitions, and test orchestration code reused by lab flows.
+  Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
+
+- `test-definitions/`
+  AWS-owned test definitions.
 
 - `scripts/`
   Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
@@ -40,7 +43,7 @@
 - `helm/`
   AWS-owned Helm charts and deployment profiles for the app and stub workloads.
 
-- `../shared/test-definitions`
+- `test-definitions`
   Test-run definitions that select deployment profiles and load configuration.
 
 - `../shared/audit`
@@ -68,7 +71,7 @@
 
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
-`create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/shared/test-definitions/ckc-baseline.yaml`.
+`create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/aws/test-definitions/ckc-baseline.yaml`.
 
 ## Audit Analysis
 
