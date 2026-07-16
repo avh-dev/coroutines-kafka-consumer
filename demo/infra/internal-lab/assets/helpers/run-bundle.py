@@ -388,6 +388,8 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
                     command.extend([f"--{topic}-{knob}", env_value(test[key])])
     else:
         command.extend(["--deployment", str(test["deployment"])])
+    if "stub_replicas" in test:
+        command.extend(["--stub-replicas", env_value(test["stub_replicas"])])
     for key, flag in LEGACY_ENV_ARGS.items():
         if key in env:
             command.extend([flag, env[key]])

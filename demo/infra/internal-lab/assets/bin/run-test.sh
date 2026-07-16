@@ -28,6 +28,7 @@ EXPLICIT_RUN_PROFILE=0
 BASE_TPS_OVERRIDE=""
 CAPACITY_FACTOR=""
 REPLICA_COUNT=""
+STUB_REPLICA_COUNT=""
 ORDER_PROCESSING_MODE=""
 BATCH_PROCESSING_MODE=""
 TELEMETRY_PROCESSING_MODE=""
@@ -48,7 +49,7 @@ usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
           [--profile spring-profile] [--base-rate tps] [--capacity-factor value]
-          [--replicas count]
+          [--replicas count] [--stub-replicas count]
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
@@ -74,6 +75,7 @@ Options:
   --capacity-factor
                    Multiply calculated topic parallelism by this headroom factor.
   --replicas       Override generated deployment replica count for this run.
+  --stub-replicas  Override demo-stubs deployment replica count for this run.
   --order-processing-mode
                    Select processing mode for the order topic.
   --batch-processing-mode
@@ -139,6 +141,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --replicas)
       REPLICA_COUNT="${2:?--replicas requires a positive integer}"
+      shift 2
+      ;;
+    --stub-replicas)
+      STUB_REPLICA_COUNT="${2:?--stub-replicas requires a positive integer}"
       shift 2
       ;;
     --order-processing-mode)
@@ -234,6 +240,7 @@ CURRENT_RUN_PROFILE=""
 CURRENT_BASE_TPS=""
 CURRENT_CAPACITY_FACTOR=""
 CURRENT_REPLICA_COUNT=""
+CURRENT_STUB_REPLICA_COUNT=""
 CURRENT_ORDER_PROCESSING_MODE=""
 CURRENT_BATCH_PROCESSING_MODE=""
 CURRENT_TELEMETRY_PROCESSING_MODE=""
@@ -242,6 +249,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE}"
   REQUESTED_CAPACITY_FACTOR="${CAPACITY_FACTOR}"
   REQUESTED_REPLICA_COUNT="${REPLICA_COUNT}"
+  REQUESTED_STUB_REPLICA_COUNT="${STUB_REPLICA_COUNT}"
   REQUESTED_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE}"
   REQUESTED_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE}"
   REQUESTED_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE}"
@@ -268,6 +276,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_BASE_TPS="${BASE_TPS:-}"
   CURRENT_CAPACITY_FACTOR="${CAPACITY_FACTOR:-}"
   CURRENT_REPLICA_COUNT="${REPLICA_COUNT:-}"
+  CURRENT_STUB_REPLICA_COUNT="${STUB_REPLICA_COUNT:-}"
   CURRENT_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE:-}"
   CURRENT_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE:-}"
   CURRENT_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE:-}"
@@ -275,6 +284,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   BASE_TPS_OVERRIDE="${REQUESTED_BASE_TPS_OVERRIDE}"
   CAPACITY_FACTOR="${REQUESTED_CAPACITY_FACTOR}"
   REPLICA_COUNT="${REQUESTED_REPLICA_COUNT}"
+  STUB_REPLICA_COUNT="${REQUESTED_STUB_REPLICA_COUNT}"
   ORDER_PROCESSING_MODE="${REQUESTED_ORDER_PROCESSING_MODE}"
   BATCH_PROCESSING_MODE="${REQUESTED_BATCH_PROCESSING_MODE}"
   TELEMETRY_PROCESSING_MODE="${REQUESTED_TELEMETRY_PROCESSING_MODE}"
@@ -586,6 +596,20 @@ if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false"
   exit 1
 fi
 
+if [ -z "${STUB_REPLICA_COUNT}" ]; then
+  if [ ! -t 0 ]; then
+    STUB_REPLICA_COUNT="${CURRENT_STUB_REPLICA_COUNT}"
+  else
+    STUB_REPLICA_DEFAULT="${CURRENT_STUB_REPLICA_COUNT:-1}"
+    read -r -p "Demo stubs replicas [${STUB_REPLICA_DEFAULT}]: " STUB_REPLICA_COUNT
+    STUB_REPLICA_COUNT="${STUB_REPLICA_COUNT:-${STUB_REPLICA_DEFAULT}}"
+  fi
+fi
+if [ -n "${STUB_REPLICA_COUNT}" ] && ! [[ "${STUB_REPLICA_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "stub-replicas must be a positive integer: ${STUB_REPLICA_COUNT}" >&2
+  exit 1
+fi
+
 if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   if [ -z "${BASE_TPS_OVERRIDE}" ]; then
     BASE_TPS_DEFAULT="${CURRENT_BASE_TPS:-$(definition_base_tps "${TEST_DEFINITION}")}"
@@ -807,6 +831,9 @@ fi
 if [ -n "${REPLICA_COUNT}" ]; then
   echo "Replicas: ${REPLICA_COUNT}"
 fi
+if [ -n "${STUB_REPLICA_COUNT}" ]; then
+  echo "Demo stubs replicas: ${STUB_REPLICA_COUNT}"
+fi
 if [ "${PROCESSING_DISPATCHER_TYPE:-}" = "FIXED" ]; then
   echo "Worker dispatcher threads: ${WORKER_DISPATCHER_THREADS}"
 fi
@@ -943,6 +970,9 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     --kafka-implementation
     "${LAB_KAFKA_IMPLEMENTATION}"
   )
+  if [ -n "${STUB_REPLICA_COUNT}" ]; then
+    PREPARE_ARGS+=(--stub-replicas "${STUB_REPLICA_COUNT}")
+  fi
   if [ -n "${WORKER_DISPATCHER_THREADS}" ]; then
     PREPARE_ARGS=(
       "${DEPLOYMENT_PROFILE}"
@@ -956,6 +986,9 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
       --kafka-implementation
       "${LAB_KAFKA_IMPLEMENTATION}"
     )
+    if [ -n "${STUB_REPLICA_COUNT}" ]; then
+      PREPARE_ARGS+=(--stub-replicas "${STUB_REPLICA_COUNT}")
+    fi
   fi
   for override in "${ENV_OVERRIDES[@]}"; do
     PREPARE_ARGS+=(--env "${override}")
@@ -988,7 +1021,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
-  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED WORKER_DISPATCHER_THREADS
+  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
   export RUN_PROFILE RUN_PLAN_PATH CAPACITY_FACTOR REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
@@ -1057,6 +1090,7 @@ metadata = {
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),
         "lettuce_metrics_enabled": env_bool("LETTUCE_METRICS_ENABLED"),
         "replica_count": env_int("REPLICA_COUNT"),
+        "stub_replica_count": env_int("STUB_REPLICA_COUNT"),
         "processing_dispatcher_type": env("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env_int("WORKER_DISPATCHER_THREADS"),
         "processing_modes": {

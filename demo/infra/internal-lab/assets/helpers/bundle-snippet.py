@@ -111,6 +111,8 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
         entry["replicas"] = run_plan["replica_count"]
     elif application.get("replica_count") is not None:
         entry["replicas"] = application["replica_count"]
+    if application.get("stub_replica_count") is not None:
+        entry["stub_replicas"] = application["stub_replica_count"]
 
     for topic_name in TOPICS:
         topic = topic_plan(run_plan, topic_name)

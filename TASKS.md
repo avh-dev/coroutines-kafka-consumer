@@ -186,6 +186,7 @@
 | [INFRA-69](#infra-69) | Add a dynamic internal-lab run planner that computes topics, concurrency, and processing modes from profile and load settings.          | DONE |
 | [INFRA-70](#infra-70) | Simplify internal-lab Helm profiles around generated run plans and remove static topic partition settings from legacy overlays.        | DONE |
 | [INFRA-71](#infra-71) | Make internal-lab run replica count selectable before dynamic plan generation.                                                          | DONE |
+| [INFRA-72](#infra-72) | Make internal-lab demo-stubs replica count selectable per test run.                                                                    | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -1997,3 +1998,12 @@ Use the selected replica count when rounding topic partitions and computing per-
 Keep the profile default as the fallback for non-interactive runs and unchanged previous-profile launches.
 Persist the chosen replica count into run metadata/current deployment state and carry it through bundle snippets.
 Keep generated worker-based topic partitions at least equal to replica count so every pod can receive an assignment.
+
+<a id="infra-72"></a>
+### INFRA-72 - Add selectable demo-stubs replicas
+
+_Date: 2026-07-16_
+
+Add an internal-lab test-run parameter for selecting how many demo-stubs pods to run.
+Pass the selected count through stubs deployment, current deployment state, and run metadata.
+Keep the chart default as the fallback for existing non-interactive runs.

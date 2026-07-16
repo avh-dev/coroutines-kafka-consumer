@@ -72,6 +72,7 @@ tests:
     base_rate: 2000
     capacity_factor: 1.2
     replicas: 2
+    stub_replicas: 2
     lettuce_metrics: true
     order_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
