@@ -189,6 +189,7 @@
 | [INFRA-72](#infra-72) | Make internal-lab demo-stubs replica count selectable per test run.                                                                    | DONE |
 | [INFRA-73](#infra-73) | Refine the shared Grafana overview with a common throughput panel and clearer event/command aggregation toggle.                       | DONE |
 | [INFRA-74](#infra-74) | Add an internal-lab test definition that steps load upward in ten-percent increments.                                                  | DONE |
+| [INFRA-75](#infra-75) | Fix the Grafana event breakdown variable so it exposes only split and aggregated choices.                                             | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2027,3 +2028,12 @@ _Date: 2026-07-16_
 Add an internal-lab `step-rate` test definition for controlled throughput discovery.
 Ramp the load by ten percentage points over one minute, then hold each step for three minutes.
 Continue the sequence through 100 percent of the selected base TPS and finish with a short cool-down.
+
+<a id="infra-75"></a>
+### INFRA-75 - Fix Grafana breakdown toggle
+
+_Date: 2026-07-16_
+
+Keep the Grafana event breakdown variable to exactly two visible choices: split and aggregated.
+Use a normalized `breakdown` label so event panels split by event type and Lettuce panels split by Redis command.
+Avoid comma-separated custom variable values that Grafana expands into extra choices.
