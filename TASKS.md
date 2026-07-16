@@ -187,6 +187,7 @@
 | [INFRA-70](#infra-70) | Simplify internal-lab Helm profiles around generated run plans and remove static topic partition settings from legacy overlays.        | DONE |
 | [INFRA-71](#infra-71) | Make internal-lab run replica count selectable before dynamic plan generation.                                                          | DONE |
 | [INFRA-72](#infra-72) | Make internal-lab demo-stubs replica count selectable per test run.                                                                    | DONE |
+| [INFRA-73](#infra-73) | Refine the shared Grafana overview with a common throughput panel and clearer event/command aggregation toggle.                       | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2007,3 +2008,12 @@ _Date: 2026-07-16_
 Add an internal-lab test-run parameter for selecting how many demo-stubs pods to run.
 Pass the selected count through stubs deployment, current deployment state, and run metadata.
 Keep the chart default as the fallback for existing non-interactive runs.
+
+<a id="infra-73"></a>
+### INFRA-73 - Refine Grafana overview controls
+
+_Date: 2026-07-16_
+
+Add a common top-level throughput panel so load-test progress can be compared against the target rate at a glance.
+Rename the top dashboard row to cover shared run-level signals instead of only the active consumer profile.
+Restore the event-type breakdown control wording while keeping split and aggregated behavior for event and Redis command panels.
