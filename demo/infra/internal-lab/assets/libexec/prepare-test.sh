@@ -27,6 +27,7 @@ AUDIT_LOG_ENABLED="true"
 METRICS_IMPLEMENTATION="MICROMETER"
 LETTUCE_METRICS_ENABLED="true"
 WORKER_DISPATCHER_THREADS=""
+STUB_REPLICA_COUNT=""
 AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
 ENV_OVERRIDES=()
 POSITIONAL_ARGS=()
@@ -45,8 +46,12 @@ while [[ "$#" -gt 0 ]]; do
       LETTUCE_METRICS_ENABLED="${2:?--lettuce-metrics requires true or false}"
       shift 2
       ;;
+    --stub-replicas)
+      STUB_REPLICA_COUNT="${2:?--stub-replicas requires a positive integer}"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
       exit 0
       ;;
     *)
@@ -64,7 +69,7 @@ METRICS_IMPLEMENTATION="${POSITIONAL_ARGS[4]:-${METRICS_IMPLEMENTATION}}"
 WORKER_DISPATCHER_THREADS="${POSITIONAL_ARGS[5]:-${WORKER_DISPATCHER_THREADS}}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
   exit 1
 fi
 case "${LAB_KAFKA_IMPLEMENTATION}" in
@@ -93,6 +98,10 @@ if [[ "${LETTUCE_METRICS_ENABLED}" != "true" && "${LETTUCE_METRICS_ENABLED}" != 
 fi
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "worker-dispatcher-threads must be a positive integer: ${WORKER_DISPATCHER_THREADS}" >&2
+  exit 1
+fi
+if [[ -n "${STUB_REPLICA_COUNT}" ]] && ! [[ "${STUB_REPLICA_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "stub-replicas must be a positive integer: ${STUB_REPLICA_COUNT}" >&2
   exit 1
 fi
 
@@ -194,7 +203,11 @@ TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
 
-"${LAB_ROOT}/libexec/deploy-stubs.sh"
+DEPLOY_STUBS_ARGS=()
+if [[ -n "${STUB_REPLICA_COUNT}" ]]; then
+  DEPLOY_STUBS_ARGS+=(--replicas "${STUB_REPLICA_COUNT}")
+fi
+"${LAB_ROOT}/libexec/deploy-stubs.sh" "${DEPLOY_STUBS_ARGS[@]}"
 
 HELM_ARGS=(
   upgrade --install ckc-demo "${LAB_ROOT}/helm/demo"
@@ -228,6 +241,7 @@ AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
 LETTUCE_METRICS_ENABLED='${LETTUCE_METRICS_ENABLED}'
 WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
+STUB_REPLICA_COUNT='${STUB_REPLICA_COUNT}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
 TOPIC_SPECS='${TOPIC_SPECS}'
 BASE_TPS='${BASE_TPS}'
@@ -248,6 +262,9 @@ if [[ -n "${PROCESSING_DISPATCHER_TYPE:-}" ]]; then
 fi
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
   echo "  worker_dispatcher_threads=${WORKER_DISPATCHER_THREADS}"
+fi
+if [[ -n "${STUB_REPLICA_COUNT}" ]]; then
+  echo "  stub_replica_count=${STUB_REPLICA_COUNT}"
 fi
 echo "  topics=${TOPIC_SPECS}"
 if [[ -n "${RUN_PLAN_PATH:-}" ]]; then
