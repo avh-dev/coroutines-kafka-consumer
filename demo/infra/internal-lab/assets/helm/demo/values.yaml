@@ -27,6 +27,7 @@ env:
   registryBaseUrl: ""
   processingEnabled: true
   metricsImplementation: MICROMETER
+  lettuceMetricsEnabled: true
   processingDispatcherType: AUTO
   workerDispatcherThreads: 8
   processingDispatcherVirtualThreadNamePrefix: demo-processing-virtual-

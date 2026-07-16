@@ -25,6 +25,7 @@ LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
 PROCESSING_ENABLED="true"
 AUDIT_LOG_ENABLED="true"
 METRICS_IMPLEMENTATION="MICROMETER"
+LETTUCE_METRICS_ENABLED="true"
 WORKER_DISPATCHER_THREADS=""
 AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
 ENV_OVERRIDES=()
@@ -40,8 +41,12 @@ while [[ "$#" -gt 0 ]]; do
       ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
       shift 2
       ;;
+    --lettuce-metrics)
+      LETTUCE_METRICS_ENABLED="${2:?--lettuce-metrics requires true or false}"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
       exit 0
       ;;
     *)
@@ -59,7 +64,7 @@ METRICS_IMPLEMENTATION="${POSITIONAL_ARGS[4]:-${METRICS_IMPLEMENTATION}}"
 WORKER_DISPATCHER_THREADS="${POSITIONAL_ARGS[5]:-${WORKER_DISPATCHER_THREADS}}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
   exit 1
 fi
 case "${LAB_KAFKA_IMPLEMENTATION}" in
@@ -80,6 +85,10 @@ if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}"
 fi
 if [[ "${PROCESSING_ENABLED}" != "true" && "${PROCESSING_ENABLED}" != "false" ]]; then
   echo "processing-enabled must be true or false: ${PROCESSING_ENABLED}" >&2
+  exit 1
+fi
+if [[ "${LETTUCE_METRICS_ENABLED}" != "true" && "${LETTUCE_METRICS_ENABLED}" != "false" ]]; then
+  echo "lettuce-metrics must be true or false: ${LETTUCE_METRICS_ENABLED}" >&2
   exit 1
 fi
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
@@ -127,6 +136,7 @@ DEFINITION_ENV_ARGS=(
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
+  --lettuce-metrics-enabled "${LETTUCE_METRICS_ENABLED}" \
   --repo-dir "${LAB_ROOT}"
 )
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
@@ -148,6 +158,10 @@ if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; 
 fi
 if [[ "${METRICS_IMPLEMENTATION}" != "MICROMETER" && "${METRICS_IMPLEMENTATION}" != "NOOP" ]]; then
   echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+if [[ "${LETTUCE_METRICS_ENABLED}" != "true" && "${LETTUCE_METRICS_ENABLED}" != "false" ]]; then
+  echo "LETTUCE_METRICS_ENABLED must be true or false after overrides: ${LETTUCE_METRICS_ENABLED}" >&2
   exit 1
 fi
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
@@ -190,7 +204,8 @@ HELM_ARGS=(
   --set "env.processingEnabled=${PROCESSING_ENABLED}" \
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
   --set "env.auditRunId=${AUDIT_RUN_ID}" \
-  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}"
+  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
+  --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}"
 )
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
   HELM_ARGS+=(--set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}")
@@ -211,6 +226,7 @@ LAB_KAFKA_IMPLEMENTATION='${LAB_KAFKA_IMPLEMENTATION}'
 PROCESSING_ENABLED='${PROCESSING_ENABLED}'
 AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
+LETTUCE_METRICS_ENABLED='${LETTUCE_METRICS_ENABLED}'
 WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
 TOPIC_SPECS='${TOPIC_SPECS}'
@@ -226,6 +242,7 @@ echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
 echo "  processing_enabled=${PROCESSING_ENABLED}"
 echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
 echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"
+echo "  lettuce_metrics_enabled=${LETTUCE_METRICS_ENABLED}"
 if [[ -n "${PROCESSING_DISPATCHER_TYPE:-}" ]]; then
   echo "  processing_dispatcher_type=${PROCESSING_DISPATCHER_TYPE}"
 fi

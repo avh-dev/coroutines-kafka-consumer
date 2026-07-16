@@ -38,6 +38,7 @@ PROCESSING_DISPATCHER_TYPE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
 METRICS_IMPLEMENTATION=""
+LETTUCE_METRICS_ENABLED=""
 WORKER_DISPATCHER_THREADS=""
 EXPLICIT_WORKER_DISPATCHER_THREADS=0
 ENV_OVERRIDES=()
@@ -53,7 +54,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--kafka-implementation redpanda|apache-kafka]
           [--processing-dispatcher-type DEFAULT|FIXED|IO|VIRTUAL]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
-          [--metrics-implementation MICROMETER|NOOP]
+          [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--env KEY=VALUE]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
@@ -96,6 +97,8 @@ Options:
                     Override consumer and load-generator audit logging with true or false.
   --metrics-implementation
                     Select MICROMETER or NOOP consumer metrics.
+  --lettuce-metrics
+                    Enable native Lettuce Redis client metrics with true or false.
   --worker-dispatcher-threads
                     Set the fixed worker dispatcher thread count.
   --env             Override any generated test environment value. Can be repeated.
@@ -178,6 +181,10 @@ while [ "$#" -gt 0 ]; do
       METRICS_IMPLEMENTATION="${2:?--metrics-implementation requires MICROMETER or NOOP}"
       shift 2
       ;;
+    --lettuce-metrics)
+      LETTUCE_METRICS_ENABLED="${2:?--lettuce-metrics requires true or false}"
+      shift 2
+      ;;
     --worker-dispatcher-threads)
       WORKER_DISPATCHER_THREADS="${2:?--worker-dispatcher-threads requires a positive integer}"
       EXPLICIT_WORKER_DISPATCHER_THREADS=1
@@ -219,6 +226,7 @@ CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
 CURRENT_PROCESSING_ENABLED="true"
 CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
+CURRENT_LETTUCE_METRICS_ENABLED="true"
 CURRENT_PROCESSING_DISPATCHER_TYPE=""
 CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
@@ -242,6 +250,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
   REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
+  REQUESTED_LETTUCE_METRICS_ENABLED="${LETTUCE_METRICS_ENABLED}"
   REQUESTED_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS}"
   REQUESTED_EXPLICIT_WORKER_DISPATCHER_THREADS="${EXPLICIT_WORKER_DISPATCHER_THREADS}"
   # shellcheck disable=SC1090
@@ -251,6 +260,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
   CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
+  CURRENT_LETTUCE_METRICS_ENABLED="${LETTUCE_METRICS_ENABLED:-true}"
   CURRENT_PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_TYPE:-}"
   CURRENT_WORKER_DISPATCHER_THREADS="${WORKER_DISPATCHER_THREADS:-8}"
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
@@ -273,6 +283,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
   METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
+  LETTUCE_METRICS_ENABLED="${REQUESTED_LETTUCE_METRICS_ENABLED}"
   WORKER_DISPATCHER_THREADS="${REQUESTED_WORKER_DISPATCHER_THREADS}"
   EXPLICIT_WORKER_DISPATCHER_THREADS="${REQUESTED_EXPLICIT_WORKER_DISPATCHER_THREADS}"
 fi
@@ -720,6 +731,18 @@ if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATIO
   exit 1
 fi
 
+if [ -z "${LETTUCE_METRICS_ENABLED}" ]; then
+  if [ ! -t 0 ]; then
+    LETTUCE_METRICS_ENABLED="${CURRENT_LETTUCE_METRICS_ENABLED}"
+  else
+    LETTUCE_METRICS_ENABLED="$(select_value "Enable Lettuce Redis client metrics" "${CURRENT_LETTUCE_METRICS_ENABLED}" true false)"
+  fi
+fi
+if [ "${LETTUCE_METRICS_ENABLED}" != "true" ] && [ "${LETTUCE_METRICS_ENABLED}" != "false" ]; then
+  echo "lettuce-metrics must be true or false: ${LETTUCE_METRICS_ENABLED}" >&2
+  exit 1
+fi
+
 if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   PLAN_OUTPUT_DIR="${LAB_ROOT}/state/generated"
   PLAN_ENV_FILE="${PLAN_OUTPUT_DIR}/run-plan.env"
@@ -777,6 +800,7 @@ echo "Kafka broker implementation: ${LAB_KAFKA_IMPLEMENTATION}"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
+echo "Lettuce metrics enabled: ${LETTUCE_METRICS_ENABLED}"
 if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
   echo "Processing dispatcher: ${PROCESSING_DISPATCHER_TYPE}"
 fi
@@ -838,6 +862,7 @@ DEFINITION_ENV_ARGS=(
   --processing-enabled "${PROCESSING_ENABLED}" \
   --audit-log-enabled "${AUDIT_LOG_ENABLED}" \
   --metrics-implementation "${METRICS_IMPLEMENTATION}" \
+  --lettuce-metrics-enabled "${LETTUCE_METRICS_ENABLED}" \
   --repo-dir "${LAB_ROOT}"
 )
 if [ -n "${WORKER_DISPATCHER_THREADS}" ]; then
@@ -862,6 +887,10 @@ if [ "${AUDIT_LOG_ENABLED}" != "true" ] && [ "${AUDIT_LOG_ENABLED}" != "false" ]
 fi
 if [ "${METRICS_IMPLEMENTATION}" != "MICROMETER" ] && [ "${METRICS_IMPLEMENTATION}" != "NOOP" ]; then
   echo "METRICS_IMPLEMENTATION must be MICROMETER or NOOP after overrides: ${METRICS_IMPLEMENTATION}" >&2
+  exit 1
+fi
+if [ "${LETTUCE_METRICS_ENABLED}" != "true" ] && [ "${LETTUCE_METRICS_ENABLED}" != "false" ]; then
+  echo "LETTUCE_METRICS_ENABLED must be true or false after overrides: ${LETTUCE_METRICS_ENABLED}" >&2
   exit 1
 fi
 if [ -n "${WORKER_DISPATCHER_THREADS}" ] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
@@ -909,6 +938,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     "${PROCESSING_ENABLED}"
     "${AUDIT_LOG_ENABLED}"
     "${METRICS_IMPLEMENTATION}"
+    --lettuce-metrics
+    "${LETTUCE_METRICS_ENABLED}"
     --kafka-implementation
     "${LAB_KAFKA_IMPLEMENTATION}"
   )
@@ -920,6 +951,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
       "${AUDIT_LOG_ENABLED}"
       "${METRICS_IMPLEMENTATION}"
       "${WORKER_DISPATCHER_THREADS}"
+      --lettuce-metrics
+      "${LETTUCE_METRICS_ENABLED}"
       --kafka-implementation
       "${LAB_KAFKA_IMPLEMENTATION}"
     )
@@ -955,7 +988,7 @@ mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
-  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION WORKER_DISPATCHER_THREADS
+  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED WORKER_DISPATCHER_THREADS
   export RUN_PROFILE RUN_PLAN_PATH CAPACITY_FACTOR REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
@@ -1022,6 +1055,7 @@ metadata = {
         "processing_enabled": env_bool("PROCESSING_ENABLED"),
         "audit_log_enabled": env_bool("AUDIT_LOG_ENABLED"),
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),
+        "lettuce_metrics_enabled": env_bool("LETTUCE_METRICS_ENABLED"),
         "replica_count": env_int("REPLICA_COUNT"),
         "processing_dispatcher_type": env("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env_int("WORKER_DISPATCHER_THREADS"),

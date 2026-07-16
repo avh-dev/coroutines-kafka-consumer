@@ -64,6 +64,7 @@ defaults:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
+    LETTUCE_METRICS_ENABLED: true
 
 tests:
   - name: ckc
@@ -71,6 +72,7 @@ tests:
     base_rate: 2000
     capacity_factor: 1.2
     replicas: 2
+    lettuce_metrics: true
     order_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
     order_partitions: 8
