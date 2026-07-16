@@ -61,6 +61,8 @@ spec:
               value: {{ .Values.env.processingEnabled | quote }}
             - name: METRICS_IMPLEMENTATION
               value: {{ .Values.env.metricsImplementation | quote }}
+            - name: LETTUCE_METRICS_ENABLED
+              value: {{ .Values.env.lettuceMetricsEnabled | quote }}
             - name: PROCESSING_DISPATCHER_TYPE
               value: {{ .Values.env.processingDispatcherType | quote }}
             - name: WORKER_DISPATCHER_THREADS

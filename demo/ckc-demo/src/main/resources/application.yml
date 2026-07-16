@@ -55,6 +55,9 @@ demo:
     flavour-base-url: ${FLAVOUR_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
   registry:
     base-url: ${REGISTRY_BASE_URL:http://127.0.0.1:18080}
+  redis:
+    metrics:
+      enabled: ${LETTUCE_METRICS_ENABLED:true}
   audit:
     enabled: ${AUDIT_LOG_ENABLED:true}
     host: ${AUDIT_TCP_HOST:127.0.0.1}
@@ -97,5 +100,6 @@ management:
       percentiles-histogram:
         ckc.demo.model.call.duration: true
         ckc.demo.cauldron.telemetry.event.gap: true
+        lettuce.command.completion: true
         demo.ckc.record.process.duration: true
         demo.ckc.record.age: true

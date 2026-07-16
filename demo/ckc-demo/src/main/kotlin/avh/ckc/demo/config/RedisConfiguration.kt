@@ -14,6 +14,11 @@ import io.lettuce.core.api.sync.RedisCommands
 import io.lettuce.core.codec.ByteArrayCodec
 import io.lettuce.core.codec.RedisCodec
 import io.lettuce.core.codec.StringCodec
+import io.lettuce.core.metrics.MicrometerCommandLatencyRecorder
+import io.lettuce.core.metrics.MicrometerOptions
+import io.lettuce.core.resource.ClientResources
+import io.lettuce.core.resource.DefaultClientResources
+import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.serialization.json.Json
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
@@ -29,8 +34,10 @@ class RedisConfiguration {
     @Bean(destroyMethod = "close")
     fun demoRedisCommands(
         @Value("\${spring.data.redis.host:localhost}") host: String,
-        @Value("\${spring.data.redis.port:6379}") port: Int
-    ): DemoRedisCommands = LettuceDemoRedisCommands("redis://$host:$port")
+        @Value("\${spring.data.redis.port:6379}") port: Int,
+        @Value("\${demo.redis.metrics.enabled:true}") metricsEnabled: Boolean,
+        meterRegistry: MeterRegistry
+    ): DemoRedisCommands = LettuceDemoRedisCommands("redis://$host:$port", meterRegistry.takeIf { metricsEnabled })
 
     @Bean
     fun redisBrewingStateStore(
@@ -55,8 +62,16 @@ interface DemoRedisCommands {
 }
 
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
-private class LettuceDemoRedisCommands(redisUri: String) : DemoRedisCommands, Closeable {
-    private val client = RedisClient.create(redisUri)
+private class LettuceDemoRedisCommands(
+    redisUri: String,
+    meterRegistry: MeterRegistry?
+) : DemoRedisCommands, Closeable {
+    private val clientResources: ClientResources? = meterRegistry?.let {
+        DefaultClientResources.builder()
+            .commandLatencyRecorder(MicrometerCommandLatencyRecorder(it, MicrometerOptions.create()))
+            .build()
+    }
+    private val client = clientResources?.let { RedisClient.create(it, redisUri) } ?: RedisClient.create(redisUri)
     private val connectionDelegate = lazy {
         client.connect(RedisCodec.of(StringCodec.UTF8, ByteArrayCodec.INSTANCE))
     }
@@ -76,5 +91,6 @@ private class LettuceDemoRedisCommands(redisUri: String) : DemoRedisCommands, Cl
             connection.close()
         }
         client.shutdown()
+        clientResources?.shutdown()
     }
 }

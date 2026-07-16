@@ -131,6 +131,7 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
     add_env(env, "PROCESSING_ENABLED", application.get("processing_enabled"))
     add_env(env, "AUDIT_LOG_ENABLED", application.get("audit_log_enabled"))
     add_env(env, "METRICS_IMPLEMENTATION", application.get("metrics_implementation"))
+    add_env(env, "LETTUCE_METRICS_ENABLED", application.get("lettuce_metrics_enabled"))
     dispatcher_type = str(application.get("processing_dispatcher_type") or "")
     add_env(env, "PROCESSING_DISPATCHER_TYPE", dispatcher_type)
     if dispatcher_type == "FIXED":

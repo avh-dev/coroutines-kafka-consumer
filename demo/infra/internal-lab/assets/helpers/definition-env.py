@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--audit-log-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--metrics-implementation", choices=["MICROMETER", "NOOP"], default="MICROMETER")
+    parser.add_argument("--lettuce-metrics-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--worker-dispatcher-threads", type=optional_positive_int, default="")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Override a generated environment value.")
     parser.add_argument("--repo-dir", default=".")
@@ -311,6 +312,7 @@ def main() -> None:
         "TELEMETRY_PROCESSING_MODE": str(deployment_env.get("telemetryProcessingMode", "")),
         "PROCESSING_ENABLED": args.processing_enabled,
         "METRICS_IMPLEMENTATION": args.metrics_implementation,
+        "LETTUCE_METRICS_ENABLED": args.lettuce_metrics_enabled,
         "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),

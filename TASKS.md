@@ -114,6 +114,7 @@
 | [DEMO-61](#demo-61) | Add a `ckc-spring-boot` demo profile that uses the CKC Spring Boot starter for configuration-driven consumer wiring. | DONE |
 | [DEMO-62](#demo-62) | Wire custom metrics for the `ckc-spring-boot` demo profile so retry and drop audit records are emitted by the starter-backed consumers. | DONE |
 | [DEMO-63](#demo-63) | Add configurable demo processing dispatchers and replace the `ckc-sync-loom` Spring profile with a runtime dispatcher setting. | DONE |
+| [DEMO-64](#demo-64) | Enable optional native Lettuce command metrics in the demo app and surface Redis client latency in Grafana. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1930,6 +1931,16 @@ Replace profile-specific dispatcher experiments with a runtime dispatcher settin
 Keep existing default behavior while allowing fixed threads, `Dispatchers.Default`, `Dispatchers.IO`, or virtual threads where the profile supports them.
 Remove the need for a separate `ckc-sync-loom` Spring profile by selecting virtual threads through configuration.
 Keep the legacy internal-lab `ckc-sync-loom` overlay as a compatibility alias for `ckc-sync` plus virtual dispatcher mode until the Helm profile cleanup task removes it.
+
+<a id="demo-64"></a>
+### DEMO-64 - Add optional Lettuce metrics
+
+_Date: 2026-07-16_
+
+Enable native Lettuce Micrometer command latency metrics for the demo application Redis client.
+Keep the setting optional so Redis client metric cardinality can be disabled when it is not needed.
+Expose the setting through internal-lab test launch as `--lettuce-metrics true|false` and bundle metadata.
+Add Grafana visibility for Redis command throughput and latency on the shared dashboard.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile
