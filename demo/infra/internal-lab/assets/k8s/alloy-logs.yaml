@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ckc-log-collector
+  namespace: ckc-perf
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ckc-perf-log-collector
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ckc-perf-log-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ckc-perf-log-collector
+subjects:
+  - kind: ServiceAccount
+    name: ckc-log-collector
+    namespace: ckc-perf
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ckc-alloy-logs-config
+  namespace: ckc-perf
+data:
+  config.alloy: |
+    discovery.kubernetes "ckc_perf_pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-perf"]
+      }
+    }
+
+    discovery.relabel "ckc_perf_pods" {
+      targets = discovery.kubernetes.ckc_perf_pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "app"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_test_definition"]
+        target_label  = "test_definition"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-perf-pods"
+      }
+    }
+
+    loki.source.kubernetes "ckc_perf_pods" {
+      targets    = discovery.relabel.ckc_perf_pods.output
+      forward_to = [loki.process.ckc_perf_pods.receiver]
+    }
+
+    loki.process "ckc_perf_pods" {
+      stage.cri {}
+
+      stage.static_labels {
+        values = {
+          lab = "internal",
+        }
+      }
+
+      forward_to = [loki.write.local.receiver]
+    }
+
+    loki.write "local" {
+      endpoint {
+        url = "http://ckc-external-loki.ckc-perf.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ckc-log-collector
+  namespace: ckc-perf
+  labels:
+    app.kubernetes.io/name: ckc-log-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ckc-log-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ckc-log-collector
+    spec:
+      serviceAccountName: ckc-log-collector
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.5.1
+          args:
+            - run
+            - /etc/alloy/config.alloy
+          ports:
+            - name: http
+              containerPort: 12345
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+      volumes:
+        - name: config
+          configMap:
+            name: ckc-alloy-logs-config

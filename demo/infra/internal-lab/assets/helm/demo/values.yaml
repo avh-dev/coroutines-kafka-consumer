@@ -79,3 +79,4 @@ hpa:
   targetCPUUtilizationPercentage: 70
 
 hostAliases: []
+podLabels: {}

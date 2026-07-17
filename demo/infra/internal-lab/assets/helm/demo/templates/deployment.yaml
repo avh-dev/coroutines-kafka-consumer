@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
+{{- with .Values.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
     spec:
 {{- with .Values.hostAliases }}
       hostAliases:

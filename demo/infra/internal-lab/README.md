@@ -27,15 +27,18 @@ lab host
     ckc-demo Deployment, NodePort 30080
     ckc-demo-stubs Deployment, ClusterIP 8080
     ckc-prometheus Deployment, NodePort 30090
+    ckc-log-collector Deployment -> host Loki
     metrics-server for kubectl top and HPA
     ckc-external-kafka Service + Endpoints -> selected host Kafka API broker
     ckc-external-redis Service + Endpoints -> host Redis
     ckc-external-audit Service + Endpoints -> host Fluent Bit TCP collector
+    ckc-external-loki Service + Endpoints -> host Loki
 
   Docker Compose
     Redpanda or Apache Kafka -> host:9092
     Redis -> host:6379
     Fluent Bit -> host:5170 TCP audit ingest, localhost:2020 health
+    Loki -> host:3100 for persistent pod stdout/stderr logs
     Grafana -> host:3000 on all interfaces
     process-exporter -> host:9256 for host Kafka broker/Redis process CPU/memory
 
@@ -44,8 +47,9 @@ lab host
     ckc-demo-load-test as a host Java process under /opt/ckc-lab/load-test-runtime
 ```
 
-Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana stays on the host so it does not add pod overhead to the Kubernetes test surface.
+Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana and Loki stay on the host so they do not add pod storage overhead to the Kubernetes test surface.
 Prometheus scrapes internal-lab targets every 15 seconds and stores its TSDB on the lab host under `/opt/ckc-lab/prometheus`, mounted into the pod through `hostPath`, so normal pod restarts and config reloads do not wipe recent lab history. The lab keeps up to three days of metrics with a 20 GB retention-size cap.
+Loki stores pod stdout/stderr logs under `/opt/ckc-lab/loki` with a three-day retention window. The log collector attaches namespace, pod, container, app, run id, profile, and test-definition labels when they are available.
 
 ## Install
 
@@ -90,10 +94,10 @@ The installer:
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
 - keeps Prometheus history on a persistent lab-host directory and reloads Prometheus config during updates when possible instead of restarting it unconditionally
-- starts host Redpanda by default, plus Redis, Fluent Bit, and Grafana
-- provisions Grafana datasource and the shared `CKC Overview` dashboard
+- starts host Redpanda by default, plus Redis, Fluent Bit, Loki, and Grafana
+- provisions Grafana datasources and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
-- verifies `kubectl`, Grafana, Prometheus, and the Kafka API from the local machine
+- verifies `kubectl`, Grafana, Prometheus, Loki, and the Kafka API from the local machine
 
 After install:
 
@@ -123,6 +127,7 @@ The lab host layout is grouped by runtime responsibility:
 /opt/ckc-lab/logs               lab process logs
 /opt/ckc-lab/audit              audit run outputs
 /opt/ckc-lab/prometheus         persistent Prometheus data
+/opt/ckc-lab/loki               persistent Loki log data
 ```
 
 ## Clean Reinstall
@@ -496,6 +501,7 @@ Use `.demo-infra/internal-lab/lab.env` for the actual host:
 App:        http://$LAB_HOST:30080
 Prometheus: http://$LAB_HOST:30090
 Grafana:    http://$LAB_HOST:3000
+Loki:       http://$LAB_HOST:3100
 Kafka API:  $LAB_HOST:9092
 Redis:      $LAB_HOST:6379
 Audit TCP:  $LAB_HOST:5170
@@ -512,6 +518,16 @@ http://$LAB_HOST:3000/d/ckc-overview/ckc-overview
 Dashboard JSON is mounted from `/opt/ckc-lab/grafana/dashboards`,
 the same path refreshed by `update-lab.sh`. The update script reapplies the Grafana compose service so mount
 changes and refreshed dashboard JSON are visible without manual copying.
+
+Grafana also provisions a `Loki` datasource for pod logs. Use Explore with LogQL, for example:
+
+```logql
+{namespace="ckc-perf", app="ckc-demo"}
+{namespace="ckc-perf", app="ckc-demo", run_id="20260717T120000Z"}
+{namespace="ckc-perf", pod=~"ckc-demo-.*"} |= "ERROR"
+```
+
+The `run_id`, `profile`, and `test_definition` labels are set on `ckc-demo` pods during `run-test.sh` preparation, so logs remain queryable after pod restarts as long as they were collected before the pod disappeared.
 
 ## Scaling
 

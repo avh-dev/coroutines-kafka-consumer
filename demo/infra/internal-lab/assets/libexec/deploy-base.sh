@@ -44,7 +44,9 @@ restart_prometheus() {
 
 mkdir -p "${GENERATED_DIR}"
 mkdir -p "${LAB_ROOT}/prometheus"
+mkdir -p "${LAB_ROOT}/loki"
 chown -R 65534:65534 "${LAB_ROOT}/prometheus"
+chown -R 10001:10001 "${LAB_ROOT}/loki"
 
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${K8S_DIR}/external-services.yaml.tpl" \
@@ -75,8 +77,10 @@ mkdir -p "${LAB_ROOT}/audit/live"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${GRAFANA_DIR}/templates/provisioning/datasources/prometheus.yml" \
   > "${GRAFANA_DIR}/provisioning/datasources/prometheus.yml"
+cp "${GRAFANA_DIR}/templates/provisioning/datasources/loki.yml" \
+  "${GRAFANA_DIR}/provisioning/datasources/loki.yml"
 
-for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
+for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-loki ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -91,7 +95,13 @@ else
   docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
 fi
 
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans "${KAFKA_SERVICE}" redis fluent-bit grafana process-exporter
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans "${KAFKA_SERVICE}" redis fluent-bit loki grafana process-exporter
+docker restart ckc-internal-grafana >/dev/null
+if ! timeout 60 sh -c "until curl -fsS 'http://127.0.0.1:3000/api/health' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Grafana did not become ready after provisioning refresh." >&2
+  docker logs --tail 50 ckc-internal-grafana >&2 || true
+  exit 1
+fi
 if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
   docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
   docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
@@ -113,10 +123,18 @@ if ! timeout 30 sh -c "until [ \"\$(curl -fsS 'http://127.0.0.1:2020/api/v1/heal
   docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
   exit 1
 fi
+if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:3100/ready' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Loki did not become ready within 30 seconds." >&2
+  docker logs --tail 50 ckc-internal-loki >&2 || true
+  exit 1
+fi
+kubectl apply -f "${K8S_DIR}/alloy-logs.yaml"
+kubectl -n ckc-perf rollout status deployment/ckc-log-collector --timeout=5m
 echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST}:30080"
 echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  grafana:    http://${LAB_HOST}:3000"
+echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${LAB_NODE_IP}:9092 (${LAB_KAFKA_IMPLEMENTATION})"
 echo "  redis:      ${LAB_NODE_IP}:6379"
 echo "  audit-tcp:  ${LAB_NODE_IP}:5170"
