@@ -125,7 +125,7 @@ The lab host layout is grouped by runtime responsibility:
 /opt/ckc-lab/load-test-runtime  built load-test runtime
 /opt/ckc-lab/state              fingerprints, generated files, and pids
 /opt/ckc-lab/logs               lab process logs
-/opt/ckc-lab/audit              audit run outputs
+/opt/ckc-lab/results            run and bundle result artifacts
 /opt/ckc-lab/prometheus         persistent Prometheus data
 /opt/ckc-lab/loki               persistent Loki log data
 ```
@@ -349,7 +349,7 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh all
 
 Bundle definitions live under `/opt/ckc-lab/test-bundles`. The runner executes
 each bundle test through `run-test.sh` and writes bundle-level logs and JSON
-summaries under `/opt/ckc-lab/logs/bundles`.
+summaries under `/opt/ckc-lab/results/bundles/<bundle-set-id>`.
 After the initial bundle selection and bundle-wide settings prompt, tests run
 unattended. Type `q` and press Enter while a bundle is running to ask the
 current test to stop, finalize its raw audit log, and abort the rest of the
@@ -362,7 +362,7 @@ After tuning a single run with `run-test.sh`, print a ready-to-paste bundle
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/bundle-snippet.sh
 ```
 
-Pass a run id or audit directory to use a specific run, and `--name` to set the
+Pass a run id or result run directory to use a specific run, and `--name` to set the
 bundle test name:
 
 ```sh
@@ -385,9 +385,9 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-
 ```
 
 When audit logging is enabled, bundle runs first execute all load phases and
-collect raw audit logs under `/opt/ckc-lab/audit/<run-id>/`. Audit analysis then
-runs as a separate bundle phase for every completed run, and the raw audit logs
-are compressed after successful analysis.
+collect raw audit logs under `/opt/ckc-lab/results/runs/<run-id>/audit`.
+Audit analysis then runs as a separate bundle phase for every completed run,
+and the raw audit logs are compressed after successful analysis.
 
 Optional notification hooks live under `/opt/ckc-lab/notify`. If
 `/opt/ckc-lab/notify/notify.py` or `/opt/ckc-lab/notify/notify.sh` exists and
@@ -425,7 +425,7 @@ High-volume publish and processed audit records are streamed over TCP into the
 host Fluent Bit collector. Fluent Bit writes compact audit lines into:
 
 ```text
-/opt/ckc-lab/audit/live/audit.log
+/opt/ckc-lab/results/live/audit/audit.log
 ```
 
 Audit lines use compact record types: `P` for published records, `C` for
@@ -441,7 +441,16 @@ then stops Fluent Bit after drain and moves the completed audit log plus the
 calculated report under:
 
 ```text
-/opt/ckc-lab/audit/<run-id>/
+/opt/ckc-lab/results/runs/<run-id>/
+  run-metadata.json
+  run-status.json
+  logs/
+    load-test.log
+    chaos.log
+  audit/
+    audit-<run-id>.log[.gz]
+    analyzer-progress.log
+    summary.yaml
 ```
 
 The runner prints and saves `summary.yaml` with the selected test settings,
@@ -450,8 +459,8 @@ the audit lines. After successful analysis, the raw audit file is compressed as
 `audit-<run-id>.log.gz` to keep historical runs compact. The report contains
 aggregate audit totals and the same full summary for each topic. Latency is
 intentionally left to Prometheus and Grafana time-series metrics instead of the
-static audit summary. Analyzer stderr is saved to `analyzer-progress.log` in the
-same run directory. Delivery
+static audit summary. Analyzer stderr is saved to `audit/analyzer-progress.log`
+in the same run directory. Delivery
 correctness uses exact offline publish-to-terminal matching by default, so
 long-delayed terminal records from chaos and slow-stub runs do not get counted
 as missing. During the final analysis step, the runner also prints analyzer

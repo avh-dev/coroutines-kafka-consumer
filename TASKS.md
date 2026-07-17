@@ -191,6 +191,7 @@
 | [INFRA-74](#infra-74) | Add an internal-lab test definition that steps load upward in ten-percent increments.                                                  | DONE |
 | [INFRA-75](#infra-75) | Fix the Grafana event breakdown variable so it exposes only split and aggregated choices.                                             | DONE |
 | [INFRA-76](#infra-76) | Add persistent internal-lab pod log collection with Loki and Grafana Explore support.                                                | DONE |
+| [INFRA-77](#infra-77) | Move internal-lab single-run and bundle artifacts into a results directory layout.                                                   | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2047,3 +2048,12 @@ _Date: 2026-07-17_
 Add persistent internal-lab application log collection so pod restarts do not erase useful runtime logs.
 Wire Loki into the host observability stack and provision it as a Grafana datasource.
 Deploy a Kubernetes log collector that forwards pod stdout/stderr with run, namespace, pod, container, and application labels.
+
+<a id="infra-77"></a>
+### INFRA-77 - Move internal-lab artifacts into results
+
+_Date: 2026-07-17_
+
+Move internal-lab run artifacts out of the historical top-level audit folder and into `/opt/ckc-lab/results/runs/<run-id>`.
+Keep audit records, analyzer output, run metadata, and runner logs together under each run directory.
+Store bundle logs and summaries under `/opt/ckc-lab/results/bundles/<bundle-set-id>` so later bundle export work has a stable root.

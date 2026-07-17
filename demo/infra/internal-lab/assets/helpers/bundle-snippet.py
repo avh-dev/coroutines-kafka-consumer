@@ -19,7 +19,7 @@ TOPICS = ("order", "batch", "telemetry")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create a bundle tests[] YAML item from a previous internal-lab run.")
-    parser.add_argument("run", nargs="?", help="Audit run directory, run id, or omitted for the latest completed run.")
+    parser.add_argument("run", nargs="?", help="Result run directory, run id, or omitted for the latest completed run.")
     parser.add_argument("--lab-root", default="/opt/ckc-lab")
     parser.add_argument("--name", help="Bundle test name. Defaults to '<test-definition>-<run-profile>'.")
     parser.add_argument("--with-tests-key", action="store_true", help="Wrap the item in a 'tests:' section.")
@@ -34,30 +34,30 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
-def latest_run(audit_dir: Path) -> Path:
+def latest_run(runs_dir: Path) -> Path:
     candidates = []
-    for path in audit_dir.iterdir() if audit_dir.is_dir() else []:
-        if path.name == "live" or not path.is_dir():
+    for path in runs_dir.iterdir() if runs_dir.is_dir() else []:
+        if not path.is_dir():
             continue
         metadata = path / "run-metadata.json"
         if metadata.is_file():
             candidates.append((metadata.stat().st_mtime, path))
     if not candidates:
-        raise FileNotFoundError(f"No completed audit runs with run-metadata.json were found in {audit_dir}")
+        raise FileNotFoundError(f"No completed result runs with run-metadata.json were found in {runs_dir}")
     return max(candidates, key=lambda item: item[0])[1]
 
 
 def resolve_run(value: str | None, lab_root: Path) -> Path:
-    audit_dir = lab_root / "audit"
+    runs_dir = lab_root / "results" / "runs"
     if not value:
-        return latest_run(audit_dir)
+        return latest_run(runs_dir)
     path = Path(value)
     if path.is_dir():
         return path.resolve()
-    candidate = audit_dir / value
+    candidate = runs_dir / value
     if candidate.is_dir():
         return candidate
-    raise FileNotFoundError(f"Audit run directory was not found: {value}")
+    raise FileNotFoundError(f"Result run directory was not found: {value}")
 
 
 def slug(value: str) -> str:
