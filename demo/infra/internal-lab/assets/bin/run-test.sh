@@ -612,7 +612,7 @@ fi
 
 if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   if [ -z "${BASE_TPS_OVERRIDE}" ]; then
-    BASE_TPS_DEFAULT="${CURRENT_BASE_TPS:-$(definition_base_tps "${TEST_DEFINITION}")}"
+    BASE_TPS_DEFAULT="$(definition_base_tps "${TEST_DEFINITION}")"
     if [ ! -t 0 ]; then
       BASE_TPS_OVERRIDE="${BASE_TPS_DEFAULT}"
     else
