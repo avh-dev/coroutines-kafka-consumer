@@ -115,6 +115,7 @@
 | [DEMO-62](#demo-62) | Wire custom metrics for the `ckc-spring-boot` demo profile so retry and drop audit records are emitted by the starter-backed consumers. | DONE |
 | [DEMO-63](#demo-63) | Add configurable demo processing dispatchers and replace the `ckc-sync-loom` Spring profile with a runtime dispatcher setting. | DONE |
 | [DEMO-64](#demo-64) | Enable optional native Lettuce command metrics in the demo app and surface Redis client latency in Grafana. | DONE |
+| [DEMO-65](#demo-65) | Prevent the load-test audit TCP appender from connecting when audit logging is disabled. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1946,6 +1947,15 @@ Enable native Lettuce Micrometer command latency metrics for the demo applicatio
 Keep the setting optional so Redis client metric cardinality can be disabled when it is not needed.
 Expose the setting through internal-lab test launch as `--lettuce-metrics true|false` and bundle metadata.
 Add Grafana visibility for Redis command throughput and latency on the shared dashboard.
+
+<a id="demo-65"></a>
+### DEMO-65 - Disable load-test audit appender when audit is off
+
+_Date: 2026-07-17_
+
+Prevent the load-test process from initializing the audit TCP appender when `AUDIT_LOG_ENABLED=false`.
+Keep publish audit records available when audit logging is enabled.
+Cover the disabled path so smoke runs without audit do not emit connection-refused warnings.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile

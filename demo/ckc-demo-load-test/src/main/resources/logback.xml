@@ -3,25 +3,33 @@
     <property name="auditTcpHost" value="${AUDIT_TCP_HOST:-127.0.0.1}"/>
     <property name="auditTcpPort" value="${AUDIT_TCP_PORT:-5170}"/>
 
-    <appender name="AUDIT_TCP" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>${auditTcpHost}:${auditTcpPort}</destination>
-        <reconnectionDelay>1 second</reconnectionDelay>
-        <connectionTimeout>5 seconds</connectionTimeout>
-        <writeBufferSize>8192</writeBufferSize>
-        <writeTimeout>5 seconds</writeTimeout>
-        <keepAliveDuration>30 seconds</keepAliveDuration>
-        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
-            <providers>
-                <pattern>
-                    <pattern>{"message":"%message"}</pattern>
-                </pattern>
-            </providers>
-        </encoder>
-    </appender>
+    <condition class="ch.qos.logback.core.boolex.PropertyEqualityCondition">
+        <key>AUDIT_LOG_ENABLED</key>
+        <value>true</value>
+    </condition>
+    <if>
+        <then>
+            <appender name="AUDIT_TCP" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+                <destination>${auditTcpHost}:${auditTcpPort}</destination>
+                <reconnectionDelay>1 second</reconnectionDelay>
+                <connectionTimeout>5 seconds</connectionTimeout>
+                <writeBufferSize>8192</writeBufferSize>
+                <writeTimeout>5 seconds</writeTimeout>
+                <keepAliveDuration>30 seconds</keepAliveDuration>
+                <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                    <providers>
+                        <pattern>
+                            <pattern>{"message":"%message"}</pattern>
+                        </pattern>
+                    </providers>
+                </encoder>
+            </appender>
 
-    <logger name="AUDIT_TCP" level="INFO" additivity="false">
-        <appender-ref ref="AUDIT_TCP"/>
-    </logger>
+            <logger name="AUDIT_TCP" level="INFO" additivity="false">
+                <appender-ref ref="AUDIT_TCP"/>
+            </logger>
+        </then>
+    </if>
 
     <root level="WARN"/>
 </configuration>

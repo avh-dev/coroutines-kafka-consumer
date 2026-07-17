@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 fun main() = runBlocking {
     val shardContext = ShardContext.fromEnvironment()
     val config = LoadTestConfig.fromEnvironment()
+    System.setProperty("AUDIT_LOG_ENABLED", config.auditLogEnabled.toString())
     System.setProperty("AUDIT_TCP_HOST", config.auditHost)
     System.setProperty("AUDIT_TCP_PORT", config.auditPort.toString())
     val scenario = LoadScenario.parse(config.loadProfile)
