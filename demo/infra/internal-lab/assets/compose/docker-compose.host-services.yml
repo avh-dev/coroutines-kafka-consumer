@@ -119,6 +119,23 @@ services:
           cpus: "1.0"
           memory: 1G
 
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: ckc-internal-loki
+    restart: unless-stopped
+    user: "0:0"
+    ports:
+      - "0.0.0.0:3100:3100"
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ${LAB_ROOT}/docker/compose/loki.yaml:/etc/loki/loki.yaml:ro
+      - ${LAB_ROOT}/loki:/loki
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
   grafana:
     image: grafana/grafana:11.6.0
     container_name: ckc-internal-grafana
@@ -133,6 +150,8 @@ services:
     volumes:
       - ${LAB_ROOT}/grafana/provisioning:/etc/grafana/provisioning:ro
       - ${LAB_ROOT}/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - loki
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.8.0

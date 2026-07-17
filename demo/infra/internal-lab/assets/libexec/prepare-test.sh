@@ -218,7 +218,10 @@ HELM_ARGS=(
   --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
   --set "env.auditRunId=${AUDIT_RUN_ID}" \
   --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
-  --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}"
+  --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}" \
+  --set-string "podLabels.ckc_run_id=${AUDIT_RUN_ID}" \
+  --set-string "podLabels.ckc_profile=${APP_PROFILE}" \
+  --set-string "podLabels.ckc_test_definition=$(basename "${TEST_DEFINITION}" .yaml)"
 )
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
   HELM_ARGS+=(--set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}")

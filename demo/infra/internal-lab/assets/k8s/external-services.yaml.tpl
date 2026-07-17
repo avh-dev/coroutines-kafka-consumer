@@ -70,6 +70,29 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ckc-external-loki
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-loki
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_NODE_IP__
+    ports:
+      - name: http
+        port: 3100
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ckc-external-kafka-exporter
   namespace: ckc-perf
 spec:

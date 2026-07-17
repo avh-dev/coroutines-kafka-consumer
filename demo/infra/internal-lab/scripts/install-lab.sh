@@ -118,6 +118,7 @@ export KUBECONFIG="${KUBECONFIG_PATH}"
 kubectl get nodes -o wide
 curl -fsS "http://${LAB_HOST}:3000/api/health" >/dev/null
 curl -fsS "http://${LAB_HOST}:30090/-/ready" >/dev/null
+curl -fsS "http://${LAB_HOST}:3100/ready" >/dev/null
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9092"
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/6379"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers='localhost:9092' topic list >/dev/null"
@@ -127,4 +128,5 @@ echo "  state:      ${STATE_DIR}"
 echo "  kubeconfig: ${KUBECONFIG_PATH}"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  prometheus: http://${LAB_HOST}:30090"
+echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${LAB_HOST}:9092"

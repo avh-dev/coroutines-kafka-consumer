@@ -33,6 +33,7 @@ if command -v docker >/dev/null 2>&1; then
     ckc-perf-redis \
     ckc-perf-demo-stubs \
     ckc-internal-fluent-bit \
+    ckc-internal-loki \
     ckc-internal-grafana \
     ckc-internal-kafka-exporter \
     ckc-internal-cadvisor \
@@ -44,6 +45,7 @@ if command -v docker >/dev/null 2>&1; then
     docker.redpanda.com/redpandadata/redpanda:v25.1.3 \
     apache/kafka:4.3.1 \
     redis:7.4-alpine \
+    grafana/loki:3.3.2 \
     grafana/grafana:11.6.0 \
     danielqsj/kafka-exporter:v1.8.0 \
     ncabatoff/process-exporter:0.8.7 >/dev/null 2>&1 || true
