@@ -83,6 +83,7 @@ copy_dir "${ASSETS_DIR}/helpers" "${LAB_ROOT}/helpers"
 copy_dir "${ASSETS_DIR}/helm" "${LAB_ROOT}/helm"
 copy_dir "${ASSETS_DIR}/compose" "${LAB_ROOT}/docker/compose"
 copy_dir "${ASSETS_DIR}/k8s" "${LAB_ROOT}/k8s"
+copy_dir "${ASSETS_DIR}/restore" "${LAB_ROOT}/restore"
 copy_dir "${ASSETS_DIR}/notify" "${LAB_ROOT}/notify"
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config/defaults' '${LAB_ROOT}/grafana/templates' '${LAB_ROOT}/grafana/dashboards' '${LAB_ROOT}/grafana/provisioning/dashboards' '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/test-bundles' '${LAB_ROOT}/helpers/audit' '${LAB_ROOT}/results'"
 copy_dir "${ASSETS_DIR}/config" "${LAB_ROOT}/config/defaults"
@@ -98,7 +99,7 @@ LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
-ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh && LAB_NODE_IP='${LAB_NODE_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/install-server.sh'"
+ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/restore/'*.sh '${LAB_ROOT}/restore/'*.py && LAB_NODE_IP='${LAB_NODE_IP}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/install-server.sh'"
 ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
 ssh "root@${LAB_HOST}" "find '${LAB_ROOT}' -mindepth 1 -maxdepth 1 ! -name prometheus -exec chown -R root:root {} +"
 

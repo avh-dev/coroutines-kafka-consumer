@@ -393,6 +393,22 @@ bundle files, copied run directories, Grafana provisioning and dashboards, a
 `manifest.json`, and Loki log extracts for each run id. Use `--skip-loki` when
 the Loki service is unavailable or log export is not needed.
 
+Restore exported Loki logs locally with:
+
+```sh
+tar -xzf run-20260717T161010Z.tar.gz
+cd run-20260717T161010Z/restore
+docker compose up -d --wait
+./import-loki.sh ../loki/*.jsonl
+```
+
+Grafana is available at `http://localhost:3000` with `admin` / `admin` by
+default. If local ports are already in use, set `GRAFANA_PORT` or `LOKI_PORT`
+before starting Docker Compose. After import, set the Grafana time range to the
+UTC range printed by `import-loki.sh`; archived logs keep their original run
+timestamps. The restore workflow imports exported Loki logs; Prometheus metric
+replay is intentionally separate future work.
+
 Bundle-wide environment overrides can also be passed non-interactively:
 
 ```sh

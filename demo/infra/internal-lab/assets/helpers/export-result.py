@@ -192,6 +192,7 @@ def main() -> int:
             copy_tree(run_dir, export_root / "runs" / run_dir.name)
         copy_tree(lab_root / "grafana" / "dashboards", export_root / "grafana" / "dashboards")
         copy_tree(lab_root / "grafana" / "provisioning", export_root / "grafana" / "provisioning")
+        copy_tree(lab_root / "restore", export_root / "restore")
         loki_exports = [] if args.skip_loki else write_loki_logs(export_root, run_dirs, args.loki_url, args.loki_limit)
         write_manifest(export_root, result_type, result_dir, run_dirs, loki_exports)
         create_archive(export_root, archive_path)

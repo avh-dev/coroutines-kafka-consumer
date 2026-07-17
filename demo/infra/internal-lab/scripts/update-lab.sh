@@ -136,12 +136,13 @@ sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helm" "${LAB_ROOT}/helm"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/restore" "${LAB_ROOT}/restore"
   ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/notify'"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/config" "${LAB_ROOT}/config/defaults"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
+  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/restore/'*.sh '${LAB_ROOT}/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }
 
 sync_runtime_test_assets() {
