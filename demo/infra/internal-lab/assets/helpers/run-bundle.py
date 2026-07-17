@@ -43,7 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lab-root", default=lab_root)
     parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
     parser.add_argument("--bundle-dir", default=f"{lab_root}/test-bundles")
-    parser.add_argument("--log-dir", default=f"{lab_root}/logs/bundles")
+    parser.add_argument("--result-dir", default=f"{lab_root}/results/bundles")
+    parser.add_argument("--log-dir", help="Deprecated alias for --result-dir.")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
     return parser.parse_args()
 
@@ -246,20 +247,20 @@ def format_duration(seconds: float | int | None) -> str:
     return f"{minutes}m{secs:02d}s"
 
 
-def audit_dirs(lab_root: Path) -> set[str]:
-    audit_dir = lab_root / "audit"
-    if not audit_dir.is_dir():
+def run_dirs(lab_root: Path) -> set[str]:
+    runs_dir = lab_root / "results" / "runs"
+    if not runs_dir.is_dir():
         return set()
-    return {path.name for path in audit_dir.iterdir() if path.is_dir()}
+    return {path.name for path in runs_dir.iterdir() if path.is_dir()}
 
 
-def newest_audit_dir(lab_root: Path, before: set[str]) -> str:
-    audit_dir = lab_root / "audit"
-    if not audit_dir.is_dir():
+def newest_run_dir(lab_root: Path, before: set[str]) -> str:
+    runs_dir = lab_root / "results" / "runs"
+    if not runs_dir.is_dir():
         return ""
     candidates = []
-    for path in audit_dir.iterdir():
-        if path.name == "live" or not path.is_dir() or path.name in before:
+    for path in runs_dir.iterdir():
+        if not path.is_dir() or path.name in before:
             continue
         metadata = path / "run-metadata.json"
         if metadata.is_file():
@@ -269,10 +270,10 @@ def newest_audit_dir(lab_root: Path, before: set[str]) -> str:
     return str(max(candidates, key=lambda item: item[0])[1])
 
 
-def run_status(audit_dir_value: str) -> dict[str, Any]:
-    if not audit_dir_value:
+def run_status(run_dir_value: str) -> dict[str, Any]:
+    if not run_dir_value:
         return {}
-    path = Path(audit_dir_value) / "run-status.json"
+    path = Path(run_dir_value) / "run-status.json"
     if not path.is_file():
         return {}
     try:
@@ -419,7 +420,7 @@ def run_one(
     command = command_for_run(run_test, test, test_definition, env)
     expected_seconds = test_expected_seconds(lab_root, test_definition)
 
-    before = audit_dirs(lab_root)
+    before = run_dirs(lab_root)
     started_at = datetime.now(timezone.utc)
     log_file.write(f"\n=== {name} started at {started_at.isoformat()} ===\n")
     log_file.write("command: " + " ".join(command) + "\n")
@@ -479,8 +480,9 @@ def run_one(
         force_stop_if_needed(process)
 
     ended_at = datetime.now(timezone.utc)
-    audit_dir = newest_audit_dir(lab_root, before)
-    status = run_status(audit_dir)
+    run_dir = newest_run_dir(lab_root, before)
+    audit_dir = str(Path(run_dir) / "audit") if run_dir else ""
+    status = run_status(run_dir)
     child_exit_code = int(process.returncode or 0)
     interrupted = stop_requested or status.get("status") == "interrupted" or child_exit_code == 130
     exit_code = 130 if stop_requested else int(status.get("exit_code", child_exit_code))
@@ -496,9 +498,12 @@ def run_one(
         "interrupted": interrupted,
         "stop_requested": stop_requested,
         "run_status": status,
+        "run_dir": run_dir,
         "audit_dir": audit_dir,
     }
     log_file.write(f"=== {name} finished with exit_code={exit_code} at {ended_at.isoformat()} ===\n")
+    if run_dir:
+        log_file.write(f"run_dir: {run_dir}\n")
     if audit_dir:
         log_file.write(f"audit_dir: {audit_dir}\n")
     log_file.flush()
@@ -517,13 +522,14 @@ def audit_input_file(audit_dir: Path) -> Path | None:
 def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | None, log_dir: Path) -> dict[str, Any]:
     audit_dir = Path(audit_dir_value)
     input_file = audit_input_file(audit_dir)
-    metadata_file = audit_dir / "run-metadata.json"
+    run_dir = audit_dir.parent if audit_dir.name == "audit" else audit_dir
+    metadata_file = run_dir / "run-metadata.json"
     progress_file = audit_dir / "analyzer-progress.log"
     summary_file = audit_dir / "summary.yaml"
     if input_file is None:
-        return {"audit_dir": str(audit_dir), "exit_code": 1, "error": "raw audit log was not found"}
+        return {"run_dir": str(run_dir), "audit_dir": str(audit_dir), "exit_code": 1, "error": "raw audit log was not found"}
 
-    print(f"\n=== Analyzing audit: {audit_dir.name} ===", flush=True)
+    print(f"\n=== Analyzing audit: {run_dir.name} ===", flush=True)
     notify(hook, "audit_run_analysis_started", {"audit_dir": str(audit_dir)}, log_dir)
     started_at = datetime.now(timezone.utc)
     command = [
@@ -547,6 +553,7 @@ def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | Non
         subprocess.run(["gzip", "-1", str(input_file)], check=False)
     result = {
         "audit_dir": str(audit_dir),
+        "run_dir": str(run_dir),
         "summary": str(summary_file),
         "progress": str(progress_file),
         "started_at": started_at.isoformat(),
@@ -574,7 +581,7 @@ def run_bundle(
         raise ValueError(f"Bundle defaults must be an object: {bundle_path}")
     tests = normalize_tests(bundle, bundle_path)
     bundle_name = str(bundle.get("name") or bundle_path.stem)
-    log_path = log_dir / f"{bundle_name}-{bundle_set_id}.log"
+    log_path = log_dir / f"{bundle_name}.log"
 
     results: list[dict[str, Any]] = []
     analysis_results: list[dict[str, Any]] = []
@@ -608,6 +615,7 @@ def run_bundle(
         "bundle": bundle_name,
         "description": bundle.get("description", ""),
         "bundle_file": str(bundle_path),
+        "result_dir": str(log_dir),
         "log_file": str(log_path),
         "tests": results,
         "analysis": analysis_results,
@@ -621,8 +629,7 @@ def main() -> int:
     args = parse_args()
     lab_root = Path(args.lab_root)
     bundle_dir = Path(args.bundle_dir)
-    log_dir = Path(args.log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
+    result_root = Path(args.log_dir or args.result_dir)
 
     if args.all or args.bundle == "all":
         selected = bundle_files(bundle_dir)
@@ -639,6 +646,8 @@ def main() -> int:
     global_env = {**interactive_global_env(cli_env), **cli_env}
     hook = notify_hook_path(lab_root, args.notify_hook)
     bundle_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    log_dir = result_root / bundle_set_id
+    log_dir.mkdir(parents=True, exist_ok=True)
     summaries = []
     for bundle_path in selected:
         summary = run_bundle(bundle_path, Path(args.run_test), lab_root, log_dir, bundle_set_id, global_env, hook)
@@ -646,9 +655,10 @@ def main() -> int:
         if summary["exit_code"] != 0:
             break
 
-    summary_path = log_dir / f"bundle-run-{bundle_set_id}.json"
+    summary_path = log_dir / "summary.json"
     document = {
         "bundle_set_id": bundle_set_id,
+        "result_dir": str(log_dir),
         "bundles": summaries,
         "exit_code": next((bundle["exit_code"] for bundle in summaries if bundle["exit_code"] != 0), 0),
     }

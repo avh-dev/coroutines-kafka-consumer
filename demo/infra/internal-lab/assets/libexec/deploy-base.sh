@@ -73,7 +73,7 @@ if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "$
 fi
 
 mkdir -p "${GRAFANA_DIR}/provisioning/datasources" "${GRAFANA_DIR}/provisioning/dashboards"
-mkdir -p "${LAB_ROOT}/audit/live"
+mkdir -p "${LAB_ROOT}/results/live/audit"
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${GRAFANA_DIR}/templates/provisioning/datasources/prometheus.yml" \
   > "${GRAFANA_DIR}/provisioning/datasources/prometheus.yml"

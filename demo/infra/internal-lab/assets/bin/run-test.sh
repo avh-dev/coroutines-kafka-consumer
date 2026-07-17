@@ -6,8 +6,8 @@ LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/state/pids"
-AUDIT_DIR="${LAB_ROOT}/audit"
-AUDIT_LIVE_DIR="${AUDIT_DIR}/live"
+RESULTS_DIR="${LAB_ROOT}/results"
+AUDIT_LIVE_DIR="${RESULTS_DIR}/live/audit"
 AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
@@ -1010,14 +1010,16 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
-LOG_PATH="${LOG_DIR}/load-test-${RUN_ID}.log"
-RUN_AUDIT_DIR="${AUDIT_DIR}/${RUN_ID}"
+RUN_DIR="${RESULTS_DIR}/runs/${RUN_ID}"
+RUN_LOG_DIR="${RUN_DIR}/logs"
+RUN_AUDIT_DIR="${RUN_DIR}/audit"
+LOG_PATH="${RUN_LOG_DIR}/load-test.log"
 RUN_AUDIT_LOG_FILE="${RUN_AUDIT_DIR}/audit-${RUN_ID}.log"
 AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
 AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
-RUN_METADATA_FILE="${RUN_AUDIT_DIR}/run-metadata.json"
-RUN_STATUS_FILE="${RUN_AUDIT_DIR}/run-status.json"
-mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
+RUN_METADATA_FILE="${RUN_DIR}/run-metadata.json"
+RUN_STATUS_FILE="${RUN_DIR}/run-status.json"
+mkdir -p "${RUN_LOG_DIR}" "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
@@ -1218,7 +1220,7 @@ PID="$!"
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 echo "${PID}" > "${PID_PATH}"
 
-CHAOS_LOG_PATH="${LOG_DIR}/chaos-${RUN_ID}.log"
+CHAOS_LOG_PATH="${RUN_LOG_DIR}/chaos.log"
 CHAOS_PID=""
 if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
@@ -1231,6 +1233,7 @@ fi
 
 echo "Load test started on lab host."
 echo "  pid=${PID}"
+echo "  result=${RUN_DIR}"
 echo "  log=${LOG_PATH}"
 echo "  audit=${RUN_AUDIT_DIR}"
 echo "  pid_file=${PID_PATH}"
