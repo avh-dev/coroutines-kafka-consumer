@@ -195,6 +195,7 @@
 | [INFRA-77](#infra-77) | Move internal-lab single-run and bundle artifacts into a results directory layout.                                                   | DONE |
 | [INFRA-78](#infra-78) | Use the selected internal-lab test definition's base TPS instead of reusing stale deployment state.                                  | DONE |
 | [INFRA-79](#infra-79) | Add an internal-lab result exporter that packages run and bundle artifacts with Loki logs.                                          | DONE |
+| [INFRA-80](#infra-80) | Add a local restore workflow for browsing exported internal-lab Loki logs in Grafana.                                               | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2087,3 +2088,12 @@ _Date: 2026-07-17_
 Add a lab-side export command for packaging run and bundle result artifacts into a portable archive.
 Include copied run/bundle files, Grafana dashboard provisioning, a manifest, and Loki log extracts keyed by run id.
 Keep Prometheus/Grafana replay out of scope for this first export step.
+
+<a id="infra-80"></a>
+### INFRA-80 - Add internal-lab result restore
+
+_Date: 2026-07-17_
+
+Add a local restore workflow for exported internal-lab result archives.
+Provide Docker Compose wiring for Grafana and Loki using the exported dashboards and provisioning.
+Import exported Loki JSONL records back into Loki so archived pod logs can be inspected after the lab run is gone.
