@@ -375,6 +375,24 @@ For a short end-to-end bundle smoke test, run:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh smoke-repeat
 ```
 
+Export the latest run result into a portable archive with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh
+```
+
+Export a specific run or bundle result with:
+
+```sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T161010Z
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --bundle 20260717T170000Z
+```
+
+Archives are written under `/opt/ckc-lab/results/exports` and include the run or
+bundle files, copied run directories, Grafana provisioning and dashboards, a
+`manifest.json`, and Loki log extracts for each run id. Use `--skip-loki` when
+the Loki service is unavailable or log export is not needed.
+
 Bundle-wide environment overrides can also be passed non-interactively:
 
 ```sh
