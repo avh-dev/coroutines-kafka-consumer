@@ -9,6 +9,20 @@ services:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
 
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: ckc-result-restore-prometheus
+    user: "0:0"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../metrics/prometheus:/prometheus
+
   grafana:
     image: grafana/grafana:11.6.0
     container_name: ckc-result-restore-grafana
@@ -24,6 +38,7 @@ services:
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - loki
+      - prometheus
 
 volumes:
   loki-data:

@@ -24,6 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--loki-url", default="http://127.0.0.1:3100")
     parser.add_argument("--skip-loki", action="store_true")
     parser.add_argument("--loki-limit", type=int, default=5000)
+    parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
+    parser.add_argument("--skip-prometheus", action="store_true")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing archive.")
     return parser.parse_args()
 
@@ -81,6 +83,14 @@ def copy_tree(source: Path, target: Path) -> None:
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+
+
+def copy_tree_contents(source: Path, target: Path) -> None:
+    if not source.is_dir():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    for child in source.iterdir():
+        copy_tree(child, target / child.name)
 
 
 def parse_instant(value: str | None) -> datetime | None:
@@ -152,13 +162,49 @@ def write_loki_logs(export_root: Path, run_dirs: list[Path], loki_url: str, limi
     return exported
 
 
-def write_manifest(export_root: Path, result_type: str, result_dir: Path, run_dirs: list[Path], loki_exports: list[dict[str, Any]]) -> None:
+def prometheus_snapshot(prometheus_url: str) -> str:
+    url = f"{prometheus_url.rstrip('/')}/api/v1/admin/tsdb/snapshot"
+    request = urllib.request.Request(url, data=b"", method="POST")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    if data.get("status") != "success":
+        raise RuntimeError(f"Prometheus snapshot failed: {data}")
+    snapshot_name = data.get("data", {}).get("name")
+    if not snapshot_name:
+        raise RuntimeError(f"Prometheus snapshot response did not include a snapshot name: {data}")
+    return str(snapshot_name)
+
+
+def export_prometheus_snapshot(export_root: Path, lab_root: Path, prometheus_url: str) -> dict[str, Any]:
+    snapshot_name = prometheus_snapshot(prometheus_url)
+    snapshot_dir = lab_root / "prometheus" / "snapshots" / snapshot_name
+    output_dir = export_root / "metrics" / "prometheus"
+    if not snapshot_dir.is_dir():
+        raise FileNotFoundError(f"Prometheus snapshot directory was not found: {snapshot_dir}")
+    copy_tree_contents(snapshot_dir, output_dir)
+    shutil.rmtree(snapshot_dir, ignore_errors=True)
+    return {
+        "type": "prometheus_tsdb_snapshot",
+        "source": str(snapshot_dir),
+        "path": str(output_dir.relative_to(export_root)),
+    }
+
+
+def write_manifest(
+    export_root: Path,
+    result_type: str,
+    result_dir: Path,
+    run_dirs: list[Path],
+    loki_exports: list[dict[str, Any]],
+    metrics_export: dict[str, Any] | None,
+) -> None:
     manifest = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "type": result_type,
         "source": str(result_dir),
         "runs": [path.name for path in run_dirs],
         "loki": loki_exports,
+        "metrics": metrics_export,
     }
     (export_root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
@@ -194,7 +240,8 @@ def main() -> int:
         copy_tree(lab_root / "grafana" / "provisioning", export_root / "grafana" / "provisioning")
         copy_tree(lab_root / "restore", export_root / "restore")
         loki_exports = [] if args.skip_loki else write_loki_logs(export_root, run_dirs, args.loki_url, args.loki_limit)
-        write_manifest(export_root, result_type, result_dir, run_dirs, loki_exports)
+        metrics_export = None if args.skip_prometheus else export_prometheus_snapshot(export_root, lab_root, args.prometheus_url)
+        write_manifest(export_root, result_type, result_dir, run_dirs, loki_exports, metrics_export)
         create_archive(export_root, archive_path)
 
     print(archive_path)
