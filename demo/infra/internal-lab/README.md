@@ -419,6 +419,10 @@ When audit logging is enabled, bundle runs first execute all load phases and
 collect raw audit logs under `/opt/ckc-lab/results/runs/<run-id>/audit`.
 Audit analysis then runs as a separate bundle phase for every completed run,
 and the raw audit logs are compressed after successful analysis.
+Bundle execution continues after an individual test fails, so failed run
+directories, logs, metrics, and audit files remain available in the bundle
+summary and result export. Pressing `q` is treated as an explicit interruption
+and stops the remaining bundle entries.
 
 Optional notification hooks live under `/opt/ckc-lab/notify`. If
 `/opt/ckc-lab/notify/notify.py` or `/opt/ckc-lab/notify/notify.sh` exists and

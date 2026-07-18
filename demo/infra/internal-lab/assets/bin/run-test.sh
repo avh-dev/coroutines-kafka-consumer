@@ -1350,6 +1350,18 @@ if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
   exit "${LOAD_TEST_EXIT_CODE}"
 fi
 
+finalize_audit_log() {
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
+    echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
+    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+    return 1
+  fi
+
+  rm -f "${RUN_AUDIT_LOG_FILE}" "${RUN_AUDIT_LOG_FILE}.gz"
+  mv "${AUDIT_LIVE_FILE}" "${RUN_AUDIT_LOG_FILE}"
+}
+
 if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
@@ -1362,24 +1374,16 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"
   if [ "${DRAIN_WAIT_EXIT_CODE}" -ne 0 ]; then
+    if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+      echo "Consumer drain failed; finalizing audit log for failed run."
+      finalize_audit_log || true
+    fi
     write_run_status "failed" "${DRAIN_WAIT_EXIT_CODE}"
     exit "${DRAIN_WAIT_EXIT_CODE}"
   fi
 elif [ "${RUN_INTERRUPTED}" -eq 1 ]; then
   echo "Run was interrupted; skipping consumer drain wait."
 fi
-
-finalize_audit_log() {
-  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
-  if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
-    echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
-    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
-    return 1
-  fi
-
-  rm -f "${RUN_AUDIT_LOG_FILE}" "${RUN_AUDIT_LOG_FILE}.gz"
-  mv "${AUDIT_LIVE_FILE}" "${RUN_AUDIT_LOG_FILE}"
-}
 
 archive_analyzed_audit_log() {
   gzip -1 "${RUN_AUDIT_LOG_FILE}"
