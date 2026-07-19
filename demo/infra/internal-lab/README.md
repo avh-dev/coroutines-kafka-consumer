@@ -371,7 +371,7 @@ For a short end-to-end bundle smoke test, run:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh smoke-repeat
 ```
 
-Export the latest run result into a portable archive with:
+Export the latest run result into a portable result directory with:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh
@@ -382,18 +382,23 @@ Export a specific run or bundle result with:
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T161010Z
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --bundle 20260717T170000Z
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-bundle
 ```
 
-Archives are written under `/opt/ckc-lab/results/exports` and include the run or
-bundle files, copied run directories, Grafana provisioning and dashboards, a
-`manifest.json`, and Loki log extracts for each run id. Use `--skip-loki` when
-the Loki service is unavailable or log export is not needed.
+Result directories are written under `/opt/ckc-lab/results/exports`. Each export
+contains a `summary.md`, `manifest.json`, run metadata/status files, a separate
+`audit/<run-id>` directory for each run's audit artifacts, and `restore.tar.gz`
+with Grafana provisioning, dashboards, Loki log extracts, and Prometheus TSDB
+blocks for the selected run or bundle time window. Use `--skip-loki` or
+`--skip-prometheus` when those services are unavailable or their data is not
+needed.
 
 Restore exported metrics and Loki logs locally with:
 
 ```sh
-tar -xzf run-20260717T161010Z.tar.gz
-cd run-20260717T161010Z/restore
+cd run-20260717T161010Z
+tar -xzf restore.tar.gz
+cd restore
 ./run-restore.sh
 ```
 
