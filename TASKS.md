@@ -199,6 +199,7 @@
 | [INFRA-81](#infra-81) | Export internal-lab Prometheus metrics and add a one-command restore viewer for metrics and Loki logs.                             | DONE |
 | [INFRA-82](#infra-82) | Continue internal-lab bundles after failed tests so negative results stay in bundle summaries and exports.                         | DONE |
 | [INFRA-83](#infra-83) | Export result directories with bundle-scoped metrics, restore archives, summaries, and separate audit files.                       | DONE |
+| [INFRA-84](#infra-84) | Print a direct Grafana dashboard URL with the exported experiment time range from restore runs.                                    | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2127,3 +2128,12 @@ _Date: 2026-07-19_
 Export internal-lab results as directories instead of a single archive.
 Limit Prometheus snapshot blocks to the selected run or bundle time window.
 Keep restore-ready logs and metrics in a tar archive, write a readable summary, and copy audit files separately per run.
+
+<a id="infra-84"></a>
+### INFRA-84 - Print restore dashboard link
+
+_Date: 2026-07-19_
+
+Print a direct Grafana dashboard link when running a restored export.
+Use the exported metrics or Loki time window from `manifest.json` so the link opens on the experiment interval.
+Keep the plain Grafana, Prometheus, and Loki service links visible for fallback navigation.
