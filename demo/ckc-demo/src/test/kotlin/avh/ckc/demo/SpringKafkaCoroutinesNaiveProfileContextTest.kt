@@ -65,6 +65,7 @@ class SpringKafkaCoroutinesNaiveProfileContextTest(
     fun `consumer profile info metric identifies naive spring kafka coroutine implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "spring_kafka_coroutines_naive")
+            .tag("profile", "spring-kafka-coroutines-naive.fixed.8")
             .tag("spring_profile", "spring-kafka-coroutines-naive")
             .gauge()
 

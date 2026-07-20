@@ -116,6 +116,7 @@
 | [DEMO-63](#demo-63) | Add configurable demo processing dispatchers and replace the `ckc-sync-loom` Spring profile with a runtime dispatcher setting. | DONE |
 | [DEMO-64](#demo-64) | Enable optional native Lettuce command metrics in the demo app and surface Redis client latency in Grafana. | DONE |
 | [DEMO-65](#demo-65) | Prevent the load-test audit TCP appender from connecting when audit logging is disabled. | DONE |
+| [DEMO-66](#demo-66) | Add demo profile timeline labels that include meaningful dispatcher variants. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1964,6 +1965,15 @@ _Date: 2026-07-17_
 Prevent the load-test process from initializing the audit TCP appender when `AUDIT_LOG_ENABLED=false`.
 Keep publish audit records available when audit logging is enabled.
 Cover the disabled path so smoke runs without audit do not emit connection-refused warnings.
+
+<a id="demo-66"></a>
+### DEMO-66 - Add profile timeline labels
+
+_Date: 2026-07-20_
+
+Add a small demo profile label component for the profile timeline metric.
+Keep plain names for profiles where dispatcher variants are not meaningful.
+Include dispatcher names and fixed worker counts for CKC, CKC sync, and comparable coroutine/parallel-consumer demo profiles.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile

@@ -53,6 +53,7 @@ class ConfluentParallelReactorProfileContextTest(
     fun `consumer profile info metric identifies confluent parallel reactor implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "confluent_parallel")
+            .tag("profile", "cpc-reactor.fixed.8")
             .tag("spring_profile", "confluent-parallel-reactor")
             .gauge()
 

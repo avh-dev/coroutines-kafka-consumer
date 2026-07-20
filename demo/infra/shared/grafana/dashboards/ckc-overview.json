@@ -90,8 +90,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (spring_profile) (ckc_demo_consumer_profile_info)",
-          "legendFormat": "{{spring_profile}}",
+          "expr": "sum by (profile) (ckc_demo_consumer_profile_info)",
+          "legendFormat": "{{profile}}",
           "refId": "A"
         }
       ],
