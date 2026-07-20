@@ -46,6 +46,7 @@ class ConfluentParallelProfileContextTest(
     fun `consumer profile info metric identifies confluent parallel implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "confluent_parallel")
+            .tag("profile", "cpc")
             .tag("spring_profile", "confluent-parallel")
             .gauge()
 

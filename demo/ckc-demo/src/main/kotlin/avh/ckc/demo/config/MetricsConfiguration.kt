@@ -65,12 +65,15 @@ class MetricsConfiguration {
     @Bean
     fun consumerProfileInfoMetric(
         meterRegistry: MeterRegistry,
-        environment: Environment
+        environment: Environment,
+        properties: DemoApplicationProperties
     ): Gauge {
         val profile = activeConsumerProfile(environment)
+        val timelineProfile = DemoProfileTimelineLabel(properties).resolve(profile)
         return Gauge.builder("ckc.demo.consumer.profile.info") { 1.0 }
             .description("Static marker for the active demo consumer implementation.")
             .tag("consumer_impl", consumerImplementation(profile))
+            .tag("profile", timelineProfile)
             .tag("spring_profile", profile)
             .register(meterRegistry)
     }

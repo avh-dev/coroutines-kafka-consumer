@@ -50,6 +50,7 @@ class CkcSyncProfileContextTest(
     fun `consumer profile info metric identifies ckc sync as ckc implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "ckc")
+            .tag("profile", "ckc-sync.io")
             .tag("spring_profile", "ckc-sync")
             .gauge()
 

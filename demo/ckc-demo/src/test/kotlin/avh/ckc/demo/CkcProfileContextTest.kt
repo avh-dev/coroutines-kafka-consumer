@@ -68,6 +68,7 @@ class CkcProfileContextTest(
     fun `consumer profile info metric identifies ckc implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "ckc")
+            .tag("profile", "ckc.fixed.8")
             .tag("spring_profile", "ckc")
             .gauge()
 

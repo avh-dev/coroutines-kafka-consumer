@@ -54,6 +54,7 @@ class SpringKafkaProfileContextTest(
     fun `consumer profile info metric identifies spring kafka implementation`() {
         val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
             .tag("consumer_impl", "spring_kafka")
+            .tag("profile", "spring-kafka")
             .tag("spring_profile", "spring-kafka")
             .gauge()
 
