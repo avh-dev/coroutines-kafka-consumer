@@ -133,6 +133,7 @@ spec:
             - --storage.tsdb.retention.time=3d
             - --storage.tsdb.retention.size=20GB
             - --web.enable-lifecycle
+            - --web.enable-admin-api
           ports:
             - name: http
               containerPort: 9090

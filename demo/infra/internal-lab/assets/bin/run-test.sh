@@ -1013,13 +1013,12 @@ fi
 RUN_DIR="${RESULTS_DIR}/runs/${RUN_ID}"
 RUN_LOG_DIR="${RUN_DIR}/logs"
 RUN_AUDIT_DIR="${RUN_DIR}/audit"
-LOG_PATH="${RUN_LOG_DIR}/load-test.log"
 RUN_AUDIT_LOG_FILE="${RUN_AUDIT_DIR}/audit-${RUN_ID}.log"
 AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
 AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
 RUN_METADATA_FILE="${RUN_DIR}/run-metadata.json"
 RUN_STATUS_FILE="${RUN_DIR}/run-status.json"
-mkdir -p "${RUN_LOG_DIR}" "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
+mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
@@ -1214,7 +1213,7 @@ AUDIT_TCP_HOST="${AUDIT_TCP_HOST}" \
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT}" \
 AUDIT_RUN_ID="${RUN_ID}" \
 LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
-nohup "${LOAD_TEST_BIN}" > "${LOG_PATH}" 2>&1 &
+nohup "${LOAD_TEST_BIN}" >/dev/null 2>&1 &
 
 PID="$!"
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
@@ -1223,6 +1222,7 @@ echo "${PID}" > "${PID_PATH}"
 CHAOS_LOG_PATH="${RUN_LOG_DIR}/chaos.log"
 CHAOS_PID=""
 if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
+  mkdir -p "${RUN_LOG_DIR}"
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
   nohup python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" \
     --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
@@ -1234,7 +1234,6 @@ fi
 echo "Load test started on lab host."
 echo "  pid=${PID}"
 echo "  result=${RUN_DIR}"
-echo "  log=${LOG_PATH}"
 echo "  audit=${RUN_AUDIT_DIR}"
 echo "  pid_file=${PID_PATH}"
 echo "  bootstrap=127.0.0.1:9092"
@@ -1351,6 +1350,18 @@ if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
   exit "${LOAD_TEST_EXIT_CODE}"
 fi
 
+finalize_audit_log() {
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
+  if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
+    echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
+    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
+    return 1
+  fi
+
+  rm -f "${RUN_AUDIT_LOG_FILE}" "${RUN_AUDIT_LOG_FILE}.gz"
+  mv "${AUDIT_LIVE_FILE}" "${RUN_AUDIT_LOG_FILE}"
+}
+
 if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
@@ -1363,24 +1374,16 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"
   if [ "${DRAIN_WAIT_EXIT_CODE}" -ne 0 ]; then
+    if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+      echo "Consumer drain failed; finalizing audit log for failed run."
+      finalize_audit_log || true
+    fi
     write_run_status "failed" "${DRAIN_WAIT_EXIT_CODE}"
     exit "${DRAIN_WAIT_EXIT_CODE}"
   fi
 elif [ "${RUN_INTERRUPTED}" -eq 1 ]; then
   echo "Run was interrupted; skipping consumer drain wait."
 fi
-
-finalize_audit_log() {
-  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" stop fluent-bit >/dev/null
-  if [ ! -s "${AUDIT_LIVE_FILE}" ]; then
-    echo "No audit records were written to ${AUDIT_LIVE_FILE} for run ${RUN_ID}." >&2
-    docker logs --tail 50 ckc-internal-fluent-bit >&2 || true
-    return 1
-  fi
-
-  rm -f "${RUN_AUDIT_LOG_FILE}" "${RUN_AUDIT_LOG_FILE}.gz"
-  mv "${AUDIT_LIVE_FILE}" "${RUN_AUDIT_LOG_FILE}"
-}
 
 archive_analyzed_audit_log() {
   gzip -1 "${RUN_AUDIT_LOG_FILE}"

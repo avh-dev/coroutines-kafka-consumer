@@ -519,6 +519,10 @@ def audit_input_file(audit_dir: Path) -> Path | None:
     return gz_logs[0] if gz_logs else None
 
 
+def has_audit_input(audit_dir_value: str) -> bool:
+    return bool(audit_dir_value) and audit_input_file(Path(audit_dir_value)) is not None
+
+
 def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | None, log_dir: Path) -> dict[str, Any]:
     audit_dir = Path(audit_dir_value)
     input_file = audit_input_file(audit_dir)
@@ -595,19 +599,24 @@ def run_bundle(
         for index, test in enumerate(tests, start=1):
             result = run_one(run_test, lab_root, defaults, global_env, test, index, len(tests), log_file, hook, log_dir)
             results.append(result)
-            if result["exit_code"] != 0:
+            if result["interrupted"]:
                 break
 
         runs_exit_code = next((test["exit_code"] for test in results if test["exit_code"] != 0), 0)
-        if runs_exit_code == 0:
-            auditable_runs = [result for result in results if result.get("audit_dir") and result["env"].get("AUDIT_LOG_ENABLED", "true") == "true"]
-            notify(hook, "bundle_runs_finished", {"bundle": bundle_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
-            if auditable_runs:
-                print(f"\n=== Bundle load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
-                notify(hook, "audit_analysis_started", {"bundle": bundle_name, "auditable_runs": len(auditable_runs)}, log_dir)
-                for result in auditable_runs:
-                    analysis_results.append(analyze_one(lab_root, str(result["audit_dir"]), log_file, hook, log_dir))
-                notify(hook, "audit_analysis_finished", {"bundle": bundle_name, "analysis": analysis_results}, log_dir)
+        auditable_runs = [
+            result
+            for result in results
+            if result.get("audit_dir")
+            and result["env"].get("AUDIT_LOG_ENABLED", "true") == "true"
+            and has_audit_input(str(result["audit_dir"]))
+        ]
+        notify(hook, "bundle_runs_finished", {"bundle": bundle_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
+        if auditable_runs:
+            print(f"\n=== Bundle load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
+            notify(hook, "audit_analysis_started", {"bundle": bundle_name, "auditable_runs": len(auditable_runs)}, log_dir)
+            for result in auditable_runs:
+                analysis_results.append(analyze_one(lab_root, str(result["audit_dir"]), log_file, hook, log_dir))
+            notify(hook, "audit_analysis_finished", {"bundle": bundle_name, "analysis": analysis_results}, log_dir)
 
     analysis_exit_code = next((analysis["exit_code"] for analysis in analysis_results if analysis["exit_code"] != 0), 0)
     exit_code = runs_exit_code or analysis_exit_code
@@ -623,6 +632,10 @@ def run_bundle(
     }
     notify(hook, "bundle_finished" if exit_code == 0 else "bundle_failed", summary, log_dir)
     return summary
+
+
+def summary_interrupted(summary: dict[str, Any]) -> bool:
+    return any(test.get("interrupted") for test in summary.get("tests", []))
 
 
 def main() -> int:
@@ -652,7 +665,7 @@ def main() -> int:
     for bundle_path in selected:
         summary = run_bundle(bundle_path, Path(args.run_test), lab_root, log_dir, bundle_set_id, global_env, hook)
         summaries.append(summary)
-        if summary["exit_code"] != 0:
+        if summary_interrupted(summary):
             break
 
     summary_path = log_dir / "summary.json"

@@ -224,7 +224,7 @@ Confluent profiles support partitions, workers, and pollers.
 Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
 executor after the load-test process starts. Chaos offsets are measured from
 that load-test start point. The executor writes its own log under
-`/opt/ckc-lab/logs/chaos-<run-id>.log`, and the runner fails fast if a
+`/opt/ckc-lab/results/runs/<run-id>/logs/chaos.log`, and the runner fails fast if a
 chaos step fails.
 
 Pass the same choices explicitly for a non-interactive run:
@@ -309,11 +309,7 @@ Even with `--skip-prepare`, stub baseline settings are applied before the load g
 selected profile uses `--processing-dispatcher-type FIXED`; it is rejected for
 other dispatcher types and for profiles that do not use the demo processing
 dispatcher.
-The script exports `load_test` settings as environment variables for `ckc-demo-load-test` and redirects stdout/stderr to:
-
-```text
-/opt/ckc-lab/logs/
-```
+The script exports `load_test` settings as environment variables for `ckc-demo-load-test`.
 
 Run the bundled internal-lab chaos smoke explicitly with:
 
@@ -375,7 +371,7 @@ For a short end-to-end bundle smoke test, run:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh smoke-repeat
 ```
 
-Export the latest run result into a portable archive with:
+Export the latest run result into a portable result directory with:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh
@@ -386,28 +382,34 @@ Export a specific run or bundle result with:
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T161010Z
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --bundle 20260717T170000Z
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-bundle
 ```
 
-Archives are written under `/opt/ckc-lab/results/exports` and include the run or
-bundle files, copied run directories, Grafana provisioning and dashboards, a
-`manifest.json`, and Loki log extracts for each run id. Use `--skip-loki` when
-the Loki service is unavailable or log export is not needed.
+Result directories are written under `/opt/ckc-lab/results/exports`. Each export
+contains a `summary.md`, `manifest.json`, run metadata/status files, a separate
+`audit/<run-id>` directory for each run's audit artifacts, and `restore.tar.gz`
+with Grafana provisioning, dashboards, Loki log extracts, and Prometheus TSDB
+blocks for the selected run or bundle time window. Use `--skip-loki` or
+`--skip-prometheus` when those services are unavailable or their data is not
+needed.
 
-Restore exported Loki logs locally with:
+Restore exported metrics and Loki logs locally with:
 
 ```sh
-tar -xzf run-20260717T161010Z.tar.gz
-cd run-20260717T161010Z/restore
-docker compose up -d --wait
-./import-loki.sh ../loki/*.jsonl
+cd run-20260717T161010Z
+tar -xzf restore.tar.gz
+cd restore
+./run-restore.sh
 ```
 
 Grafana is available at `http://localhost:3000` with `admin` / `admin` by
-default. If local ports are already in use, set `GRAFANA_PORT` or `LOKI_PORT`
-before starting Docker Compose. After import, set the Grafana time range to the
-UTC range printed by `import-loki.sh`; archived logs keep their original run
-timestamps. The restore workflow imports exported Loki logs; Prometheus metric
-replay is intentionally separate future work.
+default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
+`PROMETHEUS_PORT` before starting the restore script. `run-restore.sh` starts Docker Compose,
+attaches exported Prometheus TSDB blocks, imports Loki logs, then waits until `q` is
+pressed. After import, set the Grafana time range to the UTC range printed by
+`import-loki.sh`; archived logs and metrics keep their original run timestamps.
+When `q` is pressed, the script stops the restore stack and removes its Docker
+volumes.
 
 Bundle-wide environment overrides can also be passed non-interactively:
 
@@ -422,6 +424,10 @@ When audit logging is enabled, bundle runs first execute all load phases and
 collect raw audit logs under `/opt/ckc-lab/results/runs/<run-id>/audit`.
 Audit analysis then runs as a separate bundle phase for every completed run,
 and the raw audit logs are compressed after successful analysis.
+Bundle execution continues after an individual test fails, so failed run
+directories, logs, metrics, and audit files remain available in the bundle
+summary and result export. Pressing `q` is treated as an explicit interruption
+and stops the remaining bundle entries.
 
 Optional notification hooks live under `/opt/ckc-lab/notify`. If
 `/opt/ckc-lab/notify/notify.py` or `/opt/ckc-lab/notify/notify.sh` exists and
@@ -479,7 +485,6 @@ calculated report under:
   run-metadata.json
   run-status.json
   logs/
-    load-test.log
     chaos.log
   audit/
     audit-<run-id>.log[.gz]

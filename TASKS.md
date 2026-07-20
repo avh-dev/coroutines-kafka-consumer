@@ -196,6 +196,10 @@
 | [INFRA-78](#infra-78) | Use the selected internal-lab test definition's base TPS instead of reusing stale deployment state.                                  | DONE |
 | [INFRA-79](#infra-79) | Add an internal-lab result exporter that packages run and bundle artifacts with Loki logs.                                          | DONE |
 | [INFRA-80](#infra-80) | Add a local restore workflow for browsing exported internal-lab Loki logs in Grafana.                                               | DONE |
+| [INFRA-81](#infra-81) | Export internal-lab Prometheus metrics and add a one-command restore viewer for metrics and Loki logs.                             | DONE |
+| [INFRA-82](#infra-82) | Continue internal-lab bundles after failed tests so negative results stay in bundle summaries and exports.                         | DONE |
+| [INFRA-83](#infra-83) | Export result directories with bundle-scoped metrics, restore archives, summaries, and separate audit files.                       | DONE |
+| [INFRA-84](#infra-84) | Print a direct Grafana dashboard URL with the exported experiment time range from restore runs.                                    | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2097,3 +2101,39 @@ _Date: 2026-07-17_
 Add a local restore workflow for exported internal-lab result archives.
 Provide Docker Compose wiring for Grafana and Loki using the exported dashboards and provisioning.
 Import exported Loki JSONL records back into Loki so archived pod logs can be inspected after the lab run is gone.
+
+<a id="infra-81"></a>
+### INFRA-81 - Export and restore internal-lab metrics
+
+_Date: 2026-07-18_
+
+Export internal-lab Prometheus metrics together with result archives.
+Add a restore runner that starts Docker Compose, imports exported metrics and Loki logs, waits for `q`, then tears down the local stack.
+Remove redundant per-run load-test stdout files now that pod logs are exported through Loki.
+
+<a id="infra-82"></a>
+### INFRA-82 - Continue bundles after failed tests
+
+_Date: 2026-07-18_
+
+Keep internal-lab bundles running remaining tests after one test fails.
+Preserve failed run directories in bundle summaries so exports include negative results for comparison.
+Keep explicit user interruption as a stop condition.
+
+<a id="infra-83"></a>
+### INFRA-83 - Restructure result exports
+
+_Date: 2026-07-19_
+
+Export internal-lab results as directories instead of a single archive.
+Limit Prometheus snapshot blocks to the selected run or bundle time window.
+Keep restore-ready logs and metrics in a tar archive, write a readable summary, and copy audit files separately per run.
+
+<a id="infra-84"></a>
+### INFRA-84 - Print restore dashboard link
+
+_Date: 2026-07-19_
+
+Print a direct Grafana dashboard link when running a restored export.
+Use the exported metrics or Loki time window from `manifest.json` so the link opens on the experiment interval.
+Keep the plain Grafana, Prometheus, and Loki service links visible for fallback navigation.
