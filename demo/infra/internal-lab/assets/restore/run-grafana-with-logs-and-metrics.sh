@@ -121,19 +121,15 @@ trap cleanup EXIT INT TERM
 echo "Preparing exported Prometheus blocks..."
 "${SCRIPT_DIR}/import-prometheus.sh"
 
+echo "Preparing exported Loki data..."
+"${SCRIPT_DIR}/import-loki-data.sh"
+
 echo "Starting Grafana, Prometheus, and Loki containers..."
 GRAFANA_PORT="${GRAFANA_PORT}" \
 LOKI_PORT="${LOKI_PORT}" \
 PROMETHEUS_PORT="${PROMETHEUS_PORT}" \
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR}" \
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d --wait
-
-if compgen -G "${SCRIPT_DIR}/../loki/*.jsonl" >/dev/null; then
-  echo "Importing exported Loki logs..."
-  "${SCRIPT_DIR}/import-loki.sh" --loki-url "http://127.0.0.1:${LOKI_PORT}" "${SCRIPT_DIR}/../loki/"*.jsonl
-else
-  echo "No Loki JSONL files found under ${SCRIPT_DIR}/../loki; skipping log import."
-fi
 
 dashboard_link="$(dashboard_url)"
 echo

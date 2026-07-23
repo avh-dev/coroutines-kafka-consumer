@@ -2,12 +2,13 @@ services:
   loki:
     image: grafana/loki:3.3.2
     container_name: ckc-result-restore-loki
+    user: "0:0"
     command: ["-config.file=/etc/loki/loki.yaml"]
     ports:
       - "${LOKI_PORT:-3100}:3100"
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
-      - loki-data:/loki
+      - ${RESTORE_WORK_DIR:-./.runtime}/loki:/loki
 
   prometheus:
     image: prom/prometheus:v3.3.1
@@ -40,6 +41,3 @@ services:
     depends_on:
       - loki
       - prometheus
-
-volumes:
-  loki-data:
