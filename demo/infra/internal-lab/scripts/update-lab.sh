@@ -147,10 +147,11 @@ sync_internal_lab_assets() {
 
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/test-definitions" "${LAB_ROOT}/test-definitions"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/test-bundles" "${LAB_ROOT}/test-bundles"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads"
+  sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
+  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/experiments' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -251,9 +252,9 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
 ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
+  demo/infra/shared/workloads \
   demo/infra/shared/grafana \
-  demo/infra/internal-lab/assets/test-definitions \
-  demo/infra/internal-lab/assets/test-bundles)"
+  demo/infra/internal-lab/workloads)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \
@@ -290,8 +291,9 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   ! remote_fingerprint_matches "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" ||
   ! remote_paths_exist \
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
-    "${LAB_ROOT}/test-definitions/telemetry-freshness-fairness.yaml" \
-    "${LAB_ROOT}/test-bundles/telemetry-fairness-profile-comparison.yaml" \
+    "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
+    "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi

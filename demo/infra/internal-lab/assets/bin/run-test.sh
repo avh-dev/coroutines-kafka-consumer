@@ -11,7 +11,7 @@ AUDIT_LIVE_DIR="${RESULTS_DIR}/live/audit"
 AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
-TEST_DIR="${LAB_ROOT}/test-definitions"
+TEST_DIR="${LAB_ROOT}/workloads/test-definitions"
 AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
 AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
@@ -26,12 +26,14 @@ DEPLOYMENT_PROFILE=""
 RUN_PROFILE=""
 EXPLICIT_RUN_PROFILE=0
 BASE_TPS_OVERRIDE=""
-CAPACITY_FACTOR=""
 REPLICA_COUNT=""
 STUB_REPLICA_COUNT=""
 ORDER_PROCESSING_MODE=""
 BATCH_PROCESSING_MODE=""
 TELEMETRY_PROCESSING_MODE=""
+ORDER_PLANNING_LATENCY_MS=""
+BATCH_PLANNING_LATENCY_MS=""
+TELEMETRY_PLANNING_LATENCY_MS=""
 PLAN_MANUAL_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
@@ -48,8 +50,10 @@ RUN_INTERRUPTED=0
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
-          [--profile spring-profile] [--base-rate tps] [--capacity-factor value]
+          [--profile spring-profile] [--base-rate tps]
           [--replicas count] [--stub-replicas count]
+          [--order-planning-latency-ms ms] [--batch-planning-latency-ms ms]
+          [--telemetry-planning-latency-ms ms]
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
@@ -59,7 +63,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--env KEY=VALUE]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
-Selects an internal-lab run profile and test definition, prepares the lab when
+Selects an internal-lab consumer profile and test definition, prepares the lab when
 needed, then runs the load-test generator on the lab host.
 
 Options:
@@ -68,14 +72,14 @@ Options:
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
   --skip-analysis  Finalize the raw audit log but leave analysis for a later step.
   --deployment     Select a Helm deployment profile without prompting.
-                   Legacy mode. When omitted, a dynamic run profile is planned.
-  --profile        Select a dynamic application profile without prompting.
+                   Legacy mode. When omitted, a dynamic consumer profile is planned.
+  --profile        Select a consumer profile without prompting.
   --base-rate      Override load_test.base_tps for this run plan and load test.
                    --base-tps is accepted as a compatibility alias.
-  --capacity-factor
-                   Multiply calculated topic parallelism by this headroom factor.
   --replicas       Override generated deployment replica count for this run.
   --stub-replicas  Override demo-stubs deployment replica count for this run.
+  --order-planning-latency-ms, --batch-planning-latency-ms, --telemetry-planning-latency-ms
+                   Set per-topic planning latency used to calculate generated parallelism.
   --order-processing-mode
                    Select processing mode for the order topic.
   --batch-processing-mode
@@ -135,10 +139,6 @@ while [ "$#" -gt 0 ]; do
       BASE_TPS_OVERRIDE="${2:?$1 requires a positive integer}"
       shift 2
       ;;
-    --capacity-factor)
-      CAPACITY_FACTOR="${2:?--capacity-factor requires a positive number}"
-      shift 2
-      ;;
     --replicas)
       REPLICA_COUNT="${2:?--replicas requires a positive integer}"
       shift 2
@@ -157,6 +157,18 @@ while [ "$#" -gt 0 ]; do
       ;;
     --telemetry-processing-mode)
       TELEMETRY_PROCESSING_MODE="${2:?--telemetry-processing-mode requires a mode}"
+      shift 2
+      ;;
+    --order-planning-latency-ms)
+      ORDER_PLANNING_LATENCY_MS="${2:?--order-planning-latency-ms requires a positive number}"
+      shift 2
+      ;;
+    --batch-planning-latency-ms)
+      BATCH_PLANNING_LATENCY_MS="${2:?--batch-planning-latency-ms requires a positive number}"
+      shift 2
+      ;;
+    --telemetry-planning-latency-ms)
+      TELEMETRY_PLANNING_LATENCY_MS="${2:?--telemetry-planning-latency-ms requires a positive number}"
       shift 2
       ;;
     --order-partitions|--batch-partitions|--telemetry-partitions|--order-workers|--batch-workers|--telemetry-workers|--order-pollers|--batch-pollers|--telemetry-pollers)
@@ -238,7 +250,6 @@ CURRENT_WORKER_DISPATCHER_THREADS="8"
 CURRENT_TEST_DEFINITION=""
 CURRENT_RUN_PROFILE=""
 CURRENT_BASE_TPS=""
-CURRENT_CAPACITY_FACTOR=""
 CURRENT_REPLICA_COUNT=""
 CURRENT_STUB_REPLICA_COUNT=""
 CURRENT_ORDER_PROCESSING_MODE=""
@@ -247,12 +258,14 @@ CURRENT_TELEMETRY_PROCESSING_MODE=""
 if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_RUN_PROFILE="${RUN_PROFILE}"
   REQUESTED_BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE}"
-  REQUESTED_CAPACITY_FACTOR="${CAPACITY_FACTOR}"
   REQUESTED_REPLICA_COUNT="${REPLICA_COUNT}"
   REQUESTED_STUB_REPLICA_COUNT="${STUB_REPLICA_COUNT}"
   REQUESTED_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE}"
   REQUESTED_BATCH_PROCESSING_MODE="${BATCH_PROCESSING_MODE}"
   REQUESTED_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE}"
+  REQUESTED_ORDER_PLANNING_LATENCY_MS="${ORDER_PLANNING_LATENCY_MS}"
+  REQUESTED_BATCH_PLANNING_LATENCY_MS="${BATCH_PLANNING_LATENCY_MS}"
+  REQUESTED_TELEMETRY_PLANNING_LATENCY_MS="${TELEMETRY_PLANNING_LATENCY_MS}"
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
   REQUESTED_PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_TYPE}"
   REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
@@ -274,7 +287,6 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_TEST_DEFINITION="${TEST_DEFINITION_NAME:-}"
   CURRENT_RUN_PROFILE="${RUN_PROFILE:-${APP_PROFILE:-}}"
   CURRENT_BASE_TPS="${BASE_TPS:-}"
-  CURRENT_CAPACITY_FACTOR="${CAPACITY_FACTOR:-}"
   CURRENT_REPLICA_COUNT="${REPLICA_COUNT:-}"
   CURRENT_STUB_REPLICA_COUNT="${STUB_REPLICA_COUNT:-}"
   CURRENT_ORDER_PROCESSING_MODE="${ORDER_PROCESSING_MODE:-}"
@@ -282,12 +294,14 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   CURRENT_TELEMETRY_PROCESSING_MODE="${TELEMETRY_PROCESSING_MODE:-}"
   RUN_PROFILE="${REQUESTED_RUN_PROFILE}"
   BASE_TPS_OVERRIDE="${REQUESTED_BASE_TPS_OVERRIDE}"
-  CAPACITY_FACTOR="${REQUESTED_CAPACITY_FACTOR}"
   REPLICA_COUNT="${REQUESTED_REPLICA_COUNT}"
   STUB_REPLICA_COUNT="${REQUESTED_STUB_REPLICA_COUNT}"
   ORDER_PROCESSING_MODE="${REQUESTED_ORDER_PROCESSING_MODE}"
   BATCH_PROCESSING_MODE="${REQUESTED_BATCH_PROCESSING_MODE}"
   TELEMETRY_PROCESSING_MODE="${REQUESTED_TELEMETRY_PROCESSING_MODE}"
+  ORDER_PLANNING_LATENCY_MS="${REQUESTED_ORDER_PLANNING_LATENCY_MS}"
+  BATCH_PLANNING_LATENCY_MS="${REQUESTED_BATCH_PLANNING_LATENCY_MS}"
+  TELEMETRY_PLANNING_LATENCY_MS="${REQUESTED_TELEMETRY_PLANNING_LATENCY_MS}"
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
   PROCESSING_DISPATCHER_TYPE="${REQUESTED_PROCESSING_DISPATCHER_TYPE}"
   LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
@@ -386,7 +400,7 @@ resolve_yaml() {
 
 list_run_profiles() {
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
     --list-profiles
 }
 
@@ -398,7 +412,7 @@ run_profile_exists() {
 profile_dispatcher_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
     --profile "${profile}" \
     --profile-dispatchers
 }
@@ -406,7 +420,7 @@ profile_dispatcher_info() {
 profile_processing_mode_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml" \
+    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
     --profile "${profile}" \
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}" \
     --profile-processing-modes
@@ -436,13 +450,10 @@ import os
 from pathlib import Path
 
 plan = json.loads(Path(os.environ["RUN_PLAN_PATH"]).read_text(encoding="utf-8"))
-adjustable = set(plan.get("adjustable", []))
 print("run_plan:")
 print(f"  profile: {plan['profile']}")
 print(f"  spring_profile: {plan['spring_profile']}")
-print(f"  parallelism: {plan['parallelism_strategy']}")
-print(f"  base_rate: {plan['base_tps']}")
-print(f"  capacity_factor: {plan['capacity_factor']}")
+print(f"  base_tps: {plan['base_tps']}")
 print(f"  replicas: {plan['replica_count']}")
 print(f"  processing_dispatcher_type: {plan.get('processing_dispatcher_type') or '-'}")
 print("  topics:")
@@ -452,15 +463,15 @@ for topic in plan["topics"]:
     print(f"      kafka_topic: {topic['kafka_topic']}")
     print(f"      target_tps: {topic['target_tps']:.2f}")
     print(f"      average_processing_ms: {topic['average_processing_ms']:.2f}")
-    if topic.get("latency_source") != "capacity_model.average_processing_ms":
-        print(f"      latency_note: {topic.get('latency_source')}")
     print(f"      required_parallelism: {topic['required_parallelism']}")
     print(f"      processing_mode: {topic['processing_mode']}")
+    print(f"      parallelism: {', '.join(topic['parallelism'])}")
     print(f"      partitions: {topic['partitions']}")
-    if "workers" in adjustable:
+    if "workers" in topic.get("parallelism", []):
         print(f"      workers: {topic['worker_concurrency']}")
-    if "pollers" in adjustable:
+    if "pollers" in topic.get("parallelism", []):
         print(f"      pollers: {topic['poll_loop_concurrency']}")
+    print(f"      work_channel_capacity: {topic['work_channel_capacity']}")
     if manual:
         print("      manual_overrides:")
         for key, value in manual.items():
@@ -477,7 +488,6 @@ import sys
 from pathlib import Path
 
 plan = json.loads(Path(os.environ["RUN_PLAN_PATH"]).read_text(encoding="utf-8"))
-adjustable = set(plan.get("adjustable", []))
 field_map = {
     "partitions": ("partitions", "partitions"),
     "workers": ("worker_concurrency", "workers"),
@@ -515,7 +525,7 @@ for topic in plan["topics"]:
                 raise SystemExit(f"{name} processing_mode must be one of: {', '.join(allowed_modes)}")
             args.extend([f"--{name}-processing-mode", value])
     for knob in ("partitions", "workers", "pollers"):
-        if knob not in adjustable:
+        if knob not in topic.get("parallelism", []):
             continue
         field, suffix = field_map[knob]
         current = int(topic[field])
@@ -568,7 +578,7 @@ else
       if ! printf '%s\n' "${RUN_PROFILES[@]}" | grep -Fxq "${RUN_PROFILE_DEFAULT}"; then
         RUN_PROFILE_DEFAULT="ckc"
       fi
-      RUN_PROFILE="$(select_value "Available run profiles" "${RUN_PROFILE_DEFAULT}" "${RUN_PROFILES[@]}")"
+      RUN_PROFILE="$(select_value "Available consumer profiles" "${RUN_PROFILE_DEFAULT}" "${RUN_PROFILES[@]}")"
     fi
   elif [ "${EXPLICIT_RUN_PROFILE}" -eq 0 ] && ! run_profile_exists "${RUN_PROFILE}"; then
     RUN_PROFILE="ckc"
@@ -620,22 +630,36 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
       BASE_TPS_OVERRIDE="${BASE_TPS_OVERRIDE:-${BASE_TPS_DEFAULT}}"
     fi
   fi
-  if [ -z "${CAPACITY_FACTOR}" ] && [ -n "${CURRENT_CAPACITY_FACTOR}" ]; then
-    if [ ! -t 0 ]; then
-      CAPACITY_FACTOR="${CURRENT_CAPACITY_FACTOR}"
-    else
-      read -r -p "Capacity factor [${CURRENT_CAPACITY_FACTOR}]: " CAPACITY_FACTOR
-      CAPACITY_FACTOR="${CAPACITY_FACTOR:-${CURRENT_CAPACITY_FACTOR}}"
-    fi
-  fi
   if [ -n "${BASE_TPS_OVERRIDE}" ] && ! [[ "${BASE_TPS_OVERRIDE}" =~ ^[1-9][0-9]*$ ]]; then
     echo "base-tps must be a positive integer: ${BASE_TPS_OVERRIDE}" >&2
     exit 1
   fi
-  if [ -n "${CAPACITY_FACTOR}" ] && ! [[ "${CAPACITY_FACTOR}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "capacity-factor must be a positive number: ${CAPACITY_FACTOR}" >&2
-    exit 1
+  if [ -t 0 ]; then
+    if [ -z "${ORDER_PLANNING_LATENCY_MS}" ]; then
+      read -r -p "Order planning latency ms: " ORDER_PLANNING_LATENCY_MS
+    fi
+    if [ -z "${BATCH_PLANNING_LATENCY_MS}" ]; then
+      read -r -p "Batch planning latency ms: " BATCH_PLANNING_LATENCY_MS
+    fi
+    if [ -z "${TELEMETRY_PLANNING_LATENCY_MS}" ]; then
+      read -r -p "Telemetry planning latency ms: " TELEMETRY_PLANNING_LATENCY_MS
+    fi
   fi
+  for latency in \
+    "order-planning-latency-ms:${ORDER_PLANNING_LATENCY_MS}" \
+    "batch-planning-latency-ms:${BATCH_PLANNING_LATENCY_MS}" \
+    "telemetry-planning-latency-ms:${TELEMETRY_PLANNING_LATENCY_MS}"; do
+    key="${latency%%:*}"
+    value="${latency#*:}"
+    if [ -z "${value}" ]; then
+      echo "${key} is required." >&2
+      exit 1
+    fi
+    if ! [[ "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      echo "${key} must be a positive number: ${value}" >&2
+      exit 1
+    fi
+  done
 
   if [ -n "${RUN_PROFILE}" ]; then
     eval "$(profile_processing_mode_info "${RUN_PROFILE}")"
@@ -774,7 +798,7 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   PLAN_ARGS=(
     "${TEST_DEFINITION}"
     --profile "${RUN_PROFILE}"
-    --profiles-config "${LAB_ROOT}/config/defaults/run-profiles.yaml"
+    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml"
     --output-dir "${PLAN_OUTPUT_DIR}"
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}"
     --processing-enabled "${PROCESSING_ENABLED}"
@@ -782,9 +806,6 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   )
   if [ -n "${BASE_TPS_OVERRIDE}" ]; then
     PLAN_ARGS+=(--base-tps "${BASE_TPS_OVERRIDE}")
-  fi
-  if [ -n "${CAPACITY_FACTOR}" ]; then
-    PLAN_ARGS+=(--capacity-factor "${CAPACITY_FACTOR}")
   fi
   if [ -n "${REPLICA_COUNT}" ]; then
     PLAN_ARGS+=(--replicas "${REPLICA_COUNT}")
@@ -801,6 +822,15 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   if [ -n "${TELEMETRY_PROCESSING_MODE}" ]; then
     PLAN_ARGS+=(--telemetry-processing-mode "${TELEMETRY_PROCESSING_MODE}")
   fi
+  if [ -n "${ORDER_PLANNING_LATENCY_MS}" ]; then
+    PLAN_ARGS+=(--order-planning-latency-ms "${ORDER_PLANNING_LATENCY_MS}")
+  fi
+  if [ -n "${BATCH_PLANNING_LATENCY_MS}" ]; then
+    PLAN_ARGS+=(--batch-planning-latency-ms "${BATCH_PLANNING_LATENCY_MS}")
+  fi
+  if [ -n "${TELEMETRY_PLANNING_LATENCY_MS}" ]; then
+    PLAN_ARGS+=(--telemetry-planning-latency-ms "${TELEMETRY_PLANNING_LATENCY_MS}")
+  fi
   if [ "${#PLAN_MANUAL_ARGS[@]}" -gt 0 ]; then
     PLAN_ARGS+=("${PLAN_MANUAL_ARGS[@]}")
   fi
@@ -816,7 +846,7 @@ if [ ! -f "${DEPLOYMENT_PROFILE}" ]; then
 fi
 
 if [ -n "${RUN_PROFILE}" ]; then
-  echo "Run profile: ${RUN_PROFILE}"
+  echo "Consumer profile: ${RUN_PROFILE}"
 else
   echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
 fi
@@ -931,7 +961,6 @@ fi
 
 mkdir -p "${LOG_DIR}" "${PID_DIR}"
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
-RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 reset_chaos_network() {
   python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" --reset-all >/dev/null 2>&1 || true
@@ -1019,11 +1048,12 @@ AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
 RUN_METADATA_FILE="${RUN_DIR}/run-metadata.json"
 RUN_STATUS_FILE="${RUN_DIR}/run-status.json"
 mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
+RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
-  export RUN_PROFILE RUN_PLAN_PATH CAPACITY_FACTOR REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
+  export RUN_PROFILE RUN_PLAN_PATH REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS

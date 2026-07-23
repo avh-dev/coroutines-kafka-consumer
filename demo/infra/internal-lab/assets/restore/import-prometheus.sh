@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMETHEUS_DATA_DIR="${SCRIPT_DIR}/../metrics/prometheus"
-RESTORE_WORK_DIR="${RESTORE_WORK_DIR:-${SCRIPT_DIR}/.runtime}"
+RESTORE_WORK_DIR="${RESTORE_WORK_DIR:-${SCRIPT_DIR}/../.runtime}"
 PROMETHEUS_RUNTIME_DIR="${RESTORE_WORK_DIR}/prometheus"
 
 if [ ! -d "${PROMETHEUS_DATA_DIR}" ]; then

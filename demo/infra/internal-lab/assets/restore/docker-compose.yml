@@ -17,6 +17,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
+      - --query.lookback-delta=30s
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:

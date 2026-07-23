@@ -17,12 +17,14 @@ except ImportError as error:
 
 
 TOPIC_ORDER = ("order", "batch", "telemetry")
-PARTITION_PARALLELISM_MODES = {
-    "AT_LEAST_ONCE_PARTITION_ORDERING",
-}
 PROCESSING_MODE_RUNTIME_ALIASES = {
     "HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED": "FRESHNESS_FIRST_DROP_OLDEST",
 }
+PARALLELISM_KNOBS = ("partitions", "workers", "pollers")
+MIN_PARTITIONS = 1
+DEFAULT_WORK_CHANNEL_CAPACITY = 1024
+DEFAULT_TELEMETRY_WORK_CHANNEL_CAPACITY = 256
+FRESHNESS_BY_KEY_MODE = "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY"
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -48,7 +50,7 @@ def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 def resolve_profile(config: dict[str, Any], name: str) -> dict[str, Any]:
     profiles = config.get("profiles", {})
     if name not in profiles:
-        raise ValueError(f"Unknown run profile {name!r}. Available: {', '.join(sorted(profiles))}")
+        raise ValueError(f"Unknown consumer profile {name!r}. Available: {', '.join(sorted(profiles))}")
     raw = profiles[name]
     if not isinstance(raw, dict):
         raise ValueError(f"Profile must be an object: {name}")
@@ -99,13 +101,12 @@ def positive_int(value: str) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate an internal-lab dynamic run plan.")
     parser.add_argument("test_definition", nargs="?")
-    parser.add_argument("--profiles-config", required=True)
+    parser.add_argument("--consumer-profiles", required=True)
     parser.add_argument("--profile")
     parser.add_argument("--output-dir")
     parser.add_argument("--repo-dir", default=".")
     parser.add_argument("--current-deployment-env")
     parser.add_argument("--base-tps", "--base-rate", dest="base_tps", type=positive_int)
-    parser.add_argument("--capacity-factor", type=positive_float)
     parser.add_argument("--replicas", type=positive_int)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
@@ -113,6 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-processing-mode")
     parser.add_argument("--telemetry-processing-mode")
     for topic in TOPIC_ORDER:
+        parser.add_argument(f"--{topic}-planning-latency-ms", type=positive_float)
         parser.add_argument(f"--{topic}-partitions", type=positive_int)
         parser.add_argument(f"--{topic}-workers", type=positive_int)
         parser.add_argument(f"--{topic}-pollers", type=positive_int)
@@ -121,14 +123,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile-processing-modes", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     return parser.parse_args()
-
-
-def avg_latency_ms(settings: dict[str, Any]) -> float:
-    p90 = float(settings["delay_p90_ms"])
-    p95 = float(settings["delay_p95_ms"])
-    p99 = float(settings["delay_p99_ms"])
-    p100 = float(settings["delay_p100_ms"])
-    return p90 * 0.90 + p95 * 0.05 + p99 * 0.04 + p100 * 0.01
 
 
 def value_at(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
@@ -140,15 +134,34 @@ def value_at(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return current
 
 
-def profile_parallelism(profile: dict[str, Any]) -> tuple[str, set[str]]:
-    raw = profile.get("parallelism", "workers")
-    if isinstance(raw, dict):
-        primary = str(raw.get("primary", "workers"))
-        adjustable = {str(item) for item in raw.get("adjustable", [])}
+def parallelism_knobs(raw: Any, *, context: str) -> list[str]:
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, list):
+        values = [str(item) for item in raw]
     else:
-        primary = str(raw)
-        adjustable = {"partitions", "workers", "pollers"} if primary == "workers" else {"partitions", "pollers"}
-    return primary, adjustable
+        raise ValueError(f"{context} must be a list of parallelism knobs")
+    unknown = [item for item in values if item not in PARALLELISM_KNOBS]
+    if unknown:
+        raise ValueError(f"{context} contains unknown parallelism knobs: {', '.join(unknown)}")
+    result = []
+    for item in values:
+        if item not in result:
+            result.append(item)
+    if not result:
+        raise ValueError(f"{context} must not be empty")
+    return result
+
+
+def profile_parallelism(profile: dict[str, Any]) -> list[str]:
+    return parallelism_knobs(profile.get("parallelism", ["workers"]), context="parallelism")
+
+
+def topic_profile(profile: dict[str, Any], topic: str) -> dict[str, Any]:
+    value = value_at(profile, "topics", topic, default={})
+    if not isinstance(value, dict):
+        raise ValueError(f"topics.{topic} must be an object")
+    return value
 
 
 def env_key(topic: str, suffix: str) -> str:
@@ -161,6 +174,28 @@ def round_up_to_multiple(value: int, multiple: int) -> int:
     if multiple <= 1:
         return value
     return int(math.ceil(value / multiple) * multiple)
+
+
+def load_test_int(load_test: dict[str, Any], key: str, default: int) -> int:
+    value = load_test.get(key, default)
+    if value in ("", None):
+        return default
+    return int(value)
+
+
+def work_channel_capacity(topic: str, mode: str, load_test: dict[str, Any]) -> int:
+    if topic != "telemetry":
+        return DEFAULT_WORK_CHANNEL_CAPACITY
+    if runtime_processing_mode(mode) != FRESHNESS_BY_KEY_MODE:
+        return DEFAULT_TELEMETRY_WORK_CHANNEL_CAPACITY
+
+    # The current load generator creates a fixed cauldron fleet per generator worker.
+    # Keep capacity aligned with the effective keyspace until the generator owns a
+    # single shared fleet for the whole run.
+    cauldron_count = load_test_int(load_test, "cauldron_count", 32)
+    workers = load_test_int(load_test, "workers", 1)
+    shards = load_test_int(load_test, "shards", 1)
+    return max(1, cauldron_count * workers * shards)
 
 
 def current_mode(current: dict[str, str], topic: str, profile_name: str) -> str:
@@ -183,10 +218,11 @@ def select_processing_mode(
     profile_name: str,
     current: dict[str, str],
 ) -> str:
-    allowed = list(value_at(profile, "allowedProcessingModes", topic, default=[]))
-    default = str(value_at(profile, "defaultProcessingModes", topic, default="")).strip()
+    topic_config = topic_profile(profile, topic)
+    allowed = [str(item) for item in value_at(topic_config, "allowed_processing_modes", default=[])]
+    default = str(value_at(topic_config, "default_processing_mode", default="")).strip()
     if not allowed:
-        raise ValueError(f"Profile does not define allowedProcessingModes.{topic}")
+        raise ValueError(f"Profile does not define topics.{topic}.allowed_processing_modes")
     if not default:
         default = str(allowed[0])
     candidate = explicit or current_mode(current, topic, profile_name) or default
@@ -201,14 +237,18 @@ def runtime_processing_mode(mode: str) -> str:
     return PROCESSING_MODE_RUNTIME_ALIASES.get(mode, mode)
 
 
-def topic_parallelism_strategy(profile_strategy: str, processing_mode: str, adjustable: set[str]) -> str:
-    if processing_mode in PARTITION_PARALLELISM_MODES:
-        if "partitions" not in adjustable:
-            raise ValueError(f"Processing mode {processing_mode} requires partition adjustment support")
-        if profile_strategy == "workers":
-            return "workers_with_partition_capacity"
-        return "partitions"
-    return profile_strategy
+def topic_parallelism(profile: dict[str, Any], topic: str, processing_mode: str) -> list[str]:
+    topic_config = topic_profile(profile, topic)
+    overrides = topic_config.get("mode_parallelism", {})
+    if overrides in ("", None):
+        overrides = {}
+    if not isinstance(overrides, dict):
+        raise ValueError(f"topics.{topic}.mode_parallelism must be an object")
+    if processing_mode in overrides:
+        return parallelism_knobs(overrides[processing_mode], context=f"topics.{topic}.mode_parallelism.{processing_mode}")
+    if "parallelism" in topic_config:
+        return parallelism_knobs(topic_config["parallelism"], context=f"topics.{topic}.parallelism")
+    return profile_parallelism(profile)
 
 
 def profile_list(config: dict[str, Any]) -> None:
@@ -217,12 +257,12 @@ def profile_list(config: dict[str, Any]) -> None:
 
 
 def dispatcher_settings(profile: dict[str, Any]) -> tuple[str, list[str]]:
-    allowed = [str(item).upper() for item in profile.get("allowedProcessingDispatchers", [])]
-    default = str(profile.get("defaultProcessingDispatcher", "") or "").upper()
+    allowed = [str(item).upper() for item in profile.get("allowed_processing_dispatchers", [])]
+    default = str(profile.get("default_processing_dispatcher", "") or "").upper()
     if allowed and not default:
         default = allowed[0]
     if default and default not in allowed:
-        raise ValueError(f"defaultProcessingDispatcher {default!r} is not in allowedProcessingDispatchers")
+        raise ValueError(f"default_processing_dispatcher {default!r} is not in allowed_processing_dispatchers")
     return default, allowed
 
 
@@ -233,18 +273,18 @@ def print_profile_dispatchers(profile: dict[str, Any]) -> None:
 
 
 def print_profile_processing_modes(profile: dict[str, Any], profile_name: str, current: dict[str, str]) -> None:
-    profile_replicas = int(profile.get("replicaCount", 1))
     current_profile = current.get("RUN_PROFILE") or current.get("APP_PROFILE") or ""
     current_replicas = current.get("REPLICA_COUNT", "")
-    replica_default = profile_replicas
+    replica_default = 1
     if current_profile == profile_name and current_replicas.isdigit() and int(current_replicas) > 0:
         replica_default = int(current_replicas)
     print(f"REPLICA_COUNT_DEFAULT={shell_quote(str(replica_default))}")
     for topic in TOPIC_ORDER:
-        allowed = [str(item) for item in value_at(profile, "allowedProcessingModes", topic, default=[])]
-        default = str(value_at(profile, "defaultProcessingModes", topic, default="")).strip()
+        topic_config = topic_profile(profile, topic)
+        allowed = [str(item) for item in value_at(topic_config, "allowed_processing_modes", default=[])]
+        default = str(value_at(topic_config, "default_processing_mode", default="")).strip()
         if not allowed:
-            raise ValueError(f"Profile does not define allowedProcessingModes.{topic}")
+            raise ValueError(f"Profile does not define topics.{topic}.allowed_processing_modes")
         if not default:
             default = allowed[0]
         candidate = current_mode(current, topic, profile_name) or default
@@ -256,14 +296,11 @@ def print_profile_processing_modes(profile: dict[str, Any], profile_name: str, c
 
 
 def profile_summary(plan: dict[str, Any]) -> str:
-    adjustable = set(plan.get("adjustable", []))
     lines = [
         "run_plan:",
         f"  profile: {plan['profile']}",
         f"  spring_profile: {plan['spring_profile']}",
-        f"  parallelism: {plan['parallelism_strategy']}",
-        f"  base_rate: {plan['base_tps']}",
-        f"  capacity_factor: {plan['capacity_factor']}",
+        f"  base_tps: {plan['base_tps']}",
         f"  replicas: {plan['replica_count']}",
         f"  processing_dispatcher_type: {plan.get('processing_dispatcher_type') or '-'}",
         "  topics:",
@@ -277,33 +314,31 @@ def profile_summary(plan: dict[str, Any]) -> str:
                 f"      average_processing_ms: {topic['average_processing_ms']:.2f}",
             ]
         )
-        if topic.get("latency_source") != "capacity_model.average_processing_ms":
-            lines.append(f"      latency_note: {topic.get('latency_source')}")
         lines.extend(
             [
                 f"      required_parallelism: {topic['required_parallelism']}",
                 f"      processing_mode: {topic['processing_mode']}",
+                f"      parallelism: {', '.join(topic['parallelism'])}",
                 f"      partitions: {topic['partitions']}",
             ]
         )
-        if "workers" in adjustable:
+        if "workers" in topic.get("parallelism", []):
             lines.append(f"      workers: {topic['worker_concurrency']}")
-        if "pollers" in adjustable:
+        if "pollers" in topic.get("parallelism", []):
             lines.append(f"      pollers: {topic['poll_loop_concurrency']}")
+        lines.append(f"      work_channel_capacity: {topic['work_channel_capacity']}")
         manual = topic.get("manual_overrides") or {}
         if manual:
             lines.append("      manual_overrides:")
             for key, value in manual.items():
                 lines.append(f"        {key}: {value}")
-        if topic.get("parallelism_strategy") != plan["parallelism_strategy"]:
-            lines.append(f"      parallelism: {topic['parallelism_strategy']}")
     lines.append(f"  values: {plan['values_path']}")
     return "\n".join(lines)
 
 
 def main() -> None:
     args = parse_args()
-    profiles_config = load_yaml(Path(args.profiles_config))
+    profiles_config = load_yaml(Path(args.consumer_profiles))
     if args.list_profiles:
         profile_list(profiles_config)
         return
@@ -336,28 +371,13 @@ def main() -> None:
     processing_dispatcher = explicit_dispatcher or default_dispatcher
 
     load_test = value_at(definition, "load_test", default={})
-    stubs = value_at(definition, "stubs", default={})
-    capacity_model = value_at(definition, "capacity_model", default={})
     if not isinstance(load_test, dict):
         load_test = {}
-    if not isinstance(stubs, dict):
-        raise ValueError(f"Test definition must define stubs: {definition_path}")
-    if not isinstance(capacity_model, dict):
-        capacity_model = {}
-    stub_latency_defaults = {
-        "registry": {"delay_p90_ms": 2, "delay_p95_ms": 3, "delay_p99_ms": 4, "delay_p100_ms": 5},
-    }
 
-    global_config = profiles_config.get("global", {})
     topics_config = profiles_config.get("topics", {})
-    capacity_factor = args.capacity_factor or float(profile.get("defaultCapacityFactor", global_config.get("defaultCapacityFactor", 1.2)))
     base_tps = args.base_tps or int(load_test.get("base_tps", 10000))
-    replica_count = args.replicas or int(profile.get("replicaCount", 1))
-    strategy, adjustable = profile_parallelism(profile)
-    overhead_ms = float(global_config.get("overheadMs", 3.0))
-    noop_latency_ms = float(global_config.get("noopProcessingLatencyMs", 6.5))
-    min_partitions = int(global_config.get("minPartitions", 1))
-    default_partitions = int(profile.get("defaultPartitions", min_partitions))
+    current_replicas = current.get("REPLICA_COUNT", "")
+    replica_count = args.replicas or (int(current_replicas) if current_replicas.isdigit() and int(current_replicas) > 0 else 1)
 
     explicit_modes = {
         "order": args.order_processing_mode,
@@ -372,13 +392,13 @@ def main() -> None:
         }
         for topic in TOPIC_ORDER
     }
-    for topic_name, overrides in manual_overrides.items():
-        for knob, value in overrides.items():
-            if value is not None and knob not in adjustable:
-                raise ValueError(f"Profile {args.profile!r} does not allow manual {topic_name} {knob} overrides")
+    planning_latency_overrides = {
+        topic: getattr(args, f"{topic}_planning_latency_ms")
+        for topic in TOPIC_ORDER
+    }
     topic_plans: list[dict[str, Any]] = []
     kafka_topics: list[dict[str, Any]] = []
-    env: dict[str, Any] = {"springProfilesActive": profile["springProfilesActive"]}
+    env: dict[str, Any] = {"springProfilesActive": profile["spring_profile"]}
     if processing_dispatcher:
         env["processingDispatcherType"] = processing_dispatcher
 
@@ -391,43 +411,34 @@ def main() -> None:
             profile_name=args.profile,
             current=current,
         )
-        topic_strategy = topic_parallelism_strategy(strategy, mode, adjustable)
-        percent = float(load_test.get(topic_config["percentKey"], 0))
+        knobs = topic_parallelism(profile, topic_name, mode)
+        percent = float(load_test.get(topic_config["traffic_percent_key"], 0))
         target_tps = base_tps * percent / 100.0
-        measured_average_ms = value_at(capacity_model, "average_processing_ms", topic_name, default=None)
-        latency_source = "capacity_model.average_processing_ms"
-        if measured_average_ms not in (None, ""):
-            average_ms = float(measured_average_ms)
-        elif args.processing_enabled == "true":
-            source_latencies = [
-                avg_latency_ms(stubs.get(source) or stub_latency_defaults.get(source) or {})
-                for source in topic_config.get("latencySources", [])
-            ]
-            average_ms = overhead_ms + sum(source_latencies)
-            latency_source = "stubs_percentile_estimate"
-        else:
-            average_ms = overhead_ms + noop_latency_ms
-            latency_source = "noop_default"
-        required = max(1, math.ceil(target_tps * average_ms / 1000.0 * capacity_factor))
-
-        if topic_strategy == "partitions":
-            partitions = round_up_to_multiple(max(min_partitions, required), replica_count)
-            worker_concurrency = int(value_at(profile, "env", env_key(topic_name, "WorkerConcurrency"), default=1) or 1)
-            poll_loop_concurrency = max(1, partitions // replica_count)
-        elif topic_strategy == "workers":
-            partitions = round_up_to_multiple(max(min_partitions, default_partitions, replica_count), replica_count)
-            worker_concurrency = max(1, math.ceil(required / replica_count))
-            poll_loop_concurrency = int(value_at(profile, "env", env_key(topic_name, "PollLoopConcurrency"), default=1) or 1)
-        elif topic_strategy == "workers_with_partition_capacity":
-            partitions = round_up_to_multiple(max(min_partitions, required), replica_count)
-            worker_concurrency = max(1, math.ceil(required / replica_count))
-            poll_loop_concurrency = int(value_at(profile, "env", env_key(topic_name, "PollLoopConcurrency"), default=1) or 1)
-        else:
-            raise ValueError(f"Unsupported profile parallelism strategy: {topic_strategy}")
-
+        explicit_average_ms = planning_latency_overrides[topic_name]
+        if explicit_average_ms is None:
+            raise ValueError(f"{topic_name} planning latency is required; pass --{topic_name}-planning-latency-ms")
+        average_ms = float(explicit_average_ms)
+        required = max(1, math.ceil(target_tps * average_ms / 1000.0))
         overrides = manual_overrides[topic_name]
+        for knob, value in overrides.items():
+            if value is not None and knob not in knobs:
+                raise ValueError(f"Profile {args.profile!r} does not allow manual {topic_name} {knob} overrides for {mode}")
+
+        if "partitions" in knobs:
+            partitions = round_up_to_multiple(max(MIN_PARTITIONS, required), replica_count)
+        else:
+            partitions = round_up_to_multiple(max(MIN_PARTITIONS, replica_count), replica_count)
+        if "workers" in knobs:
+            worker_concurrency = max(1, math.ceil(required / replica_count))
+        else:
+            worker_concurrency = 1
+        if "pollers" in knobs:
+            poll_loop_concurrency = max(1, math.ceil(partitions / replica_count))
+        else:
+            poll_loop_concurrency = 1
+
         manual_fields: dict[str, int] = {}
-        if overrides["pollers"] is not None and overrides["partitions"] is None and topic_strategy == "partitions":
+        if overrides["pollers"] is not None and overrides["partitions"] is None and "partitions" in knobs:
             partitions = overrides["pollers"] * replica_count
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = overrides["pollers"]
@@ -435,7 +446,7 @@ def main() -> None:
         if overrides["partitions"] is not None:
             partitions = overrides["partitions"]
             manual_fields["partitions"] = partitions
-            if topic_strategy == "partitions" and overrides["pollers"] is None:
+            if "pollers" in knobs and overrides["pollers"] is None:
                 poll_loop_concurrency = max(1, math.ceil(partitions / replica_count))
         if overrides["workers"] is not None:
             worker_concurrency = overrides["workers"]
@@ -443,7 +454,7 @@ def main() -> None:
         if overrides["pollers"] is not None:
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = poll_loop_concurrency
-        if topic_strategy == "partitions" and overrides["partitions"] is not None and overrides["pollers"] is not None:
+        if "pollers" in knobs and overrides["partitions"] is not None and overrides["pollers"] is not None:
             expected_partitions = overrides["pollers"] * replica_count
             if partitions != expected_partitions:
                 raise ValueError(
@@ -454,13 +465,10 @@ def main() -> None:
         env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)
         env[env_key(topic_name, "WorkerConcurrency")] = worker_concurrency
         env[env_key(topic_name, "PollLoopConcurrency")] = poll_loop_concurrency
-        if isinstance(profile.get("env"), dict):
-            for key, value in profile["env"].items():
-                if key == "processingDispatcherType" and not processing_dispatcher:
-                    continue
-                env.setdefault(key, value)
+        topic_work_channel_capacity = work_channel_capacity(topic_name, mode, load_test)
+        env[env_key(topic_name, "WorkChannelCapacity")] = topic_work_channel_capacity
 
-        kafka_topic = topic_config["kafkaTopic"]
+        kafka_topic = topic_config["kafka_topic"]
         kafka_topics.append({"name": kafka_topic, "partitions": partitions})
         topic_plans.append(
             {
@@ -469,14 +477,14 @@ def main() -> None:
                 "traffic_percent": percent,
                 "target_tps": target_tps,
                 "average_processing_ms": average_ms,
-                "latency_source": latency_source,
                 "required_parallelism": required,
                 "partitions": partitions,
                 "worker_concurrency": worker_concurrency,
                 "poll_loop_concurrency": poll_loop_concurrency,
+                "work_channel_capacity": topic_work_channel_capacity,
                 "processing_mode": mode,
-                "allowed_processing_modes": list(value_at(profile, "allowedProcessingModes", topic_name, default=[])),
-                "parallelism_strategy": topic_strategy,
+                "allowed_processing_modes": [str(item) for item in value_at(profile, "topics", topic_name, "allowed_processing_modes", default=[])],
+                "parallelism": knobs,
                 "manual_overrides": manual_fields,
             }
         )
@@ -486,14 +494,10 @@ def main() -> None:
         "lab": {
             "runPlanProfile": args.profile,
             "runPlanBaseTps": base_tps,
-            "runPlanCapacityFactor": capacity_factor,
             "kafkaTopics": kafka_topics,
         },
         "env": env,
     }
-    for key in ("resources", "probes", "hpa"):
-        if key in profile:
-            overlay[key] = profile[key]
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -504,11 +508,8 @@ def main() -> None:
 
     plan = {
         "profile": args.profile,
-        "spring_profile": profile["springProfilesActive"],
-        "parallelism_strategy": strategy,
-        "adjustable": sorted(adjustable),
+        "spring_profile": profile["spring_profile"],
         "base_tps": base_tps,
-        "capacity_factor": capacity_factor,
         "replica_count": replica_count,
         "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),
         "processing_enabled": args.processing_enabled == "true",
@@ -526,7 +527,6 @@ def main() -> None:
             "RUN_PLAN_VALUES": str(values_path),
             "RUN_PROFILE": args.profile,
             "BASE_TPS": str(base_tps),
-            "CAPACITY_FACTOR": str(capacity_factor),
             "REPLICA_COUNT": str(replica_count),
         }
         for key, value in assignments.items():
@@ -534,4 +534,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as error:
+        raise SystemExit(str(error)) from error

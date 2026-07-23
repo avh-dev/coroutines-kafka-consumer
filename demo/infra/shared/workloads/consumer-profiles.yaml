@@ -1,0 +1,93 @@
+topics:
+  order:
+    kafka_topic: order.events.v1
+    traffic_percent_key: order_event_percent
+  batch:
+    kafka_topic: batch.events.v1
+    traffic_percent_key: batch_event_percent
+  telemetry:
+    kafka_topic: cauldron.events.v1
+    traffic_percent_key: cauldron_telemetry_percent
+
+profiles:
+  ckc:
+    spring_profile: ckc
+    default_processing_dispatcher: FIXED
+    allowed_processing_dispatchers: [DEFAULT, FIXED, IO, VIRTUAL]
+    topics:
+      order:
+        parallelism: [workers]
+        mode_parallelism:
+          AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
+        default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
+      batch:
+        parallelism: [workers]
+        mode_parallelism:
+          AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
+        default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
+      telemetry:
+        parallelism: [workers]
+        mode_parallelism:
+          AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
+        default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+        allowed_processing_modes: [FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY, FRESHNESS_FIRST_DROP_OLDEST, AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
+
+  ckc-spring-boot:
+    extends: ckc
+    spring_profile: ckc-spring-boot
+
+  ckc-sync:
+    extends: ckc
+    spring_profile: ckc-sync
+    default_processing_dispatcher: IO
+    allowed_processing_dispatchers: [IO, VIRTUAL]
+
+  confluent-sync:
+    extends: ckc
+    spring_profile: confluent-parallel
+    default_processing_dispatcher: ""
+    allowed_processing_dispatchers: []
+    topics:
+      telemetry:
+        default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+        allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED, AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
+
+  confluent-reactor:
+    extends: ckc
+    spring_profile: confluent-parallel-reactor
+    topics:
+      telemetry:
+        default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+        allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED, AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
+
+  spring-kafka-coroutines-naive:
+    extends: ckc
+    spring_profile: spring-kafka-coroutines-naive
+    topics:
+      order:
+        default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_NO_ORDERING]
+      batch:
+        default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_NO_ORDERING]
+      telemetry:
+        default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+        allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]
+
+  spring-kafka:
+    spring_profile: spring-kafka
+    topics:
+      order:
+        parallelism: [partitions, pollers]
+        default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_PARTITION_ORDERING]
+      batch:
+        parallelism: [partitions, pollers]
+        default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_PARTITION_ORDERING]
+      telemetry:
+        parallelism: [partitions, pollers]
+        default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+        allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]

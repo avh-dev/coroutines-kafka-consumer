@@ -296,7 +296,6 @@ def main() -> None:
     run_plan_path = str(value_at(deployment_profile, "lab", "runPlanPath", default=""))
     run_plan_profile = str(value_at(deployment_profile, "lab", "runPlanProfile", default=""))
     run_plan_base_tps = value_at(deployment_profile, "lab", "runPlanBaseTps", default=None)
-    run_plan_capacity_factor = value_at(deployment_profile, "lab", "runPlanCapacityFactor", default="")
     replica_count = value_at(deployment_profile, "replicaCount", default="")
     app_profile = str(deployment_env.get("springProfilesActive") or run_plan_profile or deployment_profile_path.stem)
 
@@ -304,7 +303,6 @@ def main() -> None:
         "APP_PROFILE": app_profile,
         "RUN_PROFILE": run_plan_profile,
         "RUN_PLAN_PATH": run_plan_path,
-        "CAPACITY_FACTOR": str(run_plan_capacity_factor),
         "REPLICA_COUNT": str(replica_count),
         "PROCESSING_DISPATCHER_TYPE": str(deployment_env.get("processingDispatcherType", "")),
         "ORDER_PROCESSING_MODE": str(deployment_env.get("orderProcessingMode", "")),

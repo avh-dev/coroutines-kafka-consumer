@@ -7,9 +7,10 @@ import org.apache.kafka.clients.producer.RecordMetadata
 import org.slf4j.LoggerFactory
 
 private const val AUDIT_TCP_LOGGER = "AUDIT_TCP"
-private val auditLogger = LoggerFactory.getLogger(AUDIT_TCP_LOGGER)
 
 class LoadTestAuditLog private constructor() {
+    private val auditLogger = LoggerFactory.getLogger(AUDIT_TCP_LOGGER)
+
     fun published(metadata: RecordMetadata, key: String) {
         append(
             encodePublishedAuditRecord(
