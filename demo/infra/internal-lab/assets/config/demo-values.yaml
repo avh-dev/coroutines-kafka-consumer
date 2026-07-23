@@ -31,7 +31,7 @@ env:
   orderWorkChannelCapacity: 512
   telemetryWorkerConcurrency: 50
   telemetryPollLoopConcurrency: 1
-  telemetryWorkChannelCapacity: 1
+  telemetryWorkChannelCapacity: 256
 
 resources:
   requests:

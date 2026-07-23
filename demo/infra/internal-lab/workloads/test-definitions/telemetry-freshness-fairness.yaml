@@ -1,0 +1,35 @@
+name: telemetry-freshness-fairness
+
+stubs:
+  error_rate_percent: 0
+  eta:
+    delay_p90_ms: 45
+    delay_p95_ms: 60
+    delay_p99_ms: 165
+    delay_p100_ms: 300
+  flavour:
+    delay_p90_ms: 4
+    delay_p95_ms: 6
+    delay_p99_ms: 8
+    delay_p100_ms: 50
+  registry:
+    delay_p90_ms: 2
+    delay_p95_ms: 3
+    delay_p99_ms: 4
+    delay_p100_ms: 5
+
+load_test:
+  shards: 1
+  workers: 1
+  base_tps: 2000
+  order_event_percent: 0
+  batch_event_percent: 0
+  cauldron_telemetry_percent: 100
+  telemetry_source_mode: FIXED_FLEET
+  load_profile: "0 -> (1m, warmup) -> 100 -> (12m, telemetry-fairness) -> 100 -> (1m, cool-down) -> 0"
+  cauldron_count: 10000
+  min_orders_per_batch: 4
+  max_orders_per_batch: 8
+  min_brewing_steps: 5
+  max_brewing_steps: 10
+  diagnostics_blob_size: 256

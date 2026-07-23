@@ -1,6 +1,6 @@
 # Internal Lab Notifications
 
-`run-bundle.sh` can call an optional notification hook during long bundle runs.
+`run-experiment.sh` can call an optional notification hook during long experiment runs.
 The hook must live in this directory on the lab host and must be executable:
 
 ```text
@@ -14,21 +14,21 @@ The interface is:
 notify-hook event-name payload.json
 ```
 
-`payload.json` is a temporary JSON file written by the bundle runner. The hook
+`payload.json` is a temporary JSON file written by the experiment runner. The hook
 may read it, send a message, and exit. A missing hook disables notifications.
 
 Common event names:
 
-- `bundle_started`
+- `experiment_started`
 - `test_started`
 - `test_finished`
-- `bundle_runs_finished`
+- `experiment_runs_finished`
 - `audit_analysis_started`
 - `audit_analysis_finished`
 - `audit_run_analysis_started`
 - `audit_run_analysis_finished`
-- `bundle_finished`
-- `bundle_failed`
+- `experiment_finished`
+- `experiment_failed`
 
 ## Telegram Example
 
@@ -86,20 +86,20 @@ EOF
 chmod 0750 /opt/ckc-lab/notify/notify.sh
 ```
 
-By default, the Telegram example sends only high-signal bundle-level events.
+By default, the Telegram example sends only high-signal experiment-level events.
 Override this with a comma-separated allowlist:
 
 ```sh
-export TELEGRAM_EVENTS='bundle_started,bundle_finished,bundle_failed'
+export TELEGRAM_EVENTS='experiment_started,experiment_finished,experiment_failed'
 ```
 
 ### 4. Test it
 
 ```sh
 cat > /tmp/ckc-notify-test.json <<'EOF'
-{"bundle":"manual-test","tests":1,"exit_code":0}
+{"experiment":"manual-test","targets":1,"exit_code":0}
 EOF
-/opt/ckc-lab/notify/notify.sh bundle_started /tmp/ckc-notify-test.json
+/opt/ckc-lab/notify/notify.sh experiment_started /tmp/ckc-notify-test.json
 ```
 
 If the message does not arrive, check:

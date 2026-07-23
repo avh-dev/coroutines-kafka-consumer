@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import shutil
+import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.parse
@@ -16,10 +19,15 @@ from typing import Any, Iterable
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Export internal-lab run or bundle artifacts into a result directory.")
-    parser.add_argument("target", nargs="?", help="Run id/path or bundle id/path. Defaults to the latest run.")
-    parser.add_argument("--bundle", action="store_true", help="Interpret target as a bundle result.")
-    parser.add_argument("--latest-bundle", action="store_true", help="Export the latest bundle result.")
+    parser = argparse.ArgumentParser(description="Export internal-lab run or experiment artifacts into a result directory.")
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="Run id/path or experiment id/path. Defaults to the latest experiment, falling back to the latest run.",
+    )
+    parser.add_argument("--run", action="store_true", help="Interpret target as a single run result.")
+    parser.add_argument("--experiment", action="store_true", help="Interpret target as an experiment result.")
+    parser.add_argument("--latest-experiment", action="store_true", help="Export the latest experiment result.")
     parser.add_argument("--lab-root", default="/opt/ckc-lab")
     parser.add_argument("--output-dir", default="", help="Export root directory. Defaults to /opt/ckc-lab/results/exports.")
     parser.add_argument("--loki-url", default="http://127.0.0.1:3100")
@@ -28,7 +36,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
     parser.add_argument("--skip-prometheus", action="store_true")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing archive.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    requested_modes = [args.run, args.experiment or args.latest_experiment]
+    if sum(1 for selected in requested_modes if selected) > 1:
+        parser.error("--run cannot be combined with --experiment or --latest-experiment")
+    if args.latest_experiment and args.target:
+        parser.error("--latest-experiment does not accept a target")
+    return args
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -48,19 +62,49 @@ def latest_child(directory: Path, marker: str) -> Path:
     return max(candidates, key=lambda item: item[0])[1]
 
 
-def resolve_result(target: str | None, lab_root: Path, bundle: bool) -> tuple[str, Path]:
-    result_type = "bundle" if bundle else "run"
-    root = lab_root / "results" / ("bundles" if bundle else "runs")
-    marker = "summary.json" if bundle else "run-metadata.json"
+def result_root(lab_root: Path, result_type: str) -> Path:
+    return lab_root / "results" / ("experiments" if result_type == "experiment" else "runs")
+
+
+def result_marker(result_type: str) -> str:
+    return "summary.json" if result_type == "experiment" else "run-metadata.json"
+
+
+def resolve_typed_result(target: str | None, lab_root: Path, result_type: str) -> tuple[str, Path]:
+    root = result_root(lab_root, result_type)
+    marker = result_marker(result_type)
     if not target:
         return result_type, latest_child(root, marker)
     path = Path(target)
-    if path.is_dir():
+    if path.is_dir() and (path / marker).is_file():
         return result_type, path.resolve()
     candidate = root / target
-    if candidate.is_dir():
+    if candidate.is_dir() and (candidate / marker).is_file():
         return result_type, candidate
     raise FileNotFoundError(f"{result_type} result was not found: {target}")
+
+
+def resolve_result(target: str | None, lab_root: Path, requested_type: str | None) -> tuple[str, Path]:
+    if requested_type:
+        return resolve_typed_result(target, lab_root, requested_type)
+    if not target:
+        try:
+            return resolve_typed_result(None, lab_root, "experiment")
+        except FileNotFoundError:
+            return resolve_typed_result(None, lab_root, "run")
+
+    path = Path(target)
+    if path.is_dir():
+        if (path / result_marker("experiment")).is_file():
+            return "experiment", path.resolve()
+        if (path / result_marker("run")).is_file():
+            return "run", path.resolve()
+
+    for result_type in ("experiment", "run"):
+        candidate = result_root(lab_root, result_type) / target
+        if candidate.is_dir() and (candidate / result_marker(result_type)).is_file():
+            return result_type, candidate
+    raise FileNotFoundError(f"Run or experiment result was not found: {target}")
 
 
 def run_dirs_for_result(result_type: str, result_dir: Path) -> list[Path]:
@@ -68,9 +112,9 @@ def run_dirs_for_result(result_type: str, result_dir: Path) -> list[Path]:
         return [result_dir]
     summary = load_json(result_dir / "summary.json")
     runs: list[Path] = []
-    for bundle in summary.get("bundles", []):
-        for test in bundle.get("tests", []):
-            run_dir = test.get("run_dir")
+    for experiment in summary.get("experiments", []):
+        for target in experiment.get("targets", []):
+            run_dir = target.get("run_dir")
             if run_dir:
                 runs.append(Path(run_dir))
     return sorted({path.resolve() for path in runs})
@@ -167,33 +211,14 @@ def write_loki_logs(export_root: Path, run_dirs: list[Path], loki_url: str, limi
     return exported
 
 
-def prometheus_snapshot(prometheus_url: str) -> str:
-    url = f"{prometheus_url.rstrip('/')}/api/v1/admin/tsdb/snapshot"
-    request = urllib.request.Request(url, data=b"", method="POST")
+def prometheus_get(prometheus_url: str, path: str, params: dict[str, str]) -> dict[str, Any]:
+    url = f"{prometheus_url.rstrip('/')}{path}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(request, timeout=120) as response:
         data = json.loads(response.read().decode("utf-8"))
     if data.get("status") != "success":
-        raise RuntimeError(f"Prometheus snapshot failed: {data}")
-    snapshot_name = data.get("data", {}).get("name")
-    if not snapshot_name:
-        raise RuntimeError(f"Prometheus snapshot response did not include a snapshot name: {data}")
-    return str(snapshot_name)
-
-
-def block_overlaps_window(block_dir: Path, start: datetime | None, end: datetime | None) -> bool:
-    meta_path = block_dir / "meta.json"
-    if not meta_path.is_file():
-        return False
-    meta = load_json(meta_path)
-    min_time = int(meta.get("minTime", 0))
-    max_time = int(meta.get("maxTime", 0))
-    start_ms = int(start.timestamp() * 1000) if start else None
-    end_ms = int(end.timestamp() * 1000) if end else None
-    if start_ms is not None and max_time < start_ms:
-        return False
-    if end_ms is not None and min_time > end_ms:
-        return False
-    return True
+        raise RuntimeError(f"Prometheus request failed: {path} {data}")
+    return data
 
 
 def metric_names_from_dashboard(dashboard_dir: Path) -> list[str]:
@@ -206,6 +231,265 @@ def metric_names_from_dashboard(dashboard_dir: Path) -> list[str]:
         for expression in iter_dashboard_expressions(data):
             names.update(referenced_metric_names(expression))
     return sorted(names)
+
+
+def utc_iso(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def utc_minute(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    rounded = value.astimezone(timezone.utc).replace(second=0, microsecond=0)
+    return rounded.strftime("%Y-%m-%dT%H:%MZ")
+
+
+def floor_minute(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(second=0, microsecond=0)
+
+
+def ceil_minute(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    rounded = value.astimezone(timezone.utc).replace(second=0, microsecond=0)
+    if value.astimezone(timezone.utc) == rounded:
+        return rounded
+    return rounded + timedelta(minutes=1)
+
+
+def dashboard_time_params(start: datetime | None, end: datetime | None) -> str:
+    params: dict[str, str] = {"orgId": "1"}
+    range_start = floor_minute(start)
+    range_end = ceil_minute(end)
+    if range_start and range_end:
+        params["from"] = str(int(range_start.timestamp() * 1000))
+        params["to"] = str(int(range_end.timestamp() * 1000))
+        params["timezone"] = "utc"
+    return urllib.parse.urlencode(params)
+
+
+def logs_explore_params(start: datetime | None, end: datetime | None) -> str:
+    range_start = floor_minute(start)
+    range_end = ceil_minute(end)
+    left = [
+        millis_for_url(range_start),
+        millis_for_url(range_end),
+        "loki",
+        {"expr": '{namespace="ckc-perf", run_id=~".+"}'},
+    ]
+    return urllib.parse.urlencode({"orgId": "1", "left": json.dumps(left, separators=(",", ":"))})
+
+
+def millis_for_url(value: datetime | None) -> str:
+    if value is None:
+        return "now-1h"
+    return str(int(value.timestamp() * 1000))
+
+
+def experiment_summary(result_type: str, result_dir: Path) -> dict[str, Any]:
+    if result_type == "experiment" and (result_dir / "summary.json").is_file():
+        return load_json(result_dir / "summary.json")
+    return {}
+
+
+def md_cell(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\n", "<br>")
+
+
+def compact_mode(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return text.removeprefix("AT_LEAST_ONCE_").replace("FRESHNESS_FIRST_", "FF_").replace("HARDCODED_", "HC_")
+
+
+def topic_plan(run_plan: dict[str, Any], topic: str) -> dict[str, Any]:
+    for item in run_plan.get("topics", []):
+        if isinstance(item, dict) and item.get("name") == topic:
+            return item
+    return {}
+
+
+def target_table(summary: dict[str, Any], run_dirs: list[Path]) -> list[str]:
+    rows: list[list[Any]] = []
+    if not summary:
+        for run_dir in run_dirs:
+            metadata = load_json(run_dir / "run-metadata.json") if (run_dir / "run-metadata.json").is_file() else {}
+            status = load_json(run_dir / "run-status.json") if (run_dir / "run-status.json").is_file() else {}
+            rows.append(target_row(run_dir.name, metadata, status.get("status", "unknown"), status.get("exit_code", "")))
+    for experiment in summary.get("experiments", []):
+        if not isinstance(experiment, dict):
+            continue
+        for target in experiment.get("targets", []):
+            if not isinstance(target, dict):
+                continue
+            metadata = {}
+            run_dir = target.get("run_dir")
+            if run_dir and (Path(str(run_dir)) / "run-metadata.json").is_file():
+                metadata = load_json(Path(str(run_dir)) / "run-metadata.json")
+            rows.append(
+                target_row(
+                    target.get("name") or target.get("target") or "",
+                    metadata,
+                    (target.get("run_status") or {}).get("status", "unknown"),
+                    target.get("exit_code", ""),
+                )
+            )
+    if not rows:
+        return []
+    header = [
+        "Target",
+        "Status",
+        "Profile",
+        "Replicas",
+        "Dispatcher",
+        "Threads",
+        "Order mode",
+        "Order p/w/p",
+        "Batch mode",
+        "Batch p/w/p",
+        "Telemetry mode",
+        "Telemetry p/w/p",
+    ]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    lines.extend("| " + " | ".join(md_cell(value) for value in row) + " |" for row in rows)
+    return lines
+
+
+def topic_parallelism_cell(run_plan: dict[str, Any], topic: str) -> str:
+    plan = topic_plan(run_plan, topic)
+    if not plan:
+        return ""
+    return f"{plan.get('partitions', '')}/{plan.get('worker_concurrency', '')}/{plan.get('poll_loop_concurrency', '')}"
+
+
+def target_row(target_name: Any, metadata: dict[str, Any], status: Any, exit_code: Any) -> list[Any]:
+    application = metadata.get("application") if isinstance(metadata.get("application"), dict) else {}
+    run_plan = metadata.get("run_plan") if isinstance(metadata.get("run_plan"), dict) else {}
+    processing_modes = application.get("processing_modes") if isinstance(application.get("processing_modes"), dict) else {}
+    return [
+        target_name,
+        status,
+        application.get("run_profile") or application.get("profile") or "",
+        application.get("replica_count"),
+        application.get("processing_dispatcher_type"),
+        application.get("worker_dispatcher_threads"),
+        compact_mode(processing_modes.get("order") or topic_plan(run_plan, "order").get("processing_mode")),
+        topic_parallelism_cell(run_plan, "order"),
+        compact_mode(processing_modes.get("batch") or topic_plan(run_plan, "batch").get("processing_mode")),
+        topic_parallelism_cell(run_plan, "batch"),
+        compact_mode(processing_modes.get("telemetry") or topic_plan(run_plan, "telemetry").get("processing_mode")),
+        topic_parallelism_cell(run_plan, "telemetry"),
+    ]
+
+
+def experiment_facts(summary: dict[str, Any], run_dirs: list[Path]) -> list[str]:
+    facts: list[str] = []
+    for experiment in summary.get("experiments", []):
+        if not isinstance(experiment, dict):
+            continue
+        test_definition = experiment.get("test_definition", "")
+        base_tps = experiment.get("base_tps", "")
+        if test_definition or base_tps:
+            facts.append(f"Test definition `{test_definition}`, base TPS `{base_tps}`")
+    if not facts and run_dirs:
+        metadata = load_json(run_dirs[0] / "run-metadata.json") if (run_dirs[0] / "run-metadata.json").is_file() else {}
+        load_test = metadata.get("load_test") if isinstance(metadata.get("load_test"), dict) else {}
+        facts.append(f"Test definition `{metadata.get('test_definition', '')}`, base TPS `{load_test.get('base_tps', '')}`")
+    return facts
+
+
+def experiment_panel_markdown(
+    *,
+    result_type: str,
+    result_dir: Path,
+    export_name: str,
+    export_id: str,
+    run_dirs: list[Path],
+    start: datetime | None,
+    end: datetime | None,
+) -> str:
+    summary = experiment_summary(result_type, result_dir)
+    original_range_link = f"/d/ckc-experiment/ckc-experiment?{dashboard_time_params(start, end)}"
+    logs_link = f"/explore?{logs_explore_params(start, end)}"
+    facts = experiment_facts(summary, run_dirs)
+    lines = [
+        f"[Reset time range]({original_range_link}) | [Open logs]({logs_link})",
+        "",
+    ]
+    if facts:
+        lines.extend([", ".join(facts), ""])
+    targets = target_table(summary, run_dirs)
+    if targets:
+        lines.extend(targets)
+    return "\n".join(lines)
+
+
+def experiment_panel_height(result_type: str, result_dir: Path, run_dirs: list[Path]) -> int:
+    summary = experiment_summary(result_type, result_dir)
+    target_count = len(target_table(summary, run_dirs)) - 2
+    target_count = max(target_count, 0)
+    line_count = 5 + target_count
+    return max(5, int(math.ceil((line_count * 24 + 36) / 30)))
+
+
+def patch_export_dashboard(
+    dashboard_dir: Path,
+    *,
+    export_name: str,
+    export_id: str,
+    run_dirs: list[Path],
+    result_type: str,
+    result_dir: Path,
+    start: datetime | None,
+    end: datetime | None,
+) -> dict[str, str]:
+    source = dashboard_dir / "ckc-overview.json"
+    if not source.is_file():
+        return {"uid": "ckc-overview", "title": "CKC Overview"}
+    dashboard = load_json(source)
+    dashboard["uid"] = "ckc-experiment"
+    dashboard["title"] = f"CKC experiment: {export_name} ({export_id.removeprefix(export_name + '-')})"
+    if start and end:
+        dashboard["time"] = {"from": utc_minute(floor_minute(start)), "to": utc_minute(ceil_minute(end))}
+        dashboard["timezone"] = "utc"
+    info_panel_height = experiment_panel_height(result_type, result_dir, run_dirs)
+    for panel in dashboard.get("panels", []):
+        grid = panel.get("gridPos")
+        if isinstance(grid, dict) and isinstance(grid.get("y"), int):
+            grid["y"] += info_panel_height
+    max_id = max((int(panel.get("id", 0)) for panel in dashboard.get("panels", []) if isinstance(panel, dict)), default=0)
+    dashboard.setdefault("panels", []).insert(
+        0,
+        {
+            "id": max_id + 1,
+            "type": "text",
+            "title": "Experiment",
+            "gridPos": {"h": info_panel_height, "w": 24, "x": 0, "y": 0},
+            "options": {
+                "mode": "markdown",
+                "content": experiment_panel_markdown(
+                    result_type=result_type,
+                    result_dir=result_dir,
+                    export_name=export_name,
+                    export_id=export_id,
+                    run_dirs=run_dirs,
+                    start=start,
+                    end=end,
+                ),
+            },
+        },
+    )
+    target = dashboard_dir / "ckc-experiment.json"
+    target.write_text(json.dumps(dashboard, indent=2) + "\n", encoding="utf-8")
+    source.unlink()
+    return {"uid": str(dashboard["uid"]), "title": str(dashboard["title"])}
 
 
 def iter_dashboard_expressions(value: Any) -> Iterable[str]:
@@ -230,33 +514,140 @@ def referenced_metric_names(expression: str) -> set[str]:
     names.update(match.group(1) for match in re.finditer(r"\b([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{|\[)", expression))
     for match in re.finditer(r"label_values\(\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*,", expression):
         names.add(match.group(1))
+    metric_prefixes = ("ckc_", "jvm_", "process_", "kafka_", "container_", "kube_", "up")
+    for match in re.finditer(r"\b([a-zA-Z_:][a-zA-Z0-9_:]*)\b", expression):
+        name = match.group(1)
+        if name.startswith(metric_prefixes):
+            names.add(name)
     return names
 
 
-def export_prometheus_snapshot(
-    export_root: Path,
-    lab_root: Path,
+def prometheus_query_raw_range(
     prometheus_url: str,
+    metric_name: str,
+    start: datetime,
+    end: datetime,
+) -> list[dict[str, Any]]:
+    duration_seconds = max(1, int(math.ceil((end - start).total_seconds())) + 1)
+    data = prometheus_get(
+        prometheus_url,
+        "/api/v1/query",
+        {
+            "query": f'{{__name__="{metric_name}"}}[{duration_seconds}s]',
+            "time": f"{end.timestamp():.3f}",
+        },
+    )
+    result = data.get("data", {}).get("result", [])
+    return result if isinstance(result, list) else []
+
+
+def escape_openmetrics_label(value: Any) -> str:
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def openmetrics_series_line(metric_name: str, labels: dict[str, Any], value: Any, timestamp: Any) -> str | None:
+    try:
+        numeric_value = float(value)
+        numeric_timestamp = float(timestamp)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric_value) or not math.isfinite(numeric_timestamp):
+        return None
+    rendered_labels = [
+        f'{name}="{escape_openmetrics_label(label_value)}"'
+        for name, label_value in sorted(labels.items())
+        if name != "__name__"
+    ]
+    label_text = "{" + ",".join(rendered_labels) + "}" if rendered_labels else ""
+    return f"{metric_name}{label_text} {numeric_value:.17g} {numeric_timestamp:.3f}"
+
+
+def write_openmetrics_file(path: Path, prometheus_url: str, metric_names: list[str], start: datetime, end: datetime) -> dict[str, int]:
+    series_count = 0
+    sample_count = 0
+    with path.open("w", encoding="utf-8") as file:
+        for index, metric_name in enumerate(metric_names, start=1):
+            print(f"Exporting Prometheus metric {index}/{len(metric_names)}: {metric_name}", file=sys.stderr)
+            file.write(f"# TYPE {metric_name} unknown\n")
+            for series in prometheus_query_raw_range(prometheus_url, metric_name, start, end):
+                metric = series.get("metric", {})
+                values = series.get("values", [])
+                if not isinstance(metric, dict) or not isinstance(values, list):
+                    continue
+                wrote_series = False
+                for sample in values:
+                    if not isinstance(sample, list) or len(sample) != 2:
+                        continue
+                    try:
+                        sample_timestamp = float(sample[0])
+                    except (TypeError, ValueError):
+                        continue
+                    if sample_timestamp < start.timestamp() or sample_timestamp > end.timestamp():
+                        continue
+                    line = openmetrics_series_line(metric_name, metric, sample[1], sample[0])
+                    if line:
+                        file.write(line + "\n")
+                        sample_count += 1
+                        wrote_series = True
+                if wrote_series:
+                    series_count += 1
+        file.write("# EOF\n")
+    return {"series": series_count, "samples": sample_count}
+
+
+def create_prometheus_blocks(openmetrics_file: Path, output_dir: Path) -> int:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "promtool",
+        "-u",
+        "0:0",
+        "-v",
+        f"{openmetrics_file.parent.resolve()}:/work",
+        "prom/prometheus:v3.3.1",
+        "tsdb",
+        "create-blocks-from",
+        "openmetrics",
+        f"/work/{openmetrics_file.name}",
+        "/work/blocks",
+    ]
+    completed = subprocess.run(command, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if completed.stdout.strip():
+        print(completed.stdout.strip(), file=sys.stderr)
+    blocks_dir = openmetrics_file.parent / "blocks"
+    if blocks_dir.is_dir():
+        for child in sorted(blocks_dir.iterdir()):
+            if child.is_dir():
+                copy_tree(child, output_dir / child.name)
+    return sum(1 for path in output_dir.iterdir() if path.is_dir()) if output_dir.is_dir() else 0
+
+
+def export_prometheus_range(
+    export_root: Path,
+    prometheus_url: str,
+    metric_names: list[str],
     start: datetime | None,
     end: datetime | None,
 ) -> dict[str, Any]:
-    snapshot_name = prometheus_snapshot(prometheus_url)
-    snapshot_dir = lab_root / "prometheus" / "snapshots" / snapshot_name
+    if not start or not end:
+        raise ValueError("Prometheus range export requires a known result time window")
     output_dir = export_root / "metrics" / "prometheus"
-    if not snapshot_dir.is_dir():
-        raise FileNotFoundError(f"Prometheus snapshot directory was not found: {snapshot_dir}")
-    block_count = 0
-    for block_dir in sorted(path for path in snapshot_dir.iterdir() if path.is_dir()):
-        if block_overlaps_window(block_dir, start, end):
-            copy_tree(block_dir, output_dir / block_dir.name)
-            block_count += 1
-    shutil.rmtree(snapshot_dir, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="ckc-prometheus-export-") as temp_dir:
+        temp_path = Path(temp_dir)
+        openmetrics_file = temp_path / "metrics.openmetrics"
+        counts = write_openmetrics_file(openmetrics_file, prometheus_url, metric_names, start, end)
+        block_count = create_prometheus_blocks(openmetrics_file, output_dir)
     return {
-        "type": "prometheus_tsdb_snapshot",
-        "source": str(snapshot_dir),
+        "type": "prometheus_query_range_tsdb",
         "path": str(output_dir.relative_to(export_root)),
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
+        "metric_names": metric_names,
+        "series": counts["series"],
+        "samples": counts["samples"],
         "blocks": block_count,
     }
 
@@ -268,28 +659,83 @@ def create_contents_archive(source_dir: Path, archive_path: Path) -> None:
             archive.add(child, arcname=child.name)
 
 
-def copy_audit_files(export_dir: Path, run_dirs: list[Path]) -> list[dict[str, Any]]:
+def create_rooted_archive(source_dir: Path, archive_path: Path, root_name: str) -> None:
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(source_dir, arcname=root_name)
+
+
+def safe_component(value: str, *, lowercase: bool) -> str:
+    text = value.strip().lower() if lowercase else value.strip()
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", text)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug or "export"
+
+
+def slugify(value: str) -> str:
+    return safe_component(value, lowercase=True)
+
+
+def result_label(result_type: str, result_dir: Path) -> str:
+    if result_type == "experiment":
+        summary_path = result_dir / "summary.json"
+        if summary_path.is_file():
+            summary = load_json(summary_path)
+            experiments = summary.get("experiments", [])
+            names = [str(experiment.get("experiment") or "").strip() for experiment in experiments if isinstance(experiment, dict)]
+            names = [name for name in names if name]
+            if len(names) == 1:
+                return names[0]
+            if names:
+                return "experiment-set-" + str(summary.get("experiment_set_id") or result_dir.name)
+        return result_dir.name
+    metadata_path = result_dir / "run-metadata.json"
+    if metadata_path.is_file():
+        metadata = load_json(metadata_path)
+        test_definition = str(metadata.get("test_definition") or "").strip()
+        profile = str((metadata.get("application") or {}).get("profile") or "").strip()
+        if test_definition and profile:
+            return f"{test_definition}-{profile}"
+        if test_definition:
+            return test_definition
+    return f"run-{result_dir.name}"
+
+
+def export_stamp(result_dir: Path) -> str:
+    return safe_component(result_dir.name, lowercase=False)
+
+
+def copy_audit_files(audit_root: Path, run_dirs: list[Path]) -> list[dict[str, Any]]:
     audit_exports = []
     for run_dir in run_dirs:
         source = run_dir / "audit"
         if not source.exists():
             audit_exports.append({"run_id": run_dir.name, "path": "", "files": 0})
             continue
-        target = export_dir / "audit" / run_dir.name
+        target = audit_root / "audit" / run_dir.name
         copy_tree(source, target)
         file_count = sum(1 for path in target.rglob("*") if path.is_file())
-        audit_exports.append({"run_id": run_dir.name, "path": str(target.relative_to(export_dir)), "files": file_count})
+        audit_exports.append({"run_id": run_dir.name, "path": str(target.relative_to(audit_root)), "files": file_count})
     return audit_exports
 
 
-def write_summary(export_dir: Path, result_type: str, result_dir: Path, run_dirs: list[Path], manifest: dict[str, Any]) -> None:
+def write_summary(
+    export_dir: Path,
+    result_type: str,
+    result_dir: Path,
+    run_dirs: list[Path],
+    manifest: dict[str, Any],
+    metrics_logs_archive: str,
+    audit_archive: str,
+) -> None:
     lines = [
-        f"# CKC Internal Lab Export: {result_type}-{result_dir.name}",
+        f"# CKC Internal Lab Export: {manifest['name']}",
         "",
         f"- Type: `{result_type}`",
         f"- Source: `{result_dir}`",
         f"- Exported at: `{manifest['exported_at']}`",
-        f"- Restore archive: `restore.tar.gz`",
+        f"- Metrics and logs archive: `{metrics_logs_archive}`",
+        f"- Audit archive: `{audit_archive}`",
         "",
         "## Runs",
         "",
@@ -326,13 +772,16 @@ def write_summary(export_dir: Path, result_type: str, result_dir: Path, run_dirs
 def main() -> int:
     args = parse_args()
     lab_root = Path(args.lab_root)
-    result_type, result_dir = resolve_result(args.target, lab_root, args.bundle or args.latest_bundle)
-    if args.latest_bundle:
-        result_type, result_dir = resolve_result(None, lab_root, True)
+    requested_type = "run" if args.run else "experiment" if args.experiment or args.latest_experiment else None
+    result_type, result_dir = resolve_result(args.target, lab_root, requested_type)
 
     output_dir = Path(args.output_dir) if args.output_dir else lab_root / "results" / "exports"
-    export_name = f"{result_type}-{result_dir.name}"
-    export_dir = output_dir / export_name
+    export_name = slugify(result_label(result_type, result_dir))
+    stamp = export_stamp(result_dir)
+    export_id = f"{export_name}-{stamp}"
+    metrics_logs_archive = f"metrics-logs-{export_id}.tar.gz"
+    audit_archive = f"audit-{export_id}.tar.gz"
+    export_dir = output_dir / export_id
     if export_dir.exists():
         if not args.force:
             raise FileExistsError(f"Export directory already exists: {export_dir}. Use --force to overwrite it.")
@@ -342,33 +791,61 @@ def main() -> int:
     export_dir.mkdir(parents=True)
 
     with tempfile.TemporaryDirectory(prefix="ckc-result-export-") as temp_dir:
-        restore_root = Path(temp_dir) / export_name
+        restore_root = Path(temp_dir) / "metrics-logs"
+        audit_root = Path(temp_dir) / "audit"
         restore_root.mkdir(parents=True)
-        if result_type == "bundle":
-            copy_tree(result_dir, export_dir / "bundle")
+        audit_root.mkdir(parents=True)
+        if result_type == "experiment":
+            copy_tree(result_dir, restore_root / "experiment")
         for run_dir in run_dirs:
-            copy_tree(run_dir / "run-metadata.json", export_dir / "runs" / run_dir.name / "run-metadata.json")
-            copy_tree(run_dir / "run-status.json", export_dir / "runs" / run_dir.name / "run-status.json")
+            copy_tree(run_dir / "run-metadata.json", restore_root / "runs" / run_dir.name / "run-metadata.json")
+            copy_tree(run_dir / "run-status.json", restore_root / "runs" / run_dir.name / "run-status.json")
         copy_tree(lab_root / "grafana" / "dashboards", restore_root / "grafana" / "dashboards")
-        copy_tree(lab_root / "grafana" / "provisioning", restore_root / "grafana" / "provisioning")
-        copy_tree(lab_root / "restore", restore_root / "restore")
+        dashboard = patch_export_dashboard(
+            restore_root / "grafana" / "dashboards",
+            export_name=export_name,
+            export_id=export_id,
+            run_dirs=run_dirs,
+            result_type=result_type,
+            result_dir=result_dir,
+            start=start,
+            end=end,
+        )
+        copy_tree(lab_root / "restore", restore_root / "helpers")
+        shutil.move(
+            restore_root / "helpers" / "open-grafana-with-logs-and-metrics.sh",
+            restore_root / "open-grafana-with-logs-and-metrics.sh",
+        )
+        dashboard_metric_names = metric_names_from_dashboard(restore_root / "grafana" / "dashboards")
         loki_exports = [] if args.skip_loki else write_loki_logs(restore_root, run_dirs, args.loki_url, args.loki_limit)
-        metrics_export = None if args.skip_prometheus else export_prometheus_snapshot(restore_root, lab_root, args.prometheus_url, start, end)
-        audit_exports = copy_audit_files(export_dir, run_dirs)
+        metrics_export = (
+            None
+            if args.skip_prometheus
+            else export_prometheus_range(restore_root, args.prometheus_url, dashboard_metric_names, start, end)
+        )
+        audit_exports = copy_audit_files(audit_root, run_dirs)
         manifest = {
             "exported_at": datetime.now(timezone.utc).isoformat(),
+            "name": export_name,
+            "stamp": stamp,
+            "export_id": export_id,
             "type": result_type,
             "source": str(result_dir),
+            "archives": {
+                "metrics_logs": metrics_logs_archive,
+                "audit": audit_archive,
+            },
             "runs": [path.name for path in run_dirs],
             "audit": audit_exports,
             "loki": loki_exports,
             "metrics": metrics_export,
-            "dashboard_metric_names": metric_names_from_dashboard(restore_root / "grafana" / "dashboards"),
+            "dashboard": dashboard,
+            "dashboard_metric_names": dashboard_metric_names,
         }
         (restore_root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        (export_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        write_summary(export_dir, result_type, result_dir, run_dirs, manifest)
-        create_contents_archive(restore_root, export_dir / "restore.tar.gz")
+        write_summary(export_dir, result_type, result_dir, run_dirs, manifest, metrics_logs_archive, audit_archive)
+        create_rooted_archive(restore_root, export_dir / metrics_logs_archive, export_id)
+        create_contents_archive(audit_root, export_dir / audit_archive)
 
     print(export_dir)
     return 0

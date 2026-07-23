@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram notification hook example for internal-lab bundle runs.
+Telegram notification hook example for internal-lab experiment runs.
 
 See README.md in this directory for setup instructions.
 """
@@ -18,12 +18,12 @@ from typing import Any
 
 
 DEFAULT_EVENTS = {
-    "bundle_started",
-    "bundle_runs_finished",
+    "experiment_started",
+    "experiment_runs_finished",
     "audit_analysis_started",
     "audit_analysis_finished",
-    "bundle_finished",
-    "bundle_failed",
+    "experiment_finished",
+    "experiment_failed",
 }
 
 
@@ -49,24 +49,24 @@ def short_status(payload: dict[str, Any]) -> str:
 
 
 def message_for(event: str, payload: dict[str, Any]) -> str:
-    bundle = payload.get("bundle") or payload.get("name") or "ckc bundle"
-    if event == "bundle_started":
-        return f"CKC bundle started: {bundle}\ntests={payload.get('tests', '?')}"
-    if event == "bundle_runs_finished":
+    experiment = payload.get("experiment") or payload.get("name") or "ckc experiment"
+    if event == "experiment_started":
+        return f"CKC experiment started: {experiment}\ntargets={payload.get('targets', '?')}"
+    if event == "experiment_runs_finished":
         return (
-            f"CKC bundle load phases finished: {bundle}\n"
+            f"CKC experiment load phases finished: {experiment}\n"
             f"runs={payload.get('runs', '?')} auditable_runs={payload.get('auditable_runs', '?')}"
         )
     if event == "audit_analysis_started":
-        return f"CKC audit analysis started: {bundle}\nauditable_runs={payload.get('auditable_runs', '?')}"
+        return f"CKC audit analysis started: {experiment}\nauditable_runs={payload.get('auditable_runs', '?')}"
     if event == "audit_analysis_finished":
         analysis = payload.get("analysis", [])
         failures = sum(1 for item in analysis if isinstance(item, dict) and item.get("exit_code") != 0)
-        return f"CKC audit analysis finished: {bundle}\nanalyses={len(analysis)} failures={failures}"
-    if event in {"bundle_finished", "bundle_failed"}:
-        tests = payload.get("tests", [])
+        return f"CKC audit analysis finished: {experiment}\nanalyses={len(analysis)} failures={failures}"
+    if event in {"experiment_finished", "experiment_failed"}:
+        targets = payload.get("targets", [])
         status = short_status(payload)
-        return f"CKC bundle {event.removeprefix('bundle_')}: {bundle}\ntests={len(tests)} {status}"
+        return f"CKC experiment {event.removeprefix('experiment_')}: {experiment}\ntargets={len(targets)} {status}"
     return f"CKC event: {event}\n{json.dumps(payload, ensure_ascii=False, indent=2)[:3000]}"
 
 

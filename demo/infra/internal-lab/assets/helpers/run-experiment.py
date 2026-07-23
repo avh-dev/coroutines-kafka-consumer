@@ -36,15 +36,14 @@ LEGACY_ENV_ARGS = {
 
 def parse_args() -> argparse.Namespace:
     lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-lab")
-    parser = argparse.ArgumentParser(description="Run internal-lab test bundles sequentially.")
-    parser.add_argument("bundle", nargs="?", help="Bundle name/path, or 'all'. Omit for interactive selection.")
-    parser.add_argument("--all", action="store_true", help="Run all bundle definitions sequentially.")
-    parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Global env override for all bundle tests.")
+    parser = argparse.ArgumentParser(description="Run internal-lab experiments sequentially.")
+    parser.add_argument("experiments", nargs="*", help="Experiment names/paths, or 'all'. Omit for interactive selection.")
+    parser.add_argument("--all", action="store_true", help="Run all experiment definitions sequentially.")
+    parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Global env override for all experiment targets.")
     parser.add_argument("--lab-root", default=lab_root)
     parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
-    parser.add_argument("--bundle-dir", default=f"{lab_root}/test-bundles")
-    parser.add_argument("--result-dir", default=f"{lab_root}/results/bundles")
-    parser.add_argument("--log-dir", help="Deprecated alias for --result-dir.")
+    parser.add_argument("--experiment-dir", default=f"{lab_root}/workloads/experiments")
+    parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
     return parser.parse_args()
 
@@ -57,8 +56,8 @@ def load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def bundle_files(bundle_dir: Path) -> list[Path]:
-    return sorted(bundle_dir.glob("*.yaml"))
+def experiment_files(experiment_dir: Path) -> list[Path]:
+    return sorted(experiment_dir.glob("*.yaml"))
 
 
 def resolve_named_yaml(directory: Path, value: str) -> Path:
@@ -67,36 +66,44 @@ def resolve_named_yaml(directory: Path, value: str) -> Path:
         return path
     if path.is_file():
         return path.resolve()
+    candidates = [directory / path]
     if path.suffix != ".yaml":
-        path = path.with_suffix(".yaml")
-    candidate = directory / path
-    if candidate.is_file():
-        return candidate
+        candidates.append(directory / f"{value}.yaml")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
     raise FileNotFoundError(f"YAML file was not found: {value}")
 
 
-def resolve_bundle(bundle: str, bundle_dir: Path) -> Path:
-    return resolve_named_yaml(bundle_dir, bundle)
+def resolve_experiment(experiment: str, experiment_dir: Path) -> Path:
+    return resolve_named_yaml(experiment_dir, experiment)
 
 
-def select_bundles(bundle_dir: Path) -> list[Path]:
-    bundles = bundle_files(bundle_dir)
-    if not bundles:
-        raise FileNotFoundError(f"No bundle definitions were found in {bundle_dir}")
+def select_experiments(experiment_dir: Path) -> list[Path]:
+    experiments = experiment_files(experiment_dir)
+    if not experiments:
+        raise FileNotFoundError(f"No experiment definitions were found in {experiment_dir}")
 
-    print("Available test bundles:", file=sys.stderr)
-    for index, path in enumerate(bundles, start=1):
-        bundle = load_yaml(path)
-        description = bundle.get("description", "")
+    print("Available experiments:", file=sys.stderr)
+    for index, path in enumerate(experiments, start=1):
+        experiment = load_yaml(path)
+        description = experiment.get("description", "")
         suffix = f" - {description}" if description else ""
         print(f"  {index:2d}) {path.stem}{suffix}", file=sys.stderr)
     print("   A) all", file=sys.stderr)
-    choice = input("Select number or A: ").strip().lower()
+    choice = input("Select number(s), comma-separated, or A: ").strip().lower()
     if choice in {"a", "all"}:
-        return bundles
-    if not choice.isdigit() or not (1 <= int(choice) <= len(bundles)):
+        return experiments
+    selected = []
+    for item in (part.strip() for part in choice.split(",")):
+        if not item:
+            continue
+        if not item.isdigit() or not (1 <= int(item) <= len(experiments)):
+            raise ValueError(f"Invalid selection: {choice}")
+        selected.append(experiments[int(item) - 1])
+    if not selected:
         raise ValueError(f"Invalid selection: {choice}")
-    return [bundles[int(choice) - 1]]
+    return selected
 
 
 def env_value(value: Any) -> str:
@@ -136,9 +143,9 @@ def merge_env(defaults: dict[str, Any], global_env: dict[str, str], test: dict[s
     if test_env in ("", None):
         test_env = {}
     if not isinstance(default_env, dict):
-        raise ValueError("bundle defaults.env must be an object")
+        raise ValueError("experiment defaults.env must be an object")
     if not isinstance(test_env, dict):
-        raise ValueError("bundle tests[].env must be an object")
+        raise ValueError("experiment targets[].env must be an object")
 
     result = {str(key): env_value(value) for key, value in default_env.items()}
     for source_key, env_key in legacy_env_keys.items():
@@ -155,20 +162,50 @@ def merge_env(defaults: dict[str, Any], global_env: dict[str, str], test: dict[s
     return result
 
 
-def normalize_tests(bundle: dict[str, Any], path: Path) -> list[dict[str, Any]]:
-    tests = bundle.get("tests")
-    if tests is None:
-        tests = bundle.get("runs")
-    if not isinstance(tests, list) or not tests:
-        raise ValueError(f"Bundle must define a non-empty tests list: {path}")
-    for index, test in enumerate(tests, start=1):
-        if not isinstance(test, dict):
-            raise ValueError(f"Bundle tests[{index}] must be an object: {path}")
-        if "deployment" not in test and "profile" not in test:
-            raise ValueError(f"Bundle tests[{index}] must define profile or deployment: {path}")
-        if "test_definition" not in test:
-            raise ValueError(f"Bundle tests[{index}] must define test_definition: {path}")
-    return tests
+def merge_target_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    result = {str(key): value for key, value in defaults.items() if key != "env"}
+    result.update(target)
+    return result
+
+
+def topic_planning_latency(target: dict[str, Any], topic: str) -> Any:
+    planning_latency = target.get("planning_latency")
+    if not isinstance(planning_latency, dict):
+        return None
+    if f"{topic}_ms" in planning_latency:
+        return planning_latency[f"{topic}_ms"]
+    topic_value = planning_latency.get(topic)
+    if isinstance(topic_value, dict):
+        return topic_value.get("processing_ms")
+    return topic_value
+
+
+def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
+    targets = experiment.get("targets")
+    if not isinstance(targets, list) or not targets:
+        raise ValueError(f"Experiment must define a non-empty targets list: {path}")
+    normalized = []
+    for index, item in enumerate(targets, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Experiment targets[{index}] must be an object: {path}")
+        target = dict(item)
+        if "deployment" not in target and "profile" not in target:
+            raise ValueError(f"Experiment targets[{index}] must define profile or deployment: {path}")
+        if "test_definition" in target:
+            raise ValueError(f"Experiment targets[{index}] must not define test_definition; put it on the experiment: {path}")
+        if "base_rate" in target or "base_tps" in target:
+            raise ValueError(f"Experiment targets[{index}] must not define base_tps/base_rate; put it on the experiment: {path}")
+        if "capacity_factor" in target:
+            raise ValueError(f"Experiment targets[{index}] must not define capacity_factor; use explicit planning_latency: {path}")
+        if "resources" in target:
+            raise ValueError(f"Experiment targets[{index}] resources are not supported yet; pass resource Helm overrides separately: {path}")
+        for topic in ("order", "batch", "telemetry"):
+            if topic_planning_latency(target, topic) in (None, ""):
+                raise ValueError(f"Experiment targets[{index}] must define planning_latency.{topic}_ms: {path}")
+        target.setdefault("id", str(target.get("name") or target.get("profile") or target.get("deployment")))
+        target.setdefault("name", target["id"])
+        normalized.append(target)
+    return normalized
 
 
 def select_bool(title: str, default: str) -> str:
@@ -197,7 +234,7 @@ def interactive_global_env(current: dict[str, str]) -> dict[str, str]:
         return {}
     if {"PROCESSING_ENABLED", "AUDIT_LOG_ENABLED", "METRICS_IMPLEMENTATION"}.issubset(current):
         return {}
-    print("Bundle-wide settings:", file=sys.stderr)
+    print("Experiment-wide settings:", file=sys.stderr)
     try:
         result = {}
         if "PROCESSING_ENABLED" not in current:
@@ -224,7 +261,7 @@ def load_profile_seconds(profile: str) -> int:
 
 def test_expected_seconds(lab_root: Path, test_definition: str) -> int | None:
     try:
-        path = resolve_named_yaml(lab_root / "test-definitions", test_definition)
+        path = resolve_named_yaml(lab_root / "workloads" / "test-definitions", test_definition)
         definition = load_yaml(path)
         load_test = definition.get("load_test", {})
         if not isinstance(load_test, dict):
@@ -373,13 +410,12 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
     command = [str(run_test), "--skip-analysis"]
     if "profile" in test:
         command.extend(["--profile", str(test["profile"])])
-        if "base_rate" in test:
-            command.extend(["--base-rate", env_value(test["base_rate"])])
-        if "capacity_factor" in test:
-            command.extend(["--capacity-factor", env_value(test["capacity_factor"])])
+        if "base_tps" in test:
+            command.extend(["--base-rate", env_value(test["base_tps"])])
         if "replicas" in test:
             command.extend(["--replicas", env_value(test["replicas"])])
         for topic in ("order", "batch", "telemetry"):
+            command.extend([f"--{topic}-planning-latency-ms", env_value(topic_planning_latency(test, topic))])
             mode_key = f"{topic}_processing_mode"
             if mode_key in test:
                 command.extend([f"--{topic}-processing-mode", env_value(test[mode_key])])
@@ -425,7 +461,7 @@ def run_one(
     log_file.write(f"\n=== {name} started at {started_at.isoformat()} ===\n")
     log_file.write("command: " + " ".join(command) + "\n")
     log_file.flush()
-    print(f"\n=== Running bundle entry {index}/{total}: {name} ===", flush=True)
+    print(f"\n=== Running experiment target {index}/{total}: {name} ===", flush=True)
     print(f"Expected load phase duration: {format_duration(expected_seconds)}", flush=True)
     notify(hook, "test_started", {"name": name, "profile": profile, "deployment": deployment, "test_definition": test_definition, "index": index, "total": total}, log_dir)
 
@@ -445,7 +481,7 @@ def run_one(
     stop_requested = False
     last_progress_at = 0.0
     if sys.stdin.isatty():
-        print("Type q and press Enter to stop the bundle after current test cleanup.", flush=True)
+        print("Type q and press Enter to stop the experiment after current target cleanup.", flush=True)
     with TtyCommandReader(stop_queue):
         while process.poll() is None or not output.empty():
             while True:
@@ -459,7 +495,7 @@ def run_one(
             if now - last_progress_at >= 30:
                 elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
                 eta = None if expected_seconds is None else max(0, expected_seconds - elapsed)
-                print(f"Bundle progress: test {index}/{total} {name}, elapsed {format_duration(elapsed)}, eta {format_duration(eta)}", flush=True)
+                print(f"Experiment progress: target {index}/{total} {name}, elapsed {format_duration(elapsed)}, eta {format_duration(eta)}", flush=True)
                 last_progress_at = now
             try:
                 stop_queue.get_nowait()
@@ -467,8 +503,8 @@ def run_one(
                 pass
             else:
                 stop_requested = True
-                print("Stopping bundle by user request. Waiting for current test cleanup.", flush=True)
-                log_file.write("Stopping bundle by user request.\n")
+                print("Stopping experiment by user request. Waiting for current target cleanup.", flush=True)
+                log_file.write("Stopping experiment by user request.\n")
                 request_graceful_stop(process)
             time.sleep(0.2)
     reader.join(timeout=1)
@@ -488,6 +524,7 @@ def run_one(
     exit_code = 130 if stop_requested else int(status.get("exit_code", child_exit_code))
     result = {
         "name": name,
+        "target": str(test.get("id") or name),
         "profile": profile,
         "deployment": deployment,
         "test_definition": test_definition,
@@ -568,41 +605,61 @@ def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | Non
     return result
 
 
-def run_bundle(
-    bundle_path: Path,
+def run_experiment(
+    experiment_path: Path,
     run_test: Path,
     lab_root: Path,
     log_dir: Path,
-    bundle_set_id: str,
+    experiment_set_id: str,
     global_env: dict[str, str],
     hook: Path | None,
 ) -> dict[str, Any]:
-    bundle = load_yaml(bundle_path)
-    defaults = bundle.get("defaults", {})
+    experiment = load_yaml(experiment_path)
+    defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
     if not isinstance(defaults, dict):
-        raise ValueError(f"Bundle defaults must be an object: {bundle_path}")
-    tests = normalize_tests(bundle, bundle_path)
-    bundle_name = str(bundle.get("name") or bundle_path.stem)
-    log_path = log_dir / f"{bundle_name}.log"
+        raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
+    test_definition = str(experiment.get("test_definition") or "")
+    if not test_definition:
+        raise ValueError(f"Experiment must define test_definition: {experiment_path}")
+    if "base_tps" not in experiment:
+        raise ValueError(f"Experiment must define base_tps: {experiment_path}")
+    targets = normalize_targets(experiment, experiment_path)
+    experiment_name = str(experiment.get("name") or experiment_path.stem)
+    log_path = log_dir / f"{experiment_name}.log"
 
     results: list[dict[str, Any]] = []
     analysis_results: list[dict[str, Any]] = []
-    notify(hook, "bundle_started", {"bundle": bundle_name, "bundle_file": str(bundle_path), "tests": len(tests)}, log_dir)
+    notify(
+        hook,
+        "experiment_started",
+        {
+            "experiment": experiment_name,
+            "experiment_file": str(experiment_path),
+            "test_definition": test_definition,
+            "base_tps": experiment["base_tps"],
+            "targets": len(targets),
+        },
+        log_dir,
+    )
     with log_path.open("w", encoding="utf-8") as log_file:
-        log_file.write(f"bundle: {bundle_name}\n")
-        log_file.write(f"bundle_file: {bundle_path}\n")
-        description = bundle.get("description")
+        log_file.write(f"experiment: {experiment_name}\n")
+        log_file.write(f"experiment_file: {experiment_path}\n")
+        log_file.write(f"test_definition: {test_definition}\n")
+        log_file.write(f"base_tps: {experiment['base_tps']}\n")
+        description = experiment.get("description")
         if description:
             log_file.write(f"description: {description}\n")
-        for index, test in enumerate(tests, start=1):
-            result = run_one(run_test, lab_root, defaults, global_env, test, index, len(tests), log_file, hook, log_dir)
+        for index, target in enumerate(targets, start=1):
+            target_run = merge_target_defaults(defaults, target)
+            target_run.update({"test_definition": test_definition, "base_tps": experiment["base_tps"]})
+            result = run_one(run_test, lab_root, defaults, global_env, target_run, index, len(targets), log_file, hook, log_dir)
             results.append(result)
             if result["interrupted"]:
                 break
 
-        runs_exit_code = next((test["exit_code"] for test in results if test["exit_code"] != 0), 0)
+        runs_exit_code = next((target["exit_code"] for target in results if target["exit_code"] != 0), 0)
         auditable_runs = [
             result
             for result in results
@@ -610,73 +667,76 @@ def run_bundle(
             and result["env"].get("AUDIT_LOG_ENABLED", "true") == "true"
             and has_audit_input(str(result["audit_dir"]))
         ]
-        notify(hook, "bundle_runs_finished", {"bundle": bundle_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
+        notify(hook, "experiment_runs_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
         if auditable_runs:
-            print(f"\n=== Bundle load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
-            notify(hook, "audit_analysis_started", {"bundle": bundle_name, "auditable_runs": len(auditable_runs)}, log_dir)
+            print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
+            notify(hook, "audit_analysis_started", {"experiment": experiment_name, "auditable_runs": len(auditable_runs)}, log_dir)
             for result in auditable_runs:
                 analysis_results.append(analyze_one(lab_root, str(result["audit_dir"]), log_file, hook, log_dir))
-            notify(hook, "audit_analysis_finished", {"bundle": bundle_name, "analysis": analysis_results}, log_dir)
+            notify(hook, "audit_analysis_finished", {"experiment": experiment_name, "analysis": analysis_results}, log_dir)
 
     analysis_exit_code = next((analysis["exit_code"] for analysis in analysis_results if analysis["exit_code"] != 0), 0)
     exit_code = runs_exit_code or analysis_exit_code
     summary = {
-        "bundle": bundle_name,
-        "description": bundle.get("description", ""),
-        "bundle_file": str(bundle_path),
+        "experiment": experiment_name,
+        "description": experiment.get("description", ""),
+        "test_definition": test_definition,
+        "base_tps": experiment["base_tps"],
+        "experiment_file": str(experiment_path),
         "result_dir": str(log_dir),
         "log_file": str(log_path),
-        "tests": results,
+        "targets": results,
         "analysis": analysis_results,
         "exit_code": exit_code,
     }
-    notify(hook, "bundle_finished" if exit_code == 0 else "bundle_failed", summary, log_dir)
+    notify(hook, "experiment_finished" if exit_code == 0 else "experiment_failed", summary, log_dir)
     return summary
 
 
 def summary_interrupted(summary: dict[str, Any]) -> bool:
-    return any(test.get("interrupted") for test in summary.get("tests", []))
+    return any(target.get("interrupted") for target in summary.get("targets", []))
 
 
 def main() -> int:
     args = parse_args()
     lab_root = Path(args.lab_root)
-    bundle_dir = Path(args.bundle_dir)
-    result_root = Path(args.log_dir or args.result_dir)
+    experiment_dir = Path(args.experiment_dir)
+    result_root = Path(args.result_dir)
 
-    if args.all or args.bundle == "all":
-        selected = bundle_files(bundle_dir)
+    requested = list(args.experiments)
+    if args.all or requested == ["all"]:
+        selected = experiment_files(experiment_dir)
         if not selected:
-            raise FileNotFoundError(f"No bundle definitions were found in {bundle_dir}")
-    elif args.bundle:
-        selected = [resolve_bundle(args.bundle, bundle_dir)]
+            raise FileNotFoundError(f"No experiment definitions were found in {experiment_dir}")
+    elif requested:
+        selected = [resolve_experiment(experiment, experiment_dir) for experiment in requested]
     elif sys.stdin.isatty():
-        selected = select_bundles(bundle_dir)
+        selected = select_experiments(experiment_dir)
     else:
-        raise ValueError("bundle is required without interactive input")
+        raise ValueError("experiment is required without interactive input")
 
     cli_env = env_overrides(args.env)
     global_env = {**interactive_global_env(cli_env), **cli_env}
     hook = notify_hook_path(lab_root, args.notify_hook)
-    bundle_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_dir = result_root / bundle_set_id
+    experiment_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    log_dir = result_root / experiment_set_id
     log_dir.mkdir(parents=True, exist_ok=True)
     summaries = []
-    for bundle_path in selected:
-        summary = run_bundle(bundle_path, Path(args.run_test), lab_root, log_dir, bundle_set_id, global_env, hook)
+    for experiment_path in selected:
+        summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
         summaries.append(summary)
         if summary_interrupted(summary):
             break
 
     summary_path = log_dir / "summary.json"
     document = {
-        "bundle_set_id": bundle_set_id,
+        "experiment_set_id": experiment_set_id,
         "result_dir": str(log_dir),
-        "bundles": summaries,
-        "exit_code": next((bundle["exit_code"] for bundle in summaries if bundle["exit_code"] != 0), 0),
+        "experiments": summaries,
+        "exit_code": next((experiment["exit_code"] for experiment in summaries if experiment["exit_code"] != 0), 0),
     }
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
-    print(f"\nBundle summary: {summary_path}")
+    print(f"\nExperiment summary: {summary_path}")
     return int(document["exit_code"])
 
 

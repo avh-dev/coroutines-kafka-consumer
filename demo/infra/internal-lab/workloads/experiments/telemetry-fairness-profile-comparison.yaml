@@ -1,30 +1,42 @@
 name: telemetry-fairness-profile-comparison
 description: Compare telemetry fairness on the same fixed-fleet overload test.
+test_definition: telemetry-freshness-fairness
+base_tps: 2000
 
 defaults:
+  replicas: 2
   env:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
 
-tests:
-  - name: ckc
+targets:
+  - name: ckc.fixed.2
     profile: ckc
-    test_definition: telemetry-freshness-fairness
+    planning_latency:
+      order_ms: 2
+      batch_ms: 5
+      telemetry_ms: 35
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
 
-  - name: confluent-reactor
+  - name: cpc-reactor.fixed.2
     profile: confluent-reactor
-    test_definition: telemetry-freshness-fairness
+    planning_latency:
+      order_ms: 2
+      batch_ms: 5
+      telemetry_ms: 35
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
 
-  - name: spring-kafka-coroutines-naive
+  - name: spring-kafka-coroutines-naive.fixed.2
     profile: spring-kafka-coroutines-naive
-    test_definition: telemetry-freshness-fairness
+    planning_latency:
+      order_ms: 2
+      batch_ms: 5
+      telemetry_ms: 35
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2

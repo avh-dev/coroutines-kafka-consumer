@@ -1,17 +1,22 @@
 name: queue-backlog-crash-comparison
 description: Compare queue-backlog crash behavior with large worker queues, low order/batch worker concurrency, and downstream slowdown.
+test_definition: queue_backlog_crash
+base_tps: 2000
 
 defaults:
+  replicas: 2
   env:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
 
-tests:
-  - name: ckc
+targets:
+  - name: ckc.fixed.2
     profile: ckc
-    test_definition: queue_backlog_crash
-    capacity_factor: 0.5
+    planning_latency:
+      order_ms: 41.62
+      batch_ms: 5.16
+      telemetry_ms: 3.0
     order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     telemetry_processing_mode: FRESHNESS_FIRST_DROP_OLDEST
@@ -19,10 +24,12 @@ tests:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
 
-  - name: cpc-react
+  - name: cpc-reactor.fixed.2
     profile: confluent-reactor
-    test_definition: queue_backlog_crash
-    capacity_factor: 0.5
+    planning_latency:
+      order_ms: 41.62
+      batch_ms: 5.16
+      telemetry_ms: 3.0
     order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
@@ -30,14 +37,19 @@ tests:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
 
-  - name: spring
+  - name: spring-kafka
     profile: spring-kafka
-    test_definition: queue_backlog_crash
+    planning_latency:
+      order_ms: 41.62
+      batch_ms: 5.16
+      telemetry_ms: 3.0
 
-  - name: spring-naive
+  - name: spring-kafka-coroutines-naive.fixed.2
     profile: spring-kafka-coroutines-naive
-    test_definition: queue_backlog_crash
-    capacity_factor: 0.5
+    planning_latency:
+      order_ms: 41.62
+      batch_ms: 5.16
+      telemetry_ms: 3.0
     order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
     telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED

@@ -120,12 +120,11 @@ The lab host layout is grouped by runtime responsibility:
 /opt/ckc-lab/k8s                raw Kubernetes manifests and templates
 /opt/ckc-lab/config             persisted lab and test config
 /opt/ckc-lab/grafana            Grafana provisioning and dashboards
-/opt/ckc-lab/test-definitions   internal-lab test definitions
-/opt/ckc-lab/test-bundles       sequential comparison bundle definitions
+/opt/ckc-lab/workloads          shared consumer profiles, test definitions, and experiment definitions
 /opt/ckc-lab/load-test-runtime  built load-test runtime
 /opt/ckc-lab/state              fingerprints, generated files, and pids
 /opt/ckc-lab/logs               lab process logs
-/opt/ckc-lab/results            run and bundle result artifacts
+/opt/ckc-lab/results            run and experiment result artifacts
 /opt/ckc-lab/prometheus         persistent Prometheus data
 /opt/ckc-lab/loki               persistent Loki log data
 ```
@@ -193,33 +192,35 @@ values directly. Previous selections are marked as current or shown as defaults
 and used when Enter is pressed:
 
 - a load-test definition, defaulting to the previous run
-- a dynamic run profile, defaulting to the currently deployed profile
+- a consumer profile, defaulting to the currently deployed profile
 - the host Kafka API broker implementation: `redpanda` or `apache-kafka`
 - whether business processing is enabled; select `false` for a noop run
-- the base load rate and capacity factor used for run-plan calculation
+- the base load rate and per-topic planning latency used for run-plan calculation
 - the coroutine processing dispatcher when the selected profile supports one
 - the shared fixed worker dispatcher thread count, only when the dispatcher is `FIXED`
 - whether consumer and load-generator audit logging is enabled
 - the consumer metrics implementation: `MICROMETER` or `NOOP`
 
-For dynamic profiles, `run-test.sh` generates a Helm values overlay under
+For consumer profiles, `run-test.sh` generates a Helm values overlay under
 `/opt/ckc-lab/state/generated/run-plan-values.yaml` before it changes the lab.
 The plan uses the selected Spring profile, `base_tps`, per-topic traffic
-percentages, `capacity_model.average_processing_ms` from the test definition,
-processing-enabled mode, explicit processing-mode overrides, and a capacity
-factor to calculate topic partitions and either worker concurrency or Spring
-Kafka listener concurrency. Dispatcher selection is profile-scoped:
+percentages, explicit per-topic planning latency, processing-enabled mode, and
+explicit processing-mode overrides to calculate topic partitions and either
+worker concurrency or Spring Kafka listener concurrency. Dispatcher selection is consumer-profile scoped:
 `spring-kafka` and `confluent-sync` do not expose it, `ckc-sync` exposes only
 `IO` and `VIRTUAL`, and coroutine-worker profiles expose `DEFAULT`, `FIXED`,
-`IO`, and `VIRTUAL`. If a test definition does not define the capacity
-model, the planner falls back to the older stub-latency estimate and marks that
-source in the printed plan. The full plan is printed before preparation and is
-included in each run's `run-metadata.json`.
+`IO`, and `VIRTUAL`. Experiments always pass planning latency explicitly per
+target. Manual `run-test.sh` runs require the same explicit latency values,
+entered interactively or passed with `--order-planning-latency-ms`,
+`--batch-planning-latency-ms`, and `--telemetry-planning-latency-ms`. The full
+plan is printed before preparation and is included in each run's
+`run-metadata.json`.
 
 Before destructive setup starts, interactive runs ask whether to apply the plan,
 edit it manually, or abort. Manual editing exposes only the knobs supported by
-the selected profile. `spring-kafka` supports partitions and pollers; CKC and
-Confluent profiles support partitions, workers, and pollers.
+the selected profile and processing mode. `spring-kafka` supports partitions and
+pollers; CKC and Confluent profiles normally tune workers, while partition
+ordering modes also tune partitions.
 
 Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
 executor after the load-test process starts. Chaos offsets are measured from
@@ -235,7 +236,9 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   --order-processing-mode AT_LEAST_ONCE_PARTITION_ORDERING \
   --batch-processing-mode AT_LEAST_ONCE_PARTITION_ORDERING \
   --base-rate 3000 \
-  --capacity-factor 1.25 \
+  --order-planning-latency-ms 45 \
+  --batch-planning-latency-ms 60 \
+  --telemetry-planning-latency-ms 8 \
   --kafka-implementation apache-kafka \
   --processing-dispatcher-type VIRTUAL \
   --processing-enabled false \
@@ -255,7 +258,7 @@ computed numbers directly with `--order-partitions`, `--order-workers`,
 `--order-pollers`, and the equivalent `batch` and `telemetry` flags.
 For non-CKC consumers, `HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED` means the demo
 consumer uses its built-in stale-record filter; it is rendered to the existing
-application enum value internally but shown separately in run plans and bundles
+application enum value internally but shown separately in run plans and experiments
 to avoid confusing it with CKC's `FRESHNESS_FIRST_DROP_OLDEST` queue-overflow
 mode.
 
@@ -266,7 +269,7 @@ factor and min ISR to `1`, so share-group experiments do not wait for a
 multi-broker cluster.
 
 Any generated test environment value can also be overridden with repeated
-`--env KEY=VALUE` flags. These overrides are applied after the run profile and
+`--env KEY=VALUE` flags. These overrides are applied after the consumer profile and
 test definition are rendered. Static Helm profiles are no longer used for normal
 test runs; `demo/infra/internal-lab/assets/helm/demo/profiles/demo.yaml`
 is kept only as a manual Helm/debug overlay.
@@ -319,128 +322,136 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
   chaos-smoke
 ```
 
-Start the sequential comparison bundle selector with:
+Start the experiment selector with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh
 ```
 
-Or run a specific bundle with:
+Or run one or more specific experiments with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh telemetry-fairness-profile-comparison ckc-sync-dispatcher-comparison
 ```
 
 Compare suspend CKC, blocking CKC sync IO, and blocking CKC sync virtual-dispatcher mode with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh ckc-sync-dispatcher-comparison
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh ckc-sync-dispatcher-comparison
 ```
 
-Run every synced bundle sequentially with:
+Run every synced experiment sequentially with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh all
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh all
 ```
 
-Bundle definitions live under `/opt/ckc-lab/test-bundles`. The runner executes
-each bundle test through `run-test.sh` and writes bundle-level logs and JSON
-summaries under `/opt/ckc-lab/results/bundles/<bundle-set-id>`.
-After the initial bundle selection and bundle-wide settings prompt, tests run
-unattended. Type `q` and press Enter while a bundle is running to ask the
-current test to stop, finalize its raw audit log, and abort the rest of the
-bundle.
+Experiment definitions live under `/opt/ckc-lab/workloads/experiments`. The
+runner executes each experiment target through `run-test.sh` and writes
+experiment-level logs and JSON summaries under
+`/opt/ckc-lab/results/experiments/<experiment-set-id>`.
+After the initial experiment selection and experiment-wide settings prompt,
+targets run unattended. Type `q` and press Enter while an experiment is running
+to ask the current target to stop, finalize its raw audit log, and abort the
+rest of the experiment.
 
-After tuning a single run with `run-test.sh`, print a ready-to-paste bundle
-`tests:` item from the latest completed run:
+After tuning a single run with `run-test.sh`, print a target draft from the
+latest completed run:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/bundle-snippet.sh
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/target-draft.sh
 ```
 
-Pass a run id or result run directory to use a specific run, and `--name` to set the
-bundle test name:
+Pass a run id or result run directory to use a specific run, and `--id` or
+`--name` to set the target identity:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/bundle-snippet.sh 20260713T120000Z --name ckc-baseline-final
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/target-draft.sh 20260713T120000Z --id ckc.fixed.8
 ```
 
-For a short end-to-end bundle smoke test, run:
+For a short end-to-end experiment smoke test, run:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh smoke-repeat
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh smoke-repeat
 ```
 
-Export the latest run result into a portable result directory with:
+Export the latest experiment result into a portable result directory with:
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh
 ```
 
-Export a specific run or bundle result with:
+Export a specific run or experiment result with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T161010Z
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --bundle 20260717T170000Z
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-bundle
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --run 20260717T161010Z
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T170000Z
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-experiment
 ```
 
-Result directories are written under `/opt/ckc-lab/results/exports`. Each export
-contains a `summary.md`, `manifest.json`, run metadata/status files, a separate
-`audit/<run-id>` directory for each run's audit artifacts, and `restore.tar.gz`
-with Grafana provisioning, dashboards, Loki log extracts, and Prometheus TSDB
-blocks for the selected run or bundle time window. Use `--skip-loki` or
+Result directories are written under `/opt/ckc-lab/results/exports/<experiment-name>-<date>`.
+Each export contains `summary.md`, `metrics-logs-<experiment-name>-<date>.tar.gz`,
+and `audit-<experiment-name>-<date>.tar.gz`. The metrics/logs archive contains
+the local Grafana helper scripts, dashboard JSON, Loki log extracts, Prometheus
+query-range TSDB blocks for dashboard metrics in the selected run or experiment
+time window, run metadata, and `manifest.json`. The audit archive contains
+`audit/<run-id>` artifacts for each run. Use `--skip-loki` or
 `--skip-prometheus` when those services are unavailable or their data is not
-needed.
+needed. The exported dashboard is renamed to
+`CKC experiment: <experiment-name>`, defaults to the experiment time range, and
+includes an experiment summary panel with `Reset time range` and `Open logs`
+links for the original range.
 
 Restore exported metrics and Loki logs locally with:
 
 ```sh
-cd run-20260717T161010Z
-tar -xzf restore.tar.gz
-cd restore
-./run-restore.sh
+cd smoke-repeat-20260717T170000Z
+tar -xzf metrics-logs-smoke-repeat-20260717T170000Z.tar.gz
+cd smoke-repeat-20260717T170000Z
+./open-grafana-with-logs-and-metrics.sh
 ```
 
 Grafana is available at `http://localhost:3000` with `admin` / `admin` by
 default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
-`PROMETHEUS_PORT` before starting the restore script. `run-restore.sh` starts Docker Compose,
-attaches exported Prometheus TSDB blocks, imports Loki logs, then waits until `q` is
-pressed. After import, set the Grafana time range to the UTC range printed by
-`import-loki.sh`; archived logs and metrics keep their original run timestamps.
-When `q` is pressed, the script stops the restore stack and removes its Docker
-volumes.
+`PROMETHEUS_PORT` before starting the script. `open-grafana-with-logs-and-metrics.sh` starts Docker Compose,
+attaches exported Prometheus TSDB blocks, imports Loki logs, prints dashboard,
+Prometheus, and Loki links, then waits until `q` is pressed.
+The restored Prometheus uses a short query lookback so exported timeline/info
+series do not extend across target boundaries after staleness markers are lost
+while rebuilding TSDB blocks from raw samples.
+When `q` is pressed, the script reports shutdown progress, stops the restore
+stack, and removes its Docker volumes.
 
-Bundle-wide environment overrides can also be passed non-interactively:
+Experiment-wide environment overrides can also be passed non-interactively:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-bundle.sh telemetry-fairness-profile-comparison \
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh telemetry-fairness-profile-comparison \
   --env PROCESSING_ENABLED=true \
   --env AUDIT_LOG_ENABLED=true \
   --env METRICS_IMPLEMENTATION=MICROMETER
 ```
 
-When audit logging is enabled, bundle runs first execute all load phases and
+When audit logging is enabled, experiment runs first execute all load phases and
 collect raw audit logs under `/opt/ckc-lab/results/runs/<run-id>/audit`.
-Audit analysis then runs as a separate bundle phase for every completed run,
+Audit analysis then runs as a separate experiment phase for every completed run,
 and the raw audit logs are compressed after successful analysis.
-Bundle execution continues after an individual test fails, so failed run
-directories, logs, metrics, and audit files remain available in the bundle
+Experiment execution continues after an individual target fails, so failed run
+directories, logs, metrics, and audit files remain available in the experiment
 summary and result export. Pressing `q` is treated as an explicit interruption
-and stops the remaining bundle entries.
+and stops the remaining experiment targets.
 
 Optional notification hooks live under `/opt/ckc-lab/notify`. If
 `/opt/ckc-lab/notify/notify.py` or `/opt/ckc-lab/notify/notify.sh` exists and
-is executable, `run-bundle.sh` calls it as:
+is executable, `run-experiment.sh` calls it as:
 
 ```text
 notify-hook event-name payload.json
 ```
 
-Supported event names include `bundle_started`, `test_started`,
-`test_finished`, `bundle_runs_finished`, `audit_analysis_started`,
+Supported event names include `experiment_started`, `test_started`,
+`test_finished`, `experiment_runs_finished`, `audit_analysis_started`,
 `audit_analysis_finished`, `audit_run_analysis_started`,
-`audit_run_analysis_finished`, `bundle_finished`, and `bundle_failed`.
+`audit_run_analysis_finished`, `experiment_finished`, and `experiment_failed`.
 
 The lab sync includes a Telegram example hook at
 `/opt/ckc-lab/notify/notify-telegram.py` plus setup instructions in
@@ -507,7 +518,7 @@ progress such as `files=1/1 10% records=...` to the terminal.
 
 `run-test.sh --skip-analysis` finalizes the raw audit log and writes run
 metadata/status but leaves `summary.yaml` generation for a later analyzer pass.
-This is the mode used by `run-bundle.sh`.
+This is the mode used by `run-experiment.sh`.
 
 For telemetry freshness comparisons, use the `telemetry-freshness-fairness`
 test definition and select the telemetry processing mode explicitly with

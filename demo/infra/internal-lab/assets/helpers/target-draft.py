@@ -18,11 +18,12 @@ TOPICS = ("order", "batch", "telemetry")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create a bundle tests[] YAML item from a previous internal-lab run.")
+    parser = argparse.ArgumentParser(description="Create an experiment target draft from a previous internal-lab run.")
     parser.add_argument("run", nargs="?", help="Result run directory, run id, or omitted for the latest completed run.")
     parser.add_argument("--lab-root", default="/opt/ckc-lab")
-    parser.add_argument("--name", help="Bundle test name. Defaults to '<test-definition>-<run-profile>'.")
-    parser.add_argument("--with-tests-key", action="store_true", help="Wrap the item in a 'tests:' section.")
+    parser.add_argument("--id", help="Target id. Defaults to the run profile.")
+    parser.add_argument("--name", help="Target display name. Defaults to the target id.")
+    parser.add_argument("--with-targets-key", action="store_true", help="Wrap the item in a 'targets:' section.")
     return parser.parse_args()
 
 
@@ -84,7 +85,7 @@ def topic_plan(run_plan: dict[str, Any], topic_name: str) -> dict[str, Any]:
     return {}
 
 
-def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
+def build_entry(metadata: dict[str, Any], target_id: str | None, name: str | None) -> dict[str, Any]:
     application = metadata.get("application") or {}
     kafka = metadata.get("kafka") or {}
     load_test = metadata.get("load_test") or {}
@@ -97,16 +98,17 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
     if not profile:
         raise ValueError("Run metadata does not define application.run_profile")
 
+    resolved_id = target_id or slug(profile)
     entry: dict[str, Any] = {
-        "name": name or slug(f"{test_definition}-{profile}"),
+        "id": resolved_id,
+        "name": name or resolved_id,
         "profile": profile,
-        "test_definition": test_definition,
+        "source": {
+            "run_id": metadata.get("run_id"),
+            "test_definition": test_definition,
+        },
     }
 
-    if load_test.get("base_tps") is not None:
-        entry["base_rate"] = load_test["base_tps"]
-    if run_plan.get("capacity_factor") is not None:
-        entry["capacity_factor"] = run_plan["capacity_factor"]
     if run_plan.get("replica_count") is not None:
         entry["replicas"] = run_plan["replica_count"]
     elif application.get("replica_count") is not None:
@@ -114,10 +116,13 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
     if application.get("stub_replica_count") is not None:
         entry["stub_replicas"] = application["stub_replica_count"]
 
+    planning_latency: dict[str, Any] = {}
     for topic_name in TOPICS:
         topic = topic_plan(run_plan, topic_name)
         if not topic:
             continue
+        if topic.get("average_processing_ms") is not None:
+            planning_latency[f"{topic_name}_ms"] = topic["average_processing_ms"]
         mode = topic.get("processing_mode")
         if mode:
             entry[f"{topic_name}_processing_mode"] = mode
@@ -127,6 +132,8 @@ def build_entry(metadata: dict[str, Any], name: str | None) -> dict[str, Any]:
             entry[f"{topic_name}_workers"] = topic["worker_concurrency"]
         if topic.get("poll_loop_concurrency") is not None:
             entry[f"{topic_name}_pollers"] = topic["poll_loop_concurrency"]
+    if planning_latency:
+        entry["planning_latency"] = planning_latency
 
     env: dict[str, Any] = {}
     add_env(env, "LAB_KAFKA_IMPLEMENTATION", kafka.get("implementation"))
@@ -151,8 +158,8 @@ def main() -> None:
     metadata_path = run_dir / "run-metadata.json"
     if not metadata_path.is_file():
         raise FileNotFoundError(f"Run metadata was not found: {metadata_path}")
-    entry = build_entry(load_json(metadata_path), args.name)
-    document: Any = {"tests": [entry]} if args.with_tests_key else [entry]
+    entry = build_entry(load_json(metadata_path), args.id, args.name)
+    document: Any = {"targets": [entry]} if args.with_targets_key else entry
     print(yaml.safe_dump(document, sort_keys=False, width=1000).rstrip())
 
 

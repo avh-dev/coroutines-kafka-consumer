@@ -201,6 +201,7 @@
 | [INFRA-82](#infra-82) | Continue internal-lab bundles after failed tests so negative results stay in bundle summaries and exports.                         | DONE |
 | [INFRA-83](#infra-83) | Export result directories with bundle-scoped metrics, restore archives, summaries, and separate audit files.                       | DONE |
 | [INFRA-84](#infra-84) | Print a direct Grafana dashboard URL with the exported experiment time range from restore runs.                                    | DONE |
+| [INFRA-85](#infra-85) | Replace internal-lab bundles with experiment definitions built from explicit targets and planning latencies.                         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2147,3 +2148,22 @@ _Date: 2026-07-19_
 Print a direct Grafana dashboard link when running a restored export.
 Use the exported metrics or Loki time window from `manifest.json` so the link opens on the experiment interval.
 Keep the plain Grafana, Prometheus, and Loki service links visible for fallback navigation.
+
+<a id="infra-85"></a>
+### INFRA-85 - Replace bundles with experiment targets
+
+_Date: 2026-07-20_
+
+Rename the internal-lab comparison bundle concept to experiments.
+Model each experiment as one test definition and base TPS executed against explicit consumer targets.
+Keep per-target planning latency assumptions in the experiment instead of using a capacity factor.
+Move mutable workload YAML under a dedicated internal-lab workloads catalog.
+Move reusable consumer-profile planner capabilities into the shared workloads catalog and keep deployment/env overrides in experiment definitions.
+Keep the manual-run helper by turning it into a target draft generator for copy-pasting into experiments.
+Have the planner emit work-channel capacity, including freshness-by-key telemetry capacity based on the effective fixed fleet.
+Make result export default to the latest experiment and autodetect explicit run or experiment ids.
+Export Prometheus metrics through bounded query-range blocks instead of copying whole snapshot blocks.
+Keep the exported dashboard summary compact and preserve bare Prometheus metrics used by state-timeline panels.
+Export raw Prometheus samples instead of query-range evaluation samples so timeline panels do not get lookback overlap.
+Use a short restored-Prometheus query lookback to avoid extending rebuilt info gauges across target boundaries.
+Keep export helper links readable and print direct Dashboard, Prometheus, and Loki restore links.
