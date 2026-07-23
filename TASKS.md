@@ -202,6 +202,7 @@
 | [INFRA-83](#infra-83) | Export result directories with bundle-scoped metrics, restore archives, summaries, and separate audit files.                       | DONE |
 | [INFRA-84](#infra-84) | Print a direct Grafana dashboard URL with the exported experiment time range from restore runs.                                    | DONE |
 | [INFRA-85](#infra-85) | Replace internal-lab bundles with experiment definitions built from explicit targets and planning latencies.                         | DONE |
+| [INFRA-86](#infra-86) | Prebuild Loki restore data during internal-lab result export so local restore starts without log import.                            | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2167,3 +2168,12 @@ Keep the exported dashboard summary compact and preserve bare Prometheus metrics
 Export raw Prometheus samples instead of query-range evaluation samples so timeline panels do not get lookback overlap.
 Use a short restored-Prometheus query lookback to avoid extending rebuilt info gauges across target boundaries.
 Keep export helper links readable and print direct Dashboard, Prometheus, and Loki restore links.
+
+<a id="infra-86"></a>
+### INFRA-86 - Prebuild Loki restore data
+
+_Date: 2026-07-23_
+
+Move Loki log ingestion from local restore startup into the export phase.
+Build a ready-to-mount Loki data directory with the same Loki image and config carried by the export.
+Keep restore startup focused on copying prepared Prometheus and Loki data into runtime directories and starting Grafana.

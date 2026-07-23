@@ -392,7 +392,7 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-experiment
 Result directories are written under `/opt/ckc-lab/results/exports/<experiment-name>-<date>`.
 Each export contains `summary.md`, `metrics-logs-<experiment-name>-<date>.tar.gz`,
 and `audit-<experiment-name>-<date>.tar.gz`. The metrics/logs archive contains
-the local Grafana helper scripts, dashboard JSON, Loki log extracts, Prometheus
+the local Grafana helper scripts, dashboard JSON, prebuilt Loki data, Prometheus
 query-range TSDB blocks for dashboard metrics in the selected run or experiment
 time window, run metadata, and `manifest.json`. The audit archive contains
 `audit/<run-id>` artifacts for each run. Use `--skip-loki` or
@@ -401,6 +401,9 @@ needed. The exported dashboard is renamed to
 `CKC experiment: <experiment-name>`, defaults to the experiment time range, and
 includes an experiment summary panel with `Reset time range` and `Open logs`
 links for the original range.
+Loki logs are ingested into a temporary Loki container during export and stored
+as a ready-to-mount data directory, so export can take longer while local restore
+does not need to replay log pushes.
 
 Restore exported metrics and Loki logs locally with:
 
@@ -413,9 +416,9 @@ cd smoke-repeat-20260717T170000Z
 
 Grafana is available at `http://localhost:3000` with `admin` / `admin` by
 default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
-`PROMETHEUS_PORT` before starting the script. `open-grafana-with-logs-and-metrics.sh` starts Docker Compose,
-attaches exported Prometheus TSDB blocks, imports Loki logs, prints dashboard,
-Prometheus, and Loki links, then waits until `q` is pressed.
+`PROMETHEUS_PORT` before starting the script. `open-grafana-with-logs-and-metrics.sh` prepares exported Prometheus and Loki data,
+starts Docker Compose, prints dashboard, Prometheus, and Loki links, then waits
+until `q` is pressed.
 The restored Prometheus uses a short query lookback so exported timeline/info
 series do not extend across target boundaries after staleness markers are lost
 while rebuilding TSDB blocks from raw samples.

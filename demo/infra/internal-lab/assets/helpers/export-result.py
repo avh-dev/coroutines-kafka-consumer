@@ -7,15 +7,19 @@ import json
 import math
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+LOKI_IMAGE = "grafana/loki:3.3.2"
 
 
 def parse_args() -> argparse.Namespace:
@@ -209,6 +213,83 @@ def write_loki_logs(export_root: Path, run_dirs: list[Path], loki_url: str, limi
             }
         )
     return exported
+
+
+def free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        return int(server.getsockname()[1])
+
+
+def wait_for_http_ready(url: str, timeout_seconds: int) -> None:
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                if response.status // 100 == 2:
+                    return
+        except Exception:
+            pass
+        if datetime.now(timezone.utc) >= deadline:
+            raise TimeoutError(f"Timed out waiting for readiness: {url}")
+        time.sleep(1)
+
+
+def prebuild_loki_data(restore_root: Path, logs_dir: Path) -> dict[str, Any]:
+    output_dir = restore_root / "loki"
+    if not logs_dir.is_dir() or not any(logs_dir.glob("*.jsonl")):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return {"type": "prebuilt_loki_data", "path": str(output_dir.relative_to(restore_root)), "files": 0}
+
+    port = free_tcp_port()
+    container_name = f"ckc-result-export-loki-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+    data_dir = restore_root / ".loki-build"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    docker_command = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        container_name,
+        "-u",
+        "0:0",
+        "-p",
+        f"127.0.0.1:{port}:3100",
+        "-v",
+        f"{(restore_root / 'helpers' / 'loki.yaml').resolve()}:/etc/loki/loki.yaml:ro",
+        "-v",
+        f"{data_dir.resolve()}:/loki",
+        LOKI_IMAGE,
+        "-config.file=/etc/loki/loki.yaml",
+    ]
+    subprocess.run(docker_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        loki_url = f"http://127.0.0.1:{port}"
+        wait_for_http_ready(f"{loki_url}/ready", 60)
+        import_command = [
+            sys.executable,
+            str((restore_root / "helpers" / "import-loki.py").resolve()),
+            "--loki-url",
+            loki_url,
+            *[str(path.resolve()) for path in sorted(logs_dir.glob("*.jsonl"))],
+        ]
+        completed = subprocess.run(import_command, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if completed.stdout.strip():
+            print(completed.stdout.strip(), file=sys.stderr)
+    finally:
+        subprocess.run(["docker", "stop", "--time", "30", container_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["docker", "rm", "-f", container_name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    shutil.move(str(data_dir), str(output_dir))
+    file_count = sum(1 for path in output_dir.rglob("*") if path.is_file())
+    return {
+        "type": "prebuilt_loki_data",
+        "image": LOKI_IMAGE,
+        "path": str(output_dir.relative_to(restore_root)),
+        "files": file_count,
+    }
 
 
 def prometheus_get(prometheus_url: str, path: str, params: dict[str, str]) -> dict[str, Any]:
@@ -817,7 +898,14 @@ def main() -> int:
             restore_root / "open-grafana-with-logs-and-metrics.sh",
         )
         dashboard_metric_names = metric_names_from_dashboard(restore_root / "grafana" / "dashboards")
-        loki_exports = [] if args.skip_loki else write_loki_logs(restore_root, run_dirs, args.loki_url, args.loki_limit)
+        loki_jsonl_dir = restore_root / ".loki-jsonl"
+        loki_exports = [] if args.skip_loki else write_loki_logs(loki_jsonl_dir, run_dirs, args.loki_url, args.loki_limit)
+        loki_data = None if args.skip_loki else prebuild_loki_data(restore_root, loki_jsonl_dir / "loki")
+        if loki_data:
+            for entry in loki_exports:
+                entry.pop("file", None)
+                entry["data_path"] = loki_data["path"]
+        shutil.rmtree(loki_jsonl_dir, ignore_errors=True)
         metrics_export = (
             None
             if args.skip_prometheus
@@ -838,6 +926,7 @@ def main() -> int:
             "runs": [path.name for path in run_dirs],
             "audit": audit_exports,
             "loki": loki_exports,
+            "loki_data": loki_data,
             "metrics": metrics_export,
             "dashboard": dashboard,
             "dashboard_metric_names": dashboard_metric_names,
