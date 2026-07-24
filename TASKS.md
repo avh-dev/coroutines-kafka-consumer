@@ -211,6 +211,7 @@
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
 | [DOC-4](#doc-4) | Refine the `ckc-micrometer` README wording around ConsumerMetrics, tag customization, filtering, and histograms. | DONE |
+| [DOC-5](#doc-5) | Remove the alternatives and related-projects section from the main README while OSS positioning is still being refined. | DONE |
 
 ## Task Details
 
@@ -1203,6 +1204,14 @@ _Date: 2026-07-08_
 Clarify that `ConsumerMetrics` is an interface supplied to CKC consumers.
 Tighten the Micrometer module introduction so it describes backend export without exposing factory details too early.
 Make filtering, percentile, and histogram sections explicit that CKC relies on Micrometer or framework-level configuration for those concerns.
+
+<a id="doc-5"></a>
+### DOC-5 - Remove README alternatives
+
+_Date: 2026-07-24_
+
+Remove the repository-level README section that named related projects and alternative libraries.
+Keep the main README focused on CKC's own processing modes, offset tracking, modules, and current project status.
 
 <a id="demo-37"></a>
 ### DEMO-37 - Remove Ktor remnants
