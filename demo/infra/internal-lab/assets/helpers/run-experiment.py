@@ -180,6 +180,88 @@ def topic_planning_latency(target: dict[str, Any], topic: str) -> Any:
     return topic_value
 
 
+def merged_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merged_dict(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def merge_helm_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    default_helm = defaults.get("helm", {})
+    target_helm = target.get("helm", {})
+    if default_helm in ("", None):
+        default_helm = {}
+    if target_helm in ("", None):
+        target_helm = {}
+    if not isinstance(default_helm, dict):
+        raise ValueError("experiment defaults.helm must be an object")
+    if not isinstance(target_helm, dict):
+        raise ValueError("experiment targets[].helm must be an object")
+    return merged_dict(default_helm, target_helm)
+
+
+def validate_helm_overrides(helm: dict[str, Any], context: str) -> None:
+    allowed_top = {"env", "resources"}
+    unknown_top = sorted(set(helm) - allowed_top)
+    if unknown_top:
+        raise ValueError(f"{context}.helm only supports {sorted(allowed_top)}; unknown: {unknown_top}")
+
+    env = helm.get("env", {})
+    if env in ("", None):
+        env = {}
+    if not isinstance(env, dict):
+        raise ValueError(f"{context}.helm.env must be an object")
+    unknown_env = sorted(set(env) - {"javaToolOptions"})
+    if unknown_env:
+        raise ValueError(f"{context}.helm.env only supports javaToolOptions; unknown: {unknown_env}")
+    if "javaToolOptions" in env and not str(env["javaToolOptions"]).strip():
+        raise ValueError(f"{context}.helm.env.javaToolOptions must not be empty")
+
+    resources = helm.get("resources", {})
+    if resources in ("", None):
+        resources = {}
+    if not isinstance(resources, dict):
+        raise ValueError(f"{context}.helm.resources must be an object")
+    unknown_resources = sorted(set(resources) - {"requests", "limits"})
+    if unknown_resources:
+        raise ValueError(f"{context}.helm.resources only supports requests and limits; unknown: {unknown_resources}")
+    for section_name in ("requests", "limits"):
+        section = resources.get(section_name, {})
+        if section in ("", None):
+            section = {}
+        if not isinstance(section, dict):
+            raise ValueError(f"{context}.helm.resources.{section_name} must be an object")
+        unknown = sorted(set(section) - {"cpu", "memory"})
+        if unknown:
+            raise ValueError(f"{context}.helm.resources.{section_name} only supports cpu and memory; unknown: {unknown}")
+        for key, value in section.items():
+            if not str(value).strip():
+                raise ValueError(f"{context}.helm.resources.{section_name}.{key} must not be empty")
+
+
+def helm_override_args(helm: dict[str, Any]) -> list[str]:
+    args: list[str] = []
+    env = helm.get("env") or {}
+    if "javaToolOptions" in env:
+        args.extend(["--demo-java-tool-options", env_value(env["javaToolOptions"])])
+    resources = helm.get("resources") or {}
+    requests = resources.get("requests") or {}
+    limits = resources.get("limits") or {}
+    if "cpu" in requests:
+        args.extend(["--demo-cpu-request", env_value(requests["cpu"])])
+    if "memory" in requests:
+        args.extend(["--demo-memory-request", env_value(requests["memory"])])
+    if "cpu" in limits:
+        args.extend(["--demo-cpu-limit", env_value(limits["cpu"])])
+    if "memory" in limits:
+        args.extend(["--demo-memory-limit", env_value(limits["memory"])])
+    return args
+
+
 def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
     targets = experiment.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -198,7 +280,13 @@ def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, 
         if "capacity_factor" in target:
             raise ValueError(f"Experiment targets[{index}] must not define capacity_factor; use explicit planning_latency: {path}")
         if "resources" in target:
-            raise ValueError(f"Experiment targets[{index}] resources are not supported yet; pass resource Helm overrides separately: {path}")
+            raise ValueError(f"Experiment targets[{index}] must put pod resources under helm.resources: {path}")
+        helm = merge_helm_defaults(experiment.get("defaults", {}) or {}, target)
+        if helm and "profile" not in target:
+            raise ValueError(f"Experiment targets[{index}].helm is only supported for generated profile targets: {path}")
+        validate_helm_overrides(helm, f"Experiment targets[{index}]")
+        if helm:
+            target["helm"] = helm
         for topic in ("order", "batch", "telemetry"):
             if topic_planning_latency(target, topic) in (None, ""):
                 raise ValueError(f"Experiment targets[{index}] must define planning_latency.{topic}_ms: {path}")
@@ -423,6 +511,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
                 key = f"{topic}_{knob}"
                 if key in test:
                     command.extend([f"--{topic}-{knob}", env_value(test[key])])
+        command.extend(helm_override_args(test.get("helm") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])
     if "stub_replicas" in test:

@@ -1,0 +1,63 @@
+name: consumer-capacity-comparison
+description: Compare suspend CKC, CKC sync dispatcher modes, Confluent Parallel Consumer Reactor, and Spring Kafka on the same baseline test.
+test_definition: capacity_6min
+base_tps: 25000
+
+defaults:
+  replicas: 2
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+
+targets:
+  - name: ckc.fixed.1
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
+  - name: cpc-reactor.fixed.2
+    profile: confluent-reactor
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
+  - name: ckc-sync.io
+    profile: ckc-sync
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+
+  - name: ckc-sync.virtual-thread
+    profile: ckc-sync
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+
+  - name: spring-kafka
+    profile: spring-kafka
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    helm:
+      env:
+        javaToolOptions: "-Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC"
+      resources:
+        requests:
+          memory: 2Gi
+        limits:
+          memory: 3Gi

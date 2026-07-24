@@ -98,6 +98,12 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def non_empty(value: str) -> str:
+    if not value:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return value
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate an internal-lab dynamic run plan.")
     parser.add_argument("test_definition", nargs="?")
@@ -110,6 +116,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replicas", type=positive_int)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
+    parser.add_argument("--demo-java-tool-options", type=non_empty)
+    parser.add_argument("--demo-cpu-request", type=non_empty)
+    parser.add_argument("--demo-memory-request", type=non_empty)
+    parser.add_argument("--demo-cpu-limit", type=non_empty)
+    parser.add_argument("--demo-memory-limit", type=non_empty)
     parser.add_argument("--order-processing-mode")
     parser.add_argument("--batch-processing-mode")
     parser.add_argument("--telemetry-processing-mode")
@@ -401,6 +412,8 @@ def main() -> None:
     env: dict[str, Any] = {"springProfilesActive": profile["spring_profile"]}
     if processing_dispatcher:
         env["processingDispatcherType"] = processing_dispatcher
+    if args.demo_java_tool_options:
+        env["javaToolOptions"] = args.demo_java_tool_options
 
     for topic_name in TOPIC_ORDER:
         topic_config = topics_config[topic_name]
@@ -498,6 +511,23 @@ def main() -> None:
         },
         "env": env,
     }
+    resources: dict[str, Any] = {}
+    requests: dict[str, str] = {}
+    limits: dict[str, str] = {}
+    if args.demo_cpu_request:
+        requests["cpu"] = args.demo_cpu_request
+    if args.demo_memory_request:
+        requests["memory"] = args.demo_memory_request
+    if args.demo_cpu_limit:
+        limits["cpu"] = args.demo_cpu_limit
+    if args.demo_memory_limit:
+        limits["memory"] = args.demo_memory_limit
+    if requests:
+        resources["requests"] = requests
+    if limits:
+        resources["limits"] = limits
+    if resources:
+        overlay["resources"] = resources
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -517,6 +547,13 @@ def main() -> None:
         "values_path": str(values_path),
         "topics": topic_plans,
     }
+    helm_overrides: dict[str, Any] = {}
+    if args.demo_java_tool_options:
+        helm_overrides["java_tool_options"] = args.demo_java_tool_options
+    if resources:
+        helm_overrides["resources"] = resources
+    if helm_overrides:
+        plan["helm_overrides"] = helm_overrides
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
     if args.print_plan:

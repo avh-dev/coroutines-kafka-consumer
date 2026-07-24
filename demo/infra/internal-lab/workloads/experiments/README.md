@@ -14,7 +14,7 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh
 Run one or more named experiments with:
 
 ```sh
-LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh telemetry-fairness-profile-comparison ckc-sync-dispatcher-comparison
+LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh telemetry-fairness-profile-comparison consumer-capacity-comparison
 ```
 
 Run every synced experiment sequentially with:
@@ -73,12 +73,32 @@ targets:
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
+
+  - name: spring-kafka
+    profile: spring-kafka
+    planning_latency:
+      order_ms: 2
+      batch_ms: 5
+      telemetry_ms: 35
+    helm:
+      env:
+        javaToolOptions: "-Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC"
+      resources:
+        requests:
+          memory: 2Gi
+        limits:
+          memory: 3Gi
 ```
 
-`defaults.replicas` and target-level overrides are passed to the generated Helm
-values. The shared `demo/infra/shared/workloads/consumer-profiles.yaml` catalog
-only describes the reusable consumer-profile capabilities used by the planner;
-environment and deployment choices should be visible in the experiment.
+`defaults.replicas`, target-level parallelism overrides, and target-level
+`helm` overrides are passed to the generated Helm values. The shared
+`demo/infra/shared/workloads/consumer-profiles.yaml` catalog only describes the
+reusable consumer-profile capabilities used by the planner; environment and
+deployment choices should be visible in the experiment.
+
+`helm.env.javaToolOptions` can tune the demo JVM for a specific target.
+`helm.resources.requests` and `helm.resources.limits` currently support `cpu`
+and `memory` values for the demo pod.
 
 `planning_latency` is an experiment input for generated partitions, workers,
 and pollers. It should be calibrated for this experiment's `base_tps`, target
