@@ -11,6 +11,16 @@ defaults:
     METRICS_IMPLEMENTATION: MICROMETER
 
 targets:
+  - name: ckc.fixed.2
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
   - name: ckc.fixed.1
     profile: ckc
     planning_latency:
@@ -21,7 +31,7 @@ targets:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
 
-  - name: cpc-reactor.fixed.2
+  - name: cpc-reactor.fixed.1
     profile: confluent-reactor
     planning_latency:
       order_ms: 50
