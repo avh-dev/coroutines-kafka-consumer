@@ -212,6 +212,7 @@
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
 | [DOC-4](#doc-4) | Refine the `ckc-micrometer` README wording around ConsumerMetrics, tag customization, filtering, and histograms. | DONE |
 | [DOC-5](#doc-5) | Remove the alternatives and related-projects section from the main README while OSS positioning is still being refined. | DONE |
+| [DOC-6](#doc-6) | Update the main README module list so it matches the current repository modules. | DONE |
 
 ## Task Details
 
@@ -1212,6 +1213,14 @@ _Date: 2026-07-24_
 
 Remove the repository-level README section that named related projects and alternative libraries.
 Keep the main README focused on CKC's own processing modes, offset tracking, modules, and current project status.
+
+<a id="doc-6"></a>
+### DOC-6 - Update README modules
+
+_Date: 2026-07-24_
+
+Refresh the repository-level README module list to include the Spring Boot starter, demo contracts, and demo stubs.
+Keep the module descriptions concise while matching the current Gradle module layout.
 
 <a id="demo-37"></a>
 ### DEMO-37 - Remove Ktor remnants

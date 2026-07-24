@@ -78,8 +78,11 @@ A consumer runtime must not commit past offsets `8` and `9` just because later r
 
 - `ckc-core` contains the consumer runtime and public Kotlin DSL.
 - `ckc-micrometer` adapts CKC metrics to Micrometer.
+- `ckc-spring-boot-starter` wires CKC consumers into Spring Boot applications.
+- `demo/ckc-demo-contracts` contains shared demo protobuf contracts and serialization helpers.
 - `demo/ckc-demo` is a Spring Boot demo application used for functional checks and implementation comparisons.
 - `demo/ckc-demo-load-test` generates reproducible load-test traffic.
+- `demo/ckc-demo-stubs` provides local model-service stubs used by demo and load-test flows.
 - `experiments/ckc-experiments` contains offset-tracker and metadata-compression experiments.
 
 ## Current Status
