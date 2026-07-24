@@ -203,6 +203,8 @@
 | [INFRA-84](#infra-84) | Print a direct Grafana dashboard URL with the exported experiment time range from restore runs.                                    | DONE |
 | [INFRA-85](#infra-85) | Replace internal-lab bundles with experiment definitions built from explicit targets and planning latencies.                         | DONE |
 | [INFRA-86](#infra-86) | Prebuild Loki restore data during internal-lab result export so local restore starts without log import.                            | DONE |
+| [INFRA-87](#infra-87) | Replace the dispatcher experiment with a consumer capacity comparison that includes Confluent Parallel Consumer Reactor and Spring Kafka. | DONE |
+| [INFRA-88](#infra-88) | Add experiment target Helm overrides for demo pod JVM and resource tuning.                                                         | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2177,3 +2179,22 @@ _Date: 2026-07-23_
 Move Loki log ingestion from local restore startup into the export phase.
 Build a ready-to-mount Loki data directory with the same Loki image and config carried by the export.
 Keep restore startup focused on copying prepared Prometheus and Loki data into runtime directories and starting Grafana.
+
+<a id="infra-87"></a>
+### INFRA-87 - Expand sync dispatcher comparison
+
+_Date: 2026-07-23_
+
+Replace the dispatcher-focused experiment with `consumer-capacity-comparison` and extend it with external consumer baselines.
+Add a `capacity_6min` test definition for order and batch capacity runs.
+Add Confluent Parallel Consumer Reactor and Spring Kafka targets alongside the existing CKC sync dispatcher variants.
+Keep the experiment focused on comparable internal-lab target configuration without changing runtime code.
+
+<a id="infra-88"></a>
+### INFRA-88 - Add experiment target Helm overrides
+
+_Date: 2026-07-23_
+
+Add target-scoped Helm override support for generated internal-lab experiment runs.
+Allow experiments to tune demo pod `env.javaToolOptions` and Kubernetes resource requests or limits per target.
+Use the override path to give the Spring Kafka baseline more JVM and pod memory without changing every experiment target.

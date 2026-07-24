@@ -35,6 +35,7 @@ ORDER_PLANNING_LATENCY_MS=""
 BATCH_PLANNING_LATENCY_MS=""
 TELEMETRY_PLANNING_LATENCY_MS=""
 PLAN_MANUAL_ARGS=()
+PLAN_HELM_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 PROCESSING_DISPATCHER_TYPE=""
@@ -54,6 +55,9 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--replicas count] [--stub-replicas count]
           [--order-planning-latency-ms ms] [--batch-planning-latency-ms ms]
           [--telemetry-planning-latency-ms ms]
+          [--demo-java-tool-options options]
+          [--demo-cpu-request value] [--demo-memory-request value]
+          [--demo-cpu-limit value] [--demo-memory-limit value]
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
@@ -93,6 +97,12 @@ Options:
                    Manually override generated app worker concurrency.
   --order-pollers, --batch-pollers, --telemetry-pollers
                    Manually override generated poll loop concurrency.
+  --demo-java-tool-options
+                   Override generated demo Helm env.javaToolOptions.
+  --demo-cpu-request, --demo-memory-request
+                   Override generated demo pod resource requests.
+  --demo-cpu-limit, --demo-memory-limit
+                   Override generated demo pod resource limits.
   --kafka-implementation
                     Select the host Kafka API broker implementation.
   --processing-dispatcher-type
@@ -173,6 +183,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --order-partitions|--batch-partitions|--telemetry-partitions|--order-workers|--batch-workers|--telemetry-workers|--order-pollers|--batch-pollers|--telemetry-pollers)
       PLAN_MANUAL_ARGS+=("$1" "${2:?$1 requires a positive integer}")
+      shift 2
+      ;;
+    --demo-java-tool-options|--demo-cpu-request|--demo-memory-request|--demo-cpu-limit|--demo-memory-limit)
+      PLAN_HELM_ARGS+=("$1" "${2:?$1 requires a value}")
       shift 2
       ;;
     --dry-run-plan)
@@ -833,6 +847,9 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   fi
   if [ "${#PLAN_MANUAL_ARGS[@]}" -gt 0 ]; then
     PLAN_ARGS+=("${PLAN_MANUAL_ARGS[@]}")
+  fi
+  if [ "${#PLAN_HELM_ARGS[@]}" -gt 0 ]; then
+    PLAN_ARGS+=("${PLAN_HELM_ARGS[@]}")
   fi
   python3 "${LAB_ROOT}/helpers/plan-run.py" "${PLAN_ARGS[@]}" > "${PLAN_ENV_FILE}"
   # shellcheck disable=SC1090
