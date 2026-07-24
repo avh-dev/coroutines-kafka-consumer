@@ -129,6 +129,7 @@ def parse_args() -> argparse.Namespace:
         parser.add_argument(f"--{topic}-partitions", type=positive_int)
         parser.add_argument(f"--{topic}-workers", type=positive_int)
         parser.add_argument(f"--{topic}-pollers", type=positive_int)
+        parser.add_argument(f"--{topic}-queue-capacity", type=positive_int)
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--profile-dispatchers", action="store_true")
     parser.add_argument("--profile-processing-modes", action="store_true")
@@ -400,6 +401,7 @@ def main() -> None:
             "partitions": getattr(args, f"{topic}_partitions"),
             "workers": getattr(args, f"{topic}_workers"),
             "pollers": getattr(args, f"{topic}_pollers"),
+            "queue_capacity": getattr(args, f"{topic}_queue_capacity"),
         }
         for topic in TOPIC_ORDER
     }
@@ -433,7 +435,8 @@ def main() -> None:
         average_ms = float(explicit_average_ms)
         required = max(1, math.ceil(target_tps * average_ms / 1000.0))
         overrides = manual_overrides[topic_name]
-        for knob, value in overrides.items():
+        for knob in PARALLELISM_KNOBS:
+            value = overrides[knob]
             if value is not None and knob not in knobs:
                 raise ValueError(f"Profile {args.profile!r} does not allow manual {topic_name} {knob} overrides for {mode}")
 
@@ -478,7 +481,9 @@ def main() -> None:
         env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)
         env[env_key(topic_name, "WorkerConcurrency")] = worker_concurrency
         env[env_key(topic_name, "PollLoopConcurrency")] = poll_loop_concurrency
-        topic_work_channel_capacity = work_channel_capacity(topic_name, mode, load_test)
+        topic_work_channel_capacity = overrides["queue_capacity"] or work_channel_capacity(topic_name, mode, load_test)
+        if overrides["queue_capacity"] is not None:
+            manual_fields["queue_capacity"] = overrides["queue_capacity"]
         env[env_key(topic_name, "WorkChannelCapacity")] = topic_work_channel_capacity
 
         kafka_topic = topic_config["kafka_topic"]

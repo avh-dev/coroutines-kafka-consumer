@@ -73,6 +73,8 @@ targets:
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
 
   - name: spring-kafka
     profile: spring-kafka
@@ -103,6 +105,11 @@ and `memory` values for the demo pod.
 `planning_latency` is an experiment input for generated partitions, workers,
 and pollers. It should be calibrated for this experiment's `base_tps`, target
 consumer profile, and current lab infrastructure.
+
+`order_queue_capacity`, `batch_queue_capacity`, and
+`telemetry_queue_capacity` override the generated work channel capacity for a
+target. Use them when comparing CKC pause/resume behavior or external consumer
+admission behavior under the same traffic shape.
 
 Use `/opt/ckc-lab/bin/target-draft.sh` after a tuned `run-test.sh` run to print
 a ready-to-paste target draft with the run's profile, planning latencies,

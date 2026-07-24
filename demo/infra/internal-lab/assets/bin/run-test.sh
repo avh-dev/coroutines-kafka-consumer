@@ -62,6 +62,8 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
           [--processing-dispatcher-type DEFAULT|FIXED|IO|VIRTUAL]
+          [--order-queue-capacity count] [--batch-queue-capacity count]
+          [--telemetry-queue-capacity count]
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--env KEY=VALUE]
@@ -97,6 +99,8 @@ Options:
                    Manually override generated app worker concurrency.
   --order-pollers, --batch-pollers, --telemetry-pollers
                    Manually override generated poll loop concurrency.
+  --order-queue-capacity, --batch-queue-capacity, --telemetry-queue-capacity
+                   Manually override generated work channel capacity.
   --demo-java-tool-options
                    Override generated demo Helm env.javaToolOptions.
   --demo-cpu-request, --demo-memory-request
@@ -181,7 +185,7 @@ while [ "$#" -gt 0 ]; do
       TELEMETRY_PLANNING_LATENCY_MS="${2:?--telemetry-planning-latency-ms requires a positive number}"
       shift 2
       ;;
-    --order-partitions|--batch-partitions|--telemetry-partitions|--order-workers|--batch-workers|--telemetry-workers|--order-pollers|--batch-pollers|--telemetry-pollers)
+    --order-partitions|--batch-partitions|--telemetry-partitions|--order-workers|--batch-workers|--telemetry-workers|--order-pollers|--batch-pollers|--telemetry-pollers|--order-queue-capacity|--batch-queue-capacity|--telemetry-queue-capacity)
       PLAN_MANUAL_ARGS+=("$1" "${2:?$1 requires a positive integer}")
       shift 2
       ;;
