@@ -20,6 +20,76 @@ logging:
 ckc:
   enabled: false
 
+thread-stats:
+  enabled: ${THREAD_STATS_ENABLED:true}
+  sampling-interval: ${THREAD_STATS_SAMPLING_INTERVAL:1s}
+  history-capacity: ${THREAD_STATS_HISTORY_CAPACITY:60}
+  fallback-group: other
+  logging:
+    enabled: ${THREAD_STATS_LOGGING_ENABLED:false}
+  metrics:
+    enabled: ${THREAD_STATS_METRICS_ENABLED:true}
+  dumps:
+    enabled: ${THREAD_STATS_DUMPS_ENABLED:false}
+  rules:
+    - group: main
+      type: exact
+      value: main
+    - group: thread-stats
+      type: prefix
+      value: thread-stats-
+    - group: ckc-poll
+      type: prefix
+      value: kafka-poll-
+    - group: ckc-worker
+      type: prefix
+      value: ckc-worker-
+    - group: ckc-worker
+      type: prefix
+      value: ckc-sync-worker-
+    - group: ckc-worker
+      type: prefix
+      value: ckc-spring-boot-worker-
+    - group: demo-virtual-worker
+      type: prefix
+      value: demo-processing-virtual-
+    - group: spring-kafka-worker
+      type: prefix
+      value: spring-kafka-coroutines-naive-worker-
+    - group: confluent-parallel
+      type: prefix
+      value: confluent-parallel-
+    - group: confluent-parallel-worker
+      type: prefix
+      value: pc-reactor-worker-
+    - group: kafka-client
+      type: prefix
+      value: kafka-
+    - group: armeria
+      type: prefix
+      value: armeria-
+    - group: redis-client
+      type: prefix
+      value: lettuce-
+    - group: coroutine-runtime
+      type: prefix
+      value: DefaultDispatcher-
+    - group: jvm-system
+      type: exact
+      value: Reference Handler
+    - group: jvm-system
+      type: exact
+      value: Finalizer
+    - group: jvm-system
+      type: exact
+      value: Signal Dispatcher
+    - group: jvm-system
+      type: exact
+      value: Notification Thread
+    - group: jvm-system
+      type: exact
+      value: Common-Cleaner
+
 armeria:
   graceful-shutdown-quiet-period-millis: 1000
   graceful-shutdown-timeout-millis: 3000

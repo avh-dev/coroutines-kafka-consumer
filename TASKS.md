@@ -117,6 +117,7 @@
 | [DEMO-64](#demo-64) | Enable optional native Lettuce command metrics in the demo app and surface Redis client latency in Grafana. | DONE |
 | [DEMO-65](#demo-65) | Prevent the load-test audit TCP appender from connecting when audit logging is disabled. | DONE |
 | [DEMO-66](#demo-66) | Add demo profile timeline labels that include meaningful dispatcher variants. | DONE |
+| [DEMO-67](#demo-67) | Add Thread Stats metrics to the demo application with bounded JVM thread groups. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -1997,6 +1998,16 @@ _Date: 2026-07-20_
 Add a small demo profile label component for the profile timeline metric.
 Keep plain names for profiles where dispatcher variants are not meaningful.
 Include dispatcher names and fixed worker counts for CKC, CKC sync, and comparable coroutine/parallel-consumer demo profiles.
+
+<a id="demo-67"></a>
+### DEMO-67 - Add Thread Stats metrics
+
+_Date: 2026-07-26_
+
+Connect the demo application to the local Thread Stats Spring Boot starter.
+Expose bounded JVM platform-thread activity metrics through the existing Micrometer/Prometheus endpoint.
+Start with reusable thread-name groups for CKC workers, Kafka clients, Armeria, model clients, Redis, and JVM/system threads.
+Leave Grafana dashboard panels and raw thread dump artifact collection for follow-up tasks.
 
 <a id="infra-67"></a>
 ### INFRA-67 - Add CKC Spring Boot lab profile
