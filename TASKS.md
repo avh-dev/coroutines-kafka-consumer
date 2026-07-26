@@ -207,6 +207,7 @@
 | [INFRA-87](#infra-87) | Replace the dispatcher experiment with a consumer capacity comparison that includes Confluent Parallel Consumer Reactor and Spring Kafka. | DONE |
 | [INFRA-88](#infra-88) | Add experiment target Helm overrides for demo pod JVM and resource tuning.                                                         | DONE |
 | [INFRA-89](#infra-89) | Add an internal-lab queue capacity experiment for CKC backpressure and Spring Kafka coroutine-naive comparison.                    | DONE |
+| [INFRA-90](#infra-90) | Add Grafana panels for Thread Stats group CPU, allocation, and thread-count metrics. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2237,3 +2238,13 @@ _Date: 2026-07-24_
 Add target-level queue capacity overrides to generated internal-lab profile runs.
 Create a queue capacity comparison experiment for CKC fixed dispatcher variants.
 Include a Spring Kafka coroutine-naive target to compare its simpler admission/backpressure behavior against CKC pause/resume.
+
+<a id="infra-90"></a>
+### INFRA-90 - Add Thread Stats dashboard panels
+
+_Date: 2026-07-26_
+
+Extend the shared Grafana overview dashboard with Thread Stats panels.
+Show grouped platform-thread counts, state counts, CPU usage, CPU-time rate, and allocation rate.
+Keep the panels based on bounded `group` and `state` labels emitted by the Thread Stats Micrometer integration.
+Leave raw thread dump collection and exported report artifacts to a separate follow-up task.
