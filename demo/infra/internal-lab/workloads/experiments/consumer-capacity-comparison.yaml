@@ -19,7 +19,7 @@ targets:
       telemetry_ms: 150
     env:
       PROCESSING_DISPATCHER_TYPE: FIXED
-      WORKER_DISPATCHER_THREADS: 1
+      WORKER_DISPATCHER_THREADS: 2
 
   - name: ckc.fixed.1
     profile: ckc

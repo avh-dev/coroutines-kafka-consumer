@@ -511,6 +511,9 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
                 key = f"{topic}_{knob}"
                 if key in test:
                     command.extend([f"--{topic}-{knob}", env_value(test[key])])
+            queue_key = f"{topic}_queue_capacity"
+            if queue_key in test:
+                command.extend([f"--{topic}-queue-capacity", env_value(test[queue_key])])
         command.extend(helm_override_args(test.get("helm") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])

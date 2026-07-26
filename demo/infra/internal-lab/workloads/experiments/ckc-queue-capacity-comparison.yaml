@@ -1,0 +1,85 @@
+name: ckc-queue-capacity-comparison
+description: Compare CKC queue capacity and fixed dispatcher sizing against the Spring Kafka coroutine-naive admission path.
+test_definition: capacity_6min
+base_tps: 25000
+
+defaults:
+  replicas: 2
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: false
+    METRICS_IMPLEMENTATION: MICROMETER
+
+targets:
+  - name: ckc.fixed.1.queue1024
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 1024
+    batch_queue_capacity: 1024
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
+  - name: ckc.fixed.1.queue4096
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
+  - name: ckc.fixed.1.queue8192
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 8192
+    batch_queue_capacity: 8192
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+
+  - name: ckc.fixed.2.queue4096
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+
+  - name: ckc.fixed.4.queue4096
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 4
+
+  - name: spring-naive.fixed.2.queue4096
+    profile: spring-kafka-coroutines-naive
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
