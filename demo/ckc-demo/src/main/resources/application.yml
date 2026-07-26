@@ -65,7 +65,19 @@ thread-stats:
     - group: kafka-client
       type: prefix
       value: kafka-
-    - group: armeria
+    - group: armeria-client
+      type: prefix
+      value: armeria-common-worker-
+    - group: armeria-server
+      type: prefix
+      value: armeria-boss-
+    - group: armeria-server
+      type: prefix
+      value: armeria-eventloop-
+    - group: armeria-server
+      type: prefix
+      value: armeria-blocking-tasks-
+    - group: armeria-other
       type: prefix
       value: armeria-
     - group: redis-client

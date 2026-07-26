@@ -118,6 +118,7 @@
 | [DEMO-65](#demo-65) | Prevent the load-test audit TCP appender from connecting when audit logging is disabled. | DONE |
 | [DEMO-66](#demo-66) | Add demo profile timeline labels that include meaningful dispatcher variants. | DONE |
 | [DEMO-67](#demo-67) | Add Thread Stats metrics to the demo application with bounded JVM thread groups. | DONE |
+| [DEMO-68](#demo-68) | Split Armeria Thread Stats groups into client and server pools. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2248,3 +2249,12 @@ Extend the shared Grafana overview dashboard with Thread Stats panels.
 Show grouped platform-thread counts, state counts, CPU usage, CPU-time rate, and allocation rate.
 Keep the panels based on bounded `group` and `state` labels emitted by the Thread Stats Micrometer integration.
 Leave raw thread dump collection and exported report artifacts to a separate follow-up task.
+
+<a id="demo-68"></a>
+### DEMO-68 - Split Armeria Thread Stats groups
+
+_Date: 2026-07-26_
+
+Split the demo Thread Stats Armeria catch-all group into client and server groups.
+Classify Armeria boss, event-loop, and blocking-task threads as server activity so idle server threads do not hide client/common activity.
+Keep a final `armeria-other` fallback for future Armeria-managed thread names.
