@@ -37,6 +37,9 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("reflect"))
     implementation(kotlin("stdlib"))
+    implementation("dev.avh.threadstats:thread-stats-spring-boot-starter:0.1.0-SNAPSHOT") {
+        exclude(group = "org.springframework.boot", module = "spring-boot-autoconfigure")
+    }
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8")

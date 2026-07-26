@@ -10,6 +10,8 @@ import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.spring.CkcConsumerProperties
 import avh.ckc.spring.CkcConsumerRegistry
 import com.linecorp.armeria.client.WebClient
+import dev.avh.threadstats.core.ThreadStatsMonitor
+import dev.avh.threadstats.spring.ThreadStatsProperties
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import org.junit.jupiter.api.Test
@@ -108,5 +110,18 @@ class CkcSpringBootProfileContextTest(
         assertEquals("local", ckcProperties.defaultCluster)
         assertEquals("default", ckcProperties.defaultRetrySchema)
         assertEquals("workers", ckcProperties.defaultProcessingDispatcher)
+    }
+
+    @Test
+    fun `ckc spring boot profile enables bounded thread stats metrics`() {
+        val properties = applicationContext.getBean(ThreadStatsProperties::class.java)
+
+        assertTrue(applicationContext.containsBean("threadStatsMonitor"))
+        assertIs<ThreadStatsMonitor>(applicationContext.getBean(ThreadStatsMonitor::class.java))
+        assertTrue(properties.isEnabled)
+        assertTrue(properties.metrics.isEnabled)
+        assertFalse(properties.logging.isEnabled)
+        assertFalse(properties.dumps.isEnabled)
+        assertEquals("other", properties.fallbackGroup)
     }
 }
