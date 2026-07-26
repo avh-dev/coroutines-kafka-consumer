@@ -209,6 +209,7 @@
 | [INFRA-88](#infra-88) | Add experiment target Helm overrides for demo pod JVM and resource tuning.                                                         | DONE |
 | [INFRA-89](#infra-89) | Add an internal-lab queue capacity experiment for CKC backpressure and Spring Kafka coroutine-naive comparison.                    | DONE |
 | [INFRA-90](#infra-90) | Add Grafana panels for Thread Stats group CPU, allocation, and thread-count metrics. | DONE |
+| [INFRA-91](#infra-91) | Apply the Grafana pod filter to Thread Stats dashboard panels. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2249,6 +2250,15 @@ Extend the shared Grafana overview dashboard with Thread Stats panels.
 Show grouped platform-thread counts, state counts, CPU usage, CPU-time rate, and allocation rate.
 Keep the panels based on bounded `group` and `state` labels emitted by the Thread Stats Micrometer integration.
 Leave raw thread dump collection and exported report artifacts to a separate follow-up task.
+
+<a id="infra-91"></a>
+### INFRA-91 - Apply pod filter to Thread Stats panels
+
+_Date: 2026-07-26_
+
+Apply the dashboard `pod` variable to all Thread Stats panel PromQL expressions.
+Keep the existing `pod_grouping` selector behavior so panels can still switch between total and per-pod views.
+Verify that a concrete pod selector restricts Thread Stats series to that pod.
 
 <a id="demo-68"></a>
 ### DEMO-68 - Split Armeria Thread Stats groups
