@@ -51,6 +51,18 @@ thread-stats:
     - group: spring-kafka-worker
       type: prefix
       value: spring-kafka-coroutines-naive-worker-
+    - group: spring-kafka-consumer
+      type: prefix
+      value: spring-kafka-order-lifecycle-
+    - group: spring-kafka-consumer
+      type: prefix
+      value: spring-kafka-batch-lifecycle-
+    - group: spring-kafka-consumer
+      type: prefix
+      value: spring-kafka-cauldron-telemetry-
+    - group: spring-task-scheduler
+      type: prefix
+      value: ThreadPoolTaskScheduler-
     - group: confluent-parallel
       type: prefix
       value: confluent-parallel-
@@ -78,6 +90,15 @@ thread-stats:
     - group: redis-client
       type: prefix
       value: lettuce-
+    - group: audit
+      type: prefix
+      value: logback-appender-AUDIT_TCP-
+    - group: jdk-http-client
+      type: prefix
+      value: HttpClient-
+    - group: spring-lifecycle
+      type: prefix
+      value: startstop-support-
     - group: coroutine-runtime
       type: prefix
       value: DefaultDispatcher-
@@ -96,6 +117,9 @@ thread-stats:
     - group: jvm-system
       type: exact
       value: Common-Cleaner
+    - group: jvm-system
+      type: exact
+      value: DestroyJavaVM
 
 armeria:
   graceful-shutdown-quiet-period-millis: 1000
