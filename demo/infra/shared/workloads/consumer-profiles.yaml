@@ -16,18 +16,21 @@ profiles:
     allowed_processing_dispatchers: [DEFAULT, FIXED, IO, VIRTUAL]
     topics:
       order:
+        default_planning_latency_ms: 50
         parallelism: [workers]
         mode_parallelism:
           AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
         default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
         allowed_processing_modes: [AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
       batch:
+        default_planning_latency_ms: 50
         parallelism: [workers]
         mode_parallelism:
           AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
         default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
         allowed_processing_modes: [AT_LEAST_ONCE_KEY_ORDERING, AT_LEAST_ONCE_PARTITION_ORDERING, AT_LEAST_ONCE_NO_ORDERING]
       telemetry:
+        default_planning_latency_ms: 150
         parallelism: [workers]
         mode_parallelism:
           AT_LEAST_ONCE_PARTITION_ORDERING: [partitions, workers]
@@ -80,14 +83,17 @@ profiles:
     spring_profile: spring-kafka
     topics:
       order:
+        default_planning_latency_ms: 25
         parallelism: [partitions, pollers]
         default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
         allowed_processing_modes: [AT_LEAST_ONCE_PARTITION_ORDERING]
       batch:
+        default_planning_latency_ms: 25
         parallelism: [partitions, pollers]
         default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
         allowed_processing_modes: [AT_LEAST_ONCE_PARTITION_ORDERING]
       telemetry:
+        default_planning_latency_ms: 70
         parallelism: [partitions, pollers]
         default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
         allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]

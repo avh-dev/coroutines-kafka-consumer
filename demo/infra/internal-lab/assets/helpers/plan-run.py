@@ -132,6 +132,7 @@ def parse_args() -> argparse.Namespace:
         parser.add_argument(f"--{topic}-queue-capacity", type=positive_int)
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--profile-dispatchers", action="store_true")
+    parser.add_argument("--profile-planning-latencies", action="store_true")
     parser.add_argument("--profile-processing-modes", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     return parser.parse_args()
@@ -284,6 +285,25 @@ def print_profile_dispatchers(profile: dict[str, Any]) -> None:
     print(f"PROCESSING_DISPATCHER_ALLOWED={shell_quote(' '.join(allowed))}")
 
 
+def planning_latency_ms(profile: dict[str, Any], topic: str) -> float | None:
+    value = value_at(profile, "topics", topic, "default_planning_latency_ms")
+    if value in ("", None):
+        return None
+    result = float(value)
+    if result <= 0:
+        raise ValueError(f"topics.{topic}.default_planning_latency_ms must be positive")
+    return result
+
+
+def print_profile_planning_latencies(profile: dict[str, Any]) -> None:
+    for topic in TOPIC_ORDER:
+        value = planning_latency_ms(profile, topic)
+        if value is None:
+            raise ValueError(f"Profile does not define topics.{topic}.default_planning_latency_ms")
+        prefix = topic.upper()
+        print(f"{prefix}_PLANNING_LATENCY_DEFAULT={shell_quote(str(value).removesuffix('.0'))}")
+
+
 def print_profile_processing_modes(profile: dict[str, Any], profile_name: str, current: dict[str, str]) -> None:
     current_profile = current.get("RUN_PROFILE") or current.get("APP_PROFILE") or ""
     current_replicas = current.get("REPLICA_COUNT", "")
@@ -359,6 +379,11 @@ def main() -> None:
             raise SystemExit("--profile is required with --profile-dispatchers")
         print_profile_dispatchers(resolve_profile(profiles_config, args.profile))
         return
+    if args.profile_planning_latencies:
+        if not args.profile:
+            raise SystemExit("--profile is required with --profile-planning-latencies")
+        print_profile_planning_latencies(resolve_profile(profiles_config, args.profile))
+        return
     if args.profile_processing_modes:
         if not args.profile:
             raise SystemExit("--profile is required with --profile-processing-modes")
@@ -429,10 +454,14 @@ def main() -> None:
         knobs = topic_parallelism(profile, topic_name, mode)
         percent = float(load_test.get(topic_config["traffic_percent_key"], 0))
         target_tps = base_tps * percent / 100.0
-        explicit_average_ms = planning_latency_overrides[topic_name]
-        if explicit_average_ms is None:
-            raise ValueError(f"{topic_name} planning latency is required; pass --{topic_name}-planning-latency-ms")
-        average_ms = float(explicit_average_ms)
+        default_average_ms = planning_latency_ms(profile, topic_name)
+        average_ms = planning_latency_overrides[topic_name] or default_average_ms
+        if average_ms is None:
+            raise ValueError(
+                f"{topic_name} planning latency is required; pass --{topic_name}-planning-latency-ms "
+                f"or set topics.{topic_name}.default_planning_latency_ms for profile {args.profile!r}"
+            )
+        average_ms = float(average_ms)
         required = max(1, math.ceil(target_tps * average_ms / 1000.0))
         overrides = manual_overrides[topic_name]
         for knob in PARALLELISM_KNOBS:

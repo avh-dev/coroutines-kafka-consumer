@@ -435,6 +435,14 @@ profile_dispatcher_info() {
     --profile-dispatchers
 }
 
+profile_planning_latency_info() {
+  local profile="$1"
+  python3 "${LAB_ROOT}/helpers/plan-run.py" \
+    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --profile "${profile}" \
+    --profile-planning-latencies
+}
+
 profile_processing_mode_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
@@ -652,35 +660,12 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
     echo "base-tps must be a positive integer: ${BASE_TPS_OVERRIDE}" >&2
     exit 1
   fi
-  if [ -t 0 ]; then
-    if [ -z "${ORDER_PLANNING_LATENCY_MS}" ]; then
-      read -r -p "Order planning latency ms: " ORDER_PLANNING_LATENCY_MS
-    fi
-    if [ -z "${BATCH_PLANNING_LATENCY_MS}" ]; then
-      read -r -p "Batch planning latency ms: " BATCH_PLANNING_LATENCY_MS
-    fi
-    if [ -z "${TELEMETRY_PLANNING_LATENCY_MS}" ]; then
-      read -r -p "Telemetry planning latency ms: " TELEMETRY_PLANNING_LATENCY_MS
-    fi
-  fi
-  for latency in \
-    "order-planning-latency-ms:${ORDER_PLANNING_LATENCY_MS}" \
-    "batch-planning-latency-ms:${BATCH_PLANNING_LATENCY_MS}" \
-    "telemetry-planning-latency-ms:${TELEMETRY_PLANNING_LATENCY_MS}"; do
-    key="${latency%%:*}"
-    value="${latency#*:}"
-    if [ -z "${value}" ]; then
-      echo "${key} is required." >&2
-      exit 1
-    fi
-    if ! [[ "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-      echo "${key} must be a positive number: ${value}" >&2
-      exit 1
-    fi
-  done
-
   if [ -n "${RUN_PROFILE}" ]; then
+    eval "$(profile_planning_latency_info "${RUN_PROFILE}")"
     eval "$(profile_processing_mode_info "${RUN_PROFILE}")"
+    ORDER_PLANNING_LATENCY_DEFAULT="${ORDER_PLANNING_LATENCY_DEFAULT:-}"
+    BATCH_PLANNING_LATENCY_DEFAULT="${BATCH_PLANNING_LATENCY_DEFAULT:-}"
+    TELEMETRY_PLANNING_LATENCY_DEFAULT="${TELEMETRY_PLANNING_LATENCY_DEFAULT:-}"
     if [ -z "${REPLICA_COUNT}" ]; then
       if [ ! -t 0 ]; then
         REPLICA_COUNT="${REPLICA_COUNT_DEFAULT}"
@@ -722,6 +707,46 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
     fi
   fi
 
+  if [ -z "${ORDER_PLANNING_LATENCY_MS}" ]; then
+    if [ ! -t 0 ]; then
+      ORDER_PLANNING_LATENCY_MS="${ORDER_PLANNING_LATENCY_DEFAULT:-}"
+    else
+      read -r -p "Order planning latency ms [${ORDER_PLANNING_LATENCY_DEFAULT:-}]: " ORDER_PLANNING_LATENCY_MS
+      ORDER_PLANNING_LATENCY_MS="${ORDER_PLANNING_LATENCY_MS:-${ORDER_PLANNING_LATENCY_DEFAULT:-}}"
+    fi
+  fi
+  if [ -z "${BATCH_PLANNING_LATENCY_MS}" ]; then
+    if [ ! -t 0 ]; then
+      BATCH_PLANNING_LATENCY_MS="${BATCH_PLANNING_LATENCY_DEFAULT:-}"
+    else
+      read -r -p "Batch planning latency ms [${BATCH_PLANNING_LATENCY_DEFAULT:-}]: " BATCH_PLANNING_LATENCY_MS
+      BATCH_PLANNING_LATENCY_MS="${BATCH_PLANNING_LATENCY_MS:-${BATCH_PLANNING_LATENCY_DEFAULT:-}}"
+    fi
+  fi
+  if [ -z "${TELEMETRY_PLANNING_LATENCY_MS}" ]; then
+    if [ ! -t 0 ]; then
+      TELEMETRY_PLANNING_LATENCY_MS="${TELEMETRY_PLANNING_LATENCY_DEFAULT:-}"
+    else
+      read -r -p "Telemetry planning latency ms [${TELEMETRY_PLANNING_LATENCY_DEFAULT:-}]: " TELEMETRY_PLANNING_LATENCY_MS
+      TELEMETRY_PLANNING_LATENCY_MS="${TELEMETRY_PLANNING_LATENCY_MS:-${TELEMETRY_PLANNING_LATENCY_DEFAULT:-}}"
+    fi
+  fi
+  for latency in \
+    "order-planning-latency-ms:${ORDER_PLANNING_LATENCY_MS}" \
+    "batch-planning-latency-ms:${BATCH_PLANNING_LATENCY_MS}" \
+    "telemetry-planning-latency-ms:${TELEMETRY_PLANNING_LATENCY_MS}"; do
+    key="${latency%%:*}"
+    value="${latency#*:}"
+    if [ -z "${value}" ]; then
+      echo "${key} is required." >&2
+      exit 1
+    fi
+    if ! [[ "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      echo "${key} must be a positive number: ${value}" >&2
+      exit 1
+    fi
+  done
+
   if [ -n "${RUN_PROFILE}" ]; then
     eval "$(profile_dispatcher_info "${RUN_PROFILE}")"
     read -r -a PROCESSING_DISPATCHER_ALLOWED_VALUES <<< "${PROCESSING_DISPATCHER_ALLOWED:-}"
@@ -731,6 +756,9 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
       if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
         echo "processing-dispatcher-type is not supported for profile ${RUN_PROFILE}." >&2
         exit 1
+      fi
+      if [ -t 0 ]; then
+        echo "Processing dispatcher: not supported for profile ${RUN_PROFILE}." >&2
       fi
       PROCESSING_DISPATCHER_TYPE=""
     else
