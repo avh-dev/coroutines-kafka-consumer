@@ -218,6 +218,7 @@
 | [INFRA-91](#infra-91) | Apply the Grafana pod filter to Thread Stats dashboard panels. | DONE |
 | [INFRA-92](#infra-92) | Restart the internal-lab demo deployment when `update-lab.sh` reloads the demo image. | DONE |
 | [INFRA-93](#infra-93) | Improve interactive internal-lab `run-test.sh` defaults for dispatcher and planning-latency selection. | DONE |
+| [INFRA-94](#infra-94) | Expose the demo sync JDK HTTP client executor mode in internal-lab run-test and experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2352,3 +2353,12 @@ Improve the internal-lab interactive `run-test.sh` path so dispatcher and planni
 Keep generated run plans reproducible by storing the defaults in the shared consumer-profile catalog instead of ad hoc Bash constants.
 Allow dynamic run planning to use those defaults when explicit latency flags are omitted.
 Print an explicit interactive note when the selected profile does not support dispatcher selection.
+
+<a id="infra-94"></a>
+### INFRA-94 - Expose JDK HTTP executor run setting
+
+_Date: 2026-07-28_
+
+Add a first-class internal-lab `run-test.sh` flag for selecting the demo sync JDK HTTP client executor mode.
+Wire the setting through generated Helm values, prepared deployments, current deployment state, run metadata, and experiment target env mapping.
+Document how experiments can enable `JDK_HTTP_CLIENT_EXECUTOR: VIRTUAL` for sync model-client targets.

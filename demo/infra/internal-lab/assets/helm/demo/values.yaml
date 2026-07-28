@@ -25,6 +25,8 @@ env:
   etaModelBaseUrl: ""
   flavourModelBaseUrl: ""
   registryBaseUrl: ""
+  jdkHttpClientExecutor: DEFAULT
+  jdkHttpClientVirtualThreadNamePrefix: HttpClient-virtual-
   processingEnabled: true
   metricsImplementation: MICROMETER
   lettuceMetricsEnabled: true

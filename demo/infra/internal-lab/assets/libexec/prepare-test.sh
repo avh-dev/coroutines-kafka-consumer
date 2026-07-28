@@ -173,6 +173,10 @@ if [[ "${LETTUCE_METRICS_ENABLED}" != "true" && "${LETTUCE_METRICS_ENABLED}" != 
   echo "LETTUCE_METRICS_ENABLED must be true or false after overrides: ${LETTUCE_METRICS_ENABLED}" >&2
   exit 1
 fi
+if [[ "${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}" != "DEFAULT" && "${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}" != "VIRTUAL" ]]; then
+  echo "JDK_HTTP_CLIENT_EXECUTOR must be DEFAULT or VIRTUAL after overrides: ${JDK_HTTP_CLIENT_EXECUTOR:-}" >&2
+  exit 1
+fi
 if [[ -n "${WORKER_DISPATCHER_THREADS}" ]] && ! [[ "${WORKER_DISPATCHER_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "WORKER_DISPATCHER_THREADS must be a positive integer after overrides: ${WORKER_DISPATCHER_THREADS}" >&2
   exit 1
@@ -219,6 +223,7 @@ HELM_ARGS=(
   --set "env.auditRunId=${AUDIT_RUN_ID}" \
   --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
   --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}" \
+  --set "env.jdkHttpClientExecutor=${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}" \
   --set-string "podLabels.ckc_run_id=${AUDIT_RUN_ID}" \
   --set-string "podLabels.ckc_profile=${APP_PROFILE}" \
   --set-string "podLabels.ckc_test_definition=$(basename "${TEST_DEFINITION}" .yaml)"
@@ -242,6 +247,7 @@ PROCESSING_ENABLED='${PROCESSING_ENABLED}'
 AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
 LETTUCE_METRICS_ENABLED='${LETTUCE_METRICS_ENABLED}'
+JDK_HTTP_CLIENT_EXECUTOR='${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}'
 WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
 STUB_REPLICA_COUNT='${STUB_REPLICA_COUNT}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
@@ -259,6 +265,7 @@ echo "  processing_enabled=${PROCESSING_ENABLED}"
 echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
 echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"
 echo "  lettuce_metrics_enabled=${LETTUCE_METRICS_ENABLED}"
+echo "  jdk_http_client_executor=${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}"
 if [[ -n "${PROCESSING_DISPATCHER_TYPE:-}" ]]; then
   echo "  processing_dispatcher_type=${PROCESSING_DISPATCHER_TYPE}"
 fi

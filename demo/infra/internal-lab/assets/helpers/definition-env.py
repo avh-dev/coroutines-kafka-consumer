@@ -311,6 +311,7 @@ def main() -> None:
         "PROCESSING_ENABLED": args.processing_enabled,
         "METRICS_IMPLEMENTATION": args.metrics_implementation,
         "LETTUCE_METRICS_ENABLED": args.lettuce_metrics_enabled,
+        "JDK_HTTP_CLIENT_EXECUTOR": str(deployment_env.get("jdkHttpClientExecutor", "DEFAULT")),
         "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
