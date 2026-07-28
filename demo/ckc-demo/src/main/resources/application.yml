@@ -54,6 +54,9 @@ thread-stats:
     - group: virtual-thread-runtime
       type: exact
       value: VirtualThread-unparker
+    - group: jvm-fork-join
+      type: prefix
+      value: ForkJoinPool.commonPool-
     - group: spring-kafka-worker
       type: prefix
       value: spring-kafka-coroutines-naive-worker-
