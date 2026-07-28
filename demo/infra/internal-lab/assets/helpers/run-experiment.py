@@ -30,6 +30,7 @@ LEGACY_ENV_ARGS = {
     "AUDIT_LOG_ENABLED": "--audit-log-enabled",
     "METRICS_IMPLEMENTATION": "--metrics-implementation",
     "LETTUCE_METRICS_ENABLED": "--lettuce-metrics",
+    "JDK_HTTP_CLIENT_EXECUTOR": "--jdk-http-client-executor",
     "WORKER_DISPATCHER_THREADS": "--worker-dispatcher-threads",
 }
 
@@ -134,6 +135,7 @@ def merge_env(defaults: dict[str, Any], global_env: dict[str, str], test: dict[s
         "audit_log_enabled": "AUDIT_LOG_ENABLED",
         "metrics_implementation": "METRICS_IMPLEMENTATION",
         "lettuce_metrics": "LETTUCE_METRICS_ENABLED",
+        "jdk_http_client_executor": "JDK_HTTP_CLIENT_EXECUTOR",
         "worker_dispatcher_threads": "WORKER_DISPATCHER_THREADS",
     }
     default_env = defaults.get("env", {})

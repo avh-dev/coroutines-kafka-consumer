@@ -51,6 +51,7 @@ defaults:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
     METRICS_IMPLEMENTATION: MICROMETER
+    JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
 
 targets:
   - name: ckc.fixed.2
@@ -101,6 +102,10 @@ deployment choices should be visible in the experiment.
 `helm.env.javaToolOptions` can tune the demo JVM for a specific target.
 `helm.resources.requests` and `helm.resources.limits` currently support `cpu`
 and `memory` values for the demo pod.
+
+`JDK_HTTP_CLIENT_EXECUTOR: VIRTUAL` in `defaults.env` or a target `env` enables
+the demo sync JDK HTTP client virtual-thread executor for profiles that use the
+sync model and registry clients.
 
 `planning_latency` is an experiment input for generated partitions, workers,
 and pollers. It should be calibrated for this experiment's `base_tps`, target

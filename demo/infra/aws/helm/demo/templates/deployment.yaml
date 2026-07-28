@@ -55,6 +55,10 @@ spec:
               value: {{ .Values.env.flavourModelBaseUrl | quote }}
             - name: REGISTRY_BASE_URL
               value: {{ .Values.env.registryBaseUrl | quote }}
+            - name: JDK_HTTP_CLIENT_EXECUTOR
+              value: {{ .Values.env.jdkHttpClientExecutor | quote }}
+            - name: JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX
+              value: {{ .Values.env.jdkHttpClientVirtualThreadNamePrefix | quote }}
             - name: DEMO_CONSUMER_PROCESSING_ENABLED
               value: {{ .Values.env.processingEnabled | quote }}
             - name: METRICS_IMPLEMENTATION

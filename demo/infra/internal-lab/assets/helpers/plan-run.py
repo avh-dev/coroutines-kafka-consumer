@@ -116,6 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replicas", type=positive_int)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
+    parser.add_argument("--jdk-http-client-executor", choices=["DEFAULT", "VIRTUAL", "default", "virtual"])
     parser.add_argument("--demo-java-tool-options", type=non_empty)
     parser.add_argument("--demo-cpu-request", type=non_empty)
     parser.add_argument("--demo-memory-request", type=non_empty)
@@ -335,6 +336,7 @@ def profile_summary(plan: dict[str, Any]) -> str:
         f"  base_tps: {plan['base_tps']}",
         f"  replicas: {plan['replica_count']}",
         f"  processing_dispatcher_type: {plan.get('processing_dispatcher_type') or '-'}",
+        f"  jdk_http_client_executor: {plan.get('jdk_http_client_executor') or 'DEFAULT'}",
         "  topics:",
     ]
     for topic in plan["topics"]:
@@ -439,6 +441,8 @@ def main() -> None:
     env: dict[str, Any] = {"springProfilesActive": profile["spring_profile"]}
     if processing_dispatcher:
         env["processingDispatcherType"] = processing_dispatcher
+    if args.jdk_http_client_executor:
+        env["jdkHttpClientExecutor"] = str(args.jdk_http_client_executor).upper()
     if args.demo_java_tool_options:
         env["javaToolOptions"] = args.demo_java_tool_options
 
@@ -576,6 +580,7 @@ def main() -> None:
         "base_tps": base_tps,
         "replica_count": replica_count,
         "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),
+        "jdk_http_client_executor": str(env.get("jdkHttpClientExecutor", "DEFAULT")),
         "processing_enabled": args.processing_enabled == "true",
         "test_definition": definition_path.stem,
         "values_path": str(values_path),
