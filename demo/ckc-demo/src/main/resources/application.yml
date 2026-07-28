@@ -23,14 +23,9 @@ ckc:
 thread-stats:
   enabled: ${THREAD_STATS_ENABLED:true}
   sampling-interval: ${THREAD_STATS_SAMPLING_INTERVAL:1s}
-  history-capacity: ${THREAD_STATS_HISTORY_CAPACITY:60}
   fallback-group: other
-  logging:
-    enabled: ${THREAD_STATS_LOGGING_ENABLED:false}
   metrics:
     enabled: ${THREAD_STATS_METRICS_ENABLED:true}
-  dumps:
-    enabled: ${THREAD_STATS_DUMPS_ENABLED:false}
   rules:
     - group: main
       type: exact
@@ -113,7 +108,6 @@ armeria:
         - HTTP
   internal-services:
     include: actuator
-    port: ${SERVER_PORT:8080}
 
 demo:
   kafka:
@@ -176,7 +170,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,threadstats
   metrics:
     distribution:
       percentiles-histogram:

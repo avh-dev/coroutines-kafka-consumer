@@ -120,8 +120,6 @@ class CkcSpringBootProfileContextTest(
         assertIs<ThreadStatsMonitor>(applicationContext.getBean(ThreadStatsMonitor::class.java))
         assertTrue(properties.isEnabled)
         assertTrue(properties.metrics.isEnabled)
-        assertFalse(properties.logging.isEnabled)
-        assertFalse(properties.dumps.isEnabled)
         assertEquals("other", properties.fallbackGroup)
     }
 }

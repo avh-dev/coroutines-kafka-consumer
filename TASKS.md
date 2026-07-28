@@ -119,6 +119,7 @@
 | [DEMO-66](#demo-66) | Add demo profile timeline labels that include meaningful dispatcher variants. | DONE |
 | [DEMO-67](#demo-67) | Add Thread Stats metrics to the demo application with bounded JVM thread groups. | DONE |
 | [DEMO-68](#demo-68) | Split Armeria Thread Stats groups into client and server pools. | DONE |
+| [DEMO-69](#demo-69) | Expose a demo Actuator endpoint that returns a current Thread Stats snapshot. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2268,3 +2269,14 @@ _Date: 2026-07-26_
 Split the demo Thread Stats Armeria catch-all group into client and server groups.
 Classify Armeria boss, event-loop, and blocking-task threads as server activity so idle server threads do not hide client/common activity.
 Keep a final `armeria-other` fallback for future Armeria-managed thread names.
+
+<a id="demo-69"></a>
+### DEMO-69 - Expose Thread Stats Actuator snapshot
+
+_Date: 2026-07-28_
+
+Expose the Thread Stats Actuator endpoint through the demo application's Armeria-only HTTP setup.
+Provide Boot 3.5 web endpoint discovery beans for the non-web Armeria context so Armeria's actuator starter can mount exposed endpoints.
+Return grouped snapshot JSON from `/actuator/threadstats/groups` for ad hoc load-test inspection.
+Remove stale demo assertions and config for Thread Stats history, logging, and dump properties that are no longer present in the current starter snapshot.
+Cover the endpoint with a Spring Boot demo HTTP test.
