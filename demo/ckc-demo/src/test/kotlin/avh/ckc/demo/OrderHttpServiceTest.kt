@@ -90,13 +90,9 @@ class OrderHttpServiceTest {
         assertTrue(endpointIds.contains("health"))
         assertTrue(endpointIds.contains("prometheus"))
 
-        val client = webClients()
-            .single { candidate -> candidate.get("/actuator/health").aggregate().join().status() != HttpStatus.NOT_FOUND }
-
+        val client = webClient()
         assertTrue(client.get("/actuator/health").aggregate().join().status() != HttpStatus.NOT_FOUND)
-        val prometheusResponse = webClients()
-            .map { candidate -> candidate.get("/actuator/prometheus").aggregate().join() }
-            .first { response -> response.status() == HttpStatus.OK }
+        val prometheusResponse = client.get("/actuator/prometheus").aggregate().join()
         assertEquals(HttpStatus.OK, prometheusResponse.status())
         assertTrue(prometheusResponse.contentUtf8().contains("jvm_threads_live_threads"))
     }
@@ -106,9 +102,7 @@ class OrderHttpServiceTest {
         val endpointIds = webEndpointsSupplier.endpoints.map { it.endpointId.toString() }.toSet()
         assertTrue(endpointIds.contains("threadstats"))
 
-        val response = webClients()
-            .map { candidate -> candidate.get("/actuator/threadstats/groups").aggregate().join() }
-            .first { candidate -> candidate.status() == HttpStatus.OK }
+        val response = webClient().get("/actuator/threadstats/groups").aggregate().join()
         val json = objectMapper.readTree(response.contentUtf8())
 
         assertEquals(HttpStatus.OK, response.status())
@@ -118,9 +112,4 @@ class OrderHttpServiceTest {
 
     private fun webClient(): WebClient =
         WebClient.of("http://127.0.0.1:${server.activeLocalPort()}")
-
-    private fun webClients(): List<WebClient> =
-        server.activePorts().keys.map { address ->
-            WebClient.of("http://127.0.0.1:${address.port}")
-        }
 }

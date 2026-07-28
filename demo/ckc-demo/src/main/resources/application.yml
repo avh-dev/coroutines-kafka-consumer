@@ -108,6 +108,7 @@ armeria:
         - HTTP
   internal-services:
     include: actuator
+    port: ${SERVER_PORT:8080}
 
 demo:
   kafka:

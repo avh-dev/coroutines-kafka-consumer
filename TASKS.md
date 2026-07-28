@@ -120,6 +120,7 @@
 | [DEMO-67](#demo-67) | Add Thread Stats metrics to the demo application with bounded JVM thread groups. | DONE |
 | [DEMO-68](#demo-68) | Split Armeria Thread Stats groups into client and server pools. | DONE |
 | [DEMO-69](#demo-69) | Expose a demo Actuator endpoint that returns a current Thread Stats snapshot. | DONE |
+| [DEMO-70](#demo-70) | Keep Armeria Actuator endpoints on the demo server port used by Kubernetes probes. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2280,3 +2281,12 @@ Provide Boot 3.5 web endpoint discovery beans for the non-web Armeria context so
 Return grouped snapshot JSON from `/actuator/threadstats/groups` for ad hoc load-test inspection.
 Remove stale demo assertions and config for Thread Stats history, logging, and dump properties that are no longer present in the current starter snapshot.
 Cover the endpoint with a Spring Boot demo HTTP test.
+
+<a id="demo-70"></a>
+### DEMO-70 - Keep Armeria Actuator on the probe port
+
+_Date: 2026-07-28_
+
+Restore the demo Armeria internal-services port to `${SERVER_PORT:8080}` so Kubernetes startup, readiness, and liveness probes keep hitting `/actuator/health` on the application port.
+Tighten the HTTP test to call Actuator endpoints through the primary Armeria server port instead of accepting any active server port.
+Keep Thread Stats snapshot exposure on the same Actuator surface as health and Prometheus.
