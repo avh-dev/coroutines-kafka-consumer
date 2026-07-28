@@ -212,6 +212,7 @@
 | [INFRA-89](#infra-89) | Add an internal-lab queue capacity experiment for CKC backpressure and Spring Kafka coroutine-naive comparison.                    | DONE |
 | [INFRA-90](#infra-90) | Add Grafana panels for Thread Stats group CPU, allocation, and thread-count metrics. | DONE |
 | [INFRA-91](#infra-91) | Apply the Grafana pod filter to Thread Stats dashboard panels. | DONE |
+| [INFRA-92](#infra-92) | Restart the internal-lab demo deployment when `update-lab.sh` reloads the demo image. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2290,3 +2291,12 @@ _Date: 2026-07-28_
 Restore the demo Armeria internal-services port to `${SERVER_PORT:8080}` so Kubernetes startup, readiness, and liveness probes keep hitting `/actuator/health` on the application port.
 Tighten the HTTP test to call Actuator endpoints through the primary Armeria server port instead of accepting any active server port.
 Keep Thread Stats snapshot exposure on the same Actuator surface as health and Prometheus.
+
+<a id="infra-92"></a>
+### INFRA-92 - Restart demo after lab image update
+
+_Date: 2026-07-28_
+
+Teach `update-lab.sh` to restart the existing `ckc-demo` deployment when the demo image fingerprint changes.
+Wait for the rollout to complete so a lab update does not leave the cluster running stale pods against a freshly loaded `latest` image.
+Report whether the demo deployment was restarted in the update summary.

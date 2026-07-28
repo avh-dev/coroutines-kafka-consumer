@@ -274,6 +274,7 @@ ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
 STUBS_DEPLOY_CHANGED=0
+DEMO_DEPLOY_RESTARTED=0
 
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}"; then
   DEMO_IMAGE_CHANGED=1
@@ -372,6 +373,12 @@ fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
 fi
+if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
+  if ssh "root@${LAB_HOST}" "kubectl -n ckc-perf get deploy ckc-demo >/dev/null 2>&1"; then
+    ssh "root@${LAB_HOST}" "kubectl -n ckc-perf rollout restart deploy/ckc-demo && kubectl -n ckc-perf rollout status deploy/ckc-demo --timeout=240s"
+    DEMO_DEPLOY_RESTARTED=1
+  fi
+fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] || [[ "${STUBS_DEPLOY_CHANGED}" -eq 1 ]]; then
   if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
     ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-stubs.sh' --restart"
@@ -388,6 +395,7 @@ echo "  load-test runtime changed=${LOAD_TEST_RUNTIME_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"
+echo "  demo redeployed=${DEMO_DEPLOY_RESTARTED}"
 echo "  demo-stubs redeployed=$(( DEMO_STUBS_IMAGE_CHANGED || STUBS_DEPLOY_CHANGED ))"
 echo "  load-test runtime=${LAB_ROOT}/load-test-runtime"
 echo "  lab entrypoints=${LAB_ROOT}/bin"
