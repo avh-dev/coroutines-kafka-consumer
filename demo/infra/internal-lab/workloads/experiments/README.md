@@ -107,6 +107,10 @@ and `memory` values for the demo pod.
 the demo sync JDK HTTP client virtual-thread executor for profiles that use the
 sync model and registry clients.
 
+Use `spring-kafka-thread-pool` when a comparison should keep Spring Kafka poller
+concurrency low and move synchronous processing onto bounded platform-thread
+worker pools.
+
 `planning_latency` is an experiment input for generated partitions, workers,
 and pollers. It should be calibrated for this experiment's `base_tps`, target
 consumer profile, and current lab infrastructure.

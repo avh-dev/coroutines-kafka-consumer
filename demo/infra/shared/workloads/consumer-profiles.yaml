@@ -79,6 +79,27 @@ profiles:
         default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
         allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]
 
+  spring-kafka-thread-pool:
+    spring_profile: spring-kafka-thread-pool
+    default_processing_dispatcher: ""
+    allowed_processing_dispatchers: []
+    topics:
+      order:
+        default_planning_latency_ms: 50
+        parallelism: [workers]
+        default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_NO_ORDERING]
+      batch:
+        default_planning_latency_ms: 50
+        parallelism: [workers]
+        default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        allowed_processing_modes: [AT_LEAST_ONCE_NO_ORDERING]
+      telemetry:
+        default_planning_latency_ms: 150
+        parallelism: [workers]
+        default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+        allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]
+
   spring-kafka:
     spring_profile: spring-kafka
     topics:
