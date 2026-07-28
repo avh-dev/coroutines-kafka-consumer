@@ -123,6 +123,7 @@
 | [DEMO-70](#demo-70) | Keep Armeria Actuator endpoints on the demo server port used by Kubernetes probes. | DONE |
 | [DEMO-71](#demo-71) | Classify Spring Kafka and support threads in the demo Thread Stats groups. | DONE |
 | [DEMO-72](#demo-72) | Classify JVM virtual-thread runtime support threads in the demo Thread Stats groups. | DONE |
+| [DEMO-73](#demo-73) | Classify JVM common ForkJoinPool support threads in the demo Thread Stats groups. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2312,6 +2313,15 @@ _Date: 2026-07-28_
 Add Thread Stats rules for JVM virtual-thread carrier workers and the virtual-thread unparker.
 Keep these JVM runtime support threads separate from CKC workers, Kafka clients, and HTTP client pools.
 Cover the expected rule bindings in the demo Thread Stats configuration test.
+
+<a id="demo-73"></a>
+### DEMO-73 - Classify common ForkJoinPool threads
+
+_Date: 2026-07-28_
+
+Add a Thread Stats rule for JVM common ForkJoinPool worker threads observed during CKC sync virtual-thread runs.
+Keep common-pool runtime support separate from the virtual-thread carrier pool group.
+Cover the rule in the demo Thread Stats configuration test.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update
