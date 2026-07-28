@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka", "confluent-parallel", "ckc-sync")
+@Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
 class SyncBatchLifecycleService(
     private val brewingStateRepository: SyncBrewingStateRepository,
     private val registryClient: SyncBrewingStepRegistryClient
