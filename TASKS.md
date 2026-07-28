@@ -124,6 +124,7 @@
 | [DEMO-71](#demo-71) | Classify Spring Kafka and support threads in the demo Thread Stats groups. | DONE |
 | [DEMO-72](#demo-72) | Classify JVM virtual-thread runtime support threads in the demo Thread Stats groups. | DONE |
 | [DEMO-73](#demo-73) | Classify JVM common ForkJoinPool support threads in the demo Thread Stats groups. | DONE |
+| [DEMO-74](#demo-74) | Add an experimental virtual executor option for the demo sync JDK HTTP clients. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2322,6 +2323,16 @@ _Date: 2026-07-28_
 Add a Thread Stats rule for JVM common ForkJoinPool worker threads observed during CKC sync virtual-thread runs.
 Keep common-pool runtime support separate from the virtual-thread carrier pool group.
 Cover the rule in the demo Thread Stats configuration test.
+
+<a id="demo-74"></a>
+### DEMO-74 - Add sync JDK HTTP virtual executor flag
+
+_Date: 2026-07-28_
+
+Add an experimental demo setting for building sync JDK HTTP clients with a virtual-thread executor.
+Share one configured JDK HTTP client across sync model and registry clients.
+Keep the default JDK HTTP client executor behavior unchanged unless the flag is enabled.
+Cover the default and virtual executor bindings in demo tests.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update

@@ -16,10 +16,16 @@ import avh.ckc.demo.registry.SyncBrewingStepRegistryClient
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import java.net.URI
+import java.net.http.HttpClient
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 @Configuration(proxyBeanMethods = false)
 class ModelClientConfiguration {
@@ -27,13 +33,42 @@ class ModelClientConfiguration {
     fun modelCallMetrics(meterRegistry: MeterRegistry): ModelCallMetrics =
         ModelCallMetrics(meterRegistry)
 
+    @Bean(destroyMethod = "shutdown")
+    @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["jdk-http-client-executor"], havingValue = "virtual")
+    fun syncJdkHttpClientVirtualExecutor(properties: DemoApplicationProperties): ExecutorService {
+        val threadNumber = AtomicLong()
+        val prefix = properties.model.jdkHttpClientVirtualThreadNamePrefix.ifBlank { "jdk-http-client-virtual-" }
+        return Executors.newThreadPerTaskExecutor { runnable ->
+            Thread.ofVirtual()
+                .name(prefix, threadNumber.incrementAndGet())
+                .factory()
+                .newThread(runnable)
+        }
+    }
+
+    @Bean
+    @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
+    fun syncJdkHttpClient(
+        @Qualifier("syncJdkHttpClientVirtualExecutor") virtualExecutorProvider: ObjectProvider<ExecutorService>
+    ): HttpClient {
+        val builder = HttpClient.newBuilder()
+        virtualExecutorProvider.ifAvailable { executor -> builder.executor(executor) }
+        return builder.build()
+    }
+
     @Bean
     @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
     fun syncArcaneEtaModelClient(
         properties: DemoApplicationProperties,
+        syncJdkHttpClient: HttpClient,
         modelCallMetrics: ModelCallMetrics
     ): SyncArcaneEtaModelClient =
-        JdkSyncArcaneEtaModelClient(URI.create(properties.etaModelBaseUrl()), modelCallMetrics = modelCallMetrics)
+        JdkSyncArcaneEtaModelClient(
+            URI.create(properties.etaModelBaseUrl()),
+            httpClient = syncJdkHttpClient,
+            modelCallMetrics = modelCallMetrics
+        )
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
@@ -62,9 +97,14 @@ class ModelClientConfiguration {
     @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
     fun syncOrderFlavourModelClient(
         properties: DemoApplicationProperties,
+        syncJdkHttpClient: HttpClient,
         modelCallMetrics: ModelCallMetrics
     ): SyncOrderFlavourModelClient =
-        JdkSyncOrderFlavourModelClient(URI.create(properties.flavourModelBaseUrl()), modelCallMetrics = modelCallMetrics)
+        JdkSyncOrderFlavourModelClient(
+            URI.create(properties.flavourModelBaseUrl()),
+            httpClient = syncJdkHttpClient,
+            modelCallMetrics = modelCallMetrics
+        )
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
@@ -78,9 +118,14 @@ class ModelClientConfiguration {
     @Profile("spring-kafka", "confluent-parallel", "ckc-sync")
     fun syncBrewingStepRegistryClient(
         properties: DemoApplicationProperties,
+        syncJdkHttpClient: HttpClient,
         modelCallMetrics: ModelCallMetrics
     ): SyncBrewingStepRegistryClient =
-        JdkSyncBrewingStepRegistryClient(URI.create(properties.registry.baseUrl), modelCallMetrics = modelCallMetrics)
+        JdkSyncBrewingStepRegistryClient(
+            URI.create(properties.registry.baseUrl),
+            httpClient = syncJdkHttpClient,
+            modelCallMetrics = modelCallMetrics
+        )
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")

@@ -39,6 +39,8 @@ class DemoApplicationPropertiesTest {
         assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)
         assertEquals("", properties.model.etaBaseUrl)
         assertEquals("", properties.model.flavourBaseUrl)
+        assertEquals(DemoApplicationProperties.JdkHttpClientExecutor.DEFAULT, properties.model.jdkHttpClientExecutor)
+        assertEquals("HttpClient-virtual-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://127.0.0.1:18080", properties.registry.baseUrl)
     }
 
@@ -73,6 +75,8 @@ class DemoApplicationPropertiesTest {
                 "demo.model.base-url" to "http://models.example",
                 "demo.model.eta-base-url" to "http://eta.example",
                 "demo.model.flavour-base-url" to "http://flavour.example",
+                "demo.model.jdk-http-client-executor" to "virtual",
+                "demo.model.jdk-http-client-virtual-thread-name-prefix" to "http-vt-test-",
                 "demo.registry.base-url" to "http://registry.example"
             )
         )
@@ -105,6 +109,8 @@ class DemoApplicationPropertiesTest {
         assertEquals("http://models.example", properties.model.baseUrl)
         assertEquals("http://eta.example", properties.model.etaBaseUrl)
         assertEquals("http://flavour.example", properties.model.flavourBaseUrl)
+        assertEquals(DemoApplicationProperties.JdkHttpClientExecutor.VIRTUAL, properties.model.jdkHttpClientExecutor)
+        assertEquals("http-vt-test-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://registry.example", properties.registry.baseUrl)
     }
 
