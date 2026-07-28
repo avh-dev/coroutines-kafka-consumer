@@ -14,6 +14,8 @@ class ThreadStatsRulesConfigurationTest {
         assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-batch-lifecycle-")))
         assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-cauldron-telemetry-")))
         assertTrue(rules.contains(ThreadStatsRule("spring-task-scheduler", "ThreadPoolTaskScheduler-")))
+        assertTrue(rules.contains(ThreadStatsRule("virtual-thread-runtime", "ForkJoinPool-")))
+        assertTrue(rules.contains(ThreadStatsRule("virtual-thread-runtime", "VirtualThread-unparker")))
         assertTrue(rules.contains(ThreadStatsRule("audit", "logback-appender-AUDIT_TCP-")))
         assertTrue(rules.contains(ThreadStatsRule("jdk-http-client", "HttpClient-")))
         assertTrue(rules.contains(ThreadStatsRule("spring-lifecycle", "startstop-support-")))
