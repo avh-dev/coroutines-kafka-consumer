@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
+import java.net.http.HttpClient
+import java.util.concurrent.CompletableFuture
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -26,6 +28,8 @@ import kotlin.test.assertTrue
         "demo.kafka.enabled=false",
         "demo.consumers.processing-dispatcher-type=virtual",
         "demo.consumers.virtual-thread-name-prefix=ckc-sync-virtual-test-",
+        "demo.model.jdk-http-client-executor=virtual",
+        "demo.model.jdk-http-client-virtual-thread-name-prefix=HttpClient-vt-test-",
         "SERVER_PORT=0",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
@@ -35,6 +39,7 @@ import kotlin.test.assertTrue
 class CkcSyncVirtualDispatcherProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
+    @Autowired private val syncJdkHttpClient: HttpClient,
     @Autowired
     @Qualifier("consumerMetrics")
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
@@ -80,5 +85,14 @@ class CkcSyncVirtualDispatcherProfileContextTest(
         }
 
         assertTrue(virtual)
+    }
+
+    @Test
+    fun `ckc sync profile can build JDK HTTP client with virtual executor`() {
+        val executor = syncJdkHttpClient.executor().orElseThrow()
+        val thread = CompletableFuture.supplyAsync({ Thread.currentThread() }, executor).get()
+
+        assertTrue(thread.isVirtual)
+        assertTrue(thread.name.startsWith("HttpClient-vt-test-"))
     }
 }

@@ -38,7 +38,9 @@ data class DemoApplicationProperties(
     data class Model(
         var baseUrl: String = "http://127.0.0.1:18080",
         var etaBaseUrl: String = "",
-        var flavourBaseUrl: String = ""
+        var flavourBaseUrl: String = "",
+        var jdkHttpClientExecutor: JdkHttpClientExecutor = JdkHttpClientExecutor.DEFAULT,
+        var jdkHttpClientVirtualThreadNamePrefix: String = "HttpClient-virtual-"
     )
 
     data class Registry(
@@ -73,6 +75,11 @@ data class DemoApplicationProperties(
     enum class MetricsImplementation {
         MICROMETER,
         NOOP
+    }
+
+    enum class JdkHttpClientExecutor {
+        DEFAULT,
+        VIRTUAL
     }
 
     enum class ProcessingDispatcherType {

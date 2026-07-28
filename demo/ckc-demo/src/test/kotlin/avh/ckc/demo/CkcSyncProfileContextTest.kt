@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
+import java.net.http.HttpClient
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -30,6 +31,7 @@ import kotlin.test.assertTrue
 class CkcSyncProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
+    @Autowired private val syncJdkHttpClient: HttpClient,
     @Autowired
     @Qualifier("consumerMetrics")
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>
@@ -66,5 +68,10 @@ class CkcSyncProfileContextTest(
     @Test
     fun `ckc sync profile keeps IO dispatcher without fixed worker pool bean`() {
         assertFalse(applicationContext.containsBean("ckcWorkerDispatcher"))
+    }
+
+    @Test
+    fun `ckc sync profile keeps default JDK HTTP client executor`() {
+        assertFalse(syncJdkHttpClient.executor().isPresent)
     }
 }
