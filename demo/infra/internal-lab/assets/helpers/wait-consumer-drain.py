@@ -18,7 +18,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--groups",
         default="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,"
-        "spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry",
+        "spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry,"
+        "spring-kafka-thread-pool-order-lifecycle,spring-kafka-thread-pool-batch-lifecycle,"
+        "spring-kafka-thread-pool-cauldron-telemetry",
     )
     parser.add_argument("--ssh-target")
     parser.add_argument("--broker", default="localhost:9092")

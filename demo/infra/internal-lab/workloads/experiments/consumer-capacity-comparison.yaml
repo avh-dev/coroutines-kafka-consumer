@@ -57,6 +57,13 @@ targets:
     env:
       PROCESSING_DISPATCHER_TYPE: VIRTUAL
 
+  - name: spring-kafka-thread-pool
+    profile: spring-kafka-thread-pool
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+
   - name: spring-kafka
     profile: spring-kafka
     planning_latency:

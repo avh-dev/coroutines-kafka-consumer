@@ -207,7 +207,7 @@ The plan uses the selected Spring profile, `base_tps`, per-topic traffic
 percentages, explicit per-topic planning latency, processing-enabled mode, and
 explicit processing-mode overrides to calculate topic partitions and either
 worker concurrency or Spring Kafka listener concurrency. Dispatcher selection is consumer-profile scoped:
-`spring-kafka` and `confluent-sync` do not expose it, `ckc-sync` exposes only
+`spring-kafka`, `spring-kafka-thread-pool`, and `confluent-sync` do not expose it, `ckc-sync` exposes only
 `IO` and `VIRTUAL`, and coroutine-worker profiles expose `DEFAULT`, `FIXED`,
 `IO`, and `VIRTUAL`. Experiments always pass planning latency explicitly per
 target. Manual `run-test.sh` runs require the same explicit latency values,
@@ -219,7 +219,8 @@ plan is printed before preparation and is included in each run's
 Before destructive setup starts, interactive runs ask whether to apply the plan,
 edit it manually, or abort. Manual editing exposes only the knobs supported by
 the selected profile and processing mode. `spring-kafka` supports partitions and
-pollers; CKC and Confluent profiles normally tune workers, while partition
+pollers; `spring-kafka-thread-pool` keeps poller concurrency low and tunes fixed
+platform-thread workers; CKC and Confluent profiles normally tune workers, while partition
 ordering modes also tune partitions.
 
 Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
