@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer
 
 import avh.ckc.core.ProcessingMode
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.springkafkathreadpool.requireSupportedBySpringKafkaThreadPool
 import io.confluent.parallelconsumer.ParallelConsumerOptions
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,6 +52,27 @@ class ExternalConsumerProcessingModesTest {
         }
         assertFailsWith<IllegalArgumentException> {
             ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY.requireSupportedBySpringKafka()
+        }
+    }
+
+    @Test
+    fun `spring kafka thread pool accepts only unordered and freshness first drop oldest`() {
+        assertEquals(
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING.requireSupportedBySpringKafkaThreadPool()
+        )
+        assertEquals(
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST.requireSupportedBySpringKafkaThreadPool()
+        )
+        assertFailsWith<IllegalArgumentException> {
+            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING.requireSupportedBySpringKafkaThreadPool()
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING.requireSupportedBySpringKafkaThreadPool()
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY.requireSupportedBySpringKafkaThreadPool()
         }
     }
 

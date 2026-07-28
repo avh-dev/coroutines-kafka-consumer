@@ -125,6 +125,7 @@
 | [DEMO-72](#demo-72) | Classify JVM virtual-thread runtime support threads in the demo Thread Stats groups. | DONE |
 | [DEMO-73](#demo-73) | Classify JVM common ForkJoinPool support threads in the demo Thread Stats groups. | DONE |
 | [DEMO-74](#demo-74) | Add an experimental virtual executor option for the demo sync JDK HTTP clients. | DONE |
+| [DEMO-75](#demo-75) | Add a Spring Kafka thread-pool demo profile for sync processing with bounded platform-worker pools. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2334,6 +2335,15 @@ Add an experimental demo setting for building sync JDK HTTP clients with a virtu
 Share one configured JDK HTTP client across sync model and registry clients.
 Keep the default JDK HTTP client executor behavior unchanged unless the flag is enabled.
 Cover the default and virtual executor bindings in demo tests.
+
+<a id="demo-75"></a>
+### DEMO-75 - Add Spring Kafka thread-pool profile
+
+_Date: 2026-07-28_
+
+Add a Spring Kafka profile that consumes batches with low poller concurrency and hands records to bounded fixed platform-thread pools.
+Use the existing synchronous demo business services so the profile isolates OS-thread processing from coroutine and virtual-thread processing.
+Reuse Spring Kafka-style metrics, audit, retry, and freshness handling while giving the profile a distinct timeline label.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update

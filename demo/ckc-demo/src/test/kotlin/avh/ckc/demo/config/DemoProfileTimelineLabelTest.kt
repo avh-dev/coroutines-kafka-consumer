@@ -41,6 +41,7 @@ class DemoProfileTimelineLabelTest {
         val label = DemoProfileTimelineLabel(DemoApplicationProperties())
 
         assertEquals("spring-kafka", label.resolve("spring-kafka"))
+        assertEquals("spring-kafka-thread-pool", label.resolve("spring-kafka-thread-pool"))
         assertEquals("cpc", label.resolve("confluent-parallel"))
         assertEquals("ckc-spring-boot", label.resolve("ckc-spring-boot"))
     }
