@@ -1,3 +1,9 @@
 demo:
   audit:
     enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,threadstats

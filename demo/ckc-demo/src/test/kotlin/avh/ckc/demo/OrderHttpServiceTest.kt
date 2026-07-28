@@ -9,6 +9,7 @@ import com.linecorp.armeria.common.HttpStatus
 import com.linecorp.armeria.server.Server
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given
+import org.springframework.boot.actuate.endpoint.web.WebEndpointsSupplier
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
@@ -30,6 +31,9 @@ import kotlin.test.assertTrue
 class OrderHttpServiceTest {
     @Autowired
     private lateinit var server: Server
+
+    @Autowired
+    private lateinit var webEndpointsSupplier: WebEndpointsSupplier
 
     private val objectMapper = jacksonObjectMapper()
 
@@ -82,6 +86,10 @@ class OrderHttpServiceTest {
 
     @Test
     fun `serves actuator health and prometheus endpoints`() {
+        val endpointIds = webEndpointsSupplier.endpoints.map { it.endpointId.toString() }.toSet()
+        assertTrue(endpointIds.contains("health"))
+        assertTrue(endpointIds.contains("prometheus"))
+
         val client = webClients()
             .single { candidate -> candidate.get("/actuator/health").aggregate().join().status() != HttpStatus.NOT_FOUND }
 
@@ -91,6 +99,21 @@ class OrderHttpServiceTest {
             .first { response -> response.status() == HttpStatus.OK }
         assertEquals(HttpStatus.OK, prometheusResponse.status())
         assertTrue(prometheusResponse.contentUtf8().contains("jvm_threads_live_threads"))
+    }
+
+    @Test
+    fun `serves thread stats actuator snapshot endpoint`() {
+        val endpointIds = webEndpointsSupplier.endpoints.map { it.endpointId.toString() }.toSet()
+        assertTrue(endpointIds.contains("threadstats"))
+
+        val response = webClients()
+            .map { candidate -> candidate.get("/actuator/threadstats/groups").aggregate().join() }
+            .first { candidate -> candidate.status() == HttpStatus.OK }
+        val json = objectMapper.readTree(response.contentUtf8())
+
+        assertEquals(HttpStatus.OK, response.status())
+        assertTrue(json.has("available"))
+        assertTrue(json.has("stats"))
     }
 
     private fun webClient(): WebClient =
