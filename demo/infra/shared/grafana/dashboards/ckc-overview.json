@@ -1924,7 +1924,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"(potion-tracking|spring-kafka)-.*\"}) or sum by (consumergroup, topic) (clamp_min(kafka_topic_partition_current_offset{topic=~\"(order|batch|cauldron)\\\\.events\\\\.v1\"} - on (topic, partition) group_right label_replace(label_replace(label_replace(redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\"(potion-tracking|spring-kafka)-.*\"}, \"consumergroup\", \"$1\", \"redpanda_group\", \"(.+)\"), \"topic\", \"$1\", \"redpanda_topic\", \"(.+)\"), \"partition\", \"$1\", \"redpanda_partition\", \"(.+)\"), 0))",
+              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=\"ckc-demo\"}) or sum by (consumergroup, topic) (clamp_min(kafka_topic_partition_current_offset{topic=~\"(order|batch|cauldron)\\\\.events\\\\.v1\"} - on (topic, partition) group_right label_replace(label_replace(label_replace(redpanda_kafka_consumer_group_committed_offset{redpanda_group=\"ckc-demo\"}, \"consumergroup\", \"$1\", \"redpanda_group\", \"(.+)\"), \"topic\", \"$1\", \"redpanda_topic\", \"(.+)\"), \"partition\", \"$1\", \"redpanda_partition\", \"(.+)\"), 0))",
               "refId": "A",
               "legendFormat": "{{consumergroup}} / {{topic}}"
             }
@@ -1969,12 +1969,12 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=\"ckc-demo\"})",
               "refId": "A",
               "legendFormat": "{{consumer_group}} / {{topic}}"
             },
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=\"ckc-demo\"})",
               "refId": "B",
               "legendFormat": "rolling {{consumer_group}} / {{topic}}"
             }
@@ -2019,12 +2019,12 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=\"ckc-demo\"})",
               "refId": "A",
               "legendFormat": "{{consumer_group}} / {{topic}}"
             },
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"potion-tracking-.*\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=\"ckc-demo\"})",
               "refId": "B",
               "legendFormat": "sum {{consumer_group}} / {{topic}}"
             }

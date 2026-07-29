@@ -204,7 +204,7 @@ fi
 LAB_ROOT="${LAB_ROOT}" \
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
-CONSUMER_GROUPS="potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry,spring-kafka-thread-pool-order-lifecycle,spring-kafka-thread-pool-batch-lifecycle,spring-kafka-thread-pool-cauldron-telemetry" \
+CONSUMER_GROUPS="ckc-demo" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
 
 DEPLOY_STUBS_ARGS=()

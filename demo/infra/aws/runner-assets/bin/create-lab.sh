@@ -283,7 +283,7 @@ spec:
           args:
 ${kafka_server_args}            - --web.listen-address=:9308
             - --topic.filter=^(order|batch|cauldron)\\.events\\.v1$
-            - --group.filter=^(potion-tracking|spring-kafka)-.*$
+            - --group.filter=^ckc-demo$
             - --offset.show-all
           ports:
             - name: metrics

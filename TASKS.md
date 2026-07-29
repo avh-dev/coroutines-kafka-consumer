@@ -222,6 +222,7 @@
 | [INFRA-93](#infra-93) | Improve interactive internal-lab `run-test.sh` defaults for dispatcher and planning-latency selection. | DONE |
 | [INFRA-94](#infra-94) | Expose the demo sync JDK HTTP client executor mode in internal-lab run-test and experiments. | DONE |
 | [INFRA-95](#infra-95) | Add internal-lab planner and experiment support for the Spring Kafka thread-pool demo profile. | DONE |
+| [INFRA-96](#infra-96) | Use one demo Kafka consumer group across internal-lab and AWS observability wiring. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2392,3 +2393,12 @@ _Date: 2026-07-28_
 Add the Spring Kafka thread-pool profile to the shared internal-lab consumer profile catalog.
 Make run planning expose the profile with OS-thread worker concurrency while keeping poll loop concurrency low.
 Wire the profile into comparison experiments and consumer-group reset/drain helpers so it can run from both interactive tests and experiment definitions.
+
+<a id="infra-96"></a>
+### INFRA-96 - Use one demo Kafka consumer group in infra
+
+_Date: 2026-07-29_
+
+Expose the unified demo Kafka consumer group id through Helm values and deployment environment.
+Collapse internal-lab reset and drain helpers from per-topic Spring Kafka group lists to the single `ckc-demo` group.
+Update Kafka exporter filters, Grafana lag queries, and lab documentation to follow the unified group id.
