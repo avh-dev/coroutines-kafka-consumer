@@ -224,6 +224,7 @@
 | [INFRA-94](#infra-94) | Expose the demo sync JDK HTTP client executor mode in internal-lab run-test and experiments. | DONE |
 | [INFRA-95](#infra-95) | Add internal-lab planner and experiment support for the Spring Kafka thread-pool demo profile. | DONE |
 | [INFRA-96](#infra-96) | Use one demo Kafka consumer group across internal-lab and AWS observability wiring. | DONE |
+| [INFRA-97](#infra-97) | Collect per-pod Thread Stats text snapshots during internal-lab runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2412,3 +2413,12 @@ _Date: 2026-07-29_
 Expose the unified demo Kafka consumer group id through Helm values and deployment environment.
 Collapse internal-lab reset and drain helpers from per-topic Spring Kafka group lists to the single `ckc-demo` group.
 Update Kafka exporter filters, Grafana lag queries, and lab documentation to follow the unified group id.
+
+<a id="infra-97"></a>
+### INFRA-97 - Collect Thread Stats snapshots during runs
+
+_Date: 2026-07-29_
+
+Collect Thread Stats text snapshots from every running demo pod while an internal-lab load test is active.
+Write timestamped, pod-delimited blocks to each run's result directory so experiment targets keep their own thread evidence.
+Use the Kubernetes pod proxy to address pods directly without requiring HTTP tools inside the demo container.
