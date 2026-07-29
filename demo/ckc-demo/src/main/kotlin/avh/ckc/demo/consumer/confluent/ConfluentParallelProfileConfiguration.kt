@@ -84,7 +84,7 @@ private class ConfluentParallelConsumerRuntime(
             name = "order-lifecycle",
             topic = properties.topics.orderEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             ),
             runtime = properties.consumers.order,
@@ -96,7 +96,7 @@ private class ConfluentParallelConsumerRuntime(
             name = "batch-lifecycle",
             topic = properties.topics.batchEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
             ),
             runtime = properties.consumers.batch,
@@ -108,7 +108,7 @@ private class ConfluentParallelConsumerRuntime(
             name = "cauldron-telemetry",
             topic = properties.topics.cauldronEvents,
             consumerProperties = commonConsumerProperties() + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
             ),
             runtime = properties.consumers.telemetry,

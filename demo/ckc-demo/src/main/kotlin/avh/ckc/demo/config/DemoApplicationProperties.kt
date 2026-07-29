@@ -16,9 +16,7 @@ data class DemoApplicationProperties(
     data class Kafka(
         var enabled: Boolean = false,
         var bootstrapServers: String = "localhost:9092",
-        var orderGroupId: String = "potion-tracking-orders",
-        var batchGroupId: String = "potion-tracking-batches",
-        var cauldronGroupId: String = "potion-tracking-cauldrons",
+        var groupId: String = "ckc-demo",
         var consumer: KafkaConsumer = KafkaConsumer()
     )
 
