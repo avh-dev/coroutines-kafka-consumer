@@ -51,7 +51,7 @@ ckc:
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${ORDER_EVENTS_TOPIC:order.events.v1}
-      group-id: ${ORDER_GROUP_ID:potion-tracking-orders}
+      group-id: ${GROUP_ID:ckc-demo}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
@@ -65,7 +65,7 @@ ckc:
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${BATCH_EVENTS_TOPIC:batch.events.v1}
-      group-id: ${BATCH_GROUP_ID:potion-tracking-batches}
+      group-id: ${GROUP_ID:ckc-demo}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
       processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
@@ -79,7 +79,7 @@ ckc:
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${CAULDRON_EVENTS_TOPIC:cauldron.events.v1}
-      group-id: ${CAULDRON_GROUP_ID:potion-tracking-cauldrons}
+      group-id: ${GROUP_ID:ckc-demo}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
       processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}

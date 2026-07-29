@@ -23,6 +23,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(1, properties.kafka.consumer.fetchMinBytes)
         assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(500, properties.kafka.consumer.maxPollRecords)
+        assertEquals("ckc-demo", properties.kafka.groupId)
         assertEquals(2, properties.consumers.order.workerConcurrency)
         assertEquals(1, properties.consumers.order.pollLoopConcurrency)
         assertEquals(1024, properties.consumers.order.workChannelCapacity)
@@ -59,6 +60,7 @@ class DemoApplicationPropertiesTest {
                 "demo.kafka.consumer.fetch-min-bytes" to "65536",
                 "demo.kafka.consumer.fetch-max-wait-ms" to "100",
                 "demo.kafka.consumer.max-poll-records" to "200",
+                "demo.kafka.group-id" to "demo-test-group",
                 "demo.consumers.order.worker-concurrency" to "12",
                 "demo.consumers.order.poll-loop-concurrency" to "3",
                 "demo.consumers.order.work-channel-capacity" to "2048",
@@ -93,6 +95,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
         assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(200, properties.kafka.consumer.maxPollRecords)
+        assertEquals("demo-test-group", properties.kafka.groupId)
         assertEquals(12, properties.consumers.order.workerConcurrency)
         assertEquals(3, properties.consumers.order.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.order.workChannelCapacity)

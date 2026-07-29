@@ -127,7 +127,7 @@ private class CkcConsumerRuntime(
         ) + properties.kafka.consumerProperties()
 
         orderConsumer = DemoConsumers.orderConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.orderGroupId),
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             orderConsumerMetrics,
             properties.audit,
             properties.consumers.order,
@@ -137,7 +137,7 @@ private class CkcConsumerRuntime(
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.batchGroupId),
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             batchConsumerMetrics,
             properties.audit,
             properties.consumers.batch,
@@ -147,7 +147,7 @@ private class CkcConsumerRuntime(
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.cauldronGroupId),
+            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,

@@ -65,22 +65,13 @@ thread-stats:
       value: spring-kafka-thread-pool-
     - group: spring-kafka-consumer
       type: prefix
-      value: spring-kafka-order-lifecycle-
+      value: spring-kafka-consumer-order-lifecycle-
     - group: spring-kafka-consumer
       type: prefix
-      value: spring-kafka-batch-lifecycle-
+      value: spring-kafka-consumer-batch-lifecycle-
     - group: spring-kafka-consumer
       type: prefix
-      value: spring-kafka-cauldron-telemetry-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-thread-pool-order-lifecycle-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-thread-pool-batch-lifecycle-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-thread-pool-cauldron-telemetry-
+      value: spring-kafka-consumer-cauldron-telemetry-
     - group: spring-task-scheduler
       type: prefix
       value: ThreadPoolTaskScheduler-
@@ -159,9 +150,7 @@ demo:
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     bootstrap-servers: localhost:9092
-    order-group-id: potion-tracking-orders
-    batch-group-id: potion-tracking-batches
-    cauldron-group-id: potion-tracking-cauldrons
+    group-id: ${GROUP_ID:ckc-demo}
     consumer:
       fetch-min-bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
       fetch-max-wait-ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}

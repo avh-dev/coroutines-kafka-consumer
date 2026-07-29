@@ -10,12 +10,9 @@ class ThreadStatsRulesConfigurationTest {
     fun `application config classifies Spring Kafka and support threads`() {
         val rules = loadConfiguredRules()
 
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-order-lifecycle-")))
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-batch-lifecycle-")))
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-cauldron-telemetry-")))
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-thread-pool-order-lifecycle-")))
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-thread-pool-batch-lifecycle-")))
-        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-thread-pool-cauldron-telemetry-")))
+        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-consumer-order-lifecycle-")))
+        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-consumer-batch-lifecycle-")))
+        assertTrue(rules.contains(ThreadStatsRule("spring-kafka-consumer", "spring-kafka-consumer-cauldron-telemetry-")))
         assertTrue(rules.contains(ThreadStatsRule("spring-kafka-thread-pool-worker", "spring-kafka-thread-pool-")))
         assertTrue(rules.contains(ThreadStatsRule("spring-task-scheduler", "ThreadPoolTaskScheduler-")))
         assertTrue(rules.contains(ThreadStatsRule("virtual-thread-runtime", "ForkJoinPool-")))

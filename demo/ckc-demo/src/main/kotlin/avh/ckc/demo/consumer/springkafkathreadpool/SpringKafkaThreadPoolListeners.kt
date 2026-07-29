@@ -16,7 +16,7 @@ class SpringKafkaThreadPoolListeners(
     private val runtime: SpringKafkaThreadPoolRuntime
 ) {
     @KafkaListener(
-        id = "spring-kafka-thread-pool-order-lifecycle",
+        id = "spring-kafka-consumer-order-lifecycle",
         topics = ["\${demo.topics.order-events}"],
         containerFactory = "springKafkaThreadPoolOrderListenerContainerFactory"
     )
@@ -25,7 +25,7 @@ class SpringKafkaThreadPoolListeners(
     }
 
     @KafkaListener(
-        id = "spring-kafka-thread-pool-batch-lifecycle",
+        id = "spring-kafka-consumer-batch-lifecycle",
         topics = ["\${demo.topics.batch-events}"],
         containerFactory = "springKafkaThreadPoolBatchListenerContainerFactory"
     )
@@ -34,7 +34,7 @@ class SpringKafkaThreadPoolListeners(
     }
 
     @KafkaListener(
-        id = "spring-kafka-thread-pool-cauldron-telemetry",
+        id = "spring-kafka-consumer-cauldron-telemetry",
         topics = ["\${demo.topics.cauldron-events}"],
         containerFactory = "springKafkaThreadPoolTelemetryListenerContainerFactory"
     )
