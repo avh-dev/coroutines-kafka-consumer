@@ -127,6 +127,7 @@
 | [DEMO-74](#demo-74) | Add an experimental virtual executor option for the demo sync JDK HTTP clients. | DONE |
 | [DEMO-75](#demo-75) | Add a Spring Kafka thread-pool demo profile for sync processing with bounded platform-worker pools. | DONE |
 | [DEMO-76](#demo-76) | Use one demo Kafka consumer group and shared Spring Kafka listener-id prefixes across demo profiles. | DONE |
+| [DEMO-77](#demo-77) | Adapt the demo Thread Stats actuator integration to the cached latest-interval starter behavior. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2356,6 +2357,15 @@ _Date: 2026-07-29_
 Replace the per-topic demo Kafka consumer group configuration with one application-level group id.
 Keep topic offsets separate through Kafka's group/topic/partition offset key instead of separate group names.
 Rename Spring Kafka listener ids to a shared `spring-kafka-consumer-*` prefix so Thread Stats rules do not need one prefix per Spring Kafka profile.
+
+<a id="demo-77"></a>
+### DEMO-77 - Adapt Thread Stats cached actuator interval
+
+_Date: 2026-07-29_
+
+Remove the demo's manual Armeria web endpoint discovery workaround now that the Thread Stats starter orders itself before Armeria actuator discovery.
+Treat `/actuator/threadstats/groups` as a cached latest-interval view instead of an on-demand sampler.
+Update the actuator test to wait for `available=true` with a short sampling interval.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update

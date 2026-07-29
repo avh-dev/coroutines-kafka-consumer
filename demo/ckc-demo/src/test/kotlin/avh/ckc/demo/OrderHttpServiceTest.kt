@@ -3,10 +3,12 @@ package avh.ckc.demo
 import avh.ckc.demo.model.Batch
 import avh.ckc.demo.model.Order
 import avh.ckc.demo.repository.SyncBrewingStateRepository
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.linecorp.armeria.client.WebClient
 import com.linecorp.armeria.common.HttpStatus
 import com.linecorp.armeria.server.Server
+import java.time.Duration
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given
 import org.springframework.boot.actuate.endpoint.web.WebEndpointsSupplier
@@ -22,7 +24,8 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
-        "SERVER_PORT=0"
+        "SERVER_PORT=0",
+        "thread-stats.sampling-interval=10ms"
     ]
 )
 @AutoConfigureObservability
@@ -98,18 +101,36 @@ class OrderHttpServiceTest {
     }
 
     @Test
-    fun `serves thread stats actuator snapshot endpoint`() {
+    fun `serves thread stats actuator latest grouped interval endpoint`() {
         val endpointIds = webEndpointsSupplier.endpoints.map { it.endpointId.toString() }.toSet()
         assertTrue(endpointIds.contains("threadstats"))
 
-        val response = webClient().get("/actuator/threadstats/groups").aggregate().join()
-        val json = objectMapper.readTree(response.contentUtf8())
+        val json = waitForThreadStatsGroups()
 
-        assertEquals(HttpStatus.OK, response.status())
-        assertTrue(json.has("available"))
-        assertTrue(json.has("stats"))
+        assertEquals(true, json.at("/available").booleanValue())
+        assertTrue(json.at("/stats/groups").isArray)
     }
 
     private fun webClient(): WebClient =
         WebClient.of("http://127.0.0.1:${server.activeLocalPort()}")
+
+    private fun waitForThreadStatsGroups(): JsonNode {
+        val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+        var lastResponse = ""
+
+        while (System.nanoTime() < deadline) {
+            val response = webClient().get("/actuator/threadstats/groups").aggregate().join()
+            assertEquals(HttpStatus.OK, response.status())
+
+            lastResponse = response.contentUtf8()
+            val json = objectMapper.readTree(lastResponse)
+            if (json.at("/available").asBoolean(false)) {
+                return json
+            }
+
+            Thread.sleep(25)
+        }
+
+        throw AssertionError("Thread Stats latest grouped interval did not become available. Last response: $lastResponse")
+    }
 }
