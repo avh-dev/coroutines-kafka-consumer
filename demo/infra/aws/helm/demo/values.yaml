@@ -15,6 +15,7 @@ env:
   kafkaEnabled: true
   demoKafkaEnabled: true
   bootstrapServers: ""
+  groupId: ckc-demo
   redisHost: ""
   redisPort: 6379
   auditTcpHost: ""

@@ -1487,7 +1487,7 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
   python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
     --kafka-implementation "${LAB_KAFKA_IMPLEMENTATION}" \
-    --groups "potion-tracking-orders,potion-tracking-batches,potion-tracking-cauldrons,spring-kafka-order-lifecycle,spring-kafka-batch-lifecycle,spring-kafka-cauldron-telemetry,spring-kafka-thread-pool-order-lifecycle,spring-kafka-thread-pool-batch-lifecycle,spring-kafka-thread-pool-cauldron-telemetry" \
+    --groups "ckc-demo" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"

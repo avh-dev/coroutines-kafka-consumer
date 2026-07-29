@@ -534,7 +534,7 @@ active key cardinality increases and can trigger `new_key_queue_full` before
 the key-coalescing behavior is measured.
 
 After the local generator exits, the runner waits for Prometheus
-`kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"}` to drain to zero
+`kafka_consumergroup_lag{consumergroup="ckc-demo"}` to drain to zero
 and stay there briefly before running audit analysis and printing the final
 summary. Audit analysis is intentionally not run in parallel with the load test
 so local CPU contention does not affect benchmark results.
@@ -650,7 +650,7 @@ rate(ckc_poll_duration_seconds_count[30s])
 sum by (consumer_impl, consumer_id) (rate(ckc_poll_records_sum[30s]))
 sum(rate(ckc_poll_records_sum[30s])) by (consumer_impl, consumer_id)
 sum(rate(ckc_processing_duration_seconds_count[30s])) by (consumer_impl, consumer_id)
-sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"potion-tracking-.*"})
+sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup="ckc-demo"})
 ```
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
