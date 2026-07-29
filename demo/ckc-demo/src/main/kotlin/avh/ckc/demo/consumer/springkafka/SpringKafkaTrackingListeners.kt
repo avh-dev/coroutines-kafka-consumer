@@ -19,6 +19,7 @@ class SpringKafkaTrackingListeners(
 ) {
     @KafkaListener(
         id = "spring-kafka-consumer-order-lifecycle",
+        idIsGroup = false,
         topics = ["\${demo.topics.order-events}"],
         containerFactory = "orderLifecycleListenerContainerFactory"
     )
@@ -38,6 +39,7 @@ class SpringKafkaTrackingListeners(
 
     @KafkaListener(
         id = "spring-kafka-consumer-batch-lifecycle",
+        idIsGroup = false,
         topics = ["\${demo.topics.batch-events}"],
         containerFactory = "batchLifecycleListenerContainerFactory"
     )
@@ -57,6 +59,7 @@ class SpringKafkaTrackingListeners(
 
     @KafkaListener(
         id = "spring-kafka-consumer-cauldron-telemetry",
+        idIsGroup = false,
         topics = ["\${demo.topics.cauldron-events}"],
         containerFactory = "cauldronTelemetryListenerContainerFactory"
     )

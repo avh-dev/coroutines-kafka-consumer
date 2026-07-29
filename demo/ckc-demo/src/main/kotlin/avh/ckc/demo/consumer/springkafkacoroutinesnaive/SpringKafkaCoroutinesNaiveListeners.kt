@@ -16,8 +16,8 @@ class SpringKafkaCoroutinesNaiveListeners(
     private val runtime: SpringKafkaCoroutinesNaiveRuntime
 ) {
     @KafkaListener(
-
         id = "spring-kafka-consumer-order-lifecycle",
+        idIsGroup = false,
         topics = ["\${demo.topics.order-events}"],
         containerFactory = "springKafkaCoroutinesNaiveOrderListenerContainerFactory"
     )
@@ -27,6 +27,7 @@ class SpringKafkaCoroutinesNaiveListeners(
 
     @KafkaListener(
         id = "spring-kafka-consumer-batch-lifecycle",
+        idIsGroup = false,
         topics = ["\${demo.topics.batch-events}"],
         containerFactory = "springKafkaCoroutinesNaiveBatchListenerContainerFactory"
     )
@@ -36,6 +37,7 @@ class SpringKafkaCoroutinesNaiveListeners(
 
     @KafkaListener(
         id = "spring-kafka-consumer-cauldron-telemetry",
+        idIsGroup = false,
         topics = ["\${demo.topics.cauldron-events}"],
         containerFactory = "springKafkaCoroutinesNaiveTelemetryListenerContainerFactory"
     )

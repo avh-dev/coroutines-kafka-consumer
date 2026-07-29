@@ -128,6 +128,7 @@
 | [DEMO-75](#demo-75) | Add a Spring Kafka thread-pool demo profile for sync processing with bounded platform-worker pools. | DONE |
 | [DEMO-76](#demo-76) | Use one demo Kafka consumer group and shared Spring Kafka listener-id prefixes across demo profiles. | DONE |
 | [DEMO-77](#demo-77) | Adapt the demo Thread Stats actuator integration to the cached latest-interval starter behavior. | DONE |
+| [DEMO-78](#demo-78) | Keep Spring Kafka listener ids from overriding the shared demo Kafka consumer group. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2367,6 +2368,15 @@ _Date: 2026-07-29_
 Remove the demo's manual Armeria web endpoint discovery workaround now that the Thread Stats starter orders itself before Armeria actuator discovery.
 Treat `/actuator/threadstats/groups` as a cached latest-interval view instead of an on-demand sampler.
 Update the actuator test to wait for `available=true` with a short sampling interval.
+
+<a id="demo-78"></a>
+### DEMO-78 - Keep Spring Kafka listener ids separate from group ids
+
+_Date: 2026-07-29_
+
+Set Spring Kafka listener annotations to keep their stable listener ids from becoming Kafka consumer group ids.
+Preserve the shared demo group id supplied by the listener container consumer factories.
+Cover the annotation contract so future listener-id changes do not reintroduce per-listener groups.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update
