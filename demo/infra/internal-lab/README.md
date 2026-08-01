@@ -94,7 +94,7 @@ The installer:
 - starts k3s with `traefik`, `servicelb`, `local-storage`, and bundled `metrics-server` disabled
 - deploys this lab's explicit metrics-server and Prometheus manifests
 - keeps Prometheus history on a persistent lab-host directory and reloads Prometheus config during updates when possible instead of restarting it unconditionally
-- starts host Redpanda by default, plus Redis, Fluent Bit, Loki, and Grafana
+- starts host Apache Kafka by default, plus Redis, Fluent Bit, Loki, and Grafana
 - provisions Grafana datasources and the shared `CKC Overview` dashboard
 - writes `.demo-infra/internal-lab/kubeconfig.yaml`
 - verifies `kubectl`, Grafana, Prometheus, Loki, and the Kafka API from the local machine
@@ -193,7 +193,7 @@ and used when Enter is pressed:
 
 - a load-test definition, defaulting to the previous run
 - a consumer profile, defaulting to the currently deployed profile
-- the host Kafka API broker implementation: `redpanda` or `apache-kafka`
+- the host Kafka API broker implementation, defaulting to `apache-kafka`; select `redpanda` when needed
 - whether business processing is enabled; select `false` for a noop run
 - the base load rate and per-topic planning latency used for run-plan calculation
 - the coroutine processing dispatcher when the selected profile supports one
@@ -263,11 +263,12 @@ application enum value internally but shown separately in run plans and experime
 to avoid confusing it with CKC's `FRESHNESS_FIRST_DROP_OLDEST` queue-overflow
 mode.
 
-The `apache-kafka` option runs the official `apache/kafka:4.3.1` image and
+The default `apache-kafka` option runs the official `apache/kafka:4.3.1` image and
 enables share groups through `group.coordinator.rebalance.protocols=classic,consumer,streams,share`.
 The single-node lab also sets the share coordinator state topic replication
 factor and min ISR to `1`, so share-group experiments do not wait for a
 multi-broker cluster.
+Redpanda remains available with `--kafka-implementation redpanda`.
 
 Any generated test environment value can also be overridden with repeated
 `--env KEY=VALUE` flags. These overrides are applied after the consumer profile and

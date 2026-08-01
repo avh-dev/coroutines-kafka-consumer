@@ -68,7 +68,7 @@ def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def kafka_implementation() -> str:
-    value = os.environ.get("LAB_KAFKA_IMPLEMENTATION", "redpanda").strip().lower()
+    value = os.environ.get("LAB_KAFKA_IMPLEMENTATION", "apache-kafka").strip().lower()
     if value in {"apache-kafka", "apache", "kafka"}:
         return "apache-kafka"
     return "redpanda"

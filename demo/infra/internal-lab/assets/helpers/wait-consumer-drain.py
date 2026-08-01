@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ssh-target")
     parser.add_argument("--broker", default="localhost:9092")
-    parser.add_argument("--kafka-implementation", default="redpanda")
+    parser.add_argument("--kafka-implementation", default="apache-kafka")
     parser.add_argument("--redpanda-container", default="ckc-perf-redpanda")
     parser.add_argument("--apache-kafka-container", default="ckc-perf-kafka")
     parser.add_argument("--timeout-seconds", type=int, default=900)

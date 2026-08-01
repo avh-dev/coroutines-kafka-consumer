@@ -18,7 +18,7 @@ if [ -f "${LAB_ENV}" ]; then
   # shellcheck disable=SC1090
   . "${LAB_ENV}"
 fi
-LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-redpanda}}"
+LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
 if [ -z "${LAB_NODE_IP:-}" ]; then
   echo "LAB_NODE_IP is required in ${LAB_ENV}." >&2
   exit 1
