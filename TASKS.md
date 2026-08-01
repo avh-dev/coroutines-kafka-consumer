@@ -226,6 +226,7 @@
 | [INFRA-95](#infra-95) | Add internal-lab planner and experiment support for the Spring Kafka thread-pool demo profile. | DONE |
 | [INFRA-96](#infra-96) | Use one demo Kafka consumer group across internal-lab and AWS observability wiring. | DONE |
 | [INFRA-97](#infra-97) | Collect per-pod Thread Stats text snapshots during internal-lab runs. | DONE |
+| [INFRA-98](#infra-98) | Make Apache Kafka the default internal-lab broker implementation while keeping Redpanda selectable. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2432,3 +2433,14 @@ _Date: 2026-07-29_
 Collect Thread Stats text snapshots from every running demo pod while an internal-lab load test is active.
 Write timestamped, pod-delimited blocks to each run's result directory so experiment targets keep their own thread evidence.
 Use the Kubernetes pod proxy to address pods directly without requiring HTTP tools inside the demo container.
+
+<a id="infra-98"></a>
+### INFRA-98 - Default internal-lab tests to Apache Kafka
+
+_Date: 2026-08-01_
+
+Make Apache Kafka the default broker implementation for internal-lab test runs.
+Keep Redpanda available through the existing `--kafka-implementation redpanda` override and environment variable.
+Align helper fallbacks and documentation so non-interactive runs use the same default as interactive runs.
+
+Verification: `bash -n` passed for changed shell scripts, `python -m py_compile` passed for changed Python helpers, and `git diff --check` passed.

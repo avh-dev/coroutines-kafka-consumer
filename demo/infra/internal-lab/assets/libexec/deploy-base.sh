@@ -15,7 +15,7 @@ GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
 GENERATED_DIR="${LAB_ROOT}/state/generated"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
-LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-redpanda}"
+LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
 
 normalize_kafka_implementation() {
   case "$1" in
