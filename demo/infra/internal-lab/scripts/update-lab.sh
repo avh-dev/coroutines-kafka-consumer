@@ -7,6 +7,7 @@ REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 DEFAULT_LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
+DEFAULT_THREAD_STATS_REPO="${REPO_ROOT}/../thread-stats"
 FORCE_REBUILD=0
 
 usage() {
@@ -120,6 +121,37 @@ remote_paths_exist() {
     command="${command} test -e '$(printf "%q" "${path}")';"
   done
   ssh "root@${LAB_HOST}" "${command}"
+}
+
+build_thread_stats_agent() {
+  if [[ -n "${THREAD_STATS_AGENT_JAR:-}" ]]; then
+    if [[ ! -f "${THREAD_STATS_AGENT_JAR}" ]]; then
+      echo "THREAD_STATS_AGENT_JAR does not exist: ${THREAD_STATS_AGENT_JAR}" >&2
+      exit 1
+    fi
+    printf "%s\n" "${THREAD_STATS_AGENT_JAR}"
+    return
+  fi
+
+  local thread_stats_repo="${THREAD_STATS_REPO:-${DEFAULT_THREAD_STATS_REPO}}"
+  if [[ ! -f "${thread_stats_repo}/thread-stats-agent/pom.xml" ]]; then
+    echo "Thread Stats repo was not found: ${thread_stats_repo}" >&2
+    echo "Set THREAD_STATS_REPO or THREAD_STATS_AGENT_JAR before running update-lab.sh." >&2
+    exit 1
+  fi
+
+  (
+    cd "${thread_stats_repo}"
+    ./mvnw --batch-mode -pl thread-stats-agent -am package >&2
+  )
+  find "${thread_stats_repo}/thread-stats-agent/target" \
+    -maxdepth 1 \
+    -type f \
+    -name 'thread-stats-agent-*.jar' \
+    ! -name '*-sources.jar' \
+    ! -name '*-javadoc.jar' \
+    | sort \
+    | tail -n 1
 }
 
 record_remote_fingerprint() {
@@ -242,6 +274,12 @@ ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 || (export DEBI
 
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
+THREAD_STATS_AGENT_JAR_PATH="$(build_thread_stats_agent)"
+if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
+  echo "Thread Stats agent jar was not produced." >&2
+  exit 1
+fi
+THREAD_STATS_AGENT_FINGERPRINT="$(sha256sum "${THREAD_STATS_AGENT_JAR_PATH}" | awk '{ print $1 }')"
 LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   settings.gradle.kts \
   build.gradle.kts \
@@ -269,6 +307,7 @@ STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
+THREAD_STATS_AGENT_CHANGED=0
 LOAD_TEST_RUNTIME_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
@@ -281,6 +320,12 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FING
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo-stubs "${DEMO_STUBS_FINGERPRINT}"; then
   DEMO_STUBS_IMAGE_CHANGED=1
+fi
+if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
+  ! remote_fingerprint_matches "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}" ||
+  ! remote_paths_exist "${LAB_ROOT}/thread-stats/thread-stats-agent.jar"; then
+  THREAD_STATS_AGENT_CHANGED=1
+  BASE_DEPLOY_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"; then
   LOAD_TEST_RUNTIME_CHANGED=1
@@ -349,6 +394,10 @@ if [[ "${LOAD_TEST_RUNTIME_CHANGED}" -eq 1 ]]; then
   ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/load-test-runtime/bin/'*"
   record_remote_fingerprint "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"
 fi
+if [[ "${THREAD_STATS_AGENT_CHANGED}" -eq 1 ]]; then
+  sync_file "${THREAD_STATS_AGENT_JAR_PATH}" "${LAB_ROOT}/thread-stats/thread-stats-agent.jar"
+  record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
+fi
 
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/docker/build/demo/build/install/ckc-demo/bin/'*"
@@ -391,6 +440,7 @@ fi
 echo "Internal lab is updated."
 echo "  demo image changed=${DEMO_IMAGE_CHANGED}"
 echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
+echo "  Thread Stats agent changed=${THREAD_STATS_AGENT_CHANGED}"
 echo "  load-test runtime changed=${LOAD_TEST_RUNTIME_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"

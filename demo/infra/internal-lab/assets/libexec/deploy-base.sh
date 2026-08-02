@@ -15,6 +15,7 @@ GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
 GENERATED_DIR="${LAB_ROOT}/state/generated"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
+KAFKA_THREAD_STATS_JOB="ckc-kafka-thread-stats"
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
 
 normalize_kafka_implementation() {
@@ -34,7 +35,9 @@ KAFKA_SERVICE="${LAB_KAFKA_IMPLEMENTATION}"
 
 prometheus_target_exists() {
   curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
-    | grep -F "\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"" >/dev/null 2>&1
+    | grep -F "\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"" >/dev/null 2>&1 \
+    && curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
+    | grep -F "\"job\":\"${KAFKA_THREAD_STATS_JOB}\"" >/dev/null 2>&1
 }
 
 restart_prometheus() {
@@ -66,8 +69,8 @@ if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "$
   if ! curl -fsS -X POST "http://127.0.0.1:30090/-/reload" >/dev/null 2>&1; then
     echo "Prometheus config changed but reload failed; restarting deployment." >&2
     restart_prometheus
-  elif ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"' >/dev/null 2>&1; do sleep 2; done"; then
-    echo "Prometheus reloaded but target ${REDPANDA_PUBLIC_METRICS_JOB} did not appear; restarting deployment." >&2
+  elif ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"' >/dev/null 2>&1 && curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${KAFKA_THREAD_STATS_JOB}\"' >/dev/null 2>&1; do sleep 2; done"; then
+    echo "Prometheus reloaded but expected host-service targets did not appear; restarting deployment." >&2
     restart_prometheus
   fi
 fi
@@ -92,10 +95,22 @@ docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
   docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
 else
+  if [ ! -f "${LAB_ROOT}/thread-stats/thread-stats-agent.jar" ]; then
+    echo "Thread Stats agent jar is missing: ${LAB_ROOT}/thread-stats/thread-stats-agent.jar" >&2
+    exit 1
+  fi
   docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
 fi
 
 LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans "${KAFKA_SERVICE}" redis fluent-bit loki grafana process-exporter
+if [ "${KAFKA_SERVICE}" = "apache-kafka" ]; then
+  docker restart ckc-perf-kafka >/dev/null
+fi
+if [ "${KAFKA_SERVICE}" = "apache-kafka" ] && ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9404/prometheus' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Kafka Thread Stats agent endpoint did not become ready." >&2
+  docker logs --tail 80 ckc-perf-kafka >&2 || true
+  exit 1
+fi
 docker restart ckc-internal-grafana >/dev/null
 if ! timeout 60 sh -c "until curl -fsS 'http://127.0.0.1:3000/api/health' >/dev/null 2>&1; do sleep 2; done"; then
   echo "Grafana did not become ready after provisioning refresh." >&2

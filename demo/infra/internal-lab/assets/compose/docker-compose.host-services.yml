@@ -67,8 +67,13 @@ services:
       KAFKA_LOG_RETENTION_MS: "300000"
       KAFKA_LOG_SEGMENT_MS: "60000"
       KAFKA_HEAP_OPTS: "-Xms2g -Xmx2g"
+      KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
     ports:
       - "0.0.0.0:9092:9092"
+      - "0.0.0.0:9404:9404"
+    volumes:
+      - ${LAB_ROOT}/thread-stats/thread-stats-agent.jar:/opt/thread-stats/thread-stats-agent.jar:ro
+      - ${LAB_ROOT}/docker/compose/thread-stats-kafka-agent.properties:/opt/thread-stats/kafka-agent.properties:ro
     networks:
       default:
         aliases:
@@ -79,7 +84,7 @@ services:
           cpus: "2.0"
           memory: 4G
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 18

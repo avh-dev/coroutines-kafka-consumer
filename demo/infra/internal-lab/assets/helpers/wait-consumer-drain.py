@@ -78,6 +78,7 @@ def query_apache_kafka_lag(args: argparse.Namespace) -> float | None:
     for group in [value.strip() for value in args.groups.split(",") if value.strip()]:
         command = (
             f"docker exec {shell_quote(args.apache_kafka_container)} "
+            "env KAFKA_OPTS= "
             f"/opt/kafka/bin/kafka-consumer-groups.sh "
             f"--bootstrap-server {shell_quote(args.broker)} --describe --group {shell_quote(group)}"
         )

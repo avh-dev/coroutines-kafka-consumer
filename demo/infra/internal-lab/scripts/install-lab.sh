@@ -14,6 +14,7 @@ STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 ASSETS_DIR="${REPO_ROOT}/demo/infra/internal-lab/assets"
 LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
+DEFAULT_THREAD_STATS_REPO="${REPO_ROOT}/../thread-stats"
 KUBECONFIG_PATH="${STATE_DIR}/kubeconfig.yaml"
 LAB_ENV_PATH="${STATE_DIR}/lab.env"
 
@@ -41,6 +42,48 @@ copy_dir() {
 
   ssh "root@${LAB_HOST}" "rm -rf '$(printf "%q" "${target_path}")' && mkdir -p '$(printf "%q" "${target_path}")'"
   tar --exclude='__pycache__' --exclude='*.pyc' -C "${source_path}" -cf - . | ssh "root@${LAB_HOST}" "tar --no-same-owner -C '${target_path}' -xf - && chown -R root:root '${target_path}'"
+}
+
+copy_file() {
+  local source_path="$1"
+  local target_path="$2"
+  local target_dir
+
+  target_dir="$(dirname "${target_path}")"
+  ssh "root@${LAB_HOST}" "mkdir -p '$(printf "%q" "${target_dir}")'"
+  scp "${source_path}" "root@${LAB_HOST}:${target_path}"
+  ssh "root@${LAB_HOST}" "chown root:root '$(printf "%q" "${target_path}")'"
+}
+
+build_thread_stats_agent() {
+  if [[ -n "${THREAD_STATS_AGENT_JAR:-}" ]]; then
+    if [[ ! -f "${THREAD_STATS_AGENT_JAR}" ]]; then
+      echo "THREAD_STATS_AGENT_JAR does not exist: ${THREAD_STATS_AGENT_JAR}" >&2
+      exit 1
+    fi
+    printf "%s\n" "${THREAD_STATS_AGENT_JAR}"
+    return
+  fi
+
+  local thread_stats_repo="${THREAD_STATS_REPO:-${DEFAULT_THREAD_STATS_REPO}}"
+  if [[ ! -f "${thread_stats_repo}/thread-stats-agent/pom.xml" ]]; then
+    echo "Thread Stats repo was not found: ${thread_stats_repo}" >&2
+    echo "Set THREAD_STATS_REPO or THREAD_STATS_AGENT_JAR before running install-lab.sh." >&2
+    exit 1
+  fi
+
+  (
+    cd "${thread_stats_repo}"
+    ./mvnw --batch-mode -pl thread-stats-agent -am package >&2
+  )
+  find "${thread_stats_repo}/thread-stats-agent/target" \
+    -maxdepth 1 \
+    -type f \
+    -name 'thread-stats-agent-*.jar' \
+    ! -name '*-sources.jar' \
+    ! -name '*-javadoc.jar' \
+    | sort \
+    | tail -n 1
 }
 
 if [[ -f "${LAB_ENV_PATH}" ]]; then
@@ -93,6 +136,14 @@ copy_dir "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads
 copy_dir "${REPO_ROOT}/demo/infra/shared/workloads" "${LAB_ROOT}/workloads"
 copy_dir "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
 copy_dir "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
+THREAD_STATS_AGENT_JAR_PATH="$(build_thread_stats_agent)"
+if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
+  echo "Thread Stats agent jar was not produced." >&2
+  exit 1
+fi
+copy_file "${THREAD_STATS_AGENT_JAR_PATH}" "${LAB_ROOT}/thread-stats/thread-stats-agent.jar"
+THREAD_STATS_AGENT_FINGERPRINT="$(sha256sum "${THREAD_STATS_AGENT_JAR_PATH}" | awk '{ print $1 }')"
+ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/state/fingerprints' && printf '%s\n' '${THREAD_STATS_AGENT_FINGERPRINT}' > '${LAB_ROOT}/state/fingerprints/thread-stats-agent.fingerprint'"
 ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/config'"
 ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
@@ -121,8 +172,10 @@ curl -fsS "http://${LAB_HOST}:3000/api/health" >/dev/null
 curl -fsS "http://${LAB_HOST}:30090/-/ready" >/dev/null
 curl -fsS "http://${LAB_HOST}:3100/ready" >/dev/null
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9092"
+timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9404"
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/6379"
-ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers='localhost:9092' topic list >/dev/null"
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-kafka env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null"
+curl -fsS "http://${LAB_HOST}:9404/prometheus" >/dev/null
 
 echo "Internal lab is installed."
 echo "  state:      ${STATE_DIR}"
@@ -131,3 +184,4 @@ echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${LAB_HOST}:9092"
+echo "  kafka thread stats: http://${LAB_HOST}:9404/prometheus"

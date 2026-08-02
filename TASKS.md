@@ -227,6 +227,7 @@
 | [INFRA-96](#infra-96) | Use one demo Kafka consumer group across internal-lab and AWS observability wiring. | DONE |
 | [INFRA-97](#infra-97) | Collect per-pod Thread Stats text snapshots during internal-lab runs. | DONE |
 | [INFRA-98](#infra-98) | Make Apache Kafka the default internal-lab broker implementation while keeping Redpanda selectable. | DONE |
+| [INFRA-99](#infra-99) | Attach the local Thread Stats Java agent to internal-lab Apache Kafka and add broker thread panels. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2444,3 +2445,17 @@ Keep Redpanda available through the existing `--kafka-implementation redpanda` o
 Align helper fallbacks and documentation so non-interactive runs use the same default as interactive runs.
 
 Verification: `bash -n` passed for changed shell scripts, `python -m py_compile` passed for changed Python helpers, and `git diff --check` passed.
+
+<a id="infra-99"></a>
+### INFRA-99 - Attach Thread Stats agent to Apache Kafka
+
+_Date: 2026-08-01_
+
+Build the local Thread Stats Java agent from the sibling repository during internal-lab install and update flows.
+Mount the agent into the Apache Kafka host container and expose its Prometheus endpoint on a separate port and scrape job.
+Add Grafana broker Thread Stats panels that query `ckc-kafka-thread-stats` so Kafka JVM metrics stay separate from demo app metrics.
+Clear `KAFKA_OPTS` for Kafka CLI helper commands so admin tools do not try to start a second agent on the broker metrics port.
+Polish the Kafka agent grouping from the live optilab `/threadstats` report and restart Kafka during base redeploys so bind-mounted agent config changes take effect.
+Make the Grafana application pod selector time-range aware and hide pod names from app legends when the current range/filter resolves to a single pod.
+
+Verification: changed shell scripts passed `bash -n`, changed Python helpers passed `py_compile`, Docker Compose rendered with the Apache Kafka profile, dashboard JSON parsed, `thread-stats-agent` Maven package succeeded, and a local `-javaagent` smoke run scraped Prometheus metrics.

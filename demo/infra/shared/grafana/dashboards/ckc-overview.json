@@ -195,9 +195,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))",
+              "expr": "(label_join((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}}"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}"
             }
           ],
           "title": "Order Events Throughput",
@@ -238,9 +238,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))",
+              "expr": "(label_join((sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} / {{error}}"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} / {{error}}"
             }
           ],
           "title": "Order Events Failure Throughput",
@@ -281,28 +281,28 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} avg",
+              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg",
               "refId": "A"
             },
             {
-              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"order_events\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} max",
+              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"order_events\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"order_events\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max",
               "refId": "B"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p50",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50",
               "refId": "C"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p95",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95",
               "refId": "D"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p99",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"order_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99",
               "refId": "E"
             }
           ],
@@ -344,29 +344,29 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} avg"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p50"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "D",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p95"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "E",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p99"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99"
             },
             {
-              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"order_events\", error=\"none\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"order_events\", error=\"none\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "C",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} max"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max"
             }
           ],
           "title": "Order Events Successful Record Age",
@@ -420,9 +420,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))",
+              "expr": "(label_join((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}}"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}"
             }
           ],
           "title": "Batch Events Throughput",
@@ -463,9 +463,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))",
+              "expr": "(label_join((sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, error, ${pod_grouping}) (label_replace(rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} / {{error}}"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} / {{error}}"
             }
           ],
           "title": "Batch Events Failure Throughput",
@@ -506,28 +506,28 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} avg",
+              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg",
               "refId": "A"
             },
             {
-              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} max",
+              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_process_duration_seconds_max{consumer_id=\"batch_events\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max",
               "refId": "B"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p50",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50",
               "refId": "C"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p95",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95",
               "refId": "D"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p99",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"batch_events\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99",
               "refId": "E"
             }
           ],
@@ -569,29 +569,29 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_sum{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_count{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} avg"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p50"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "D",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p95"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"event_type\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "E",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p99"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99"
             },
             {
-              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"batch_events\", error=\"none\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(demo_ckc_record_age_seconds_max{consumer_id=\"batch_events\", error=\"none\", pod=~\"$pod\"}, \"breakdown\", \"$1\", \"event_type\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "C",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} max"
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max"
             }
           ],
           "title": "Batch Events Successful Record Age",
@@ -651,9 +651,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
+              "expr": "(label_join((sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{topic}} {{pod}}"
+              "legendFormat": "{{topic}} {{pod_legend}}"
             }
           ],
           "title": "Cauldron Events Throughput",
@@ -694,9 +694,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (topic, error, ${pod_grouping}) (rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval]))",
+              "expr": "(label_join((sum by (topic, error, ${pod_grouping}) (rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (topic, error, ${pod_grouping}) (rate(demo_ckc_record_failed_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{topic}} {{pod}} / {{error}}"
+              "legendFormat": "{{topic}} {{pod_legend}} / {{error}}"
             }
           ],
           "title": "Cauldron Events Failure Throughput",
@@ -737,28 +737,28 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{topic}} {{pod}} avg",
+              "expr": "(label_join(((1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_sum{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_count{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{topic}} {{pod_legend}} avg",
               "refId": "A"
             },
             {
-              "expr": "(1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\"})) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{topic}} {{pod}} max",
+              "expr": "(label_join(((1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\", pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_process_duration_seconds_max{consumer_id=\"cauldron_events\", pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{topic}} {{pod_legend}} max",
               "refId": "B"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{topic}} {{pod}} p50",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{topic}} {{pod_legend}} p50",
               "refId": "C"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{topic}} {{pod}} p95",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{topic}} {{pod_legend}} p95",
               "refId": "D"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{topic}} {{pod}} p99",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_process_duration_seconds_bucket{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{topic}} {{pod_legend}} p99",
               "refId": "E"
             }
           ],
@@ -800,29 +800,29 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_sum{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_count{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(label_join(((1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_sum{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_count{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_sum{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_count{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{topic}} {{pod}} avg"
+              "legendFormat": "{{topic}} {{pod_legend}} avg"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{topic}} {{pod}} p50"
+              "legendFormat": "{{topic}} {{pod_legend}} p50"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "D",
-              "legendFormat": "{{topic}} {{pod}} p95"
+              "legendFormat": "{{topic}} {{pod_legend}} p95"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, topic, ${pod_grouping}) (rate(demo_ckc_record_age_seconds_bucket{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "E",
-              "legendFormat": "{{topic}} {{pod}} p99"
+              "legendFormat": "{{topic}} {{pod_legend}} p99"
             },
             {
-              "expr": "(1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_age_seconds_max{consumer_id=\"cauldron_events\", error=\"none\"})) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(label_join(((1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_age_seconds_max{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (topic, ${pod_grouping}) (demo_ckc_record_age_seconds_max{consumer_id=\"cauldron_events\", error=\"none\", pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "C",
-              "legendFormat": "{{topic}} {{pod}} max"
+              "legendFormat": "{{topic}} {{pod_legend}} max"
             }
           ],
           "title": "Cauldron Events Successful Record Age",
@@ -863,29 +863,29 @@
           },
           "targets": [
             {
-              "expr": "(1000 * sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_sum[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_count[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
+              "expr": "(label_join(((1000 * sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{pod}} avg"
+              "legendFormat": "{{pod_legend}} avg"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{pod}} p50"
+              "legendFormat": "{{pod_legend}} p50"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "D",
-              "legendFormat": "{{pod}} p95"
+              "legendFormat": "{{pod_legend}} p95"
             },
             {
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${pod_grouping}) (rate(ckc_demo_cauldron_telemetry_event_gap_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "E",
-              "legendFormat": "{{pod}} p99"
+              "legendFormat": "{{pod_legend}} p99"
             },
             {
-              "expr": "(1000 * max by (${pod_grouping}) (ckc_demo_cauldron_telemetry_event_gap_seconds_max)) and on() (vector(${duration_percentile}) == -2)",
+              "expr": "(label_join(((1000 * max by (${pod_grouping}) (ckc_demo_cauldron_telemetry_event_gap_seconds_max{pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${pod_grouping}) (ckc_demo_cauldron_telemetry_event_gap_seconds_max{pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "C",
-              "legendFormat": "{{pod}} max"
+              "legendFormat": "{{pod_legend}} max"
             }
           ],
           "title": "Cauldron Telemetry Event Gap",
@@ -991,8 +991,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (model, operation, outcome, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval]))",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{outcome}}",
+              "expr": "(label_join((sum by (model, operation, outcome, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (model, operation, outcome, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{outcome}}",
               "range": true,
               "refId": "A"
             }
@@ -1088,8 +1088,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_sum[$__rate_interval])) / clamp_min(sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} avg",
+              "expr": "(label_join(((1000 * sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{transport}} avg",
               "range": true,
               "refId": "A"
             },
@@ -1099,8 +1099,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * max by (model, operation, transport, ${pod_grouping}) (ckc_demo_model_call_duration_seconds_max)) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} max",
+              "expr": "(label_join(((1000 * max by (model, operation, transport, ${pod_grouping}) (ckc_demo_model_call_duration_seconds_max{pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (model, operation, transport, ${pod_grouping}) (ckc_demo_model_call_duration_seconds_max{pod=~\"$pod\"})) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{transport}} max",
               "range": true,
               "refId": "B"
             },
@@ -1110,8 +1110,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p50",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{transport}} p50",
               "range": true,
               "refId": "C"
             },
@@ -1121,8 +1121,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p95",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{transport}} p95",
               "range": true,
               "refId": "D"
             },
@@ -1132,8 +1132,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{model}} {{pod}} / {{operation}} / {{transport}} p99",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, model, operation, transport, ${pod_grouping}) (rate(ckc_demo_model_call_duration_seconds_bucket{pod=~\"$pod\"}[$__rate_interval])))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{model}} {{pod_legend}} / {{operation}} / {{transport}} p99",
               "range": true,
               "refId": "E"
             }
@@ -1198,14 +1198,14 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} active"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} active"
             },
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{consumer_id}} {{pod}} configured"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} configured"
             }
           ],
           "title": "CKC Active Workers",
@@ -1248,19 +1248,19 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} size"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} size"
             },
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{consumer_id}} {{pod}} capacity"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} capacity"
             },
             {
-              "expr": "max by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "(label_join((max by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((max by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_max{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "C",
-              "legendFormat": "{{consumer_id}} {{pod}} max observed"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} max observed"
             }
           ],
           "title": "CKC Queue Pressure",
@@ -1303,9 +1303,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\"}), 1)",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}), 1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers_active{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_workers{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}), 1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}}"
+              "legendFormat": "{{consumer_id}} {{pod_legend}}"
             }
           ],
           "title": "CKC Worker Utilization",
@@ -1348,9 +1348,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"}), 1)",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}), 1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_size{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}) / clamp_min(sum by (consumer_id, ${pod_grouping}) (demo_ckc_work_queue_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}), 1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} current"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} current"
             }
           ],
           "title": "CKC Work Queue Utilization",
@@ -1391,9 +1391,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, attempt, error, ${pod_grouping}) (rate(demo_ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "expr": "(label_join((sum by (consumer_id, attempt, error, ${pod_grouping}) (rate(demo_ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, attempt, error, ${pod_grouping}) (rate(demo_ckc_record_retry_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} / attempt={{attempt}} / {{error}}"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / attempt={{attempt}} / {{error}}"
             }
           ],
           "title": "CKC Retry Throughput",
@@ -1434,9 +1434,9 @@
           },
           "targets": [
             {
-              "expr": "1000 * sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval])), 1e-9)",
+              "expr": "(label_join((1000 * sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} avg"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} avg"
             }
           ],
           "title": "CKC Poll Duration",
@@ -1477,9 +1477,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_poll_records_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}}"
+              "legendFormat": "{{consumer_id}} {{pod_legend}}"
             }
           ],
           "title": "CKC Polled Records Throughput",
@@ -1520,9 +1520,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, success, ${pod_grouping}) (rate(demo_ckc_commit_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
+              "expr": "(label_join((sum by (consumer_id, success, ${pod_grouping}) (rate(demo_ckc_commit_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, success, ${pod_grouping}) (rate(demo_ckc_commit_duration_seconds_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} / success={{success}}"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / success={{success}}"
             }
           ],
           "title": "CKC Commit Throughput",
@@ -1615,8 +1615,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-              "legendFormat": "{{consumer_id}} {{pod}}",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -1712,8 +1712,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (consumer_id, partition, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\"})",
-              "legendFormat": "{{consumer_id}} {{pod}} / partition {{partition}}",
+              "expr": "(label_join((sum by (consumer_id, partition, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, partition, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / partition {{partition}}",
               "range": true,
               "refId": "A"
             }
@@ -1809,8 +1809,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (consumer_id, action, ${pod_grouping}) (rate(demo_ckc_pause_resume_total{consumer_id=~\"order_events|batch_events|cauldron_events\"}[$__rate_interval]))",
-              "legendFormat": "{{consumer_id}} {{pod}} / {{action}}",
+              "expr": "(label_join((sum by (consumer_id, action, ${pod_grouping}) (rate(demo_ckc_pause_resume_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, action, ${pod_grouping}) (rate(demo_ckc_pause_resume_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{action}}",
               "range": true,
               "refId": "A"
             }
@@ -1856,14 +1856,14 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events\"})",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_size{consumer_id=~\"order_events|batch_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} size"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} size"
             },
             {
-              "expr": "max by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events\"})",
+              "expr": "(label_join((max by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((max by (consumer_id, ${pod_grouping}) (demo_ckc_ordering_queue_max{consumer_id=~\"order_events|batch_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{consumer_id}} {{pod}} max observed"
+              "legendFormat": "{{consumer_id}} {{pod_legend}} max observed"
             }
           ],
           "title": "CKC Ordering Queue Pressure",
@@ -2133,8 +2133,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
-              "legendFormat": "CPU sum {{pod}}",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "CPU sum {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2231,8 +2231,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})",
-              "legendFormat": "Memory avg {{pod}}",
+              "expr": "(label_join((avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Memory avg {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2297,9 +2297,9 @@
           },
           "targets": [
             {
-              "expr": "1000 * sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_sum[$__rate_interval])) / clamp_min(sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count[$__rate_interval])), 1e-9)",
+              "expr": "(label_join((1000 * sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_sum{pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count{pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{job}} {{pod}} / {{gc}}"
+              "legendFormat": "{{job}} {{pod_legend}} / {{gc}}"
             }
           ],
           "title": "Average GC Pause",
@@ -2342,14 +2342,14 @@
           },
           "targets": [
             {
-              "expr": "sum by (job, area, ${pod_grouping}) (jvm_memory_used_bytes)",
+              "expr": "(label_join((sum by (job, area, ${pod_grouping}) (jvm_memory_used_bytes{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (job, area, ${pod_grouping}) (jvm_memory_used_bytes{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{job}} {{pod}} / {{area}} used"
+              "legendFormat": "{{job}} {{pod_legend}} / {{area}} used"
             },
             {
-              "expr": "sum by (job, area, ${pod_grouping}) (clamp_min(jvm_memory_max_bytes, 0))",
+              "expr": "(label_join((sum by (job, area, ${pod_grouping}) (clamp_min(jvm_memory_max_bytes{pod=~\"$pod\"}, 0))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (job, area, ${pod_grouping}) (clamp_min(jvm_memory_max_bytes{pod=~\"$pod\"}, 0))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{job}} {{pod}} / {{area}} max"
+              "legendFormat": "{{job}} {{pod_legend}} / {{area}} max"
             }
           ],
           "title": "JVM Memory",
@@ -2392,9 +2392,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count[$__rate_interval]))",
+              "expr": "(label_join((sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (job, gc, ${pod_grouping}) (rate(jvm_gc_pause_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{job}} {{pod}} / {{gc}}"
+              "legendFormat": "{{job}} {{pod_legend}} / {{gc}}"
             }
           ],
           "title": "GC Pause Rate",
@@ -2437,14 +2437,14 @@
           },
           "targets": [
             {
-              "expr": "sum by (job, ${pod_grouping}) (jvm_threads_live_threads)",
+              "expr": "(label_join((sum by (job, ${pod_grouping}) (jvm_threads_live_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (job, ${pod_grouping}) (jvm_threads_live_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "A",
-              "legendFormat": "{{job}} {{pod}} live"
+              "legendFormat": "{{job}} {{pod_legend}} live"
             },
             {
-              "expr": "sum by (job, ${pod_grouping}) (jvm_threads_daemon_threads)",
+              "expr": "(label_join((sum by (job, ${pod_grouping}) (jvm_threads_daemon_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (job, ${pod_grouping}) (jvm_threads_daemon_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "refId": "B",
-              "legendFormat": "{{job}} {{pod}} daemon"
+              "legendFormat": "{{job}} {{pod_legend}} daemon"
             }
           ],
           "title": "JVM Threads",
@@ -2556,8 +2556,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (group, ${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\"})",
-              "legendFormat": "{{group}} {{pod}}",
+              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2654,8 +2654,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\"}[$__rate_interval]))",
-              "legendFormat": "{{group}} {{pod}}",
+              "expr": "(label_join((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2751,8 +2751,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (group, ${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\"}[$__rate_interval]))",
-              "legendFormat": "{{group}} {{pod}}",
+              "expr": "(label_join((sum by (group, ${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2849,8 +2849,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (group, ${pod_grouping}) (thread_stats_thread_count_threads{pod=~\"$pod\"})",
-              "legendFormat": "{{group}} {{pod}}",
+              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_thread_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_thread_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -2947,8 +2947,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_count_threads{pod=~\"$pod\"})",
-              "legendFormat": "{{group}} {{state}} {{pod}}",
+              "expr": "(label_join((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{group}} {{state}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -3171,11 +3171,615 @@
     },
     {
       "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 20
+      },
+      "id": 95,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "id": 96,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (group) (thread_stats_cpu_usage_ratio{job=\"ckc-kafka-thread-stats\"})",
+              "legendFormat": "{{group}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats CPU Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "id": 97,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "1000 * sum by (group) (rate(thread_stats_cpu_seconds_total{job=\"ckc-kafka-thread-stats\"}[$__rate_interval]))",
+              "legendFormat": "{{group}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats CPU Time Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 28
+          },
+          "id": 98,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (group) (rate(thread_stats_allocated_bytes_total{job=\"ckc-kafka-thread-stats\"}[$__rate_interval]))",
+              "legendFormat": "{{group}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats Allocation Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "id": 99,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (group) (thread_stats_threads{job=\"ckc-kafka-thread-stats\"})",
+              "legendFormat": "{{group}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats Thread Count",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "id": 100,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (group, state) (thread_stats_thread_state_threads{job=\"ckc-kafka-thread-stats\"})",
+              "legendFormat": "{{group}} {{state}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats Thread States",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "id": 101,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "thread_stats_sampling_errors_total{job=\"ckc-kafka-thread-stats\"}",
+              "legendFormat": "errors",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka Thread Stats Sampling Errors",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Host Services: Kafka Thread Stats",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
       },
       "panels": [
         {
@@ -3384,7 +3988,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 29
+        "y": 30
       },
       "panels": [
         {
@@ -3474,8 +4078,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}}",
+              "expr": "(label_join((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
@@ -3572,8 +4176,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} avg",
+              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg",
               "range": true,
               "refId": "A"
             },
@@ -3583,8 +4187,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} max",
+              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max",
               "range": true,
               "refId": "B"
             },
@@ -3594,8 +4198,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p50",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50",
               "range": true,
               "refId": "C"
             },
@@ -3605,8 +4209,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p95",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95",
               "range": true,
               "refId": "D"
             },
@@ -3616,8 +4220,8 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod}} p99",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99",
               "range": true,
               "refId": "E"
             }
@@ -3696,7 +4300,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}, pod)",
+        "definition": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
         "hide": 0,
         "includeAll": true,
         "label": "Application pods",
@@ -3704,11 +4308,11 @@
         "name": "pod",
         "options": [],
         "query": {
-          "query": "label_values(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}, pod)",
+          "query": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
-        "refresh": 1,
-        "regex": "",
+        "refresh": 2,
+        "regex": "/pod=\"([^\\\"]+)\"/",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"

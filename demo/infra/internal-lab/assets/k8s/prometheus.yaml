@@ -82,6 +82,12 @@ data:
           - targets:
               - ckc-external-kafka-exporter.ckc-perf.svc.cluster.local:9308
 
+      - job_name: ckc-kafka-thread-stats
+        metrics_path: /prometheus
+        static_configs:
+          - targets:
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9404
+
       - job_name: ckc-redpanda-public-metrics
         metrics_path: /public_metrics
         static_configs:

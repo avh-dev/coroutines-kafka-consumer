@@ -24,6 +24,29 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ckc-external-kafka-thread-stats
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: metrics
+      port: 9404
+      targetPort: 9404
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-kafka-thread-stats
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_NODE_IP__
+    ports:
+      - name: metrics
+        port: 9404
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ckc-external-redis
   namespace: ckc-perf
 spec:

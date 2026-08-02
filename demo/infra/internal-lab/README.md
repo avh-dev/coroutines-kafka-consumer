@@ -269,6 +269,13 @@ The single-node lab also sets the share coordinator state topic replication
 factor and min ISR to `1`, so share-group experiments do not wait for a
 multi-broker cluster.
 Redpanda remains available with `--kafka-implementation redpanda`.
+For Apache Kafka runs, the lab builds the local Thread Stats Java agent from
+the sibling `../thread-stats` repository, mounts it into the Kafka container,
+and exposes broker thread metrics at `http://${LAB_HOST}:9404/prometheus`.
+Set `THREAD_STATS_REPO` or `THREAD_STATS_AGENT_JAR` before `install-lab.sh` or
+`update-lab.sh` to use a different local checkout or prebuilt agent jar. These
+metrics use the Prometheus job `ckc-kafka-thread-stats`, separate from the demo
+application's `/actuator/prometheus` Thread Stats metrics.
 
 Any generated test environment value can also be overridden with repeated
 `--env KEY=VALUE` flags. These overrides are applied after the consumer profile and
@@ -684,7 +691,7 @@ ssh "root@${LAB_HOST}" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Po
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redis redis-cli PING"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-redpanda rpk -X brokers=localhost:9092 topic list"
 # For an Apache Kafka run:
-ssh "root@${LAB_HOST}" "docker exec ckc-perf-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+ssh "root@${LAB_HOST}" "docker exec ckc-perf-kafka env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
 ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:9308/metrics | grep kafka_consumergroup_lag | head"
 ssh "root@${LAB_HOST}" "curl -fsS http://127.0.0.1:2020/api/v1/health"
 ```
