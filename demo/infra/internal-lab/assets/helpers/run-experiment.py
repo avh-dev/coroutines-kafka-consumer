@@ -289,8 +289,9 @@ def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, 
         validate_helm_overrides(helm, f"Experiment targets[{index}]")
         if helm:
             target["helm"] = helm
+        target_view = merge_target_defaults(experiment.get("defaults", {}) or {}, target)
         for topic in ("order", "batch", "telemetry"):
-            if topic_planning_latency(target, topic) in (None, ""):
+            if topic_planning_latency(target_view, topic) in (None, ""):
                 raise ValueError(f"Experiment targets[{index}] must define planning_latency.{topic}_ms: {path}")
         target.setdefault("id", str(target.get("name") or target.get("profile") or target.get("deployment")))
         target.setdefault("name", target["id"])
@@ -336,6 +337,28 @@ def interactive_global_env(current: dict[str, str]) -> dict[str, str]:
         return result
     except EOFError:
         return {}
+
+
+def experiment_default_env(path: Path) -> dict[str, str]:
+    experiment = load_yaml(path)
+    defaults = experiment.get("defaults", {})
+    if defaults in ("", None):
+        defaults = {}
+    if not isinstance(defaults, dict):
+        raise ValueError(f"Experiment defaults must be an object: {path}")
+    return merge_env(defaults, {}, {})
+
+
+def selected_experiment_env(paths: list[Path]) -> dict[str, str]:
+    values: dict[str, set[str]] = {}
+    for path in paths:
+        for key, value in experiment_default_env(path).items():
+            values.setdefault(key, set()).add(value)
+    return {
+        key: next(iter(items))
+        for key, items in values.items()
+        if len(items) == 1
+    }
 
 
 def duration_seconds(text: str) -> int:
@@ -500,6 +523,11 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
     command = [str(run_test), "--skip-analysis"]
     if "profile" in test:
         command.extend(["--profile", str(test["profile"])])
+        if "parallelism" in test:
+            values = test["parallelism"]
+            if isinstance(values, list):
+                values = ",".join(str(item) for item in values)
+            command.extend(["--parallelism", env_value(values)])
         if "base_tps" in test:
             command.extend(["--base-rate", env_value(test["base_tps"])])
         if "replicas" in test:
@@ -810,7 +838,8 @@ def main() -> int:
         raise ValueError("experiment is required without interactive input")
 
     cli_env = env_overrides(args.env)
-    global_env = {**interactive_global_env(cli_env), **cli_env}
+    selected_env = selected_experiment_env(selected)
+    global_env = {**interactive_global_env({**selected_env, **cli_env}), **cli_env}
     hook = notify_hook_path(lab_root, args.notify_hook)
     experiment_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_dir = result_root / experiment_set_id

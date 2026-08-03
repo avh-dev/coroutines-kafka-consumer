@@ -129,6 +129,7 @@
 | [DEMO-76](#demo-76) | Use one demo Kafka consumer group and shared Spring Kafka listener-id prefixes across demo profiles. | DONE |
 | [DEMO-77](#demo-77) | Adapt the demo Thread Stats actuator integration to the cached latest-interval starter behavior. | DONE |
 | [DEMO-78](#demo-78) | Keep Spring Kafka listener ids from overriding the shared demo Kafka consumer group. | DONE |
+| [DEMO-79](#demo-79) | Add a Spring Kafka virtual-thread worker profile for Thread Stats comparison screenshots. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2379,6 +2380,24 @@ _Date: 2026-07-29_
 Set Spring Kafka listener annotations to keep their stable listener ids from becoming Kafka consumer group ids.
 Preserve the shared demo group id supplied by the listener container consumer factories.
 Cover the annotation contract so future listener-id changes do not reintroduce per-listener groups.
+
+<a id="demo-79"></a>
+### DEMO-79 - Add Spring Kafka virtual-thread workers
+
+_Date: 2026-08-02_
+
+Add a `spring-kafka-virtual-thread-pool` demo profile that keeps Spring Kafka batch pollers separate from business processing.
+Run accepted records on virtual-thread-per-task workers behind the configured worker concurrency and queue admission limits.
+Expose Thread Stats grouping and profile metrics for the virtual worker profile.
+Allow internal-lab experiment targets to override generated parallelism knobs while keeping concrete partitions, workers, and pollers calculated by the planner.
+Add a 10-minute 3m/6m/1m load-test definition and a Spring Kafka Thread Stats progression experiment for screenshot runs at 5k TPS.
+Allow experiment defaults to provide `planning_latency` so only targets with different latency assumptions need local overrides.
+Force that progression experiment to use the default JDK HTTP client executor so ordinary Spring Kafka runs do not inherit virtual threads from a previous deployment.
+Tune Kafka consumer fetch batching in that progression experiment to reduce small-response broker noise during high-partition screenshot runs.
+Raise worker queue capacities for thread-pool progression targets to twice the tuned `max.poll.records` value so worker admission does not dominate the comparison.
+Pass Kafka consumer fetch overrides from experiment environment through lab prepare into generated demo Helm values.
+
+Verification: targeted `:ckc-demo:test` profile/config tests passed, `plan-run.py` accepted the new manual partition/worker/poller shape, changed Python helpers passed `py_compile`, and changed shell scripts passed `bash -n`.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update

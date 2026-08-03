@@ -117,6 +117,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
     parser.add_argument("--jdk-http-client-executor", choices=["DEFAULT", "VIRTUAL", "default", "virtual"])
+    parser.add_argument("--parallelism", type=non_empty)
     parser.add_argument("--demo-java-tool-options", type=non_empty)
     parser.add_argument("--demo-cpu-request", type=non_empty)
     parser.add_argument("--demo-memory-request", type=non_empty)
@@ -150,7 +151,7 @@ def value_at(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 def parallelism_knobs(raw: Any, *, context: str) -> list[str]:
     if isinstance(raw, str):
-        values = [raw]
+        values = [item.strip() for item in raw.split(",")]
     elif isinstance(raw, list):
         values = [str(item) for item in raw]
     else:
@@ -251,7 +252,14 @@ def runtime_processing_mode(mode: str) -> str:
     return PROCESSING_MODE_RUNTIME_ALIASES.get(mode, mode)
 
 
-def topic_parallelism(profile: dict[str, Any], topic: str, processing_mode: str) -> list[str]:
+def topic_parallelism(
+    profile: dict[str, Any],
+    topic: str,
+    processing_mode: str,
+    parallelism_override: list[str] | None
+) -> list[str]:
+    if parallelism_override is not None:
+        return parallelism_override
     topic_config = topic_profile(profile, topic)
     overrides = topic_config.get("mode_parallelism", {})
     if overrides in ("", None):
@@ -417,6 +425,11 @@ def main() -> None:
     base_tps = args.base_tps or int(load_test.get("base_tps", 10000))
     current_replicas = current.get("REPLICA_COUNT", "")
     replica_count = args.replicas or (int(current_replicas) if current_replicas.isdigit() and int(current_replicas) > 0 else 1)
+    parallelism_override = (
+        parallelism_knobs(args.parallelism, context="--parallelism")
+        if args.parallelism
+        else None
+    )
 
     explicit_modes = {
         "order": args.order_processing_mode,
@@ -455,7 +468,7 @@ def main() -> None:
             profile_name=args.profile,
             current=current,
         )
-        knobs = topic_parallelism(profile, topic_name, mode)
+        knobs = topic_parallelism(profile, topic_name, mode, parallelism_override)
         percent = float(load_test.get(topic_config["traffic_percent_key"], 0))
         target_tps = base_tps * percent / 100.0
         default_average_ms = planning_latency_ms(profile, topic_name)
@@ -504,11 +517,11 @@ def main() -> None:
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = poll_loop_concurrency
         if "pollers" in knobs and overrides["partitions"] is not None and overrides["pollers"] is not None:
-            expected_partitions = overrides["pollers"] * replica_count
-            if partitions != expected_partitions:
+            minimum_partitions = overrides["pollers"] * replica_count
+            if partitions < minimum_partitions:
                 raise ValueError(
-                    f"{topic_name} partitions must equal pollers * replicas for {args.profile}: "
-                    f"{partitions} != {overrides['pollers']} * {replica_count}"
+                    f"{topic_name} partitions must be at least pollers * replicas for {args.profile}: "
+                    f"{partitions} < {overrides['pollers']} * {replica_count}"
                 )
 
         env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)

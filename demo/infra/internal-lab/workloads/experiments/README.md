@@ -111,6 +111,10 @@ Use `spring-kafka-thread-pool` when a comparison should keep Spring Kafka poller
 concurrency low and move synchronous processing onto bounded platform-thread
 worker pools.
 
+Use `spring-kafka-virtual-thread-pool` for the same batch-listener admission
+shape, but with accepted records executed on virtual-thread-per-task workers
+behind the configured worker concurrency limit.
+
 `planning_latency` is an experiment input for generated partitions, workers,
 and pollers. It should be calibrated for this experiment's `base_tps`, target
 consumer profile, and current lab infrastructure.

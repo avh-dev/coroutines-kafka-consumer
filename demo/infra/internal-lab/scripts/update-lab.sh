@@ -340,6 +340,7 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
     "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
     "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
+    "${LAB_ROOT}/workloads/experiments/spring-kafka-thread-stats-progression.yaml" \
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi

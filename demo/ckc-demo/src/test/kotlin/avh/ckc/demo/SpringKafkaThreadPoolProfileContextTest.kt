@@ -1,14 +1,19 @@
 package avh.ckc.demo
 
 import avh.ckc.core.ProcessingMode
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.springkafkathreadpool.SpringKafkaThreadPoolExecutorMode
 import avh.ckc.demo.consumer.springkafkathreadpool.SpringKafkaThreadPoolProfileConfiguration
+import avh.ckc.demo.consumer.springkafkathreadpool.SpringKafkaThreadPoolRuntime
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.proto.OrderLifecycleEvent
 import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -19,6 +24,9 @@ import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.util.ReflectionTestUtils
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -107,6 +115,46 @@ class SpringKafkaThreadPoolProfileContextTest(
         assertThreadPoolAdmissionRecovery(telemetryContainerFactory)
     }
 
+    @Test
+    fun `virtual thread pool mode runs accepted work on virtual threads`() {
+        val handledOnVirtualThread = AtomicReference<Boolean>()
+        val handled = CountDownLatch(1)
+        val runtime = SpringKafkaThreadPoolRuntime(
+            properties = DemoApplicationProperties().apply {
+                consumers.order.workerConcurrency = 1
+                consumers.order.workChannelCapacity = 1
+            },
+            orderConsumerMetrics = noopMetrics(),
+            batchConsumerMetrics = noopMetrics(),
+            telemetryConsumerMetrics = noopMetrics(),
+            orderHandler = {
+                handledOnVirtualThread.set(Thread.currentThread().isVirtual)
+                handled.countDown()
+            },
+            batchHandler = {},
+            telemetryHandler = {},
+            executorMode = SpringKafkaThreadPoolExecutorMode.VIRTUAL_THREAD_PER_TASK
+        )
+
+        runtime.start()
+        try {
+            runtime.enqueueOrder(
+                ConsumerRecord(
+                    DemoTopics.ORDER_EVENTS,
+                    0,
+                    0L,
+                    "order-1",
+                    OrderLifecycleEvent.getDefaultInstance()
+                )
+            )
+
+            assertTrue(handled.await(5, TimeUnit.SECONDS))
+            assertEquals(true, handledOnVirtualThread.get())
+        } finally {
+            runtime.stop()
+        }
+    }
+
     private fun ConsumerFactory<*, *>.config(): Map<String, Any> =
         (this as DefaultKafkaConsumerFactory<*, *>).configurationProperties
 
@@ -118,5 +166,43 @@ class SpringKafkaThreadPoolProfileContextTest(
         assertEquals(true, errorHandler.isAckAfterHandle)
         assertEquals(true, containerFactory.containerProperties.isStopImmediate)
         assertEquals(5_000L, containerFactory.containerProperties.shutdownTimeout)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <V> noopMetrics(): ConsumerMetrics<String, V> =
+        ConsumerMetrics.NOOP as ConsumerMetrics<String, V>
+}
+
+@SpringBootTest(
+    properties = [
+        "demo.kafka.enabled=false",
+        "SERVER_PORT=0",
+        "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
+                "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
+    ]
+)
+@ActiveProfiles("spring-kafka-virtual-thread-pool")
+class SpringKafkaVirtualThreadPoolProfileContextTest(
+    @Autowired private val applicationContext: ApplicationContext,
+    @Autowired private val meterRegistry: MeterRegistry
+) {
+    @Test
+    fun `virtual thread pool profile creates only sync model clients`() {
+        assertFalse(applicationContext.getBeansOfType(SuspendArcaneEtaModelClient::class.java).isNotEmpty())
+        assertFalse(applicationContext.getBeansOfType(SuspendOrderFlavourModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SyncArcaneEtaModelClient::class.java).isNotEmpty())
+        assertTrue(applicationContext.getBeansOfType(SyncOrderFlavourModelClient::class.java).isNotEmpty())
+    }
+
+    @Test
+    fun `consumer profile info metric identifies spring kafka virtual thread pool implementation`() {
+        val gauge = meterRegistry.find("ckc.demo.consumer.profile.info")
+            .tag("consumer_impl", "spring_kafka_virtual_thread_pool")
+            .tag("profile", "spring-kafka-virtual-thread-pool")
+            .tag("spring_profile", "spring-kafka-virtual-thread-pool")
+            .gauge()
+
+        assertNotNull(gauge)
+        assertEquals(1.0, gauge.value())
     }
 }

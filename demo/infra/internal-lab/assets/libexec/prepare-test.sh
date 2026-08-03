@@ -185,6 +185,18 @@ if [[ -n "${WORKER_DISPATCHER_THREADS}" && "${PROCESSING_DISPATCHER_TYPE:-}" != 
   echo "WORKER_DISPATCHER_THREADS is only valid when PROCESSING_DISPATCHER_TYPE=FIXED." >&2
   exit 1
 fi
+if [[ -n "${KAFKA_CONSUMER_FETCH_MIN_BYTES:-}" ]] && ! [[ "${KAFKA_CONSUMER_FETCH_MIN_BYTES}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "KAFKA_CONSUMER_FETCH_MIN_BYTES must be a positive integer after overrides: ${KAFKA_CONSUMER_FETCH_MIN_BYTES}" >&2
+  exit 1
+fi
+if [[ -n "${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:-}" ]] && ! [[ "${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "KAFKA_CONSUMER_FETCH_MAX_WAIT_MS must be a positive integer after overrides: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS}" >&2
+  exit 1
+fi
+if [[ -n "${KAFKA_CONSUMER_MAX_POLL_RECORDS:-}" ]] && ! [[ "${KAFKA_CONSUMER_MAX_POLL_RECORDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "KAFKA_CONSUMER_MAX_POLL_RECORDS must be a positive integer after overrides: ${KAFKA_CONSUMER_MAX_POLL_RECORDS}" >&2
+  exit 1
+fi
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
@@ -224,6 +236,9 @@ HELM_ARGS=(
   --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
   --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}" \
   --set "env.jdkHttpClientExecutor=${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}" \
+  --set "env.kafkaConsumerFetchMinBytes=${KAFKA_CONSUMER_FETCH_MIN_BYTES:-8192}" \
+  --set "env.kafkaConsumerFetchMaxWaitMs=${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:-250}" \
+  --set "env.kafkaConsumerMaxPollRecords=${KAFKA_CONSUMER_MAX_POLL_RECORDS:-500}" \
   --set-string "podLabels.ckc_run_id=${AUDIT_RUN_ID}" \
   --set-string "podLabels.ckc_profile=${APP_PROFILE}" \
   --set-string "podLabels.ckc_test_definition=$(basename "${TEST_DEFINITION}" .yaml)"
@@ -248,6 +263,9 @@ AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
 LETTUCE_METRICS_ENABLED='${LETTUCE_METRICS_ENABLED}'
 JDK_HTTP_CLIENT_EXECUTOR='${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}'
+KAFKA_CONSUMER_FETCH_MIN_BYTES='${KAFKA_CONSUMER_FETCH_MIN_BYTES:-8192}'
+KAFKA_CONSUMER_FETCH_MAX_WAIT_MS='${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:-250}'
+KAFKA_CONSUMER_MAX_POLL_RECORDS='${KAFKA_CONSUMER_MAX_POLL_RECORDS:-500}'
 WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
 STUB_REPLICA_COUNT='${STUB_REPLICA_COUNT}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'

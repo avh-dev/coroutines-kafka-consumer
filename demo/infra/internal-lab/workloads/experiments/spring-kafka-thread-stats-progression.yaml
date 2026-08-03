@@ -1,0 +1,50 @@
+name: spring-kafka-thread-stats-progression
+description: Compare Spring Kafka poller and worker-thread placement for Thread Stats documentation screenshots.
+test_definition: 10min
+base_tps: 5000
+
+defaults:
+  replicas: 1
+  planning_latency:
+    order_ms: 10
+    batch_ms: 10
+    telemetry_ms: 55
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: false
+    METRICS_IMPLEMENTATION: MICROMETER
+    JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+    KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+    KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 100
+    KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+
+targets:
+  - name: spring-kafka
+    profile: spring-kafka
+
+  - name: spring-kafka-thread-pool.partitions-and-workers.fast
+    profile: spring-kafka-thread-pool
+    parallelism: [partitions, workers]
+    order_queue_capacity: 4000
+    batch_queue_capacity: 4000
+    telemetry_queue_capacity: 4000
+
+  - name: spring-kafka-thread-pool.partitions-and-workers
+    profile: spring-kafka-thread-pool
+    parallelism: [partitions, workers]
+    order_queue_capacity: 4000
+    batch_queue_capacity: 4000
+    telemetry_queue_capacity: 4000
+
+  - name: spring-kafka-thread-pool.generated
+    profile: spring-kafka-thread-pool
+    order_queue_capacity: 4000
+    batch_queue_capacity: 4000
+    telemetry_queue_capacity: 4000
+
+  - name: spring-kafka-virtual-thread-pool.partitions-and-workers
+    profile: spring-kafka-virtual-thread-pool
+    parallelism: [partitions, workers]
+    order_queue_capacity: 4000
+    batch_queue_capacity: 4000
+    telemetry_queue_capacity: 4000

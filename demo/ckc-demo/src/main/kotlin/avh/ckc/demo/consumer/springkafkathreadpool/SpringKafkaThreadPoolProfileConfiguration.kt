@@ -21,6 +21,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import org.springframework.core.env.Environment
+import org.springframework.core.env.Profiles
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
@@ -29,12 +31,13 @@ import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.util.backoff.FixedBackOff
 
 @Configuration(proxyBeanMethods = false)
-@Profile("spring-kafka-thread-pool")
+@Profile("spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
 class SpringKafkaThreadPoolProfileConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
     fun springKafkaThreadPoolRuntime(
         properties: DemoApplicationProperties,
+        environment: Environment,
         orderLifecycleService: SyncOrderLifecycleService,
         batchLifecycleService: SyncBatchLifecycleService,
         cauldronTelemetryService: SyncCauldronTelemetryService,
@@ -52,7 +55,12 @@ class SpringKafkaThreadPoolProfileConfiguration {
             telemetryConsumerMetrics = telemetryConsumerMetrics,
             orderHandler = { orderLifecycleService.apply(it) },
             batchHandler = { batchLifecycleService.apply(it) },
-            telemetryHandler = { cauldronTelemetryService.recalculate(it) }
+            telemetryHandler = { cauldronTelemetryService.recalculate(it) },
+            executorMode = if (environment.acceptsProfiles(Profiles.of("spring-kafka-virtual-thread-pool"))) {
+                SpringKafkaThreadPoolExecutorMode.VIRTUAL_THREAD_PER_TASK
+            } else {
+                SpringKafkaThreadPoolExecutorMode.PLATFORM_THREAD_POOL
+            }
         )
 
     @Bean

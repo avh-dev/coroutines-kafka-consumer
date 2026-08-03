@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.springkafkathreadpool
 
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.config.DemoApplicationProperties
@@ -20,10 +21,18 @@ import org.slf4j.LoggerFactory
 import org.springframework.context.SmartLifecycle
 import org.springframework.kafka.listener.AbstractMessageListenerContainer
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+
+enum class SpringKafkaThreadPoolExecutorMode {
+    PLATFORM_THREAD_POOL,
+    VIRTUAL_THREAD_PER_TASK
+}
 
 class SpringKafkaThreadPoolRuntime(
     private val properties: DemoApplicationProperties,
@@ -33,13 +42,14 @@ class SpringKafkaThreadPoolRuntime(
     private val orderHandler: (OrderLifecycleEvent) -> Unit,
     private val batchHandler: (BatchLifecycleEvent) -> Unit,
     private val telemetryHandler: (CauldronTelemetryEvent) -> Unit,
+    private val executorMode: SpringKafkaThreadPoolExecutorMode = SpringKafkaThreadPoolExecutorMode.PLATFORM_THREAD_POOL,
     private val recordMetrics: DemoRecordMetrics = DemoRecordMetrics(),
     private val freshnessFirstRecordFilter: FreshnessFirstRecordFilter = FreshnessFirstRecordFilter(properties)
 ) : SmartLifecycle {
     private val logger = LoggerFactory.getLogger(javaClass)
-    private lateinit var orderExecutor: ThreadPoolExecutor
-    private lateinit var batchExecutor: ThreadPoolExecutor
-    private lateinit var telemetryExecutor: ThreadPoolExecutor
+    private lateinit var orderExecutor: SpringKafkaWorkerExecutor
+    private lateinit var batchExecutor: SpringKafkaWorkerExecutor
+    private lateinit var telemetryExecutor: SpringKafkaWorkerExecutor
 
     @Volatile
     private var running = false
@@ -66,9 +76,9 @@ class SpringKafkaThreadPoolRuntime(
         if (running) {
             return
         }
-        orderExecutor = newExecutor("order", properties.consumers.order)
-        batchExecutor = newExecutor("batch", properties.consumers.batch)
-        telemetryExecutor = newExecutor("telemetry", properties.consumers.telemetry)
+        orderExecutor = newExecutor("order", properties.consumers.order, orderConsumerMetrics)
+        batchExecutor = newExecutor("batch", properties.consumers.batch, batchConsumerMetrics)
+        telemetryExecutor = newExecutor("telemetry", properties.consumers.telemetry, telemetryConsumerMetrics)
         running = true
     }
 
@@ -88,31 +98,29 @@ class SpringKafkaThreadPoolRuntime(
 
     override fun getPhase(): Int = AbstractMessageListenerContainer.DEFAULT_PHASE - 1
 
-    private fun newExecutor(name: String, runtime: DemoApplicationProperties.ConsumerRuntime): ThreadPoolExecutor {
+    private fun newExecutor(
+        name: String,
+        runtime: DemoApplicationProperties.ConsumerRuntime,
+        metrics: ConsumerMetrics<String, *>
+    ): SpringKafkaWorkerExecutor {
         require(runtime.workerConcurrency > 0) {
             "demo.consumers.$name.worker-concurrency must be > 0 for spring-kafka-thread-pool"
         }
         require(runtime.workChannelCapacity > 0) {
             "demo.consumers.$name.work-channel-capacity must be > 0 for spring-kafka-thread-pool"
         }
-        val threadNumber = AtomicInteger()
-        return ThreadPoolExecutor(
-            runtime.workerConcurrency,
-            runtime.workerConcurrency,
-            0L,
-            TimeUnit.MILLISECONDS,
-            ArrayBlockingQueue(runtime.workChannelCapacity),
-            { runnable ->
-                Thread(runnable, "spring-kafka-thread-pool-$name-${threadNumber.incrementAndGet()}").apply {
-                    isDaemon = true
-                }
-            },
-            ThreadPoolExecutor.AbortPolicy()
-        )
+        val stats = SpringKafkaWorkerRuntimeStats(runtime.workerConcurrency, runtime.workChannelCapacity)
+        metrics.bindRuntimeMetrics(stats)
+        return when (executorMode) {
+            SpringKafkaThreadPoolExecutorMode.PLATFORM_THREAD_POOL ->
+                PlatformSpringKafkaWorkerExecutor(name, runtime, stats)
+            SpringKafkaThreadPoolExecutorMode.VIRTUAL_THREAD_PER_TASK ->
+                VirtualThreadSpringKafkaWorkerExecutor(name, runtime, stats)
+        }
     }
 
     private fun <V> enqueue(
-        executor: ThreadPoolExecutor,
+        executor: SpringKafkaWorkerExecutor,
         record: ConsumerRecord<String, V>,
         metrics: ConsumerMetrics<String, V>,
         task: () -> Unit
@@ -247,6 +255,163 @@ class SpringKafkaThreadPoolRuntime(
 
     private fun latencyOnlySleep() {
         Thread.sleep((5L..8L).random())
+    }
+}
+
+private interface SpringKafkaWorkerExecutor {
+    fun execute(task: () -> Unit)
+
+    fun shutdownNow()
+}
+
+private class PlatformSpringKafkaWorkerExecutor(
+    name: String,
+    runtime: DemoApplicationProperties.ConsumerRuntime,
+    private val stats: SpringKafkaWorkerRuntimeStats
+) : SpringKafkaWorkerExecutor {
+    private val executor: ThreadPoolExecutor
+
+    init {
+        val threadNumber = AtomicInteger()
+        executor = ThreadPoolExecutor(
+            runtime.workerConcurrency,
+            runtime.workerConcurrency,
+            0L,
+            TimeUnit.MILLISECONDS,
+            ArrayBlockingQueue(runtime.workChannelCapacity),
+            { runnable ->
+                Thread(runnable, "spring-kafka-thread-pool-$name-${threadNumber.incrementAndGet()}").apply {
+                    isDaemon = true
+                }
+            },
+            ThreadPoolExecutor.AbortPolicy()
+        )
+    }
+
+    override fun execute(task: () -> Unit) {
+        stats.onWorkEnqueued()
+        try {
+            executor.execute {
+                stats.onWorkDequeued()
+                stats.onWorkerStarted()
+                try {
+                    task()
+                } finally {
+                    stats.onWorkerFinished()
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            stats.onWorkDequeued()
+            throw error
+        }
+    }
+
+    override fun shutdownNow() {
+        executor.shutdownNow()
+    }
+}
+
+private class VirtualThreadSpringKafkaWorkerExecutor(
+    name: String,
+    runtime: DemoApplicationProperties.ConsumerRuntime,
+    private val stats: SpringKafkaWorkerRuntimeStats
+) : SpringKafkaWorkerExecutor {
+    private val workerPermits = Semaphore(runtime.workerConcurrency)
+    private val admissionPermits = Semaphore(runtime.workerConcurrency + runtime.workChannelCapacity)
+    private val executor: ExecutorService
+
+    init {
+        val threadNumber = AtomicInteger()
+        executor = Executors.newThreadPerTaskExecutor { runnable ->
+            Thread.ofVirtual()
+                .name("spring-kafka-virtual-thread-pool-$name-", threadNumber.incrementAndGet().toLong())
+                .factory()
+                .newThread(runnable)
+        }
+    }
+
+    override fun execute(task: () -> Unit) {
+        if (!admissionPermits.tryAcquire()) {
+            throw RejectedExecutionException("virtual-thread worker admission is full")
+        }
+        stats.onWorkEnqueued()
+        try {
+            executor.execute {
+                var workerAcquired = false
+                var workDequeued = false
+                try {
+                    workerPermits.acquire()
+                    workerAcquired = true
+                    stats.onWorkDequeued()
+                    workDequeued = true
+                    stats.onWorkerStarted()
+                    try {
+                        task()
+                    } finally {
+                        stats.onWorkerFinished()
+                    }
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                } finally {
+                    if (!workDequeued) {
+                        stats.onWorkDequeued()
+                    }
+                    if (workerAcquired) {
+                        workerPermits.release()
+                    }
+                    admissionPermits.release()
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            stats.onWorkDequeued()
+            admissionPermits.release()
+            throw error
+        }
+    }
+
+    override fun shutdownNow() {
+        executor.shutdownNow()
+    }
+}
+
+private class SpringKafkaWorkerRuntimeStats(
+    override val workerCount: Int,
+    override val workQueueCapacity: Int
+) : ConsumerRuntimeStats {
+    private val activeWorkerCountRef = AtomicInteger()
+    private val workQueueSizeRef = AtomicInteger()
+    private val maxObservedWorkQueueSizeRef = AtomicInteger()
+
+    override val activeWorkerCount: Int
+        get() = activeWorkerCountRef.get()
+
+    override val workQueueSize: Int
+        get() = workQueueSizeRef.get()
+
+    override val maxObservedWorkQueueSize: Int
+        get() = maxObservedWorkQueueSizeRef.get()
+
+    override val orderingQueueSize: Int
+        get() = 0
+
+    override val maxObservedOrderingQueueSize: Int
+        get() = 0
+
+    fun onWorkEnqueued() {
+        val queueSize = workQueueSizeRef.incrementAndGet()
+        maxObservedWorkQueueSizeRef.updateAndGet { current -> maxOf(current, queueSize) }
+    }
+
+    fun onWorkDequeued() {
+        workQueueSizeRef.updateAndGet { current -> if (current > 0) current - 1 else 0 }
+    }
+
+    fun onWorkerStarted() {
+        activeWorkerCountRef.incrementAndGet()
+    }
+
+    fun onWorkerFinished() {
+        activeWorkerCountRef.updateAndGet { current -> if (current > 0) current - 1 else 0 }
     }
 }
 

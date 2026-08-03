@@ -34,7 +34,7 @@ class ModelClientConfiguration {
         ModelCallMetrics(meterRegistry)
 
     @Bean(destroyMethod = "shutdown")
-    @Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.model", name = ["jdk-http-client-executor"], havingValue = "virtual")
     fun syncJdkHttpClientVirtualExecutor(properties: DemoApplicationProperties): ExecutorService {
         val threadNumber = AtomicLong()
@@ -48,7 +48,7 @@ class ModelClientConfiguration {
     }
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     fun syncJdkHttpClient(
         @Qualifier("syncJdkHttpClientVirtualExecutor") virtualExecutorProvider: ObjectProvider<ExecutorService>
     ): HttpClient {
@@ -58,7 +58,7 @@ class ModelClientConfiguration {
     }
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     fun syncArcaneEtaModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -94,7 +94,7 @@ class ModelClientConfiguration {
         ArmeriaSuspendArcaneEtaModelClient(armeriaEtaModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     fun syncOrderFlavourModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -115,7 +115,7 @@ class ModelClientConfiguration {
         ArmeriaSuspendOrderFlavourModelClient(armeriaFlavourModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool", "confluent-parallel", "ckc-sync")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     fun syncBrewingStepRegistryClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
