@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Service
 
 @Service
-@Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-coroutines-naive", "confluent-parallel", "confluent-parallel-reactor")
+@Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "spring-kafka-coroutines-naive", "confluent-parallel", "confluent-parallel-reactor")
 class DemoRecordMetrics {
     fun <V> onProcessed(
         metrics: ConsumerMetrics<String, V>,

@@ -10,7 +10,7 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 
 @Component
-@Profile("spring-kafka-thread-pool")
+@Profile("spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
 @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
 class SpringKafkaThreadPoolListeners(
     private val runtime: SpringKafkaThreadPoolRuntime

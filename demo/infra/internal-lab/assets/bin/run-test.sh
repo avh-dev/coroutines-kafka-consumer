@@ -27,6 +27,7 @@ RUN_PROFILE=""
 EXPLICIT_RUN_PROFILE=0
 BASE_TPS_OVERRIDE=""
 REPLICA_COUNT=""
+RUN_PARALLELISM=""
 STUB_REPLICA_COUNT=""
 ORDER_PROCESSING_MODE=""
 BATCH_PROCESSING_MODE=""
@@ -59,7 +60,7 @@ usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
           [--profile spring-profile] [--base-rate tps]
-          [--replicas count] [--stub-replicas count]
+          [--replicas count] [--parallelism knobs] [--stub-replicas count]
           [--order-planning-latency-ms ms] [--batch-planning-latency-ms ms]
           [--telemetry-planning-latency-ms ms]
           [--demo-java-tool-options options]
@@ -91,6 +92,8 @@ Options:
   --base-rate      Override load_test.base_tps for this run plan and load test.
                    --base-tps is accepted as a compatibility alias.
   --replicas       Override generated deployment replica count for this run.
+  --parallelism    Override generated planner knobs for all topics, for example
+                   partitions,workers or partitions,workers,pollers.
   --stub-replicas  Override demo-stubs deployment replica count for this run.
   --order-planning-latency-ms, --batch-planning-latency-ms, --telemetry-planning-latency-ms
                    Set per-topic planning latency used to calculate generated parallelism.
@@ -165,6 +168,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --replicas)
       REPLICA_COUNT="${2:?--replicas requires a positive integer}"
+      shift 2
+      ;;
+    --parallelism)
+      RUN_PARALLELISM="${2:?--parallelism requires a comma-separated knob list}"
       shift 2
       ;;
     --stub-replicas)
@@ -888,6 +895,9 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   fi
   if [ -n "${REPLICA_COUNT}" ]; then
     PLAN_ARGS+=(--replicas "${REPLICA_COUNT}")
+  fi
+  if [ -n "${RUN_PARALLELISM}" ]; then
+    PLAN_ARGS+=(--parallelism "${RUN_PARALLELISM}")
   fi
   if [ -n "${PROCESSING_DISPATCHER_TYPE}" ]; then
     PLAN_ARGS+=(--processing-dispatcher-type "${PROCESSING_DISPATCHER_TYPE}")

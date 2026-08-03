@@ -100,6 +100,10 @@ profiles:
         default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
         allowed_processing_modes: [HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED]
 
+  spring-kafka-virtual-thread-pool:
+    extends: spring-kafka-thread-pool
+    spring_profile: spring-kafka-virtual-thread-pool
+
   spring-kafka:
     spring_profile: spring-kafka
     topics:

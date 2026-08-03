@@ -33,7 +33,7 @@ class MetricsConfiguration {
         )
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
         MicrometerConsumerMetricsSchema(
@@ -112,7 +112,7 @@ class MetricsConfiguration {
         }
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
@@ -123,7 +123,7 @@ class MetricsConfiguration {
         }
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaOrderConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
@@ -134,7 +134,7 @@ class MetricsConfiguration {
         }
 
     @Bean
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
     fun springKafkaBatchConsumerMetrics(
         @Qualifier("springKafkaMicrometerConsumerMetricsSchema") micrometerConsumerMetricsSchema: MicrometerConsumerMetricsSchema
@@ -226,17 +226,17 @@ class MetricsConfiguration {
     fun noopBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> = noopMetrics()
 
     @Bean("springKafkaConsumerMetrics")
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
     fun noopSpringKafkaTelemetryConsumerMetrics(): ConsumerMetrics<String, CauldronTelemetryEvent> = noopMetrics()
 
     @Bean("springKafkaOrderConsumerMetrics")
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
     fun noopSpringKafkaOrderConsumerMetrics(): ConsumerMetrics<String, OrderLifecycleEvent> = noopMetrics()
 
     @Bean("springKafkaBatchConsumerMetrics")
-    @Profile("spring-kafka", "spring-kafka-thread-pool")
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "NOOP")
     fun noopSpringKafkaBatchConsumerMetrics(): ConsumerMetrics<String, BatchLifecycleEvent> = noopMetrics()
 
@@ -296,6 +296,7 @@ class MetricsConfiguration {
             environment.acceptsProfiles(Profiles.of("confluent-parallel-reactor")) -> "confluent-parallel-reactor"
             environment.acceptsProfiles(Profiles.of("confluent-parallel")) -> "confluent-parallel"
             environment.acceptsProfiles(Profiles.of("spring-kafka-coroutines-naive")) -> "spring-kafka-coroutines-naive"
+            environment.acceptsProfiles(Profiles.of("spring-kafka-virtual-thread-pool")) -> "spring-kafka-virtual-thread-pool"
             environment.acceptsProfiles(Profiles.of("spring-kafka-thread-pool")) -> "spring-kafka-thread-pool"
             environment.acceptsProfiles(Profiles.of("spring-kafka")) -> "spring-kafka"
             environment.acceptsProfiles(Profiles.of("ckc-spring-boot")) -> "ckc-spring-boot"
@@ -308,6 +309,7 @@ class MetricsConfiguration {
         when (profile) {
             "confluent-parallel", "confluent-parallel-reactor" -> "confluent_parallel"
             "spring-kafka-coroutines-naive" -> "spring_kafka_coroutines_naive"
+            "spring-kafka-virtual-thread-pool" -> "spring_kafka_virtual_thread_pool"
             "spring-kafka-thread-pool" -> "spring_kafka_thread_pool"
             "spring-kafka" -> "spring_kafka"
             "ckc-sync", "ckc-spring-boot" -> "ckc"
