@@ -55,7 +55,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk")
     fun syncJdkHttpClient(
         @Qualifier("syncJdkHttpClientVirtualExecutor") virtualExecutorProvider: ObjectProvider<ExecutorService>
     ): HttpClient {
@@ -66,7 +66,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk")
     fun syncArcaneEtaModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -80,13 +80,13 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun syncArmeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.etaModelBaseUrl())
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun armeriaSyncArcaneEtaModelClient(
         @Qualifier("syncArmeriaEtaModelWebClient") syncArmeriaEtaModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
@@ -142,7 +142,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk")
     fun syncOrderFlavourModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -156,13 +156,13 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun syncArmeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.flavourModelBaseUrl())
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun armeriaSyncOrderFlavourModelClient(
         @Qualifier("syncArmeriaFlavourModelWebClient") syncArmeriaFlavourModelWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics
@@ -194,7 +194,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk")
     fun syncBrewingStepRegistryClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -208,13 +208,13 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun syncArmeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
         WebClient.of(properties.registry.baseUrl)
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
-    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
     fun armeriaSyncBrewingStepRegistryClient(
         @Qualifier("syncArmeriaRegistryWebClient") syncArmeriaRegistryWebClient: WebClient,
         modelCallMetrics: ModelCallMetrics

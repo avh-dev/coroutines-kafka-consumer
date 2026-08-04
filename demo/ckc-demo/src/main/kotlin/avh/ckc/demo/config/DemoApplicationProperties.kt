@@ -38,7 +38,7 @@ data class DemoApplicationProperties(
         var etaBaseUrl: String = "",
         var flavourBaseUrl: String = "",
         var httpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
-        var syncHttpClient: ModelHttpClient = ModelHttpClient.JDK,
+        var syncHttpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
         var jdkHttpClientExecutor: JdkHttpClientExecutor = JdkHttpClientExecutor.DEFAULT,
         var jdkHttpClientVirtualThreadNamePrefix: String = "HttpClient-virtual-"
     )

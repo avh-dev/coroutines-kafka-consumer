@@ -2499,5 +2499,6 @@ Add JDK `HttpClient.sendAsync` implementations for the suspend demo model and re
 Select Armeria or JDK transport with one application property while preserving the existing client interfaces and processing profiles.
 Add the complementary sync-client selector so virtual-thread processing can compare JDK `send` with Armeria async I/O followed by synchronous completion waiting.
 Use the option for a one-off optilab comparison before deciding whether to remove Armeria from the demo application.
+Keep Armeria as the default transport for both suspend and synchronous clients after it proved more CPU-efficient in the comparison; retain JDK as an explicit experimental option.
 
-Verification: property-binding, JDK suspend-profile, and Armeria sync-profile context tests passed, including confirmation that each option omits the unselected client beans. The full demo suite passed 92 of 93 tests; the unrelated existing Thread Stats `/groups` endpoint test fails against the locally installed newer Thread Stats endpoint format.
+Verification: property-binding, JDK suspend-profile, explicit JDK sync-profile, and default Armeria sync-profile context tests passed, including confirmation that each option omits the unselected client beans. The full demo suite passed 93 of 94 tests; the unrelated existing Thread Stats `/groups` endpoint test fails against the locally installed newer Thread Stats endpoint format.

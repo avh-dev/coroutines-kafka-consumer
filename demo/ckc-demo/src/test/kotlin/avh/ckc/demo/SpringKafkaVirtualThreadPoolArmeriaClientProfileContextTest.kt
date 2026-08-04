@@ -19,7 +19,6 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
-        "demo.model.sync-http-client=armeria",
         "SERVER_PORT=0",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
@@ -30,7 +29,7 @@ class SpringKafkaVirtualThreadPoolArmeriaClientProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext
 ) {
     @Test
-    fun `virtual thread profile selects sync Armeria clients without JDK client`() {
+    fun `virtual thread profile selects default sync Armeria clients without JDK client`() {
         assertIs<ArmeriaSyncArcaneEtaModelClient>(
             applicationContext.getBean(SyncArcaneEtaModelClient::class.java)
         )
