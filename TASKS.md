@@ -231,7 +231,7 @@
 | [INFRA-97](#infra-97) | Collect per-pod Thread Stats text snapshots during internal-lab runs. | DONE |
 | [INFRA-98](#infra-98) | Make Apache Kafka the default internal-lab broker implementation while keeping Redpanda selectable. | DONE |
 | [INFRA-99](#infra-99) | Attach the local Thread Stats Java agent to internal-lab Apache Kafka and add broker thread panels. | DONE |
-| [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and simplify the one-off comparison experiment. | DONE |
+| [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and prepare focused one-off comparison experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2512,5 +2512,6 @@ _Date: 2026-08-04_
 Deploy the updated demo image with Armeria as the synchronous and suspend HTTP-client default to optilab.
 Reduce the one-off HTTP comparison to Armeria virtual-thread and coroutine targets followed by one explicit JDK coroutine target.
 Make every retained transport selection explicit so stale application defaults cannot change the experiment meaning.
+Add a small server-only comparison of Spring Kafka coroutine-naive and CKC, each using one fixed dispatcher thread and Armeria.
 
-Verification: `update-lab.sh` rebuilt and loaded the demo image, restarted the deployment, and completed its rollout. The server-side experiment parser resolved three targets with explicit Armeria, Armeria, and JDK transports respectively; the replacement pod is ready on the new image.
+Verification: `update-lab.sh` rebuilt and loaded the demo image, restarted the deployment, and completed its rollout. The server-side HTTP experiment parser resolved three targets with explicit Armeria, Armeria, and JDK transports respectively; the replacement pod is ready on the new image. Both naive-versus-CKC targets passed server-side dry-run planning with matching load, queue, dispatcher, and Armeria settings.
