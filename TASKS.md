@@ -131,6 +131,7 @@
 | [DEMO-78](#demo-78) | Keep Spring Kafka listener ids from overriding the shared demo Kafka consumer group. | DONE |
 | [DEMO-79](#demo-79) | Add a Spring Kafka virtual-thread worker profile for Thread Stats comparison screenshots. | DONE |
 | [DEMO-80](#demo-80) | Add load-test Kafka producer batching controls for partition fanout experiments. | DONE |
+| [DEMO-81](#demo-81) | Add selectable Armeria and JDK transports for suspend and synchronous demo HTTP clients. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2488,3 +2489,16 @@ Polish the Kafka agent grouping from the live optilab `/threadstats` report and 
 Make the Grafana application pod selector time-range aware and hide pod names from app legends when the current range/filter resolves to a single pod.
 
 Verification: changed shell scripts passed `bash -n`, changed Python helpers passed `py_compile`, Docker Compose rendered with the Apache Kafka profile, dashboard JSON parsed, `thread-stats-agent` Maven package succeeded, and a local `-javaagent` smoke run scraped Prometheus metrics.
+
+<a id="demo-81"></a>
+### DEMO-81 - Add selectable demo HTTP clients
+
+_Date: 2026-08-04_
+
+Add JDK `HttpClient.sendAsync` implementations for the suspend demo model and registry clients.
+Select Armeria or JDK transport with one application property while preserving the existing client interfaces and processing profiles.
+Add the complementary sync-client selector so virtual-thread processing can compare JDK `send` with Armeria async I/O followed by synchronous completion waiting.
+Use the option for a one-off optilab comparison before deciding whether to remove Armeria from the demo application.
+Keep Armeria as the default transport for both suspend and synchronous clients after it proved more CPU-efficient in the comparison; retain JDK as an explicit experimental option.
+
+Verification: property-binding, JDK suspend-profile, explicit JDK sync-profile, and default Armeria sync-profile context tests passed, including confirmation that each option omits the unselected client beans. The full demo suite passed 93 of 94 tests; the unrelated existing Thread Stats `/groups` endpoint test fails against the locally installed newer Thread Stats endpoint format.

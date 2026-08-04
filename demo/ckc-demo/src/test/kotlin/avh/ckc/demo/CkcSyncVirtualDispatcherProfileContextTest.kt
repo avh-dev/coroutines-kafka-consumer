@@ -28,6 +28,7 @@ import kotlin.test.assertTrue
         "demo.kafka.enabled=false",
         "demo.consumers.processing-dispatcher-type=virtual",
         "demo.consumers.virtual-thread-name-prefix=ckc-sync-virtual-test-",
+        "demo.model.sync-http-client=jdk",
         "demo.model.jdk-http-client-executor=virtual",
         "demo.model.jdk-http-client-virtual-thread-name-prefix=HttpClient-vt-test-",
         "SERVER_PORT=0",

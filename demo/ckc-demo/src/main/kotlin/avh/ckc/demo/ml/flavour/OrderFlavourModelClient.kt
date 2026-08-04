@@ -49,6 +49,32 @@ class JdkSyncOrderFlavourModelClient(
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class ArmeriaSyncOrderFlavourModelClient(
+    private val webClient: WebClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SyncOrderFlavourModelClient {
+    override fun analyse(request: OrderFlavourRequest): OrderFlavourResponse = recordCall("sync", "armeria") {
+        val response = webClient.execute(
+            RequestHeaders.of(
+                HttpMethod.POST,
+                "/flavour",
+                HttpHeaderNames.CONTENT_TYPE,
+                MediaType.JSON_UTF_8
+            ),
+            HttpData.ofUtf8(json.encodeToString(OrderFlavourRequest.serializer(), request))
+        ).aggregate().join()
+        decodeOrderFlavourResponse(json, response.status().code(), response.contentUtf8())
+    }
+
+    private fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: () -> OrderFlavourResponse
+    ): OrderFlavourResponse =
+        modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 class ArmeriaSuspendOrderFlavourModelClient(
     private val webClient: WebClient,
     private val json: Json = Json { ignoreUnknownKeys = true },
@@ -66,6 +92,29 @@ class ArmeriaSuspendOrderFlavourModelClient(
         ).aggregate().await()
         decodeOrderFlavourResponse(json, response.status().code(), response.contentUtf8())
     }
+
+    private suspend fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: suspend () -> OrderFlavourResponse
+    ): OrderFlavourResponse =
+        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
+class JdkSuspendOrderFlavourModelClient(
+    private val baseUri: URI,
+    private val httpClient: JdkHttpClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SuspendOrderFlavourModelClient {
+    override suspend fun analyse(request: OrderFlavourRequest): OrderFlavourResponse =
+        recordCall("suspend", "jdk") {
+            val response = httpClient.sendAsync(
+                newOrderFlavourHttpRequest(baseUri, json, request),
+                HttpResponse.BodyHandlers.ofString()
+            ).await()
+            decodeOrderFlavourResponse(json, response)
+        }
 
     private suspend fun recordCall(
         clientMode: String,

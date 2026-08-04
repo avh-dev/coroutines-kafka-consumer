@@ -37,6 +37,8 @@ data class DemoApplicationProperties(
         var baseUrl: String = "http://127.0.0.1:18080",
         var etaBaseUrl: String = "",
         var flavourBaseUrl: String = "",
+        var httpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
+        var syncHttpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
         var jdkHttpClientExecutor: JdkHttpClientExecutor = JdkHttpClientExecutor.DEFAULT,
         var jdkHttpClientVirtualThreadNamePrefix: String = "HttpClient-virtual-"
     )
@@ -78,6 +80,11 @@ data class DemoApplicationProperties(
     enum class JdkHttpClientExecutor {
         DEFAULT,
         VIRTUAL
+    }
+
+    enum class ModelHttpClient {
+        ARMERIA,
+        JDK
     }
 
     enum class ProcessingDispatcherType {

@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     properties = [
         "demo.kafka.enabled=false",
+        "demo.model.sync-http-client=jdk",
         "SERVER_PORT=0",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
@@ -71,7 +72,7 @@ class CkcSyncProfileContextTest(
     }
 
     @Test
-    fun `ckc sync profile keeps default JDK HTTP client executor`() {
+    fun `ckc sync profile can select JDK HTTP client with its default executor`() {
         assertFalse(syncJdkHttpClient.executor().isPresent)
     }
 }
