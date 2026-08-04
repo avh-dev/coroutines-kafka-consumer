@@ -1,16 +1,19 @@
 package avh.ckc.demo.config
 
 import avh.ckc.demo.ml.ModelCallMetrics
+import avh.ckc.demo.ml.eta.ArmeriaSyncArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.JdkSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.JdkSyncArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
+import avh.ckc.demo.ml.flavour.ArmeriaSyncOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.ArmeriaSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.JdkSuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.JdkSyncOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
+import avh.ckc.demo.registry.ArmeriaSyncBrewingStepRegistryClient
 import avh.ckc.demo.registry.ArmeriaSuspendBrewingStepRegistryClient
 import avh.ckc.demo.registry.JdkSuspendBrewingStepRegistryClient
 import avh.ckc.demo.registry.JdkSyncBrewingStepRegistryClient
@@ -52,6 +55,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
     fun syncJdkHttpClient(
         @Qualifier("syncJdkHttpClientVirtualExecutor") virtualExecutorProvider: ObjectProvider<ExecutorService>
     ): HttpClient {
@@ -62,6 +66,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
     fun syncArcaneEtaModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -72,6 +77,21 @@ class ModelClientConfiguration {
             httpClient = syncJdkHttpClient,
             modelCallMetrics = modelCallMetrics
         )
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun syncArmeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.etaModelBaseUrl())
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun armeriaSyncArcaneEtaModelClient(
+        @Qualifier("syncArmeriaEtaModelWebClient") syncArmeriaEtaModelWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncArcaneEtaModelClient =
+        ArmeriaSyncArcaneEtaModelClient(syncArmeriaEtaModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
@@ -122,6 +142,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
     fun syncOrderFlavourModelClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -132,6 +153,21 @@ class ModelClientConfiguration {
             httpClient = syncJdkHttpClient,
             modelCallMetrics = modelCallMetrics
         )
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun syncArmeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.flavourModelBaseUrl())
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun armeriaSyncOrderFlavourModelClient(
+        @Qualifier("syncArmeriaFlavourModelWebClient") syncArmeriaFlavourModelWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncOrderFlavourModelClient =
+        ArmeriaSyncOrderFlavourModelClient(syncArmeriaFlavourModelWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
@@ -158,6 +194,7 @@ class ModelClientConfiguration {
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "jdk", matchIfMissing = true)
     fun syncBrewingStepRegistryClient(
         properties: DemoApplicationProperties,
         syncJdkHttpClient: HttpClient,
@@ -168,6 +205,21 @@ class ModelClientConfiguration {
             httpClient = syncJdkHttpClient,
             modelCallMetrics = modelCallMetrics
         )
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun syncArmeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
+        WebClient.of(properties.registry.baseUrl)
+
+    @Bean
+    @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
+    @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria")
+    fun armeriaSyncBrewingStepRegistryClient(
+        @Qualifier("syncArmeriaRegistryWebClient") syncArmeriaRegistryWebClient: WebClient,
+        modelCallMetrics: ModelCallMetrics
+    ): SyncBrewingStepRegistryClient =
+        ArmeriaSyncBrewingStepRegistryClient(syncArmeriaRegistryWebClient, modelCallMetrics = modelCallMetrics)
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")

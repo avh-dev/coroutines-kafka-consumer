@@ -168,6 +168,7 @@ demo:
     eta-base-url: ${ETA_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
     flavour-base-url: ${FLAVOUR_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
     http-client: ${MODEL_HTTP_CLIENT:ARMERIA}
+    sync-http-client: ${MODEL_SYNC_HTTP_CLIENT:JDK}
     jdk-http-client-executor: ${JDK_HTTP_CLIENT_EXECUTOR:DEFAULT}
     jdk-http-client-virtual-thread-name-prefix: ${JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX:HttpClient-virtual-}
   registry:

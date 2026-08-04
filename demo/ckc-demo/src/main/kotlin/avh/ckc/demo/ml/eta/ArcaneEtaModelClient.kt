@@ -45,6 +45,28 @@ class JdkSyncArcaneEtaModelClient(
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class ArmeriaSyncArcaneEtaModelClient(
+    private val webClient: WebClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SyncArcaneEtaModelClient {
+    override fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse = recordCall("sync", "armeria") {
+        val response = webClient.execute(
+            RequestHeaders.of(
+                HttpMethod.POST,
+                "/eta",
+                HttpHeaderNames.CONTENT_TYPE,
+                MediaType.JSON_UTF_8
+            ),
+            HttpData.ofUtf8(json.encodeToString(ArcaneEtaRequest.serializer(), request))
+        ).aggregate().join()
+        decodeArcaneEtaResponse(json, response.status().code(), response.contentUtf8())
+    }
+
+    private fun recordCall(clientMode: String, transport: String, block: () -> ArcaneEtaResponse): ArcaneEtaResponse =
+        modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 class ArmeriaSuspendArcaneEtaModelClient(
     private val webClient: WebClient,
     private val json: Json = Json { ignoreUnknownKeys = true },

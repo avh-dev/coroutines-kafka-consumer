@@ -49,6 +49,33 @@ class JdkSyncBrewingStepRegistryClient(
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class ArmeriaSyncBrewingStepRegistryClient(
+    private val webClient: WebClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SyncBrewingStepRegistryClient {
+    override fun reportStep(request: BrewingStepRegistryRequest): BrewingStepRegistryResponse =
+        recordCall("sync", "armeria") {
+            val response = webClient.execute(
+                RequestHeaders.of(
+                    HttpMethod.POST,
+                    REGISTRY_PATH,
+                    HttpHeaderNames.CONTENT_TYPE,
+                    MediaType.JSON_UTF_8
+                ),
+                HttpData.ofUtf8(json.encodeToString(BrewingStepRegistryRequest.serializer(), request))
+            ).aggregate().join()
+            decodeBrewingStepRegistryResponse(json, response.status().code(), response.contentUtf8())
+        }
+
+    private fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: () -> BrewingStepRegistryResponse
+    ): BrewingStepRegistryResponse =
+        modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 class ArmeriaSuspendBrewingStepRegistryClient(
     private val webClient: WebClient,
     private val json: Json = Json { ignoreUnknownKeys = true },

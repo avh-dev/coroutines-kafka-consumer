@@ -49,6 +49,32 @@ class JdkSyncOrderFlavourModelClient(
         modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class ArmeriaSyncOrderFlavourModelClient(
+    private val webClient: WebClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SyncOrderFlavourModelClient {
+    override fun analyse(request: OrderFlavourRequest): OrderFlavourResponse = recordCall("sync", "armeria") {
+        val response = webClient.execute(
+            RequestHeaders.of(
+                HttpMethod.POST,
+                "/flavour",
+                HttpHeaderNames.CONTENT_TYPE,
+                MediaType.JSON_UTF_8
+            ),
+            HttpData.ofUtf8(json.encodeToString(OrderFlavourRequest.serializer(), request))
+        ).aggregate().join()
+        decodeOrderFlavourResponse(json, response.status().code(), response.contentUtf8())
+    }
+
+    private fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: () -> OrderFlavourResponse
+    ): OrderFlavourResponse =
+        modelCallMetrics?.record(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 class ArmeriaSuspendOrderFlavourModelClient(
     private val webClient: WebClient,
     private val json: Json = Json { ignoreUnknownKeys = true },
