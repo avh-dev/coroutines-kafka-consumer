@@ -423,6 +423,14 @@ spec:
               value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
             - name: LOAD_TEST_WORKERS
               value: {yaml_string(as_str(load_test.get("workers"), ""))}
+            - name: KAFKA_PRODUCER_LINGER_MS
+              value: {yaml_string(as_str(load_test.get("kafka_producer_linger_ms"), ""))}
+            - name: KAFKA_PRODUCER_BATCH_SIZE
+              value: {yaml_string(as_str(load_test.get("kafka_producer_batch_size"), ""))}
+            - name: KAFKA_PRODUCER_COMPRESSION_TYPE
+              value: {yaml_string(as_str(load_test.get("kafka_producer_compression_type"), ""))}
+            - name: KAFKA_PRODUCER_BUFFER_MEMORY
+              value: {yaml_string(as_str(load_test.get("kafka_producer_buffer_memory"), ""))}
             - name: TOTAL_SHARDS
               value: "{shards}"
             - name: TEST_RUN_ID

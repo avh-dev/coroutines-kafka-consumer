@@ -9,6 +9,9 @@ defaults:
     order_ms: 10
     batch_ms: 10
     telemetry_ms: 55
+  order_queue_capacity: 4000
+  batch_queue_capacity: 4000
+  telemetry_queue_capacity: 4000
   env:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: false
@@ -17,34 +20,34 @@ defaults:
     KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
     KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 100
     KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+    KAFKA_PRODUCER_LINGER_MS: 50
+    KAFKA_PRODUCER_BATCH_SIZE: 131072
+    KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+    KAFKA_PRODUCER_BUFFER_MEMORY: 134217728
 
 targets:
   - name: spring-kafka
     profile: spring-kafka
 
-  - name: spring-kafka-thread-pool.partitions-and-workers.fast
+  - name: spring-kafka-thread-pool.partitions-pollers-and-workers
     profile: spring-kafka-thread-pool
-    parallelism: [partitions, workers]
-    order_queue_capacity: 4000
-    batch_queue_capacity: 4000
-    telemetry_queue_capacity: 4000
+    parallelism: [partitions, pollers, workers]
 
   - name: spring-kafka-thread-pool.partitions-and-workers
     profile: spring-kafka-thread-pool
     parallelism: [partitions, workers]
-    order_queue_capacity: 4000
-    batch_queue_capacity: 4000
-    telemetry_queue_capacity: 4000
 
-  - name: spring-kafka-thread-pool.generated
+  - name: spring-kafka-thread-pool
     profile: spring-kafka-thread-pool
-    order_queue_capacity: 4000
-    batch_queue_capacity: 4000
-    telemetry_queue_capacity: 4000
 
-  - name: spring-kafka-virtual-thread-pool.partitions-and-workers
+  - name: spring-kafka-virtual-thread-pool
     profile: spring-kafka-virtual-thread-pool
-    parallelism: [partitions, workers]
-    order_queue_capacity: 4000
-    batch_queue_capacity: 4000
-    telemetry_queue_capacity: 4000
+
+  - name: spring-kafka-coroutines-naive.fixed.1
+    profile: spring-kafka-coroutines-naive
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    telemetry_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1

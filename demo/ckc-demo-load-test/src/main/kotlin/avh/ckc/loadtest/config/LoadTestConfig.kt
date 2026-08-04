@@ -29,7 +29,8 @@ data class LoadTestConfig(
     val auditHost: String = "127.0.0.1",
     val auditPort: Int = 5170,
     val auditRunId: String = "local",
-    val generatorWorkers: Int = defaultGeneratorWorkers()
+    val generatorWorkers: Int = defaultGeneratorWorkers(),
+    val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings()
 ) {
     init {
         require(baseTps > 0) { "baseTps must be positive" }
@@ -54,6 +55,10 @@ data class LoadTestConfig(
         require(auditPort > 0) { "auditPort must be positive" }
         require(auditRunId.isNotBlank()) { "auditRunId must not be blank" }
         require(generatorWorkers > 0) { "generatorWorkers must be positive" }
+        require(kafkaProducer.lingerMs >= 0) { "kafkaProducer.lingerMs must be non-negative" }
+        require(kafkaProducer.batchSize > 0) { "kafkaProducer.batchSize must be positive" }
+        require(kafkaProducer.bufferMemory > 0) { "kafkaProducer.bufferMemory must be positive" }
+        require(kafkaProducer.compressionType.isNotBlank()) { "kafkaProducer.compressionType must not be blank" }
     }
 
     companion object {
@@ -88,7 +93,25 @@ data class LoadTestConfig(
                 auditHost = environment["AUDIT_TCP_HOST"] ?: "127.0.0.1",
                 auditPort = environment["AUDIT_TCP_PORT"]?.toIntOrNull() ?: 5170,
                 auditRunId = environment["AUDIT_RUN_ID"] ?: environment["TEST_RUN_ID"] ?: "local",
-                generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers()
+                generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers(),
+                kafkaProducer = KafkaProducerSettings.fromEnvironment(environment)
+            )
+    }
+}
+
+data class KafkaProducerSettings(
+    val lingerMs: Int = 20,
+    val batchSize: Int = 64 * 1024,
+    val compressionType: String = "lz4",
+    val bufferMemory: Long = 32 * 1024 * 1024L
+) {
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): KafkaProducerSettings =
+            KafkaProducerSettings(
+                lingerMs = environment["KAFKA_PRODUCER_LINGER_MS"]?.toIntOrNull() ?: 20,
+                batchSize = environment["KAFKA_PRODUCER_BATCH_SIZE"]?.toIntOrNull() ?: 64 * 1024,
+                compressionType = environment["KAFKA_PRODUCER_COMPRESSION_TYPE"]?.takeIf(String::isNotBlank) ?: "lz4",
+                bufferMemory = environment["KAFKA_PRODUCER_BUFFER_MEMORY"]?.toLongOrNull() ?: 32 * 1024 * 1024L
             )
     }
 }

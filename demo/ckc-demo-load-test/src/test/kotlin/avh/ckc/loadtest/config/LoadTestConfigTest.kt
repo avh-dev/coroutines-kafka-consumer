@@ -47,7 +47,11 @@ class LoadTestConfigTest {
                 "AUDIT_TCP_HOST" to "audit-host",
                 "AUDIT_TCP_PORT" to "5511",
                 "TEST_RUN_ID" to "run-12",
-                "LOAD_TEST_WORKERS" to "4"
+                "LOAD_TEST_WORKERS" to "4",
+                "KAFKA_PRODUCER_LINGER_MS" to "75",
+                "KAFKA_PRODUCER_BATCH_SIZE" to "131072",
+                "KAFKA_PRODUCER_COMPRESSION_TYPE" to "zstd",
+                "KAFKA_PRODUCER_BUFFER_MEMORY" to "134217728"
             )
         )
 
@@ -71,5 +75,9 @@ class LoadTestConfigTest {
         assertEquals(5511, config.auditPort)
         assertEquals("run-12", config.auditRunId)
         assertEquals(4, config.generatorWorkers)
+        assertEquals(75, config.kafkaProducer.lingerMs)
+        assertEquals(131072, config.kafkaProducer.batchSize)
+        assertEquals("zstd", config.kafkaProducer.compressionType)
+        assertEquals(134217728L, config.kafkaProducer.bufferMemory)
     }
 }
