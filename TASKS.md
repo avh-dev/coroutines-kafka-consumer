@@ -231,6 +231,7 @@
 | [INFRA-97](#infra-97) | Collect per-pod Thread Stats text snapshots during internal-lab runs. | DONE |
 | [INFRA-98](#infra-98) | Make Apache Kafka the default internal-lab broker implementation while keeping Redpanda selectable. | DONE |
 | [INFRA-99](#infra-99) | Attach the local Thread Stats Java agent to internal-lab Apache Kafka and add broker thread panels. | DONE |
+| [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and simplify the one-off comparison experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2502,3 +2503,14 @@ Use the option for a one-off optilab comparison before deciding whether to remov
 Keep Armeria as the default transport for both suspend and synchronous clients after it proved more CPU-efficient in the comparison; retain JDK as an explicit experimental option.
 
 Verification: property-binding, JDK suspend-profile, explicit JDK sync-profile, and default Armeria sync-profile context tests passed, including confirmation that each option omits the unselected client beans. The full demo suite passed 93 of 94 tests; the unrelated existing Thread Stats `/groups` endpoint test fails against the locally installed newer Thread Stats endpoint format.
+
+<a id="infra-100"></a>
+### INFRA-100 - Deploy Armeria HTTP defaults
+
+_Date: 2026-08-04_
+
+Deploy the updated demo image with Armeria as the synchronous and suspend HTTP-client default to optilab.
+Reduce the one-off HTTP comparison to Armeria virtual-thread and coroutine targets followed by one explicit JDK coroutine target.
+Make every retained transport selection explicit so stale application defaults cannot change the experiment meaning.
+
+Verification: `update-lab.sh` rebuilt and loaded the demo image, restarted the deployment, and completed its rollout. The server-side experiment parser resolved three targets with explicit Armeria, Armeria, and JDK transports respectively; the replacement pod is ready on the new image.
