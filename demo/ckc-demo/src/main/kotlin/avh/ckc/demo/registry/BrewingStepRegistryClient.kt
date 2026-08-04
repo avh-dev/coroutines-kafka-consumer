@@ -76,6 +76,34 @@ class ArmeriaSuspendBrewingStepRegistryClient(
         modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class JdkSuspendBrewingStepRegistryClient(
+    private val baseUri: URI,
+    private val httpClient: JdkHttpClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SuspendBrewingStepRegistryClient {
+    override suspend fun reportStep(request: BrewingStepRegistryRequest): BrewingStepRegistryResponse =
+        recordCall("suspend", "jdk") {
+            val httpRequest = HttpRequest.newBuilder(baseUri.resolve(REGISTRY_PATH))
+                .header("Content-Type", "application/json")
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        json.encodeToString(BrewingStepRegistryRequest.serializer(), request)
+                    )
+                )
+                .build()
+            val response = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString()).await()
+            decodeBrewingStepRegistryResponse(json, response.statusCode(), response.body())
+        }
+
+    private suspend fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: suspend () -> BrewingStepRegistryResponse
+    ): BrewingStepRegistryResponse =
+        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 private fun decodeBrewingStepRegistryResponse(
     json: Json,
     statusCode: Int,

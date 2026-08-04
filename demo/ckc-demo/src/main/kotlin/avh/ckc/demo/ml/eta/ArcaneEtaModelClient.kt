@@ -71,6 +71,29 @@ class ArmeriaSuspendArcaneEtaModelClient(
         modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
 }
 
+class JdkSuspendArcaneEtaModelClient(
+    private val baseUri: URI,
+    private val httpClient: JdkHttpClient,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val modelCallMetrics: ModelCallMetrics? = null
+) : SuspendArcaneEtaModelClient {
+    override suspend fun estimate(request: ArcaneEtaRequest): ArcaneEtaResponse =
+        recordCall("suspend", "jdk") {
+            val response = httpClient.sendAsync(
+                newArcaneEtaHttpRequest(baseUri, json, request),
+                HttpResponse.BodyHandlers.ofString()
+            ).await()
+            decodeArcaneEtaResponse(json, response)
+        }
+
+    private suspend fun recordCall(
+        clientMode: String,
+        transport: String,
+        block: suspend () -> ArcaneEtaResponse
+    ): ArcaneEtaResponse =
+        modelCallMetrics?.recordSuspend(MODEL_NAME, OPERATION_NAME, clientMode, transport, block) ?: block()
+}
+
 private const val MODEL_NAME = "arcane_eta"
 private const val OPERATION_NAME = "estimate"
 
