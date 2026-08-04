@@ -151,9 +151,10 @@ class LoadTestProducers(
         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to config.bootstrapServers,
         ProducerConfig.ACKS_CONFIG to "all",
         ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
-        ProducerConfig.LINGER_MS_CONFIG to 20,
-        ProducerConfig.BATCH_SIZE_CONFIG to 64 * 1024,
-        ProducerConfig.COMPRESSION_TYPE_CONFIG to "lz4",
+        ProducerConfig.LINGER_MS_CONFIG to config.kafkaProducer.lingerMs,
+        ProducerConfig.BATCH_SIZE_CONFIG to config.kafkaProducer.batchSize,
+        ProducerConfig.COMPRESSION_TYPE_CONFIG to config.kafkaProducer.compressionType,
+        ProducerConfig.BUFFER_MEMORY_CONFIG to config.kafkaProducer.bufferMemory,
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to valueSerializerClass
     )

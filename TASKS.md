@@ -130,6 +130,7 @@
 | [DEMO-77](#demo-77) | Adapt the demo Thread Stats actuator integration to the cached latest-interval starter behavior. | DONE |
 | [DEMO-78](#demo-78) | Keep Spring Kafka listener ids from overriding the shared demo Kafka consumer group. | DONE |
 | [DEMO-79](#demo-79) | Add a Spring Kafka virtual-thread worker profile for Thread Stats comparison screenshots. | DONE |
+| [DEMO-80](#demo-80) | Add load-test Kafka producer batching controls for partition fanout experiments. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2398,6 +2399,15 @@ Raise worker queue capacities for thread-pool progression targets to twice the t
 Pass Kafka consumer fetch overrides from experiment environment through lab prepare into generated demo Helm values.
 
 Verification: targeted `:ckc-demo:test` profile/config tests passed, `plan-run.py` accepted the new manual partition/worker/poller shape, changed Python helpers passed `py_compile`, and changed shell scripts passed `bash -n`.
+
+<a id="demo-80"></a>
+### DEMO-80 - Add load-test producer batching controls
+
+_Date: 2026-08-03_
+
+Expose load-test Kafka producer `linger.ms`, `batch.size`, `compression.type`, and `buffer.memory` through environment-backed configuration.
+Pass producer batching overrides through the internal lab runner and include them in run metadata for later pcap and broker CPU analysis.
+Set the Thread Stats progression experiment defaults to use a larger producer linger, batch size, and buffer for many-partition comparisons.
 
 <a id="infra-92"></a>
 ### INFRA-92 - Restart demo after lab image update
