@@ -51,6 +51,7 @@
 | [CORE-46](#core-46) | Split the Spring Boot starter auto-configuration implementation into focused internal files without changing behavior.                                                                                    | DONE |
 | [CORE-47](#core-47) | Add concise KDoc for the Spring Boot starter public API surface.                                                                                                                                          | DONE |
 | [CORE-48](#core-48) | Polish Spring Boot starter metadata, documentation, demo configuration, and defaults before release.                                                                                                      | DONE |
+| [CORE-49](#core-49) | Add record-count-triggered commits alongside the existing time-based commit interval for at-least-once processing modes.                                                                                  | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -2528,3 +2529,12 @@ Treat CKC poll threads as Kafka work and virtual-thread runtime threads as busin
 Use compact color-only legends throughout the Thread Stats section and keep thread counts below the comparison rows.
 
 Verification: dashboard JSON parsed successfully, Thread Stats panel ids and layout were validated, the repository Thread Stats row matched the reviewed live dashboard exactly, and all 20 panel PromQL expressions parsed successfully against the optilab Prometheus API.
+
+<a id="core-49"></a>
+### CORE-49 - Add adaptive at-least-once commit triggers
+
+_Date: 2026-08-05_
+
+Separate the contiguous processed frontier from the last successfully committed offset so failed commits remain retryable.
+Advance partition trackers between commits and trigger a commit when either the pending record threshold or the time interval is reached.
+Expose the record threshold through the core API and Spring Boot configuration while retaining the interval as a low-traffic fallback.
