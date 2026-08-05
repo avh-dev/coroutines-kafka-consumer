@@ -19,6 +19,11 @@ internal class PartitionState(
     val topicPartition: TopicPartition
 ) : ConsumerPartitionStats {
     private var offsetTracker: OffsetTracker = OffsetTracker(-1)
+    private var initialized = false
+
+    /** Last offset whose Kafka commit completed successfully. */
+    internal var lastCommittedOffset: Long = -1
+        private set
 
     override val topic: String
         get() = topicPartition.topic()
@@ -34,9 +39,12 @@ internal class PartitionState(
      * after the last committed one.
      */
     fun init(initialPosition: Long) {
-        if ((initialPosition - offsetTracker.lastCommitedOffset) != 1L) {
-            offsetTracker = OffsetTracker(initialPosition - 1)
+        val committedOffset = initialPosition - 1
+        if (!initialized || committedOffset != lastCommittedOffset) {
+            offsetTracker = OffsetTracker(committedOffset)
         }
+        lastCommittedOffset = committedOffset
+        initialized = true
     }
 
     /**
@@ -47,24 +55,38 @@ internal class PartitionState(
      * additional offsets processed while the rebalance was in progress.
      */
     fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot) {
-        if ((committedOffset - offsetTracker.lastCommitedOffset) != 1L) {
-            offsetTracker = OffsetTracker(lastCommitedOffset = committedOffset - 1, snapshot = snapshot)
+        val lastCommittedOffset = committedOffset - 1
+        if (!initialized || lastCommittedOffset != this.lastCommittedOffset) {
+            offsetTracker = OffsetTracker(initialProcessedOffset = lastCommittedOffset, snapshot = snapshot)
         }
+        this.lastCommittedOffset = lastCommittedOffset
+        initialized = true
     }
 
     /**
      * Advances the committable offset if processed offsets allow it.
      */
-    fun advanceCommitOffset() = offsetTracker.advanceCommitOffset()
+    fun advanceProcessedOffset() = offsetTracker.advanceProcessedOffset()
 
     fun advanceAndGetCommitData(): OffsetCommitData? {
-        val previousOffset = offsetTracker.lastCommitedOffset
-        val offset = offsetTracker.advanceCommitOffset() ?: return null
+        offsetTracker.advanceProcessedOffset()
+        val offset = offsetTracker.lastProcessedOffset
+        if (offset <= lastCommittedOffset) return null
         return OffsetCommitData(
             offset = offset,
-            advancedOffsetsCount = offset - previousOffset,
+            advancedOffsetsCount = offset - lastCommittedOffset,
             offsetTrackerSnapshot = offsetTracker.snapshot()
         )
+    }
+
+    /** Confirms that Kafka successfully committed [offset]. */
+    fun markCommitted(offset: Long) {
+        require(offset <= offsetTracker.lastProcessedOffset) {
+            "Committed offset $offset is ahead of processed offset ${offsetTracker.lastProcessedOffset}"
+        }
+        if (offset > lastCommittedOffset) {
+            lastCommittedOffset = offset
+        }
     }
 
     /**

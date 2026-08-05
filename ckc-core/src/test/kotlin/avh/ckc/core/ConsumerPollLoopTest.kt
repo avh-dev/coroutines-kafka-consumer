@@ -260,7 +260,8 @@ class ConsumerPollLoopTest {
             val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
 
             assertEquals(fixture.topicPartition, state.topicPartition)
-            assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
+            assertEquals(41L, state.trackerRefForTest().lastProcessedOffset)
+            assertEquals(41L, state.lastCommittedOffset)
             assertEquals(listOf(state), metrics.boundPartitionStats.toList())
             assertFalse(metrics.polls.isEmpty())
 
@@ -272,7 +273,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when partitions assigned with offset metadata then tracker is restored from committed metadata`() = runBlocking {
-            val restoredTracker = OffsetTracker(lastCommitedOffset = 41L)
+            val restoredTracker = OffsetTracker(initialProcessedOffset = 41L)
             restoredTracker.markProcessed(43L)
             val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
             val fixture = PollLoopFixture(
@@ -286,7 +287,8 @@ class ConsumerPollLoopTest {
 
             val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
 
-            assertEquals(41L, state.trackerRefForTest().lastCommitedOffset)
+            assertEquals(41L, state.trackerRefForTest().lastProcessedOffset)
+            assertEquals(41L, state.lastCommittedOffset)
             assertFalse(state.isProcessed(42L))
             assertTrue(state.isProcessed(43L))
             verify(fixture.consumer, never()).position(fixture.topicPartition)
@@ -299,7 +301,7 @@ class ConsumerPollLoopTest {
 
         @Test
         fun `when polled record is already processed from metadata then it is not sent to work channel`() = runBlocking {
-            val restoredTracker = OffsetTracker(lastCommitedOffset = 41L)
+            val restoredTracker = OffsetTracker(initialProcessedOffset = 41L)
             restoredTracker.markProcessed(43L)
             val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
             val firstPoll = AtomicBoolean(true)
@@ -421,7 +423,7 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when commit fails then next commit still advances to newer processed offset`() = runBlocking {
+        fun `when commit fails then unchanged processed frontier is retried`() = runBlocking {
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
@@ -439,16 +441,16 @@ class ConsumerPollLoopTest {
             val state = fixture.awaitAssignedState(lastCommittedOffset = 299L)
 
             state.trackerRefForTest().markProcessed(300L)
-            fixture.awaitCommitAttempts(1)
-
-            state.trackerRefForTest().markProcessed(301L)
             fixture.awaitCommitAttempts(2)
 
             verify(fixture.consumer, timeout(2_000).times(2)).commitSync(
                 argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                    get(fixture.topicPartition)?.offset() in listOf(301L, 302L)
+                    get(fixture.topicPartition)?.offset() == 301L
                 }
             )
+            awaitFor(2_000L, 10L) {
+                state.lastCommittedOffset.takeIf { it == 300L }
+            }
 
             job.cancel()
             job.join()
@@ -581,7 +583,7 @@ private class PollLoopFixture(
     suspend fun awaitAssignedState(lastCommittedOffset: Long? = null): PartitionState =
         awaitFor(2_000L, 10L) {
             val state = registry.partitionStateFor(topicPartition) ?: return@awaitFor null
-            if (lastCommittedOffset == null || state.trackerRefForTest().lastCommitedOffset == lastCommittedOffset) {
+            if (lastCommittedOffset == null || state.lastCommittedOffset == lastCommittedOffset) {
                 state
             } else {
                 null

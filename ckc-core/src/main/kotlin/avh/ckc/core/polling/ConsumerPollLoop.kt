@@ -6,6 +6,7 @@ import avh.ckc.core.PollLoopStateSnapshot
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.polling.partition.OffsetCommitData
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
@@ -323,10 +324,12 @@ internal class ConsumerPollLoop<K, V>(
         partitionStates: Set<PartitionState>
     ) {
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
+        val commitDataByPartition = mutableMapOf<PartitionState, OffsetCommitData>()
         var offsetsCount = 0L
         for (partitionState in partitionStates) {
             val commitData = partitionState.advanceAndGetCommitData()
             if (commitData != null) {
+                commitDataByPartition[partitionState] = commitData
                 val metadata = OffsetTrackerMetadata.encode(commitData.offsetTrackerSnapshot)
                 val kafkaOffset = commitData.offset + 1
                 offsets[partitionState.topicPartition] = if (metadata == null) {
@@ -342,6 +345,9 @@ internal class ConsumerPollLoop<K, V>(
             lastCommitAttemptEpochMillis = System.currentTimeMillis()
             try {
                 consumer.commitSync(offsets)
+                commitDataByPartition.forEach { (partitionState, commitData) ->
+                    partitionState.markCommitted(commitData.offset)
+                }
                 lastCommitSucceeded = true
                 metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, true)
             } catch (e: Exception) {

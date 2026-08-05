@@ -207,7 +207,7 @@ class RecordProcessorTest {
 
     @Test
     fun `when failed record is skipped then later offsets can advance commit frontier`() = runBlocking {
-        val tracker = OffsetTracker(lastCommitedOffset = -1)
+        val tracker = OffsetTracker(initialProcessedOffset = -1)
         val processor = createRecordProcessor<Long, Long>(
             handler = KafkaRecordHandler { record ->
                 if (record.offset() == 0L) {
@@ -220,7 +220,7 @@ class RecordProcessorTest {
         processor.process(ConsumerRecord("topic-a", 0, 0L, 0L, 0L))
         processor.process(ConsumerRecord("topic-a", 0, 1L, 0L, 1L))
 
-        assertEquals(1L, tracker.advanceCommitOffset())
+        assertEquals(1L, tracker.advanceProcessedOffset())
     }
 
     private fun <K, V> createRecordProcessor(
