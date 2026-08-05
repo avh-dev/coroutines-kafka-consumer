@@ -2537,10 +2537,8 @@
           "id": 89,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -2629,16 +2627,14 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 12,
-            "y": 18
+            "x": 0,
+            "y": 26
           },
           "id": 90,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -2727,15 +2723,13 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 26
+            "y": 34
           },
           "id": 91,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -2823,17 +2817,15 @@
           },
           "gridPos": {
             "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 26
+            "w": 24,
+            "x": 0,
+            "y": 42
           },
           "id": 92,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -2923,15 +2915,13 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 34
+            "y": 50
           },
           "id": 93,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -2954,6 +2944,424 @@
             }
           ],
           "title": "Thread Stats Thread States",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 26
+          },
+          "id": 102,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Business {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Kafka {{pod_legend}}",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "HTTP client {{pod_legend}}",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Redis client {{pod_legend}}",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Other {{pod_legend}}",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+          "title": "Thread Stats CPU by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 34
+          },
+          "id": 103,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Business {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Kafka {{pod_legend}}",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "HTTP client {{pod_legend}}",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Redis client {{pod_legend}}",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(thread_stats_allocated_bytes_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Other {{pod_legend}}",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+          "title": "Thread Stats Allocations by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 18
+          },
+          "id": 104,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Business {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Kafka {{pod_legend}}",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "HTTP client {{pod_legend}}",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Redis client {{pod_legend}}",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "Other {{pod_legend}}",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+          "title": "Thread Stats CPU Usage by Category (Smooth Stacked)",
           "type": "timeseries"
         }
       ],
