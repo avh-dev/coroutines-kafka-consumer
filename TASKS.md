@@ -238,6 +238,7 @@
 | [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and prepare focused one-off comparison experiments. | DONE |
 | [INFRA-101](#infra-101) | Add compact detailed and category-stacked Thread Stats dashboard panels. | DONE |
 | [INFRA-102](#infra-102) | Replace successful record-age Grafana panels with end-to-end processing latency panels. | DONE |
+| [INFRA-104](#infra-104) | Align application Thread Stats Grafana panels with the unified metric schema. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2590,3 +2591,14 @@ Align the endpoint request and assertions with the supported cached-report repre
 Run the focused test repeatedly and restore a clean complete demo test suite.
 
 Verification: the focused endpoint test passed in three independent runs, and the complete demo suite passed all 94 tests.
+
+<a id="infra-104"></a>
+### INFRA-104 - Align application Thread Stats dashboard metrics
+
+_Date: 2026-08-06_
+
+Replace obsolete application Thread Stats CPU, thread-count, and thread-state metric names with the unified schema.
+Keep the allocation panels unchanged because their metric name remains compatible.
+Validate the updated detailed and category queries against the active optilab experiment before updating the live dashboard without restarting workloads.
+
+Verification: dashboard JSON parsed successfully, all 14 changed PromQL expressions parsed against the active optilab Prometheus, and the live Grafana API loaded the corrected panels while preserving the in-progress context-switch panel.

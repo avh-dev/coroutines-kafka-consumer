@@ -2554,7 +2554,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -2650,7 +2650,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (group, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -2841,7 +2841,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_thread_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_thread_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (group, ${pod_grouping}) (thread_stats_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, ${pod_grouping}) (thread_stats_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "{{group}} {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -2937,7 +2937,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_count_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (group, state, ${pod_grouping}) (thread_stats_thread_state_threads{pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "{{group}} {{state}} {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -3033,7 +3033,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Business {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -3044,7 +3044,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Kafka {{pod_legend}}",
               "range": true,
               "refId": "B"
@@ -3055,7 +3055,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "HTTP client {{pod_legend}}",
               "range": true,
               "refId": "C"
@@ -3066,7 +3066,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group=~\"^(redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Redis client {{pod_legend}}",
               "range": true,
               "refId": "D"
@@ -3077,7 +3077,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_time_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(thread_stats_cpu_seconds_total{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Other {{pod_legend}}",
               "range": true,
               "refId": "E"
@@ -3311,7 +3311,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Business {{pod_legend}}",
               "range": true,
               "refId": "A"
@@ -3322,7 +3322,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(ckc-poll|kafka-client|spring-kafka-consumer)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Kafka {{pod_legend}}",
               "range": true,
               "refId": "B"
@@ -3333,7 +3333,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(armeria-client|jdk-http-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "HTTP client {{pod_legend}}",
               "range": true,
               "refId": "C"
@@ -3344,7 +3344,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group=~\"^(redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Redis client {{pod_legend}}",
               "range": true,
               "refId": "D"
@@ -3355,7 +3355,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "expr": "(label_join((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (thread_stats_cpu_usage_ratio{pod=~\"$pod\", group!~\"^(ckc-worker|demo-virtual-worker|spring-kafka-(worker|thread-pool-worker|virtual-worker)|confluent-parallel(-worker)?|virtual-thread-runtime|ckc-poll|kafka-client|spring-kafka-consumer|armeria-client|jdk-http-client|redis-client)$\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
               "legendFormat": "Other {{pod_legend}}",
               "range": true,
               "refId": "E"
