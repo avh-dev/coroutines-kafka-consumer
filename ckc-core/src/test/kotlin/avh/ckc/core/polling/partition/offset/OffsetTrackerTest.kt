@@ -77,6 +77,80 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     }
 
     @Test
+    fun `compact shrinks cleared spike capacity to configured minimum`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L, initialCapacity = 512)
+        tracker.markProcessed(4_096L)
+        assertEquals(8_192, tracker.bitCapacity)
+
+        for (offset in 0L until 4_096L) {
+            tracker.markProcessed(offset)
+        }
+        tracker.advanceProcessedFrontier()
+        tracker.compact()
+
+        assertEquals(4_096L, tracker.lastProcessedOffset)
+        assertEquals(512, tracker.bitCapacity)
+    }
+
+    @Test
+    fun `compact preserves live offsets when ring head has wrapped`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L)
+        tracker.markProcessed(1_100L)
+        for (offset in 0L until 1_024L) {
+            tracker.markProcessed(offset)
+        }
+        tracker.advanceProcessedFrontier()
+        assertEquals(1_023L, tracker.lastProcessedOffset)
+
+        tracker.compact()
+
+        assertEquals(128, tracker.bitCapacity)
+        assertTrue(tracker.isProcessed(1_100L))
+        for (offset in 1_024L until 1_100L) {
+            tracker.markProcessed(offset)
+        }
+        tracker.advanceProcessedFrontier()
+        assertEquals(1_100L, tracker.lastProcessedOffset)
+    }
+
+    @Test
+    fun `compact keeps capacity when live range prevents fourfold reduction`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L)
+        tracker.markProcessed(300L)
+        for (offset in 0L until 300L) {
+            tracker.markProcessed(offset)
+        }
+        tracker.advanceProcessedFrontier()
+        tracker.markProcessed(450L)
+        assertEquals(512, tracker.bitCapacity)
+
+        tracker.compact()
+
+        assertEquals(512, tracker.bitCapacity)
+        assertTrue(tracker.isProcessed(450L))
+    }
+
+    @Test
+    fun `restored snapshot capacity can shrink below snapshot size`() {
+        val original = OffsetTracker(initialProcessedOffset = -1L)
+        original.markProcessed(4_096L)
+        val restored = OffsetTracker(
+            initialProcessedOffset = -1L,
+            snapshot = original.snapshotRoundTrip()
+        )
+        assertEquals(8_192, restored.bitCapacity)
+
+        for (offset in 0L until 4_096L) {
+            restored.markProcessed(offset)
+        }
+        restored.advanceProcessedFrontier()
+        restored.compact()
+
+        assertEquals(4_096L, restored.lastProcessedOffset)
+        assertEquals(128, restored.bitCapacity)
+    }
+
+    @Test
     fun `isProcessed returns true for contiguous and marked offsets`() {
         val tracker = OffsetTracker(initialProcessedOffset = 9L)
 
