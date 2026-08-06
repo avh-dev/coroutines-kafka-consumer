@@ -238,6 +238,7 @@
 | [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and prepare focused one-off comparison experiments. | DONE |
 | [INFRA-101](#infra-101) | Add compact detailed and category-stacked Thread Stats dashboard panels. | DONE |
 | [INFRA-102](#infra-102) | Replace successful record-age Grafana panels with end-to-end processing latency panels. | DONE |
+| [INFRA-103](#infra-103) | Collect demo process context-switch metrics and expose them in the shared Grafana dashboard. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2590,3 +2591,15 @@ Align the endpoint request and assertions with the supported cached-report repre
 Run the focused test repeatedly and restore a clean complete demo test suite.
 
 Verification: the focused endpoint test passed in three independent runs, and the complete demo suite passed all 94 tests.
+
+<a id="infra-103"></a>
+### INFRA-103 - Add demo context-switch observability
+
+_Date: 2026-08-06_
+
+Track the Kubernetes demo JVM through the internal-lab host process exporter.
+Expose voluntary and nonvoluntary process context-switch rates in the shared Grafana dashboard.
+Keep the process matcher specific enough to exclude other Java workloads on optilab.
+
+Use thread-level exporter counters so the panel covers every JVM platform thread and avoids the process-level counter underflow observed when a pod PID changes.
+Verification: the matcher selected exactly one live demo JVM, the exporter exposed both switch types, dashboard JSON and PromQL validation passed, and the deployed optilab Prometheus and Grafana APIs returned the new series and panel.
