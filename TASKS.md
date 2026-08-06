@@ -239,6 +239,7 @@
 | [INFRA-101](#infra-101) | Add compact detailed and category-stacked Thread Stats dashboard panels. | DONE |
 | [INFRA-102](#infra-102) | Replace successful record-age Grafana panels with end-to-end processing latency panels. | DONE |
 | [INFRA-103](#infra-103) | Collect demo process context-switch metrics and expose them in the shared Grafana dashboard. | DONE |
+| [INFRA-104](#infra-104) | Align application Thread Stats Grafana panels with the unified metric schema. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2603,3 +2604,14 @@ Keep the process matcher specific enough to exclude other Java workloads on opti
 
 Use thread-level exporter counters so the panel covers every JVM platform thread and avoids the process-level counter underflow observed when a pod PID changes.
 Verification: the matcher selected exactly one live demo JVM, the exporter exposed both switch types, dashboard JSON and PromQL validation passed, and the deployed optilab Prometheus and Grafana APIs returned the new series and panel.
+
+<a id="infra-104"></a>
+### INFRA-104 - Align application Thread Stats dashboard metrics
+
+_Date: 2026-08-06_
+
+Replace obsolete application Thread Stats CPU, thread-count, and thread-state metric names with the unified schema.
+Keep the allocation panels unchanged because their metric name remains compatible.
+Validate the updated detailed and category queries against the active optilab experiment before updating the live dashboard without restarting workloads.
+
+Verification: dashboard JSON parsed successfully, all 14 changed PromQL expressions parsed against the active optilab Prometheus, and the live Grafana API loaded the corrected panels while preserving the in-progress context-switch panel.
