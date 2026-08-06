@@ -73,6 +73,9 @@ internal class PartitionState(
         offsetTracker.advanceProcessedFrontier()
         val offset = offsetTracker.lastProcessedOffset
         if (offset <= lastCommittedOffset) return null
+        if (offsetTracker.bitCapacity > COMPACTION_CHECK_THRESHOLD_BITS) {
+            offsetTracker.compact()
+        }
         return OffsetCommitData(
             offset = offset,
             advancedOffsetsCount = offset - lastCommittedOffset,
@@ -102,4 +105,8 @@ internal class PartitionState(
 
     @VisibleForTesting
     internal fun trackerRefForTest() = offsetTracker
+
+    private companion object {
+        const val COMPACTION_CHECK_THRESHOLD_BITS = 8 * 1_024
+    }
 }

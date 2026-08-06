@@ -23,6 +23,21 @@ class OffsetTrackerSerializerTest {
     }
 
     @Test
+    fun `one kilobyte snapshot uses raw codec`() {
+        val snapshot = OffsetTrackerSnapshot(
+            headWordOffset = 10L,
+            headWordIndex = 0,
+            words = LongArray(128) { -1L }
+        )
+
+        val encoded = OffsetTrackerSerializer.serialize(snapshot)
+        val decoded = OffsetTrackerSerializer.deserialize(encoded)
+
+        assertEquals(0, encoded.first().toInt())
+        assertSnapshotEquals(snapshot, decoded)
+    }
+
+    @Test
     fun `large compressible snapshot uses zstd codec`() {
         val snapshot = OffsetTrackerSnapshot(
             headWordOffset = 10L,
