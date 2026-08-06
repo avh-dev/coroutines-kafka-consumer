@@ -135,6 +135,7 @@
 | [DEMO-79](#demo-79) | Add a Spring Kafka virtual-thread worker profile for Thread Stats comparison screenshots. | DONE |
 | [DEMO-80](#demo-80) | Add load-test Kafka producer batching controls for partition fanout experiments. | DONE |
 | [DEMO-81](#demo-81) | Add selectable Armeria and JDK transports for suspend and synchronous demo HTTP clients. | DONE |
+| [DEMO-82](#demo-82) | Align the demo Thread Stats actuator integration test with the current endpoint contract. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2578,3 +2579,14 @@ Align the core metrics contract, Micrometer schema, tests, and module documentat
 
 Verification: the complete core, Micrometer, and Spring Boot starter test suites passed, as did focused demo metric and CKC profile tests.
 The complete demo suite passed 93 of 94 tests; the unrelated existing Thread Stats endpoint-format test still fails.
+
+<a id="demo-82"></a>
+### DEMO-82 - Fix the Thread Stats actuator endpoint test
+
+_Date: 2026-08-06_
+
+Diagnose the persistent demo test failure against the current Thread Stats Spring Boot starter.
+Align the endpoint request and assertions with the supported cached-report representation without weakening readiness coverage.
+Run the focused test repeatedly and restore a clean complete demo test suite.
+
+Verification: the focused endpoint test passed in three independent runs, and the complete demo suite passed all 94 tests.

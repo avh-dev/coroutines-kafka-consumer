@@ -101,36 +101,44 @@ class OrderHttpServiceTest {
     }
 
     @Test
-    fun `serves thread stats actuator latest grouped interval endpoint`() {
+    fun `serves cached grouped interval from thread stats actuator JSON endpoint`() {
         val endpointIds = webEndpointsSupplier.endpoints.map { it.endpointId.toString() }.toSet()
         assertTrue(endpointIds.contains("threadstats"))
 
-        val json = waitForThreadStatsGroups()
+        val json = waitForThreadStatsReport()
 
-        assertEquals(true, json.at("/available").booleanValue())
-        assertTrue(json.at("/stats/groups").isArray)
+        assertTrue(json.at("/durationNanos").longValue() > 0L)
+        assertTrue(json.at("/capabilities").isObject)
+        assertTrue(json.at("/groups").isArray)
+        assertTrue(json.at("/groups").size() > 0)
     }
 
     private fun webClient(): WebClient =
         WebClient.of("http://127.0.0.1:${server.activeLocalPort()}")
 
-    private fun waitForThreadStatsGroups(): JsonNode {
+    private fun waitForThreadStatsReport(): JsonNode {
         val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
         var lastResponse = ""
 
         while (System.nanoTime() < deadline) {
-            val response = webClient().get("/actuator/threadstats/groups").aggregate().join()
+            val response = webClient().get("/actuator/threadstats/json").aggregate().join()
             assertEquals(HttpStatus.OK, response.status())
 
             lastResponse = response.contentUtf8()
-            val json = objectMapper.readTree(lastResponse)
-            if (json.at("/available").asBoolean(false)) {
+            val json = parseThreadStatsJson(lastResponse)
+            if (json.at("/groups").isArray) {
                 return json
             }
 
             Thread.sleep(25)
         }
 
-        throw AssertionError("Thread Stats latest grouped interval did not become available. Last response: $lastResponse")
+        throw AssertionError("Thread Stats cached interval did not become available. Last response: $lastResponse")
+    }
+
+    private fun parseThreadStatsJson(response: String): JsonNode {
+        val json = objectMapper.readTree(response)
+        // Armeria may JSON-encode the actuator's String response one additional time.
+        return if (json.isTextual) objectMapper.readTree(json.textValue()) else json
     }
 }
