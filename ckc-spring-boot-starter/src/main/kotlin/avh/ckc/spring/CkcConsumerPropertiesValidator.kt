@@ -69,6 +69,7 @@ internal fun validateConsumerProperties(
     validateSubscription(consumerName, consumerProperties)
     validatePositive(consumerName, "worker-concurrency", consumerProperties.workerConcurrency)
     validatePositive(consumerName, "consumer-poll-loop-concurrency", consumerProperties.consumerPollLoopConcurrency)
+    validatePositive(consumerName, "commit-records-threshold", consumerProperties.commitRecordsThreshold)
     validatePositive(consumerName, "work-channel-capacity", consumerProperties.workChannelCapacity)
     consumerProperties.freshnessMaxRecordAge?.let { maxRecordAge ->
         require(!maxRecordAge.isNegative && !maxRecordAge.isZero) {

@@ -24,6 +24,7 @@ internal fun buildConsumer(
         workerConcurrency = consumerProperties.workerConcurrency
         consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency
         commitIntervalMs = consumerProperties.commitInterval.toMillis()
+        commitRecordsThreshold = consumerProperties.commitRecordsThreshold
         workChannelCapacity = consumerProperties.workChannelCapacity
         freshnessMaxRecordAge = consumerProperties.freshnessMaxRecordAge?.toKotlinDuration()
         processingDispatcher = dispatcherRegistry.processingDispatcher(consumerName, consumerProperties)

@@ -74,6 +74,10 @@ offset 9 still running
 
 A consumer runtime must not commit past offsets `8` and `9` just because later records completed first. CKC tracks processed-but-not-yet-committable offsets and advances the commit frontier only when it is safe for the selected processing mode.
 
+Tracked at-least-once modes attempt a commit when either `commitRecordsThreshold` contiguous offsets
+are pending within a poll loop or `commitIntervalMs` elapses. The record threshold keeps commit cadence
+responsive under high traffic, while the interval remains the low-traffic fallback.
+
 ## Modules
 
 - `ckc-core` contains the consumer runtime and public Kotlin DSL.
