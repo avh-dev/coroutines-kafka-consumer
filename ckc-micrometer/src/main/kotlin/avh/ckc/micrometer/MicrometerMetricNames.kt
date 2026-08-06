@@ -8,7 +8,7 @@ internal class MicrometerMetricNames(metricPrefix: String) {
 
 internal const val RECORD_PROCESS_DURATION = "record.process.duration"
 internal const val RECORD_FAILED_DURATION = "record.failed.duration"
-internal const val RECORD_AGE = "record.age"
+internal const val RECORD_END_TO_END_DURATION = "record.end.to.end.duration"
 internal const val RECORD_DROPPED = "record.dropped"
 internal const val RECORD_RETRY = "record.retry"
 

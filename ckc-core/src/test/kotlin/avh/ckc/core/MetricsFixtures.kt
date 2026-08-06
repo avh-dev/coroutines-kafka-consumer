@@ -12,7 +12,7 @@ data class RecordProcessedCall<K, V>(
     val key: K?,
     val value: V?,
     val record: ConsumerRecord<K, V>,
-    val recordAgeMillis: Long,
+    val endToEndLatencyMillis: Long,
     val durationNanos: Long
 )
 
@@ -20,7 +20,6 @@ data class RecordFailedCall<K, V>(
     val key: K?,
     val value: V?,
     val record: ConsumerRecord<K, V>,
-    val recordAgeMillis: Long,
     val error: Throwable,
     val durationNanos: Long
 )
@@ -93,21 +92,20 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
+        endToEndLatencyMillis: Long,
         durationNanos: Long
     ) {
-        processed += RecordProcessedCall(key, value, record, recordAgeMillis, durationNanos)
+        processed += RecordProcessedCall(key, value, record, endToEndLatencyMillis, durationNanos)
     }
 
     override fun onRecordFailed(
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
         error: Throwable,
         durationNanos: Long
     ) {
-        failed += RecordFailedCall(key, value, record, recordAgeMillis, error, durationNanos)
+        failed += RecordFailedCall(key, value, record, error, durationNanos)
     }
 
     override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {

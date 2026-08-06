@@ -133,12 +133,12 @@ extractor is missing or returns `null`, the tag uses the default value from the 
 defines an extractor for a tag key that is not declared in the schema, the schema logs a warning
 when the `ConsumerMetrics` instance is created and ignores that extractor.
 
-Custom record tags are attached to metrics that observe processing, failure, age, and retry signals:
+Custom record tags are attached to metrics that observe processing, failure, end-to-end latency, and retry signals:
 
 ```text
 ckc.record.process.duration
 ckc.record.failed.duration
-ckc.record.age
+ckc.record.end.to.end.duration
 ckc.record.retry
 ```
 
@@ -204,10 +204,10 @@ derived from the count of `myapp.ckc.record.failed.duration`.
       <td>Processing duration until a record was reported as failed.</td>
     </tr>
     <tr>
-      <td><code>ckc.record.age</code></td>
+      <td><code>ckc.record.end.to.end.duration</code></td>
       <td>Timer</td>
-      <td><code>consumer_id</code>, <code>topic</code>, <code>error</code>, custom record tags</td>
-      <td>Record age in milliseconds from Kafka record timestamp to processing start. Successful records use <code>error=none</code>.</td>
+      <td><code>consumer_id</code>, <code>topic</code>, custom record tags</td>
+      <td>Successful record end-to-end latency from the Kafka record timestamp through terminal processing.</td>
     </tr>
     <tr>
       <td><code>ckc.record.dropped</code></td>

@@ -10,6 +10,7 @@ import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -24,7 +25,7 @@ class MicrometerConsumerMetricsSchemaTest {
     )
 
     @Test
-    fun `when record is processed then processing and age timers are recorded`() {
+    fun `when record is processed then processing and end to end timers are recorded`() {
         val registry = SimpleMeterRegistry()
         val metrics = MicrometerConsumerMetricsSchema(
             meterRegistry = registry,
@@ -40,7 +41,7 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 2),
-            recordAgeMillis = 123,
+            endToEndLatencyMillis = 123,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(25)
         )
 
@@ -55,9 +56,8 @@ class MicrometerConsumerMetricsSchemaTest {
         )
         assertEquals(
             123.0,
-            registry.get("test.ckc.record.age")
+            registry.get("test.ckc.record.end.to.end.duration")
                 .tag("topic", "orders")
-                .tag("error", "none")
                 .tag("app", "test")
                 .tag("consumer_id", "orders")
                 .timer()
@@ -77,7 +77,6 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),
-            recordAgeMillis = 77,
             error = IOException("broken"),
             durationNanos = TimeUnit.MILLISECONDS.toNanos(10)
         )
@@ -90,14 +89,7 @@ class MicrometerConsumerMetricsSchemaTest {
                 .timer()
                 .count()
         )
-        assertEquals(
-            77.0,
-            registry.get("test.ckc.record.age")
-                .tag("topic", "orders")
-                .tag("error", "IOException")
-                .timer()
-                .totalTime(TimeUnit.MILLISECONDS)
-        )
+        assertTrue(registry.find("test.ckc.record.end.to.end.duration").meters().isEmpty())
         assertTrue(registry.find("ckc.record.failed").meters().isEmpty())
     }
 
@@ -400,7 +392,7 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("BREWING_STARTED"),
             record = testRecord(partition = 3, key = "key", value = TestLifecycleEvent("BREWING_STARTED")),
-            recordAgeMillis = 42,
+            endToEndLatencyMillis = 42,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(7)
         )
 
@@ -432,7 +424,7 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("IGNORED"),
             record = testRecord(partition = 4, key = "key", value = TestLifecycleEvent("IGNORED")),
-            recordAgeMillis = 11,
+            endToEndLatencyMillis = 11,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(2)
         )
 
@@ -467,7 +459,7 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1, key = "key", value = TestLifecycleEvent("ORDER_CREATED")),
-            recordAgeMillis = 5,
+            endToEndLatencyMillis = 5,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(1)
         )
 
@@ -512,14 +504,14 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("IGNORED"),
             record = testRecord(topic = "cauldrons", partition = 1, key = "key", value = TestLifecycleEvent("IGNORED")),
-            recordAgeMillis = 10,
+            endToEndLatencyMillis = 10,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(2)
         )
         lifecycleTopicMetrics.onRecordProcessed(
             key = "key",
             value = TestLifecycleEvent("BREWING_STARTED"),
             record = testRecord(topic = "orders", partition = 2, key = "key", value = TestLifecycleEvent("BREWING_STARTED")),
-            recordAgeMillis = 20,
+            endToEndLatencyMillis = 20,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(3)
         )
 
@@ -530,7 +522,7 @@ class MicrometerConsumerMetricsSchemaTest {
     }
 
     @Test
-    fun `when record age metrics are emitted for success and failure then prometheus exposes both series`() {
+    fun `when records succeed and fail then prometheus exposes end to end latency only for success`() {
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
@@ -540,22 +532,21 @@ class MicrometerConsumerMetricsSchemaTest {
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),
-            recordAgeMillis = 5,
+            endToEndLatencyMillis = 5,
             durationNanos = TimeUnit.MILLISECONDS.toNanos(1)
         )
         metrics.onRecordFailed(
             key = "key",
             value = TestLifecycleEvent("ORDER_CREATED"),
             record = testRecord(partition = 1),
-            recordAgeMillis = 7,
             error = IOException("broken"),
             durationNanos = TimeUnit.MILLISECONDS.toNanos(1)
         )
 
         val scrape = registry.scrape()
 
-        assertTrue(scrape.contains("test_ckc_record_age_seconds_sum{consumer_id=\"default\",error=\"none\",topic=\"orders\"} 0.005"))
-        assertTrue(scrape.contains("test_ckc_record_age_seconds_sum{consumer_id=\"default\",error=\"IOException\",topic=\"orders\"} 0.007"))
+        assertTrue(scrape.contains("test_ckc_record_end_to_end_duration_seconds_sum{consumer_id=\"default\",topic=\"orders\"} 0.005"))
+        assertFalse(scrape.contains("test_ckc_record_age"))
     }
 
     private fun <K, V> testRecord(topic: String = "orders", partition: Int, key: K? = null, value: V? = null): ConsumerRecord<K, V> =

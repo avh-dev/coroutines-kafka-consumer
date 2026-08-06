@@ -72,25 +72,23 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
+        endToEndLatencyMillis: Long,
         durationNanos: Long
     ) {
         val tags = recordTags(record)
         timer(RECORD_PROCESS_DURATION, tags).record(durationNanos, TimeUnit.NANOSECONDS)
-        timer(RECORD_AGE, tags.and("error", "none")).record(recordAgeMillis, TimeUnit.MILLISECONDS)
+        timer(RECORD_END_TO_END_DURATION, tags).record(endToEndLatencyMillis, TimeUnit.MILLISECONDS)
     }
 
     override fun onRecordFailed(
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
         error: Throwable,
         durationNanos: Long
     ) {
         val tags = recordTags(record).and("error", error::class.java.simpleName)
         timer(RECORD_FAILED_DURATION, tags).record(durationNanos, TimeUnit.NANOSECONDS)
-        timer(RECORD_AGE, tags).record(recordAgeMillis, TimeUnit.MILLISECONDS)
     }
 
     override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {

@@ -47,14 +47,14 @@ interface ConsumerMetrics<K, V> {
     /**
      * Records a successfully processed record after user handler execution completes.
      *
-     * [recordAgeMillis] is measured from Kafka record timestamp to processing start. [durationNanos] covers
-     * configured handler retries and successful handler execution.
+     * [endToEndLatencyMillis] is measured from the Kafka record timestamp through successful terminal
+     * processing. [durationNanos] covers configured handler retries and successful handler execution.
      */
     fun onRecordProcessed(
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
+        endToEndLatencyMillis: Long,
         durationNanos: Long
     ) = Unit
 
@@ -67,7 +67,6 @@ interface ConsumerMetrics<K, V> {
         key: K?,
         value: V?,
         record: ConsumerRecord<K, V>,
-        recordAgeMillis: Long,
         error: Throwable,
         durationNanos: Long
     ) = Unit

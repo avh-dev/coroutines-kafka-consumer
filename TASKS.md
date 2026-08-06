@@ -53,6 +53,7 @@
 | [CORE-48](#core-48) | Polish Spring Boot starter metadata, documentation, demo configuration, and defaults before release.                                                                                                      | DONE |
 | [CORE-49](#core-49) | Add record-count-triggered commits alongside the existing time-based commit interval for at-least-once processing modes.                                                                                  | DONE |
 | [CORE-50](#core-50) | Compact oversized `OffsetTracker` ring buffers after transient out-of-order processing spikes.                                                                                                            | DONE |
+| [CORE-51](#core-51) | Replace record-age telemetry with successful end-to-end record processing latency.                                                                                                                       | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -2553,3 +2554,15 @@ Use hysteresis to avoid grow/shrink churn during ordinary workload variation.
 Compact before commit snapshots so metadata serialization and post-restart tracker capacity reflect the useful state.
 
 Verification: OffsetTracker, partition commit-data, metadata serializer, and poll-loop tests passed.
+
+<a id="core-51"></a>
+### CORE-51 - Replace record age with end-to-end latency
+
+_Date: 2026-08-06_
+
+Replace the processing-start record-age timer with latency measured from the Kafka record timestamp through successful terminal processing.
+Remove the obsolete record-age metric and its failure series rather than retaining overlapping telemetry before the first release.
+Align the core metrics contract, Micrometer schema, tests, and module documentation with the new SLA-oriented meaning.
+
+Verification: the complete core, Micrometer, and Spring Boot starter test suites passed, as did focused demo metric and CKC profile tests.
+The complete demo suite passed 93 of 94 tests; the unrelated existing Thread Stats endpoint-format test still fails.

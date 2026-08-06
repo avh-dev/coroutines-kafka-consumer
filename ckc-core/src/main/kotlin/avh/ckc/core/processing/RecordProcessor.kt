@@ -23,7 +23,8 @@ internal class RecordProcessor<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit,
-    private val recordProcessingContext: RecordProcessingContext<K, V>? = null
+    private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
+    private val currentTimeMillis: () -> Long = System::currentTimeMillis
 ) {
     /**
      * Processes a single Kafka record end-to-end.
@@ -40,7 +41,6 @@ internal class RecordProcessor<K, V>(
 
     private suspend fun processDirect(record: ConsumerRecord<K, V>) {
         val startedAt = System.nanoTime()
-        val recordAgeMillis = (System.currentTimeMillis() - record.timestamp()).coerceAtLeast(0L)
         val key = record.key()
         val value = record.value()
         try {
@@ -59,7 +59,6 @@ internal class RecordProcessor<K, V>(
                     key = key,
                     value = value,
                     record = record,
-                    recordAgeMillis = recordAgeMillis,
                     error = error,
                     durationNanos = System.nanoTime() - startedAt
                 )
@@ -71,7 +70,7 @@ internal class RecordProcessor<K, V>(
                 key = key,
                 value = value,
                 record = record,
-                recordAgeMillis = recordAgeMillis,
+                endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
                 durationNanos = System.nanoTime() - startedAt
             )
         } catch (error: Throwable) {
@@ -82,7 +81,6 @@ internal class RecordProcessor<K, V>(
                 key = null,
                 value = null,
                 record = record,
-                recordAgeMillis = recordAgeMillis,
                 error = error,
                 durationNanos = System.nanoTime() - startedAt
             )
