@@ -60,6 +60,7 @@ private typealias PollLoopFactory<K, V> = (
     parentContext: CoroutineContext,
     processingMode: ProcessingMode,
     commitIntervalMs: Long,
+    commitRecordsThreshold: Int,
     metrics: ConsumerMetrics<K, V>,
     consumerProperties: Map<String, Any?>,
     consumerConfigAdapter: KafkaConsumerConfigAdapter,
@@ -100,6 +101,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val workerConcurrency: Int,
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
+    private val commitRecordsThreshold: Int,
     private val workChannelCapacity: Int,
     private val freshnessMaxRecordAge: Duration?,
     private val processingDispatcher: CoroutineDispatcher,
@@ -152,6 +154,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             scope.coroutineContext,
             processingMode,
             commitIntervalMs,
+            commitRecordsThreshold,
             metrics,
             consumerProperties,
             consumerConfigAdapter,
@@ -175,6 +178,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(workerConcurrency > 0) { "workerConcurrency must be > 0" }
         require(consumerPollLoopConcurrency > 0) { "consumerPollLoopConcurrency must be > 0" }
         require(commitIntervalMs > 0) { "commitIntervalMs must be > 0" }
+        require(commitRecordsThreshold > 0) { "commitRecordsThreshold must be > 0" }
         require(workChannelCapacity > 0) { "workChannelCapacity must be > 0" }
         freshnessMaxRecordAge?.let {
             require(it.isPositive()) { "freshnessMaxRecordAge must be > 0" }
@@ -204,6 +208,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         workerConcurrency: Int,
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
+        commitRecordsThreshold: Int = 1_000,
         workChannelCapacity: Int = 1024,
         freshnessMaxRecordAge: Duration? = null,
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -221,6 +226,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
+        commitRecordsThreshold = commitRecordsThreshold,
         workChannelCapacity = workChannelCapacity,
         freshnessMaxRecordAge = freshnessMaxRecordAge,
         processingDispatcher = processingDispatcher,
@@ -319,12 +325,13 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, processingMode, commitIntervalMs, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
+    { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
         ConsumerPollLoop<K, V>(
             id = id,
             parentContext = context,
             processingMode = processingMode,
             commitIntervalMs = commitIntervalMs,
+            commitRecordsThreshold = commitRecordsThreshold,
             metrics = metrics,
             consumerProperties = consumerProperties,
             consumerConfigAdapter = consumerConfigAdapter,

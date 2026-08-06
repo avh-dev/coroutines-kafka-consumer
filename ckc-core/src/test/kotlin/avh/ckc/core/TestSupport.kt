@@ -32,6 +32,7 @@ suspend fun <T : Any> awaitFor(
 fun testRuntime(
     processingMode: ProcessingMode,
     commitIntervalMs: Long = 5_000L,
+    commitRecordsThreshold: Int = 1_000,
     workChannelCapacity: Int = 1024,
     freshnessMaxRecordAge: Duration? = null,
     processingDispatcher: CoroutineDispatcher = Dispatchers.Default
@@ -41,6 +42,7 @@ fun testRuntime(
         workerConcurrency = 1,
         consumerPollLoopConcurrency = 1,
         commitIntervalMs = commitIntervalMs,
+        commitRecordsThreshold = commitRecordsThreshold,
         workChannelCapacity = workChannelCapacity,
         freshnessMaxRecordAge = freshnessMaxRecordAge,
         processingDispatcher = processingDispatcher
@@ -137,6 +139,7 @@ data class TestConsumerRuntime(
     val workerConcurrency: Int,
     val consumerPollLoopConcurrency: Int,
     val commitIntervalMs: Long,
+    val commitRecordsThreshold: Int,
     val workChannelCapacity: Int,
     val freshnessMaxRecordAge: Duration?,
     val processingDispatcher: CoroutineDispatcher

@@ -59,13 +59,14 @@ class PartitionStateTest {
 
     @Test
     fun `when initialized from snapshot then processed offsets are restored`() {
-        val original = OffsetTracker(lastCommitedOffset = 9L)
+        val original = OffsetTracker(initialProcessedOffset = 9L)
         original.markProcessed(10L)
         original.markProcessed(12L)
-        assertEquals(10L, original.advanceCommitOffset())
+        original.advanceProcessedFrontier()
+        assertEquals(10L, original.lastProcessedOffset)
 
         val ps = PartitionState(TopicPartition("t", 0))
-        ps.init(committedOffset = original.lastCommitedOffset + 1, snapshot = original.snapshot())
+        ps.init(committedOffset = original.lastProcessedOffset + 1, snapshot = original.snapshot())
 
         assertTrue(ps.isProcessed(10L))
         assertFalse(ps.isProcessed(11L))
@@ -74,7 +75,7 @@ class PartitionStateTest {
 
     @Test
     fun `when initialized from snapshot with same committed offset then current tracker is preserved`() {
-        val staleSnapshotSource = OffsetTracker(lastCommitedOffset = 9L)
+        val staleSnapshotSource = OffsetTracker(initialProcessedOffset = 9L)
         staleSnapshotSource.markProcessed(12L)
 
         val ps = PartitionState(TopicPartition("t", 0))
@@ -102,7 +103,30 @@ class PartitionStateTest {
         assertEquals(10L, commitData!!.offset)
         assertEquals(1L, commitData.advancedOffsetsCount)
 
-        val restored = OffsetTracker(lastCommitedOffset = commitData.offset, snapshot = commitData.offsetTrackerSnapshot)
+        val restored = OffsetTracker(
+            initialProcessedOffset = commitData.offset,
+            snapshot = commitData.offsetTrackerSnapshot
+        )
         assertTrue(restored.isProcessed(12L))
+    }
+
+    @Test
+    fun `commit data remains available until successful commit is confirmed`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        ps.markProcessed(10L)
+
+        val firstAttempt = ps.advanceAndGetCommitData()
+        val retryAttempt = ps.advanceAndGetCommitData()
+
+        assertEquals(10L, firstAttempt?.offset)
+        assertEquals(1L, firstAttempt?.advancedOffsetsCount)
+        assertEquals(10L, retryAttempt?.offset)
+        assertEquals(1L, retryAttempt?.advancedOffsetsCount)
+
+        ps.markCommitted(10L)
+
+        assertNull(ps.advanceAndGetCommitData())
+        assertEquals(10L, ps.lastCommittedOffset)
     }
 }

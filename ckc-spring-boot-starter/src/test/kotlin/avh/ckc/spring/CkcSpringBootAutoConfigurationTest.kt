@@ -52,6 +52,7 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.worker-concurrency=4",
                 "ckc.consumers.orders.consumer-poll-loop-concurrency=2",
                 "ckc.consumers.orders.commit-interval=2s",
+                "ckc.consumers.orders.commit-records-threshold=750",
                 "ckc.consumers.orders.work-channel-capacity=256",
                 "ckc.consumers.orders.kafka-properties.${ConsumerConfig.MAX_POLL_RECORDS_CONFIG}=500"
             )
@@ -77,6 +78,8 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING)
                 assertThat(properties.consumers["orders"]?.freshnessMaxRecordAge)
                     .isNull()
+                assertThat(properties.consumers["orders"]?.commitRecordsThreshold)
+                    .isEqualTo(750)
                 assertThat(
                     properties.consumers["orders"]?.kafkaProperties(
                         properties.clusters.getValue("main").kafkaProperties
@@ -85,6 +88,27 @@ class CkcSpringBootAutoConfigurationTest {
                     .containsEntry(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
                     .containsEntry(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
                     .containsEntry(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "500")
+            }
+    }
+
+    @Test
+    fun `fails when commit records threshold is not positive`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.commit-records-threshold=0"
+            )
+            .run { context ->
+                assertThatThrownBy {
+                    context.getBean(CkcConsumerRegistry::class.java).consumerNames
+                }
+                    .hasStackTraceContaining("ckc.consumers.orders.commit-records-threshold must be > 0")
             }
     }
 
@@ -463,6 +487,7 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.dispatchers.*.type")
             .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.consumers.*.freshness-max-record-age")
+            .contains("ckc.consumers.*.commit-records-threshold")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
             .contains("ckc.consumers.*.retry-schema")
     }

@@ -10,9 +10,13 @@ import kotlin.math.max
  * Offsets are stored in a ring buffer of 64-bit words.
  */
 internal class OffsetTracker(
-    var lastCommitedOffset: Long,
+    initialProcessedOffset: Long,
     initialCapacity: Int = 128
 ) {
+
+    /** Highest contiguous offset known to be fully processed. */
+    var lastProcessedOffset: Long = max(-1, initialProcessedOffset)
+        private set
 
     /**
      * Ring bitset capacity in bits.
@@ -27,34 +31,30 @@ internal class OffsetTracker(
     private var wordMask = words.size - 1
 
     /** Offset corresponding to bitIndex 0. */
-    private var headWordOffset: Long = lastCommitedOffset + 1
+    private var headWordOffset: Long = lastProcessedOffset + 1
 
     /** Initial word in a ring buffer */
     private var headWordIndex = 0
 
-    init {
-        // the first offset in a new partition is 0, so lastCommitOffset can't be less than -1
-        lastCommitedOffset = max(-1, lastCommitedOffset)
-    }
-
     /**
      * Restores a tracker from a previously serialized snapshot.
      *
-     * [lastCommitedOffset] is intentionally supplied by the caller because Kafka stores the committed offset
-     * separately from commit metadata. The snapshot carries only the ring internals that Kafka does not know.
+     * [initialProcessedOffset] is intentionally supplied by the caller because Kafka stores the committed offset
+     * separately from commit metadata. A snapshot is created for the same processed frontier that is committed to
+     * Kafka, so the committed offset restores that frontier while the snapshot carries the remaining ring internals.
      * The restored tracker keeps the original ring capacity, which avoids immediately growing it again under
      * a similar workload.
      */
     constructor(
-        lastCommitedOffset: Long,
+        initialProcessedOffset: Long,
         snapshot: OffsetTrackerSnapshot,
         initialCapacity: Int = 128
-    ) : this(lastCommitedOffset, max(initialCapacity, snapshot.words.size shl 6)) {
+    ) : this(initialProcessedOffset, max(initialCapacity, snapshot.words.size shl 6)) {
         val snapshotWords = snapshot.words
         require(snapshotWords.size >= 2) { "Offset tracker snapshot must contain at least two words" }
         require(snapshotWords.size.isPowerOfTwo()) { "Offset tracker snapshot word count must be a power of two" }
         require(snapshot.headWordIndex in snapshotWords.indices) { "Offset tracker snapshot head index is out of bounds" }
-        require(snapshot.headWordOffset <= this.lastCommitedOffset + 1) {
+        require(snapshot.headWordOffset <= this.lastProcessedOffset + 1) {
             "Offset tracker snapshot head is ahead of the first uncommitted offset"
         }
         words = snapshotWords
@@ -71,7 +71,7 @@ internal class OffsetTracker(
      */
     fun markProcessed(offset: Long) {
         synchronized(this) {
-            if (offset <= lastCommitedOffset) return
+            if (offset <= lastProcessedOffset) return
 
             val bitIndex = (offset - headWordOffset).toInt()
             if (bitIndex >= capacityBits) {
@@ -93,12 +93,12 @@ internal class OffsetTracker(
     /**
      * Returns whether [offset] is already known as processed.
      *
-     * Offsets at or below [lastCommitedOffset] are considered processed by definition. Offsets beyond the
+     * Offsets at or below [lastProcessedOffset] are considered processed by definition. Offsets beyond the
      * current ring capacity are not tracked yet and therefore are not considered processed.
      */
     fun isProcessed(offset: Long): Boolean =
         synchronized(this) {
-            if (offset <= lastCommitedOffset) return true
+            if (offset <= lastProcessedOffset) return true
 
             val bitIndex = (offset - headWordOffset).toInt()
             if (bitIndex < 0 || bitIndex >= capacityBits) return false
@@ -112,7 +112,7 @@ internal class OffsetTracker(
      * or null if no progress can be made.
      * Thread-safe and designed for a hot path with minimal overhead.
      */
-    fun advanceCommitOffset(): Long? {
+    fun advanceProcessedFrontier() {
         synchronized(this) {
             val mask = wordMask
             var head = headWordIndex
@@ -146,11 +146,8 @@ internal class OffsetTracker(
             val offsetToCommit = offset - 1L + words[head].inv().countTrailingZeroBits()
 
             // Commit only if progress has been made.
-            if (offsetToCommit > lastCommitedOffset) {
-                lastCommitedOffset = offsetToCommit
-                return offsetToCommit
-            } else {
-                return null
+            if (offsetToCommit > lastProcessedOffset) {
+                lastProcessedOffset = offsetToCommit
             }
         }
     }

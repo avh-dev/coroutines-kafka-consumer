@@ -27,6 +27,7 @@ internal fun <K, V> createTestConsumer(
         workerConcurrency = workerConcurrency,
         consumerPollLoopConcurrency = runtime.consumerPollLoopConcurrency,
         commitIntervalMs = runtime.commitIntervalMs,
+        commitRecordsThreshold = runtime.commitRecordsThreshold,
         workChannelCapacity = runtime.workChannelCapacity,
         freshnessMaxRecordAge = runtime.freshnessMaxRecordAge,
         processingDispatcher = runtime.processingDispatcher,
@@ -38,7 +39,7 @@ internal fun <K, V> createTestConsumer(
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,
-        pollLoopFactory = { _, context, _, _, _, _, _, _, _, recordSink, _ ->
+        pollLoopFactory = { _, context, _, _, _, _, _, _, _, _, recordSink, _ ->
             FakePollLoopControl(context, recordSink, records)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime

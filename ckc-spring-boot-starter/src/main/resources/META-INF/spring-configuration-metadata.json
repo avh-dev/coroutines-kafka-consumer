@@ -291,8 +291,14 @@
     {
       "name": "ckc.consumers.*.commit-interval",
       "type": "java.time.Duration",
-      "description": "Manual commit interval used by CKC processing runtimes.",
+      "description": "Maximum interval between offset commit attempts in tracked at-least-once modes.",
       "defaultValue": "5s"
+    },
+    {
+      "name": "ckc.consumers.*.commit-records-threshold",
+      "type": "java.lang.Integer",
+      "description": "Pending contiguous offset count per poll loop that triggers a commit before the time interval is reached.",
+      "defaultValue": 1000
     },
     {
       "name": "ckc.consumers.*.work-channel-capacity",

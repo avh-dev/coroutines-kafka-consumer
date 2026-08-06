@@ -132,6 +132,7 @@ data class CkcConsumerProperties(
         var workerConcurrency: Int = 1,
         var consumerPollLoopConcurrency: Int = 1,
         var commitInterval: Duration = Duration.ofSeconds(5),
+        var commitRecordsThreshold: Int = 1_000,
         var workChannelCapacity: Int = 1024,
         var freshnessMaxRecordAge: Duration? = null,
         var processingDispatcher: String? = null,

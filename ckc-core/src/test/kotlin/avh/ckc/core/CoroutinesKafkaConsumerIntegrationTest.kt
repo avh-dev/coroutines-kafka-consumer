@@ -359,7 +359,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
         produce(topic, "key-1", "1")
         produce(topic, "key-2", "2")
 
-        val tracker = OffsetTracker(lastCommitedOffset = 0L)
+        val tracker = OffsetTracker(initialProcessedOffset = 0L)
         tracker.markProcessed(1L)
         commitOffset(
             groupId = groupId,
