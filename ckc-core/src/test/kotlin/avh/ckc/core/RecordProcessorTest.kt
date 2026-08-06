@@ -7,10 +7,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.header.internals.RecordHeaders
+import org.apache.kafka.common.record.TimestampType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.IOException
+import java.util.Optional
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -45,7 +48,7 @@ class RecordProcessorTest {
         assertEquals(1, metrics.processed.size)
         assertEquals("payload", metrics.processed.single().value)
         assertEquals("payload", metrics.retries.first().value)
-        kotlin.test.assertTrue(metrics.processed.single().recordAgeMillis >= 0)
+        kotlin.test.assertTrue(metrics.processed.single().endToEndLatencyMillis >= 0)
     }
 
     @Test
@@ -73,7 +76,6 @@ class RecordProcessorTest {
         assertEquals("boom", metrics.failed.single().error.message)
         assertEquals(0L, metrics.failed.single().key)
         assertEquals(0L, metrics.failed.single().value)
-        kotlin.test.assertTrue(metrics.failed.single().recordAgeMillis >= 0)
     }
 
     @Test
@@ -98,6 +100,37 @@ class RecordProcessorTest {
 
         assertEquals(13L, withTimeout(2_000) { processed.await() })
         assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun `end to end latency is measured after successful processing completes`() = runBlocking {
+        var currentTimeMillis = 1_000L
+        val metrics = RecordingMetrics<String, String>()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> {
+                currentTimeMillis = 1_250L
+            },
+            metrics = metrics,
+            currentTimeMillis = { currentTimeMillis }
+        )
+
+        processor.process(
+            ConsumerRecord(
+                "topic-a",
+                0,
+                0L,
+                900L,
+                TimestampType.CREATE_TIME,
+                0,
+                0,
+                null,
+                "payload",
+                RecordHeaders(),
+                Optional.empty()
+            )
+        )
+
+        assertEquals(350L, metrics.processed.single().endToEndLatencyMillis)
     }
 
     @Test
@@ -231,14 +264,16 @@ class RecordProcessorTest {
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {},
-        recordProcessingContext: RecordProcessingContext<K, V>? = null
+        recordProcessingContext: RecordProcessingContext<K, V>? = null,
+        currentTimeMillis: () -> Long = System::currentTimeMillis
     ): RecordProcessor<K, V> = RecordProcessor(
         handler = handler,
         retryPolicy = retryPolicy,
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = onRecordProcessed,
-        recordProcessingContext = recordProcessingContext
+        recordProcessingContext = recordProcessingContext,
+        currentTimeMillis = currentTimeMillis
     )
 }
 

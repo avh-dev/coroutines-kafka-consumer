@@ -19,7 +19,7 @@ class DemoRecordMetrics {
             key = context.key,
             value = value,
             record = context.record(value),
-            recordAgeMillis = context.recordAgeMillis(),
+            endToEndLatencyMillis = context.endToEndLatencyMillis(),
             durationNanos = System.nanoTime() - startedAtNanos
         )
     }
@@ -35,7 +35,6 @@ class DemoRecordMetrics {
             key = context.key,
             value = value,
             record = context.record(value),
-            recordAgeMillis = context.recordAgeMillis(),
             error = error,
             durationNanos = System.nanoTime() - startedAtNanos
         )
@@ -74,7 +73,7 @@ data class DemoConsumerRecordContext(
     val offset: Long,
     val timestamp: Long
 ) {
-    fun recordAgeMillis(): Long =
+    fun endToEndLatencyMillis(): Long =
         if (timestamp > 0L) {
             (System.currentTimeMillis() - timestamp).coerceAtLeast(0L)
         } else {

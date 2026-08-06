@@ -220,4 +220,4 @@ management:
         ckc.demo.cauldron.telemetry.event.gap: true
         lettuce.command.completion: true
         demo.ckc.record.process.duration: true
-        demo.ckc.record.age: true
+        demo.ckc.record.end.to.end.duration: true

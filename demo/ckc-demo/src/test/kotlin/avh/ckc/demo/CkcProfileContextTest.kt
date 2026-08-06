@@ -94,7 +94,7 @@ class CkcProfileContextTest(
             key = "key",
             value = sampleTelemetryEvent(),
             record = ConsumerRecord("cauldron.events.v1", 0, 0L, "key", sampleTelemetryEvent()),
-            recordAgeMillis = 10,
+            endToEndLatencyMillis = 10,
             durationNanos = 1_000_000
         )
 
@@ -103,15 +103,14 @@ class CkcProfileContextTest(
             .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
             .timer()
-        val age = meterRegistry.find("demo.ckc.record.age")
+        val endToEndLatency = meterRegistry.find("demo.ckc.record.end.to.end.duration")
             .tag("consumer_id", "cauldron_events")
             .tag("topic", "cauldron.events.v1")
             .tag("event_type", "CAULDRON_TELEMETRY")
-            .tag("error", "none")
             .timer()
 
         assertNotNull(processingDuration)
-        assertNotNull(age)
+        assertNotNull(endToEndLatency)
         assertNull(
             meterRegistry.find("demo.ckc.record.process.duration")
                 .tag("consumer_impl", "ckc")
