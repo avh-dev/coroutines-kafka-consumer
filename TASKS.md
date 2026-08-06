@@ -236,6 +236,7 @@
 | [INFRA-99](#infra-99) | Attach the local Thread Stats Java agent to internal-lab Apache Kafka and add broker thread panels. | DONE |
 | [INFRA-100](#infra-100) | Deploy Armeria HTTP-client defaults to optilab and prepare focused one-off comparison experiments. | DONE |
 | [INFRA-101](#infra-101) | Add compact detailed and category-stacked Thread Stats dashboard panels. | DONE |
+| [INFRA-102](#infra-102) | Replace successful record-age Grafana panels with end-to-end processing latency panels. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2531,6 +2532,17 @@ Treat CKC poll threads as Kafka work and virtual-thread runtime threads as busin
 Use compact color-only legends throughout the Thread Stats section and keep thread counts below the comparison rows.
 
 Verification: dashboard JSON parsed successfully, Thread Stats panel ids and layout were validated, the repository Thread Stats row matched the reviewed live dashboard exactly, and all 20 panel PromQL expressions parsed successfully against the optilab Prometheus API.
+
+<a id="infra-102"></a>
+### INFRA-102 - Show end-to-end processing latency in Grafana
+
+_Date: 2026-08-06_
+
+Replace the obsolete successful record-age queries with the new successful end-to-end processing latency metric.
+Rename the order, batch, and cauldron panels so the dashboard presents the consumer's primary latency SLA directly.
+Remove the obsolete success error-label filter from queries because the replacement metric is emitted only for successful records.
+
+Verification: dashboard JSON parsed successfully, all three target panels retained five statistic queries, and all 15 changed PromQL expressions parsed successfully against the optilab Prometheus API.
 
 <a id="core-49"></a>
 ### CORE-49 - Add adaptive at-least-once commit triggers
