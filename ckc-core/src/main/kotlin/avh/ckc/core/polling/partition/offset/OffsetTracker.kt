@@ -14,6 +14,9 @@ internal class OffsetTracker(
     initialCapacity: Int = 128
 ) {
 
+    /** Smallest capacity compaction may retain, independent from a restored snapshot's current size. */
+    private val minimumCapacityBits = ceilPow2(max(128, initialCapacity))
+
     /** Highest contiguous offset known to be fully processed. */
     var lastProcessedOffset: Long = max(-1, initialProcessedOffset)
         private set
@@ -22,7 +25,7 @@ internal class OffsetTracker(
      * Ring bitset capacity in bits.
      * A minimum of two 64-bit words is required to handle out-of-order offsets.
      */
-    private var capacityBits = ceilPow2(max(128, initialCapacity))
+    private var capacityBits = minimumCapacityBits
 
     /** Bitset buffer (each Long = 64 bits). */
     private var words: LongArray = LongArray(capacityBits ushr 6)
@@ -42,14 +45,14 @@ internal class OffsetTracker(
      * [initialProcessedOffset] is intentionally supplied by the caller because Kafka stores the committed offset
      * separately from commit metadata. A snapshot is created for the same processed frontier that is committed to
      * Kafka, so the committed offset restores that frontier while the snapshot carries the remaining ring internals.
-     * The restored tracker keeps the original ring capacity, which avoids immediately growing it again under
-     * a similar workload.
+     * The restored tracker initially keeps the snapshot capacity, but [compact] may later shrink it back toward
+     * [initialCapacity] when the restored live range no longer requires the larger ring.
      */
     constructor(
         initialProcessedOffset: Long,
         snapshot: OffsetTrackerSnapshot,
         initialCapacity: Int = 128
-    ) : this(initialProcessedOffset, max(initialCapacity, snapshot.words.size shl 6)) {
+    ) : this(initialProcessedOffset, initialCapacity) {
         val snapshotWords = snapshot.words
         require(snapshotWords.size >= 2) { "Offset tracker snapshot must contain at least two words" }
         require(snapshotWords.size.isPowerOfTwo()) { "Offset tracker snapshot word count must be a power of two" }
@@ -107,11 +110,7 @@ internal class OffsetTracker(
             (words[wordIndex] and (1L shl bitIndex)) != 0L
         }
 
-    /**
-     * Advances and returns the highest contiguous offset eligible for commit,
-     * or null if no progress can be made.
-     * Thread-safe and designed for a hot path with minimal overhead.
-     */
+    /** Advances the processed frontier to the first gap. */
     fun advanceProcessedFrontier() {
         synchronized(this) {
             val mask = wordMask
@@ -156,6 +155,50 @@ internal class OffsetTracker(
         get() = synchronized(this) { capacityBits }
 
     /**
+     * Shrinks an oversized ring when its live words fit into at most one quarter of the current storage.
+     *
+     * Compaction requires at least a fourfold reduction to avoid frequent reallocations.
+     * It preserves ring order and never shrinks below the configured initial capacity.
+     */
+    fun compact() {
+        synchronized(this) {
+            val targetWordCount = compactedWordCount() ?: return
+            words = copyLogicalWords(targetWordCount)
+            capacityBits = targetWordCount shl 6
+            wordMask = targetWordCount - 1
+            headWordIndex = 0
+        }
+    }
+
+    private fun compactedWordCount(): Int? {
+        val minimumWordCount = minimumCapacityBits ushr 6
+        if (minimumWordCount > words.size / COMPACTION_RATIO) return null
+
+        var requiredWordCount = minimumWordCount
+        for (logicalWordIndex in words.lastIndex downTo 0) {
+            val physicalWordIndex = (headWordIndex + logicalWordIndex) and wordMask
+            if (words[physicalWordIndex] != 0L) {
+                requiredWordCount = max(minimumWordCount, logicalWordIndex + 1)
+                break
+            }
+        }
+
+        val targetWordCount = ceilPow2(requiredWordCount)
+        return targetWordCount.takeIf { it <= words.size / COMPACTION_RATIO }
+    }
+
+    private fun copyLogicalWords(wordCount: Int): LongArray {
+        val copiedWords = LongArray(wordCount)
+        val tailWordCount = minOf(wordCount, words.size - headWordIndex)
+        arraycopy(words, headWordIndex, copiedWords, 0, tailWordCount)
+        val wrappedWordCount = wordCount - tailWordCount
+        if (wrappedWordCount > 0) {
+            arraycopy(words, 0, copiedWords, tailWordCount, wrappedWordCount)
+        }
+        return copiedWords
+    }
+
+    /**
      * Captures current ring state.
      *
      * The words array is copied while holding the tracker lock; [OffsetTrackerSnapshot] itself does not add
@@ -196,6 +239,10 @@ internal class OffsetTracker(
         capacityBits = newSize shl 6
         wordMask = newSize - 1
         headWordIndex = 0
+    }
+
+    private companion object {
+        const val COMPACTION_RATIO = 4
     }
 
 }

@@ -129,4 +129,38 @@ class PartitionStateTest {
         assertNull(ps.advanceAndGetCommitData())
         assertEquals(10L, ps.lastCommittedOffset)
     }
+
+    @Test
+    fun `commit data compacts oversized tracker before snapshot`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(0L)
+        ps.markProcessed(16_384L)
+        for (offset in 0L until 16_384L) {
+            ps.markProcessed(offset)
+        }
+        assertEquals(32_768, ps.offsetTrackerBitCapacity)
+
+        val commitData = checkNotNull(ps.advanceAndGetCommitData())
+
+        assertEquals(16_384L, commitData.offset)
+        assertEquals(128, ps.offsetTrackerBitCapacity)
+        assertEquals(2, commitData.offsetTrackerSnapshot.words.size)
+    }
+
+    @Test
+    fun `commit data keeps normal one kilobyte tracker capacity`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(0L)
+        ps.markProcessed(4_096L)
+        for (offset in 0L until 4_096L) {
+            ps.markProcessed(offset)
+        }
+        assertEquals(8_192, ps.offsetTrackerBitCapacity)
+
+        val commitData = checkNotNull(ps.advanceAndGetCommitData())
+
+        assertEquals(4_096L, commitData.offset)
+        assertEquals(8_192, ps.offsetTrackerBitCapacity)
+        assertEquals(128, commitData.offsetTrackerSnapshot.words.size)
+    }
 }

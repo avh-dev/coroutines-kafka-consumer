@@ -7,7 +7,7 @@ import java.nio.ByteOrder
 /**
  * Serializes [OffsetTrackerSnapshot] values for Kafka commit metadata.
  *
- * The format stores a small fixed header followed by the raw ring words. Payloads below
+ * The format stores a small fixed header followed by the raw ring words. Payloads at or below
  * [COMPRESSION_THRESHOLD_BYTES] are written raw; larger payloads are compressed with zstd only when that
  * actually reduces the byte count.
  *
@@ -23,7 +23,7 @@ internal object OffsetTrackerSerializer {
     fun serialize(snapshot: OffsetTrackerSnapshot): ByteArray {
         val words = snapshot.words
         val rawWords = words.toLittleEndianBytes()
-        val useCompression = rawWords.size >= COMPRESSION_THRESHOLD_BYTES
+        val useCompression = rawWords.size > COMPRESSION_THRESHOLD_BYTES
         if (useCompression) {
             val compressedWords = Zstd.compress(rawWords)
             if (compressedWords.size < rawWords.size) {

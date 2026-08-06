@@ -52,6 +52,7 @@
 | [CORE-47](#core-47) | Add concise KDoc for the Spring Boot starter public API surface.                                                                                                                                          | DONE |
 | [CORE-48](#core-48) | Polish Spring Boot starter metadata, documentation, demo configuration, and defaults before release.                                                                                                      | DONE |
 | [CORE-49](#core-49) | Add record-count-triggered commits alongside the existing time-based commit interval for at-least-once processing modes.                                                                                  | DONE |
+| [CORE-50](#core-50) | Compact oversized `OffsetTracker` ring buffers after transient out-of-order processing spikes.                                                                                                            | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -2541,3 +2542,14 @@ Expose the record threshold through the core API and Spring Boot configuration w
 
 Verification: focused core offset, poll-loop, builder, and processing tests passed; the complete Spring Boot starter suite passed.
 The unrelated timing-sensitive runtime queue-size test remains flaky in the complete core suite and passes in isolation.
+
+<a id="core-50"></a>
+### CORE-50 - Compact oversized OffsetTracker buffers
+
+_Date: 2026-08-06_
+
+Add an internal compaction operation that preserves live processed offsets while shrinking unused ring capacity.
+Use hysteresis to avoid grow/shrink churn during ordinary workload variation.
+Compact before commit snapshots so metadata serialization and post-restart tracker capacity reflect the useful state.
+
+Verification: OffsetTracker, partition commit-data, metadata serializer, and poll-loop tests passed.
