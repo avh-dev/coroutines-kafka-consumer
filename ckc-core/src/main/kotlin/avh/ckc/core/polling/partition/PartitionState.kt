@@ -63,13 +63,14 @@ internal class PartitionState(
         initialized = true
     }
 
-    /**
-     * Advances the committable offset if processed offsets allow it.
-     */
-    fun advanceProcessedOffset() = offsetTracker.advanceProcessedOffset()
+    /** Advances the processed frontier and returns the offset backlog not yet confirmed by Kafka. */
+    fun advanceAndGetPendingOffsetsCount(): Long {
+        offsetTracker.advanceProcessedFrontier()
+        return offsetTracker.lastProcessedOffset - lastCommittedOffset
+    }
 
     fun advanceAndGetCommitData(): OffsetCommitData? {
-        offsetTracker.advanceProcessedOffset()
+        offsetTracker.advanceProcessedFrontier()
         val offset = offsetTracker.lastProcessedOffset
         if (offset <= lastCommittedOffset) return null
         return OffsetCommitData(

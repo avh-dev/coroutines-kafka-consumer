@@ -72,6 +72,19 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
+    fun `when commit records threshold is not positive then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                commitRecordsThreshold = 0
+                topics("topic-a")
+                handle { }
+            }
+        }
+
+        assertEquals("commitRecordsThreshold must be > 0", error.message)
+    }
+
+    @Test
     fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST and auto commit disabled then build fails`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             coroutinesKafkaConsumer<String, String>(

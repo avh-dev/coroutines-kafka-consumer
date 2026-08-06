@@ -423,12 +423,75 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when record threshold is reached then offsets are committed before interval`() = runBlocking {
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 201L,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 3,
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 200L)
+
+            state.markProcessed(201L)
+            state.markProcessed(202L)
+            state.markProcessed(203L)
+
+            fixture.awaitCommit(203L)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `record threshold sums pending offsets across assigned partitions`() = runBlocking {
+            val secondPartition = TopicPartition("topic-a", 1)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 201L,
+                additionalAssignmentPositions = mapOf(secondPartition to 501L),
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 3,
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+            val firstState = fixture.awaitAssignedState(lastCommittedOffset = 200L)
+            val secondState = awaitFor(2_000L, 10L) {
+                fixture.registry.partitionStateFor(secondPartition)
+            }
+
+            firstState.markProcessed(201L)
+            secondState.markProcessed(501L)
+            secondState.markProcessed(502L)
+
+            verify(fixture.consumer, timeout(2_000)).commitSync(
+                argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                    get(fixture.topicPartition)?.offset() == 202L &&
+                            get(secondPartition)?.offset() == 503L
+                }
+            )
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when commit fails then unchanged processed frontier is retried`() = runBlocking {
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
                 assignmentPosition = 300L,
-                commitIntervalMs = 25L,
+                commitIntervalMs = 250L,
+                commitRecordsThreshold = 1,
                 pollAnswer = { emptyRecords() }
             )
 
@@ -441,6 +504,10 @@ class ConsumerPollLoopTest {
             val state = fixture.awaitAssignedState(lastCommittedOffset = 299L)
 
             state.trackerRefForTest().markProcessed(300L)
+            fixture.awaitCommitAttempts(1)
+            delay(100L)
+            verify(fixture.consumer, times(1)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
             fixture.awaitCommitAttempts(2)
 
             verify(fixture.consumer, timeout(2_000).times(2)).commitSync(
@@ -509,6 +576,8 @@ private class PollLoopFixture(
     assignmentPosition: Long = 0L,
     private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
     commitIntervalMs: Long = 5_000L,
+    commitRecordsThreshold: Int = 1_000,
+    private val additionalAssignmentPositions: Map<TopicPartition, Long> = emptyMap(),
     initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
     private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
     private val pollAnswer: PollLoopFixture.() -> ConsumerRecords<ByteArray, ByteArray>
@@ -536,12 +605,14 @@ private class PollLoopFixture(
     }
     val registry = PartitionRegistry()
     val topicPartition = TopicPartition("topic-a", 0)
+    private val assignmentPositions = mapOf(topicPartition to assignmentPosition) + additionalAssignmentPositions
     private val consumerProperties = testConsumerProperties()
     val loop = ConsumerPollLoop<ByteArray, ByteArray>(
         id = 1,
         parentContext = Dispatchers.Default,
         processingMode = processingMode,
         commitIntervalMs = commitIntervalMs,
+        commitRecordsThreshold = commitRecordsThreshold,
         metrics = metrics,
         consumerProperties = consumerProperties,
         consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties),
@@ -562,9 +633,11 @@ private class PollLoopFixture(
                 listenerRef.set(invocation.getArgument(1))
             }
 
-        whenever(consumer.position(topicPartition)).thenReturn(assignmentPosition)
+        whenever(consumer.position(any<TopicPartition>())).thenAnswer { invocation ->
+            assignmentPositions.getValue(invocation.getArgument(0))
+        }
         whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
-        whenever(consumer.assignment()).thenReturn(setOf(topicPartition))
+        whenever(consumer.assignment()).thenReturn(assignmentPositions.keys)
         whenever(consumer.close()).then { }
 
         whenever(consumer.poll(any<Duration>()))
@@ -572,7 +645,7 @@ private class PollLoopFixture(
                 if (processingMode.tracksProcessedOffsets() &&
                     assignedOnce.compareAndSet(false, true)
                 ) {
-                    listenerRef.get()?.onPartitionsAssigned(listOf(topicPartition))
+                    listenerRef.get()?.onPartitionsAssigned(assignmentPositions.keys)
                 }
                 pollAnswer()
             }

@@ -38,6 +38,13 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var commitIntervalMs: Long = 5_000L
 
     /**
+     * Number of contiguous processed records that triggers an offset commit in tracked at-least-once modes.
+     *
+     * The time-based [commitIntervalMs] remains a fallback when traffic does not reach this threshold.
+     */
+    var commitRecordsThreshold: Int = 1_000
+
+    /**
      * Capacity of the internal work channel between poll loops and workers.
      *
      * In [ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY], this limits queued distinct keys rather than total buffered
@@ -142,6 +149,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             workerConcurrency = workerConcurrency,
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
+            commitRecordsThreshold = commitRecordsThreshold,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
             processingDispatcher = processingDispatcher,

@@ -220,7 +220,8 @@ class RecordProcessorTest {
         processor.process(ConsumerRecord("topic-a", 0, 0L, 0L, 0L))
         processor.process(ConsumerRecord("topic-a", 0, 1L, 0L, 1L))
 
-        assertEquals(1L, tracker.advanceProcessedOffset())
+        tracker.advanceProcessedFrontier()
+        assertEquals(1L, tracker.lastProcessedOffset)
     }
 
     private fun <K, V> createRecordProcessor(

@@ -3,14 +3,17 @@ package avh.ckc.core.polling.partition.offset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     override fun createOffsetTracker(baseOffset: Long): AbstractOffsetTracker = object : AbstractOffsetTracker {
         val delegate = OffsetTracker(baseOffset)
         override fun markProcessed(offset: Long) = delegate.markProcessed(offset)
-        override fun advanceCommitOffset() = delegate.advanceProcessedOffset()
+        override fun advanceCommitOffset(): Long? {
+            val previousOffset = delegate.lastProcessedOffset
+            delegate.advanceProcessedFrontier()
+            return delegate.lastProcessedOffset.takeIf { it > previousOffset }
+        }
     }
 
     @Test
@@ -20,16 +23,19 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         tracker.markProcessed(12L)
         tracker.markProcessed(13L)
 
-        assertEquals(10L, tracker.advanceProcessedOffset())
+        tracker.advanceProcessedFrontier()
+        assertEquals(10L, tracker.lastProcessedOffset)
 
         val restored = OffsetTracker(
             initialProcessedOffset = tracker.lastProcessedOffset,
             snapshot = tracker.snapshotRoundTrip()
         )
 
-        assertNull(restored.advanceProcessedOffset())
+        restored.advanceProcessedFrontier()
+        assertEquals(10L, restored.lastProcessedOffset)
         restored.markProcessed(11L)
-        assertEquals(13L, restored.advanceProcessedOffset())
+        restored.advanceProcessedFrontier()
+        assertEquals(13L, restored.lastProcessedOffset)
     }
 
     @Test
@@ -38,7 +44,8 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         for (offset in 0L until 128L) {
             tracker.markProcessed(offset)
         }
-        assertEquals(127L, tracker.advanceProcessedOffset())
+        tracker.advanceProcessedFrontier()
+        assertEquals(127L, tracker.lastProcessedOffset)
 
         tracker.markProcessed(130L)
         tracker.markProcessed(131L)
@@ -48,10 +55,12 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
             snapshot = tracker.snapshotRoundTrip()
         )
 
-        assertNull(restored.advanceProcessedOffset())
+        restored.advanceProcessedFrontier()
+        assertEquals(127L, restored.lastProcessedOffset)
         restored.markProcessed(128L)
         restored.markProcessed(129L)
-        assertEquals(131L, restored.advanceProcessedOffset())
+        restored.advanceProcessedFrontier()
+        assertEquals(131L, restored.lastProcessedOffset)
     }
 
     @Test

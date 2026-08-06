@@ -331,6 +331,7 @@ class CoroutinesKafkaConsumerTest {
             workerConcurrency = 1,
             consumerPollLoopConcurrency = 1,
             commitIntervalMs = 1_000L,
+            commitRecordsThreshold = 1_000,
             workChannelCapacity = 16,
             freshnessMaxRecordAge = null,
             processingDispatcher = kotlinx.coroutines.Dispatchers.Default,
@@ -343,7 +344,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
+            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         throw expected

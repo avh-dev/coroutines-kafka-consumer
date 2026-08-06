@@ -112,7 +112,7 @@ internal class OffsetTracker(
      * or null if no progress can be made.
      * Thread-safe and designed for a hot path with minimal overhead.
      */
-    fun advanceProcessedOffset(): Long? {
+    fun advanceProcessedFrontier() {
         synchronized(this) {
             val mask = wordMask
             var head = headWordIndex
@@ -148,9 +148,6 @@ internal class OffsetTracker(
             // Commit only if progress has been made.
             if (offsetToCommit > lastProcessedOffset) {
                 lastProcessedOffset = offsetToCommit
-                return offsetToCommit
-            } else {
-                return null
             }
         }
     }

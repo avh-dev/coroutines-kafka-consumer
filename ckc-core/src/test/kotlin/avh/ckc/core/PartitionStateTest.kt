@@ -62,7 +62,8 @@ class PartitionStateTest {
         val original = OffsetTracker(initialProcessedOffset = 9L)
         original.markProcessed(10L)
         original.markProcessed(12L)
-        assertEquals(10L, original.advanceProcessedOffset())
+        original.advanceProcessedFrontier()
+        assertEquals(10L, original.lastProcessedOffset)
 
         val ps = PartitionState(TopicPartition("t", 0))
         ps.init(committedOffset = original.lastProcessedOffset + 1, snapshot = original.snapshot())

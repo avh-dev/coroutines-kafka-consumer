@@ -49,6 +49,7 @@ internal class ConsumerPollLoop<K, V>(
     parentContext: CoroutineContext,
     private val processingMode: ProcessingMode,
     private val commitIntervalMs: Long,
+    private val commitRecordsThreshold: Int,
     private val metrics: ConsumerMetrics<K, V>,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
@@ -322,7 +323,7 @@ internal class ConsumerPollLoop<K, V>(
     private fun commitReadyOffsets(
         consumer: KafkaConsumer<K, V>,
         partitionStates: Set<PartitionState>
-    ) {
+    ): CommitAttemptResult {
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
         val commitDataByPartition = mutableMapOf<PartitionState, OffsetCommitData>()
         var offsetsCount = 0L
@@ -340,7 +341,7 @@ internal class ConsumerPollLoop<K, V>(
                 offsetsCount += commitData.advancedOffsetsCount
             }
         }
-        if (!offsets.isEmpty()) {
+        if (offsets.isNotEmpty()) {
             val startedAt = System.nanoTime()
             lastCommitAttemptEpochMillis = System.currentTimeMillis()
             try {
@@ -350,12 +351,15 @@ internal class ConsumerPollLoop<K, V>(
                 }
                 lastCommitSucceeded = true
                 metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, true)
+                return CommitAttemptResult.SUCCEEDED
             } catch (e: Exception) {
                 lastCommitSucceeded = false
                 metrics.onCommit(offsets.size, offsetsCount, System.nanoTime() - startedAt, false)
                 log.warn("Error committing offsets in manager #$id", e)
+                return CommitAttemptResult.FAILED
             }
         }
+        return CommitAttemptResult.NO_OFFSETS
     }
 
     /**
@@ -386,8 +390,9 @@ internal class ConsumerPollLoop<K, V>(
         // Bounded spill queue for records already fetched when channel is saturated.
         val stash = ArrayDeque<ConsumerRecord<K, V>>(maxPollRecords)
 
-        // Do not commit on every loop iteration.
+        // Time remains the low-traffic fallback; the record threshold can trigger an earlier commit.
         var lastCommitAt = System.currentTimeMillis()
+        var pendingOffsetsAtLastAttempt = 0L
 
         var state = State.ACTIVE
 
@@ -403,13 +408,23 @@ internal class ConsumerPollLoop<K, V>(
                 pause(consumer, recordBackpressureMetric = false)
             }
 
-            /**
-             * Periodic commit of ready offsets (best-effort).
-             */
+            val pendingOffsets = advanceAndCountPendingOffsets()
+            if (pendingOffsets < pendingOffsetsAtLastAttempt) {
+                pendingOffsetsAtLastAttempt = pendingOffsets
+            }
+
             val now = System.currentTimeMillis()
-            if (now - lastCommitAt >= commitIntervalMs) {
-                commitReadyOffsets(consumer, assignedPartitions)
+            val intervalReached = now - lastCommitAt >= commitIntervalMs
+            val recordsThresholdReached =
+                pendingOffsets - pendingOffsetsAtLastAttempt >= commitRecordsThreshold.toLong()
+            if (intervalReached || recordsThresholdReached) {
+                val result = commitReadyOffsets(consumer, assignedPartitions)
                 lastCommitAt = now
+                pendingOffsetsAtLastAttempt = when (result) {
+                    CommitAttemptResult.SUCCEEDED,
+                    CommitAttemptResult.NO_OFFSETS -> 0L
+                    CommitAttemptResult.FAILED -> pendingOffsets
+                }
             }
 
             val records = pollRecords(consumer, state)
@@ -461,6 +476,15 @@ internal class ConsumerPollLoop<K, V>(
                 }
             }
         }
+    }
+
+    private fun advanceAndCountPendingOffsets(): Long {
+        var total = 0L
+        for (partitionState in assignedPartitions) {
+            val pending = partitionState.advanceAndGetPendingOffsetsCount()
+            total = if (Long.MAX_VALUE - total < pending) Long.MAX_VALUE else total + pending
+        }
+        return total
     }
 
     /**
@@ -566,5 +590,11 @@ internal class ConsumerPollLoop<K, V>(
         PAUSED(Duration.ZERO, false),
         DRAINING_TAIL(Duration.ZERO, true),
         TAIL_DRAINED(Duration.ZERO, true)
+    }
+
+    private enum class CommitAttemptResult {
+        NO_OFFSETS,
+        SUCCEEDED,
+        FAILED
     }
 }
