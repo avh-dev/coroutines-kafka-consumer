@@ -663,13 +663,14 @@ sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup="ckc-demo"}
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
 
-The host-managed Kafka broker and Redis run outside Kubernetes. Broker CPU/RSS and Redis CPU/RSS are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor:
+The host-managed Kafka broker and Redis run outside Kubernetes. Broker CPU/RSS and Redis CPU/RSS are scraped through the internal-lab process exporter rather than Kubernetes cAdvisor. The same exporter discovers the demo JVM through the host process table so voluntary and nonvoluntary context-switch rates can be compared across consumer profiles:
 
 ```promql
 1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka"}[30s]))
 sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka", memtype="resident"})
 1000 * sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{job="ckc-host-process-exporter", groupname="redis"}[30s]))
 sum by (groupname) (namedprocess_namegroup_memory_bytes{job="ckc-host-process-exporter", groupname="redis", memtype="resident"})
+sum by (ctxswitchtype) (rate(namedprocess_namegroup_thread_context_switches_total{job="ckc-host-process-exporter", groupname="ckc-demo"}[30s]))
 ```
 
 ## Verification

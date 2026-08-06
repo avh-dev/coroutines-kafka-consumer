@@ -7,6 +7,11 @@ process_names:
       - java
     cmdline:
       - kafka\.Kafka
+  - name: ckc-demo
+    comm:
+      - java
+    cmdline:
+      - avh\.ckc\.demo\.DemoApplicationKt
   - name: redis
     comm:
       - redis-server
