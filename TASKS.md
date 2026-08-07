@@ -240,6 +240,7 @@
 | [INFRA-102](#infra-102) | Replace successful record-age Grafana panels with end-to-end processing latency panels. | DONE |
 | [INFRA-103](#infra-103) | Collect demo process context-switch metrics and expose them in the shared Grafana dashboard. | DONE |
 | [INFRA-104](#infra-104) | Align application Thread Stats Grafana panels with the unified metric schema. | DONE |
+| [INFRA-105](#infra-105) | Isolate application Thread Stats Grafana queries from the Kafka broker agent job. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2615,3 +2616,14 @@ Keep the allocation panels unchanged because their metric name remains compatibl
 Validate the updated detailed and category queries against the active optilab experiment before updating the live dashboard without restarting workloads.
 
 Verification: dashboard JSON parsed successfully, all 14 changed PromQL expressions parsed against the active optilab Prometheus, and the live Grafana API loaded the corrected panels while preserving the in-progress context-switch panel.
+
+<a id="infra-105"></a>
+### INFRA-105 - Isolate application Thread Stats panels
+
+_Date: 2026-08-06_
+
+Add an explicit demo scrape-job matcher to every application Thread Stats query.
+Keep the existing pod selector while preventing its all-value regex from matching Kafka agent series that have no pod label.
+Validate detailed and category panels against the active optilab experiment and update live Grafana without restarting workloads.
+
+Verification: dashboard JSON parsed successfully, all 20 application Thread Stats targets executed against optilab Prometheus, broker-only groups were excluded, and live Grafana reloaded all scoped queries without restarting the experiment.
