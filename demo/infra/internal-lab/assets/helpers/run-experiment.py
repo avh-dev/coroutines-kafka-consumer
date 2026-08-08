@@ -17,6 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from experiment_report import generate_experiment_reports
+from experiment_report.analyze import load_sla_profile, parse_load_profile
+
 try:
     import yaml
 except ImportError as error:
@@ -45,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
     parser.add_argument("--experiment-dir", default=f"{lab_root}/workloads/experiments")
     parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
+    parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
     return parser.parse_args()
 
@@ -682,7 +686,14 @@ def has_audit_input(audit_dir_value: str) -> bool:
     return bool(audit_dir_value) and audit_input_file(Path(audit_dir_value)) is not None
 
 
-def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | None, log_dir: Path) -> dict[str, Any]:
+def analyze_one(
+    lab_root: Path,
+    audit_dir_value: str,
+    log_file,
+    hook: Path | None,
+    log_dir: Path,
+    sla_profile_file: Path | None,
+) -> dict[str, Any]:
     audit_dir = Path(audit_dir_value)
     input_file = audit_input_file(audit_dir)
     run_dir = audit_dir.parent if audit_dir.name == "audit" else audit_dir
@@ -704,6 +715,8 @@ def analyze_one(lab_root: Path, audit_dir_value: str, log_file, hook: Path | Non
         str(metadata_file),
         "--require-records",
     ]
+    if sla_profile_file is not None:
+        command.extend(["--sla-profile-file", str(sla_profile_file)])
     with summary_file.open("w", encoding="utf-8") as summary, progress_file.open("w", encoding="utf-8") as progress:
         process = subprocess.Popen(command, stdout=summary, stderr=subprocess.PIPE, text=True, bufsize=1)
         assert process.stderr is not None
@@ -737,6 +750,7 @@ def run_experiment(
     hook: Path | None,
 ) -> dict[str, Any]:
     experiment = load_yaml(experiment_path)
+    sla_profile = load_sla_profile(lab_root, experiment)
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
@@ -745,11 +759,19 @@ def run_experiment(
     test_definition = str(experiment.get("test_definition") or "")
     if not test_definition:
         raise ValueError(f"Experiment must define test_definition: {experiment_path}")
+    definition = load_yaml(resolve_named_yaml(lab_root / "workloads" / "test-definitions", test_definition))
+    load_test = definition.get("load_test")
+    if not isinstance(load_test, dict) or not load_test.get("load_profile"):
+        raise ValueError(f"Test definition must define load_test.load_profile: {test_definition}")
+    parse_load_profile(str(load_test["load_profile"]))
     if "base_tps" not in experiment:
         raise ValueError(f"Experiment must define base_tps: {experiment_path}")
     targets = normalize_targets(experiment, experiment_path)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     log_path = log_dir / f"{experiment_name}.log"
+    sla_profile_file = log_dir / f"{experiment_name}-sla-profile.json" if sla_profile else None
+    if sla_profile_file is not None:
+        sla_profile_file.write_text(json.dumps(sla_profile, indent=2), encoding="utf-8")
 
     results: list[dict[str, Any]] = []
     analysis_results: list[dict[str, Any]] = []
@@ -794,7 +816,16 @@ def run_experiment(
             print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
             notify(hook, "audit_analysis_started", {"experiment": experiment_name, "auditable_runs": len(auditable_runs)}, log_dir)
             for result in auditable_runs:
-                analysis_results.append(analyze_one(lab_root, str(result["audit_dir"]), log_file, hook, log_dir))
+                analysis_results.append(
+                    analyze_one(
+                        lab_root,
+                        str(result["audit_dir"]),
+                        log_file,
+                        hook,
+                        log_dir,
+                        sla_profile_file,
+                    )
+                )
             notify(hook, "audit_analysis_finished", {"experiment": experiment_name, "analysis": analysis_results}, log_dir)
 
     analysis_exit_code = next((analysis["exit_code"] for analysis in analysis_results if analysis["exit_code"] != 0), 0)
@@ -805,6 +836,7 @@ def run_experiment(
         "test_definition": test_definition,
         "base_tps": experiment["base_tps"],
         "experiment_file": str(experiment_path),
+        "sla_profile_file": str(sla_profile_file) if sla_profile_file else "",
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,
@@ -860,6 +892,11 @@ def main() -> int:
     }
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nExperiment summary: {summary_path}")
+    reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
+    document["reports"] = [str(path) for path in reports]
+    summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    for report in reports:
+        print(f"Experiment report: {report}")
     return int(document["exit_code"])
 
 

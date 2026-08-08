@@ -2,6 +2,7 @@ name: spring-kafka-thread-stats-progression
 description: Compare Spring Kafka poller and worker-thread placement for Thread Stats documentation screenshots.
 test_definition: 10min
 base_tps: 5000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 1

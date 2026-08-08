@@ -1,0 +1,59 @@
+name: delivery-integrity
+description: Require complete and internally consistent terminal delivery without duplicate processing.
+
+criteria:
+  - id: no-missing-terminal
+    title: Every published record has a terminal outcome
+    source: audit
+    path: [totals, missing_terminal]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-duplicate-processing
+    title: Records are not processed more than once
+    source: audit
+    path: [totals, duplicates, processed]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-terminal-failures
+    title: Records do not end in terminal processing failure
+    source: audit
+    path: [totals, failed]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-processed-without-publish
+    title: Processed records have matching publishes
+    source: audit
+    path: [totals, without_publish, processed]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-failed-without-publish
+    title: Failed records have matching publishes
+    source: audit
+    path: [totals, without_publish, failed]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-dropped-without-publish
+    title: Dropped records have matching publishes
+    source: audit
+    path: [totals, without_publish, dropped]
+    operator: eq
+    threshold: 0
+    unit: records
+
+  - id: no-conflicting-terminal-outcomes
+    title: Records have only one terminal outcome
+    source: audit
+    path: [totals, conflicting_terminal_outcomes]
+    operator: eq
+    threshold: 0
+    unit: records

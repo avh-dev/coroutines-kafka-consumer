@@ -2,7 +2,9 @@
 
 `demo/infra/internal-lab/workloads/experiments` contains experiment definitions.
 An experiment runs one `test_definition` at one explicit `base_tps` against one
-or more inline consumer targets.
+or more inline consumer targets. Each experiment may select a reusable
+`sla_profile` from `../sla-profiles`; completed experiment sets generate local
+Markdown and SVG reports under their result directory.
 
 Internal-lab experiments are synced to `/opt/ckc-lab/workloads/experiments`.
 Start the interactive selector with:
@@ -44,6 +46,7 @@ name: telemetry-fairness-profile-comparison
 description: Compare telemetry fairness on the same fixed-fleet overload test.
 test_definition: telemetry-freshness-fairness
 base_tps: 2000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2
@@ -92,6 +95,39 @@ targets:
         limits:
           memory: 3Gi
 ```
+
+SLA profiles support inheritance, declarative delivery criteria, and exact
+per-record latency rules. The standard experiment profile is:
+
+```yaml
+name: consumer-baseline
+extends: delivery-integrity
+latency:
+  rules:
+    - id: business-events
+      title: Business event end-to-end latency
+      topics: [order.events.v1, batch.events.v1]
+      max_ms: 2000
+      allowed_exceed_percent: 1.0
+    - id: telemetry
+      title: Telemetry end-to-end latency
+      topics: [cauldron.events.v1]
+      max_ms: 1000
+      allowed_exceed_percent: 5.0
+```
+
+For every unique processed record with a matching publish, the audit analyzer
+subtracts the Kafka timestamp from the successful terminal timestamp. A record
+at exactly `max_ms` passes; only a larger value increments `exceeded`. The rule
+passes when `exceeded / measured * 100` is less than or equal to
+`allowed_exceed_percent`. Topics may occur in only one latency rule so headline
+counts do not double-count records. Missing publish timestamps or negative
+latencies make the rule incomplete rather than silently passing.
+
+Generic audit and Prometheus measurement criteria remain available. Supported
+operators are `eq`, `lte`, `lt`, `gte`, and `gt`; standard diagnostic
+measurements are `latency_p95_ms`, `latency_p99_ms`,
+`freshness_gap_p95_ms`, `throughput_average_rps`, and `cpu_average_cores`.
 
 `defaults.replicas`, target-level parallelism overrides, and target-level
 `helm` overrides are passed to the generated Helm values. The shared

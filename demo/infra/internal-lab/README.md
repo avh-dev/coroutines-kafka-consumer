@@ -359,6 +359,80 @@ Experiment definitions live under `/opt/ckc-lab/workloads/experiments`. The
 runner executes each experiment target through `run-test.sh` and writes
 experiment-level logs and JSON summaries under
 `/opt/ckc-lab/results/experiments/<experiment-set-id>`.
+After all target audit analyses finish, the runner also generates one local
+human-readable report per experiment:
+
+```text
+/opt/ckc-lab/results/experiments/<experiment-set-id>/
+  summary.json
+  reports/
+    README.md
+    <experiment-name>/
+      report.md
+      report-model.yaml
+      load-profile.svg
+      latency-sla-misses.svg
+      latency-p95.svg
+      cpu-average.svg
+      throughput-average.svg
+      raw/
+```
+
+`report-model.yaml` is the stable boundary between result analysis and
+presentation. The Markdown and SVG renderers only consume that normalized
+model. Reports use the audit summary for delivery correctness and exact
+per-record end-to-end latency SLA evaluation. Audit latency is measured from
+the Kafka record timestamp to the unique successful terminal `C` timestamp and
+therefore includes backlog drained after traffic generation stops. Prometheus
+is queried over each target's planned load window for diagnostic latency, CPU,
+throughput, and telemetry freshness charts. Missing Prometheus data produces
+explicit warnings and unavailable chart values without suppressing the audit
+SLA result. The `raw` directory keeps the experiment, test, resolved SLA, run
+metadata, and audit summary inputs needed when a selected report is copied into
+the repository later.
+
+Experiment definitions select a reusable SLA profile with `sla_profile`. The
+profiles live under `/opt/ckc-lab/workloads/sla-profiles`. The built-in
+`delivery-integrity` profile checks missing terminal records, duplicate
+processing, unmatched terminal outcomes, and conflicting outcomes. The
+`consumer-baseline` profile extends it with exact latency rules: business events
+must complete within two seconds with at most one percent above the limit, and
+telemetry must complete within one second with at most five percent above the
+limit. The report presents processed records, latency violations, violation
+percentage, and maximum observed latency together. Execution, delivery SLA,
+latency SLA, and overall evaluation remain separate; overall PASS requires all
+configured components to pass.
+
+Regenerate reports for an existing experiment result with:
+
+```sh
+python3 /opt/ckc-lab/helpers/generate-experiment-report.py \
+  /opt/ckc-lab/results/experiments/<experiment-set-id>
+```
+
+Historical audit summaries created before latency SLA support do not contain
+per-record violation counts. Reanalyze their preserved compressed audit logs
+with the current resolved profile before rendering:
+
+```sh
+python3 /opt/ckc-lab/helpers/generate-experiment-report.py \
+  /opt/ckc-lab/results/experiments/<experiment-set-id> \
+  --reanalyze-audit
+```
+
+This can take several minutes per high-volume target and replaces each run's
+`audit/summary.yaml` and `audit/analyzer-progress.log` only after successful
+reanalysis.
+
+Evidence Bundle export remains a separate manual operation. Reports state that
+evidence has not been exported and show the corresponding export command; they
+do not publish or commit any artifact automatically. Load-profile SVGs use TPS
+on the vertical axis and elapsed `HH:MM` on the horizontal axis. Phase names and
+minute/second durations follow the load segments; planned chaos events are
+connected to separate chronological labels below the plot. Recovery time is
+intentionally unavailable until the lab
+stores structured actual chaos-event timestamps and a recovery policy is
+defined.
 After the initial experiment selection and experiment-wide settings prompt,
 targets run unattended. Type `q` and press Enter while an experiment is running
 to ask the current target to stop, finalize its raw audit log, and abort the

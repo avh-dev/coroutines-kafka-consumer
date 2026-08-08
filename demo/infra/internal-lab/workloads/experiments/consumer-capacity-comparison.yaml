@@ -2,6 +2,7 @@ name: consumer-capacity-comparison
 description: Compare suspend CKC, CKC sync dispatcher modes, Confluent Parallel Consumer Reactor, and Spring Kafka on the same baseline test.
 test_definition: capacity_6min
 base_tps: 25000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2

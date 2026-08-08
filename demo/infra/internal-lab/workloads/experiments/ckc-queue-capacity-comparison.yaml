@@ -2,6 +2,7 @@ name: ckc-queue-capacity-comparison
 description: Compare CKC queue capacity and fixed dispatcher sizing against the Spring Kafka coroutine-naive admission path.
 test_definition: capacity_6min
 base_tps: 25000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2

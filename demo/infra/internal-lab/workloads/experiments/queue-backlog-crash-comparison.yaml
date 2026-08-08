@@ -2,6 +2,7 @@ name: queue-backlog-crash-comparison
 description: Compare queue-backlog crash behavior with large worker queues, low order/batch worker concurrency, and downstream slowdown.
 test_definition: queue_backlog_crash
 base_tps: 2000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2
