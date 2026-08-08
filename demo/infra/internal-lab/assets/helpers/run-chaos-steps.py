@@ -18,12 +18,12 @@ from typing import Any
 
 def parse_args() -> argparse.Namespace:
     lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-lab")
-    parser = argparse.ArgumentParser(description="Run scheduled internal-lab chaos steps.")
+    parser = argparse.ArgumentParser(description="Run scheduled internal-lab chaos scenarios.")
     parser.add_argument("--steps-json", default=os.environ.get("CHAOS_STEPS_JSON", "[]"))
     parser.add_argument("--steps-file")
     parser.add_argument("--start-epoch-seconds", type=float, default=time.time())
     parser.add_argument("--configure-stubs", default=f"{lab_root}/libexec/configure-stubs.sh")
-    parser.add_argument("--reset-all", action="store_true", help="Remove internal-lab network chaos state and exit.")
+    parser.add_argument("--reset-all", action="store_true", help="Recover every configured duration-based scenario and exit.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -55,6 +55,9 @@ SERVICE_TARGETS = {
     "redis": {"ports": [6379], "container": "ckc-perf-redis", "mark": 6502, "band": 11, "handle": 111},
     "audit": {"ports": [5170], "container": "ckc-internal-fluent-bit", "mark": 6503, "band": 12, "handle": 112},
 }
+
+INSTANT_SCENARIO_TYPES = {"pod_delete", "pod_crash", "service_restart"}
+DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage"}
 
 
 def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -178,6 +181,11 @@ def reset_all_service_netem(*, dry_run: bool) -> None:
             run_ignored(["tc", "qdisc", "delete", "dev", dev, "root"])
 
 
+def reset_all_service_outages(*, dry_run: bool) -> None:
+    for target in SERVICE_TARGETS:
+        docker_service({"target": target}, "unpause", dry_run=dry_run, check=False)
+
+
 def set_service_netem(params: dict[str, Any], *, dry_run: bool) -> None:
     target, config = service_target(params)
     dev = target_netem_dev(params)
@@ -231,14 +239,14 @@ def set_service_netem(params: dict[str, Any], *, dry_run: bool) -> None:
     log(f"set service netem target={target} dev={dev} delay_ms={delay_ms} jitter_ms={jitter_ms} loss_percent={loss_percent} rate={rate or '-'}")
 
 
-def docker_service(params: dict[str, Any], action: str, *, dry_run: bool) -> None:
+def docker_service(params: dict[str, Any], action: str, *, dry_run: bool, check: bool = True) -> None:
     target, config = service_target(params)
     container = str(config["container"])
     if dry_run:
         log(f"dry-run: would docker {action} target={target} container={container}")
         return
     log(f"docker {action} target={target} container={container}")
-    run(["docker", action, container])
+    run(["docker", action, container], check=check)
 
 
 def wait_for_http_ok(url: str, timeout_seconds: int) -> None:
@@ -264,24 +272,33 @@ def load_steps(args: argparse.Namespace) -> list[dict[str, Any]]:
         raw = args.steps_json
     steps = json.loads(raw or "[]")
     if not isinstance(steps, list):
-        raise ValueError("Chaos steps JSON must be a list.")
+        raise ValueError("Chaos scenarios JSON must be a list.")
     previous_at = -1
     for index, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
-            raise ValueError(f"chaos step {index} must be an object.")
+            raise ValueError(f"chaos scenario {index} must be an object.")
         at_seconds = int(step.get("atSeconds", -1))
         if at_seconds < 0:
-            raise ValueError(f"chaos step {index} must define non-negative atSeconds.")
+            raise ValueError(f"chaos scenario {index} must define non-negative atSeconds.")
         if at_seconds < previous_at:
-            raise ValueError("chaos steps must be ordered by atSeconds.")
+            raise ValueError("chaos scenarios must be ordered by atSeconds.")
         previous_at = at_seconds
-        if not step.get("type"):
-            raise ValueError(f"chaos step {index} must define type.")
+        scenario_type = str(step.get("type", ""))
+        if not scenario_type:
+            raise ValueError(f"chaos scenario {index} must define type.")
+        if scenario_type not in INSTANT_SCENARIO_TYPES | DURATION_SCENARIO_TYPES:
+            raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
+        if scenario_type in DURATION_SCENARIO_TYPES:
+            duration_seconds = int(step.get("durationSeconds", 0))
+            if duration_seconds <= 0:
+                raise ValueError(f"duration-based chaos scenario {index} must define positive durationSeconds.")
+        elif "durationSeconds" in step:
+            raise ValueError(f"instant chaos scenario {index} must not define durationSeconds.")
         params = step.get("params", {})
         if params is None:
             step["params"] = {}
         elif not isinstance(params, dict):
-            raise ValueError(f"chaos step {index} params must be an object.")
+            raise ValueError(f"chaos scenario {index} params must be an object.")
     return steps
 
 
@@ -290,9 +307,9 @@ def wait_until(start_epoch_seconds: float, target_offset_seconds: int, *, dry_ru
     if remaining <= 0:
         return
     if dry_run:
-        log(f"dry-run: would wait {remaining:.1f}s before chaos step")
+        log(f"dry-run: would wait {remaining:.1f}s before chaos scenario action")
         return
-    log(f"waiting {remaining:.1f}s before chaos step")
+    log(f"waiting {remaining:.1f}s before chaos scenario action")
     time.sleep(remaining)
 
 
@@ -386,70 +403,173 @@ def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
             port_forward.wait(timeout=5)
 
 
-def apply_stubs_profile(params: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:
+def apply_stubs_profile(
+    params: dict[str, Any],
+    configure_stubs: str,
+    *,
+    dry_run: bool,
+    check: bool = True,
+) -> None:
     settings = params.get("settings")
     if not isinstance(settings, dict):
-        raise ValueError("stub chaos step params must include a settings object.")
+        raise ValueError("stubs chaos scenario params must include a settings object.")
     settings_json = json.dumps(settings, separators=(",", ":"))
     if dry_run:
         log(f"dry-run: would apply demo-stubs settings {settings_json}")
         return
     log("applying demo-stubs chaos profile")
-    run([configure_stubs, settings_json])
+    run([configure_stubs, settings_json], check=check)
 
 
-def run_step(step: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:
-    step_type = str(step["type"])
-    params = step.get("params", {})
+def scenario_params(scenario: dict[str, Any]) -> dict[str, Any]:
+    raw_params = scenario.get("params", {})
+    if not isinstance(raw_params, dict):
+        raise ValueError(f"{scenario.get('type', 'chaos')} params must be an object.")
+    params = dict(raw_params)
+    if "target" in scenario:
+        params["target"] = scenario["target"]
+    return params
+
+
+def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:
+    scenario_type = str(scenario["type"])
+    params = scenario_params(scenario)
     if not isinstance(params, dict):
-        raise ValueError(f"{step_type} params must be an object.")
-    if step_type == "delete_random_pod":
+        raise ValueError(f"{scenario_type} params must be an object.")
+    if scenario_type == "pod_delete":
         delete_random_pod(params, dry_run=dry_run)
-    elif step_type == "crash_random_pod":
+    elif scenario_type == "pod_crash":
         crash_random_pod(params, dry_run=dry_run)
-    elif step_type in {"set_stubs_profile", "reset_stubs_profile"}:
+    elif scenario_type == "stubs_degradation":
         apply_stubs_profile(params, configure_stubs, dry_run=dry_run)
-    elif step_type == "set_service_netem":
+    elif scenario_type == "network_degradation":
         set_service_netem(params, dry_run=dry_run)
-    elif step_type == "reset_service_netem":
-        reset_service_netem(params, dry_run=dry_run)
-    elif step_type == "pause_service":
+    elif scenario_type == "service_outage":
         docker_service(params, "pause", dry_run=dry_run)
-    elif step_type == "resume_service":
-        docker_service(params, "unpause", dry_run=dry_run)
-    elif step_type == "restart_service":
+    elif scenario_type == "service_restart":
         docker_service(params, "restart", dry_run=dry_run)
     else:
-        raise ValueError(f"Unsupported chaos step type: {step_type}")
+        raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
+
+
+def recover_scenario(
+    scenario: dict[str, Any],
+    configure_stubs: str,
+    *,
+    dry_run: bool,
+    best_effort: bool = False,
+) -> None:
+    scenario_type = str(scenario["type"])
+    params = scenario_params(scenario)
+    if scenario_type == "stubs_degradation":
+        baseline = params.get("baselineSettings")
+        apply_stubs_profile(
+            {"settings": baseline},
+            configure_stubs,
+            dry_run=dry_run,
+            check=not best_effort,
+        )
+    elif scenario_type == "network_degradation":
+        reset_service_netem(params, dry_run=dry_run)
+    elif scenario_type == "service_outage":
+        docker_service(params, "unpause", dry_run=dry_run, check=not best_effort)
+    else:
+        raise ValueError(f"Chaos scenario is not duration-based: {scenario_type}")
+
+
+def scheduled_events(scenarios: list[dict[str, Any]]) -> list[tuple[int, int, int, str, dict[str, Any]]]:
+    events: list[tuple[int, int, int, str, dict[str, Any]]] = []
+    for index, scenario in enumerate(scenarios):
+        at_seconds = int(scenario["atSeconds"])
+        events.append((at_seconds, 1, index, "start", scenario))
+        if scenario["type"] in DURATION_SCENARIO_TYPES:
+            end_seconds = at_seconds + int(scenario["durationSeconds"])
+            events.append((end_seconds, 0, index, "end", scenario))
+    return sorted(events, key=lambda event: (event[0], event[1], event[2]))
+
+
+def cleanup_scenarios(
+    scenarios: list[dict[str, Any]],
+    configure_stubs: str,
+    *,
+    dry_run: bool,
+) -> None:
+    recovered: set[tuple[str, str]] = set()
+    for scenario in reversed(scenarios):
+        if scenario.get("type") not in DURATION_SCENARIO_TYPES:
+            continue
+        key = (str(scenario["type"]), str(scenario.get("target", "")))
+        if key in recovered:
+            continue
+        recovered.add(key)
+        try:
+            log(f"cleanup chaos scenario type={key[0]} target={key[1] or '-'}")
+            recover_scenario(
+                scenario,
+                configure_stubs,
+                dry_run=dry_run,
+                best_effort=True,
+            )
+        except Exception as error:
+            log(f"cleanup failed type={key[0]} target={key[1] or '-'} error={error}")
+
+
+def execute_scenarios(
+    scenarios: list[dict[str, Any]],
+    start_epoch_seconds: float,
+    configure_stubs: str,
+    *,
+    dry_run: bool,
+) -> None:
+    active: dict[int, dict[str, Any]] = {}
+    events = scheduled_events(scenarios)
+    log(f"starting chaos executor with {len(scenarios)} scenario(s) and {len(events)} scheduled action(s)")
+    try:
+        for at_seconds, _phase_order, index, phase, scenario in events:
+            scenario_type = str(scenario["type"])
+            wait_until(start_epoch_seconds, at_seconds, dry_run=dry_run)
+            log(
+                f"running chaos scenario {index + 1}/{len(scenarios)} "
+                f"phase={phase} at={at_seconds}s type={scenario_type} target={scenario.get('target', '-')}"
+            )
+            if phase == "start":
+                if scenario_type in DURATION_SCENARIO_TYPES:
+                    active[index] = scenario
+                start_scenario(scenario, configure_stubs, dry_run=dry_run)
+            else:
+                recover_scenario(scenario, configure_stubs, dry_run=dry_run)
+                active.pop(index, None)
+        log("chaos executor finished")
+    finally:
+        cleanup_scenarios(list(active.values()), configure_stubs, dry_run=dry_run)
 
 
 def main() -> None:
     args = parse_args()
+    scenarios = load_steps(args)
     if args.reset_all:
+        cleanup_scenarios(scenarios, args.configure_stubs, dry_run=args.dry_run)
         reset_all_service_netem(dry_run=args.dry_run)
+        reset_all_service_outages(dry_run=args.dry_run)
         return
 
     def handle_signal(signum: int, _frame: Any) -> None:
-        log(f"received signal {signum}; resetting service netem before exit")
-        reset_all_service_netem(dry_run=args.dry_run)
+        log(f"received signal {signum}; cleaning up active chaos scenarios before exit")
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    steps = load_steps(args)
-    if not steps:
-        log("no chaos steps configured")
+    if not scenarios:
+        log("no chaos scenarios configured")
         return
 
-    log(f"starting chaos executor with {len(steps)} step(s)")
-    for index, step in enumerate(steps, start=1):
-        at_seconds = int(step["atSeconds"])
-        step_type = str(step["type"])
-        wait_until(args.start_epoch_seconds, at_seconds, dry_run=args.dry_run)
-        log(f"running chaos step {index}/{len(steps)} at={at_seconds}s type={step_type}")
-        run_step(step, args.configure_stubs, dry_run=args.dry_run)
-    log("chaos executor finished")
+    execute_scenarios(
+        scenarios,
+        args.start_epoch_seconds,
+        args.configure_stubs,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":

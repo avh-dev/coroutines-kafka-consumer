@@ -37,7 +37,9 @@ load_test:
 
 chaos_steps:
   - at: 2m
-    type: set_stubs_profile
+    duration: 2m
+    type: stubs_degradation
+    target: demo-stubs
     params:
       error_rate_percent: 0
       eta:
@@ -56,6 +58,5 @@ chaos_steps:
         delay_p99_ms: 1200
         delay_p100_ms: 1800
   - at: 3m
-    type: crash_random_pod
-  - at: 4m
-    type: reset_stubs_profile
+    type: pod_crash
+    target: ckc-demo

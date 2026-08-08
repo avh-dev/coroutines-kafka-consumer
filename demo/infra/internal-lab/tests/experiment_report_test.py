@@ -83,9 +83,9 @@ class ExperimentReportTest(unittest.TestCase):
                     "cauldron_telemetry_percent": 0,
                 },
                 "chaos_steps": [
-                    {"at": "20s", "type": "delete_random_pod"},
-                    {"at": "40s", "type": "broker_outage"},
-                    {"at": "60s", "type": "restart_consumer"},
+                    {"at": "20s", "type": "pod_delete", "target": "ckc-demo"},
+                    {"at": "40s", "duration": "10s", "type": "service_outage", "target": "kafka"},
+                    {"at": "60s", "type": "service_restart", "target": "redis"},
                 ],
             },
         )
@@ -242,7 +242,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">00:00</text>", svg)
             self.assertIn(">00:01</text>", svg)
             self.assertIn(">warmup · 0m 10s</text>", svg)
-            self.assertIn(">delete_random_pod · 0m 20s</text>", svg)
+            self.assertIn(">pod_delete · 0m 20s</text>", svg)
             self.assertNotIn(">100%</text>", svg)
             root_element = ET.fromstring(svg)
             text_elements = {
@@ -254,9 +254,9 @@ class ExperimentReportTest(unittest.TestCase):
             chaos_y = [
                 float(text_elements[label].attrib["y"])
                 for label in (
-                    "delete_random_pod · 0m 20s",
-                    "broker_outage · 0m 40s",
-                    "restart_consumer · 1m 0s",
+                    "pod_delete · 0m 20s",
+                    "service_outage · 0m 40s",
+                    "service_restart · 1m 0s",
                 )
             ]
             self.assertGreater(chaos_y[0], chaos_y[1])

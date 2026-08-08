@@ -136,6 +136,7 @@
 | [DEMO-80](#demo-80) | Add load-test Kafka producer batching controls for partition fanout experiments. | DONE |
 | [DEMO-81](#demo-81) | Add selectable Armeria and JDK transports for suspend and synchronous demo HTTP clients. | DONE |
 | [DEMO-82](#demo-82) | Align the demo Thread Stats actuator integration test with the current endpoint contract. | DONE |
+| [DEMO-83](#demo-83) | Model instantaneous and duration-based demo chaos scenarios with automatic recovery and cleanup. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2643,3 +2644,15 @@ Plot load in TPS against elapsed `HH:MM`, align phase names and minute/second du
 Keep Evidence Bundle export and repository publication as explicit manual operations.
 
 Verification: all 17 experiment-report and audit-analyzer tests passed, Python sources compiled, and the historical queue-backlog preview regenerated successfully.
+
+<a id="demo-83"></a>
+### DEMO-83 - Add duration-based chaos scenarios
+
+_Date: 2026-08-08_
+
+Replace command-style paired chaos steps with semantic instantaneous and duration-based scenarios.
+Generate recovery actions automatically for duration-based degradation and outage scenarios.
+Guarantee cleanup when a run finishes, fails, or is interrupted, and reject ambiguous overlapping scenarios for the same target.
+Migrate the current demo test definitions without retaining compatibility with historical experiment definitions.
+
+Verification: 24 chaos-scenario, experiment-report, and audit-analyzer tests passed; Python and Bash syntax checks passed; all current chaos definitions normalized through the new contract.
