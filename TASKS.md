@@ -241,6 +241,7 @@
 | [INFRA-103](#infra-103) | Collect demo process context-switch metrics and expose them in the shared Grafana dashboard. | DONE |
 | [INFRA-104](#infra-104) | Align application Thread Stats Grafana panels with the unified metric schema. | DONE |
 | [INFRA-105](#infra-105) | Isolate application Thread Stats Grafana queries from the Kafka broker agent job. | DONE |
+| [INFRA-106](#infra-106) | Generate local human-readable Markdown and SVG reports for completed internal-lab experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2627,3 +2628,18 @@ Keep the existing pod selector while preventing its all-value regex from matchin
 Validate detailed and category panels against the active optilab experiment and update live Grafana without restarting workloads.
 
 Verification: dashboard JSON parsed successfully, all 20 application Thread Stats targets executed against optilab Prometheus, broker-only groups were excluded, and live Grafana reloaded all scoped queries without restarting the experiment.
+
+<a id="infra-106"></a>
+### INFRA-106 - Generate experiment reports
+
+_Date: 2026-08-07_
+
+Generate a local human-readable Markdown report for every completed internal-lab experiment.
+Build a stable report model from experiment definitions, run metadata, audit summaries, reusable SLA profiles, and Prometheus measurements.
+Render deterministic GitHub-compatible SVG diagrams and comparison charts without coupling analysis to Markdown generation.
+Evaluate exact per-record end-to-end latency from audit publish/processed pairs, including post-load drain, against profile limits and allowed violation percentages.
+Show processed records, latency misses, miss percentage, maximum observed latency, and separate delivery/latency/overall results in the comparison table.
+Plot load in TPS against elapsed `HH:MM`, align phase names and minute/second durations with their segments, and place chronological chaos annotations on separate levels below the chart.
+Keep Evidence Bundle export and repository publication as explicit manual operations.
+
+Verification: all 17 experiment-report and audit-analyzer tests passed, Python sources compiled, and the historical queue-backlog preview regenerated successfully.

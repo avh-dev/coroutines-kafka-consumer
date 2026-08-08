@@ -2,6 +2,7 @@ name: smoke-repeat
 description: Run the short smoke definition twice to validate experiment orchestration.
 test_definition: smoke
 base_tps: 100
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2

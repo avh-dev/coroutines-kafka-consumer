@@ -2,6 +2,7 @@ name: ckc-spring-boot-smoke
 description: Run the internal-lab smoke test against the CKC Spring Boot starter demo profile.
 test_definition: smoke
 base_tps: 10
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2

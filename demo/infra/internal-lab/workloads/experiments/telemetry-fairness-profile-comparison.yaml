@@ -2,6 +2,7 @@ name: telemetry-fairness-profile-comparison
 description: Compare telemetry fairness on the same fixed-fleet overload test.
 test_definition: telemetry-freshness-fairness
 base_tps: 2000
+sla_profile: consumer-baseline
 
 defaults:
   replicas: 2

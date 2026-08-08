@@ -22,8 +22,29 @@ def load_analyzer():
 analyzer = load_analyzer()
 
 
-def analyze(lines: list[str], open_record_ttl_ms: int | None = None) -> dict[str, object]:
-    accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=open_record_ttl_ms)
+def latency_rule(
+    max_ms: int = 1000,
+    allowed_exceed_percent: float = 1.0,
+) -> object:
+    return analyzer.LatencySlaRule(
+        id="business-events",
+        title="Business events",
+        topic_ids=frozenset({1, 2}),
+        topics=("order.events.v1", "batch.events.v1"),
+        max_ms=max_ms,
+        allowed_exceed_percent=allowed_exceed_percent,
+    )
+
+
+def analyze(
+    lines: list[str],
+    open_record_ttl_ms: int | None = None,
+    latency_sla_rules: tuple[object, ...] = (),
+) -> dict[str, object]:
+    accumulator = analyzer.AuditAccumulator(
+        open_record_ttl_ms=open_record_ttl_ms,
+        latency_sla_rules=latency_sla_rules,
+    )
     for line in lines:
         accumulator.add(analyzer.parse_record(line))
     accumulator.finish()
@@ -31,6 +52,69 @@ def analyze(lines: list[str], open_record_ttl_ms: int | None = None) -> dict[str
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_reports_exact_processed_latency_sla_violations(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "C|1|0|1|2000|order-a",
+                "P|1|0|2|3000|3000|order-b",
+                "C|1|0|2|4001|order-b",
+                "P|2|0|1|5000|5000|batch-a",
+                "C|2|0|1|305000|batch-a",
+                "P|3|0|1|6000|6000|telemetry-a",
+                "C|3|0|1|606000|telemetry-a",
+            ],
+            latency_sla_rules=(latency_rule(allowed_exceed_percent=50),),
+        )
+
+        totals = document["audit"]["totals"]["latency_sla"]["rules"][0]
+        order = document["audit"]["topics"]["order.events.v1"]["latency_sla"]["rules"][0]
+        batch = document["audit"]["topics"]["batch.events.v1"]["latency_sla"]["rules"][0]
+
+        self.assertEqual(3, totals["processed"])
+        self.assertEqual(3, totals["measured"])
+        self.assertEqual(2, totals["exceeded"])
+        self.assertEqual(66.666667, totals["exceeded_percent"])
+        self.assertEqual(300000, totals["max_observed_ms"])
+        self.assertEqual("FAIL", totals["status"])
+        self.assertEqual(1, order["exceeded"])
+        self.assertEqual(1, batch["exceeded"])
+        self.assertNotIn("latency_sla", document["audit"]["topics"]["cauldron.events.v1"])
+
+    def test_latency_equal_to_limit_passes_and_allowed_percentage_is_inclusive(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "C|1|0|1|2000|order-a",
+                "P|1|0|2|3000|3000|order-b",
+                "C|1|0|2|4001|order-b",
+            ],
+            latency_sla_rules=(latency_rule(allowed_exceed_percent=50),),
+        )
+
+        latency = document["audit"]["totals"]["latency_sla"]["rules"][0]
+        self.assertEqual(1, latency["within_sla"])
+        self.assertEqual(1, latency["exceeded"])
+        self.assertEqual(50.0, latency["exceeded_percent"])
+        self.assertEqual("PASS", latency["status"])
+
+    def test_unmatched_or_negative_timestamp_processing_is_incomplete(self) -> None:
+        document = analyze(
+            [
+                "C|1|0|1|2000|order-a",
+                "P|1|0|2|5000|5000|order-b",
+                "C|1|0|2|4000|order-b",
+            ],
+            latency_sla_rules=(latency_rule(),),
+        )
+
+        latency = document["audit"]["totals"]["latency_sla"]["rules"][0]
+        self.assertEqual(2, latency["processed"])
+        self.assertEqual(0, latency["measured"])
+        self.assertEqual(2, latency["unmeasured"])
+        self.assertEqual(1, latency["invalid_negative_latency"])
+        self.assertEqual("INCOMPLETE", latency["status"])
+
     def test_exact_matching_keeps_long_delayed_terminal_records(self) -> None:
         document = analyze(
             [

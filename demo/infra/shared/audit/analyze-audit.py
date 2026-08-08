@@ -9,6 +9,7 @@ import math
 import sys
 from collections import deque
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import NamedTuple, TextIO
 
@@ -113,6 +114,79 @@ class OnlineAgeStats:
             "avg_ms": round(self.total_ms / self.count, 3) if self.count else None,
             "min_ms": self.min_ms,
             "max_ms": self.max_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LatencySlaRule:
+    id: str
+    title: str
+    topic_ids: frozenset[int]
+    topics: tuple[str, ...]
+    max_ms: int
+    allowed_exceed_percent: float
+
+    def applies_to(self, topic_id: int) -> bool:
+        return topic_id in self.topic_ids
+
+
+@dataclass(slots=True)
+class LatencySlaStats:
+    rule: LatencySlaRule
+    processed: int = 0
+    measured: int = 0
+    exceeded: int = 0
+    invalid_negative_latency: int = 0
+    max_observed_ms: int | None = None
+
+    def add_processed(self) -> None:
+        self.processed += 1
+
+    def add_latency(self, latency_ms: int) -> None:
+        if latency_ms < 0:
+            self.invalid_negative_latency += 1
+            return
+        self.measured += 1
+        self.max_observed_ms = (
+            latency_ms
+            if self.max_observed_ms is None
+            else max(self.max_observed_ms, latency_ms)
+        )
+        if latency_ms > self.rule.max_ms:
+            self.exceeded += 1
+
+    def summary(self) -> dict[str, object]:
+        unmeasured = self.processed - self.measured
+        exceeded_percent = (
+            round(100 * self.exceeded / self.measured, 6)
+            if self.measured
+            else None
+        )
+        if self.processed == 0:
+            status = "NOT_EVALUATED"
+        elif unmeasured > 0:
+            status = "INCOMPLETE"
+        elif Decimal(100 * self.exceeded) <= (
+            Decimal(self.measured) * Decimal(str(self.rule.allowed_exceed_percent))
+        ):
+            status = "PASS"
+        else:
+            status = "FAIL"
+        return {
+            "id": self.rule.id,
+            "title": self.rule.title,
+            "topics": list(self.rule.topics),
+            "max_ms": self.rule.max_ms,
+            "allowed_exceed_percent": self.rule.allowed_exceed_percent,
+            "processed": self.processed,
+            "measured": self.measured,
+            "unmeasured": unmeasured,
+            "within_sla": self.measured - self.exceeded,
+            "exceeded": self.exceeded,
+            "exceeded_percent": exceeded_percent,
+            "max_observed_ms": self.max_observed_ms,
+            "invalid_negative_latency": self.invalid_negative_latency,
+            "status": status,
         }
 
 
@@ -453,6 +527,7 @@ class ClosedRecordState:
 @dataclass(slots=True)
 class AuditStats:
     open_record_ttl_ms: int | None
+    latency_sla_rules: tuple[LatencySlaRule, ...] = ()
     key_fairness: KeyFairnessStats | None = None
     published_records: int = 0
     processed_records: int = 0
@@ -483,6 +558,13 @@ class AuditStats:
     watermark_ms: int = 0
     last_eviction_ms: int = 0
     eviction_interval_ms: int = 1_000
+    latency_sla: dict[str, LatencySlaStats] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.latency_sla = {
+            rule.id: LatencySlaStats(rule)
+            for rule in self.latency_sla_rules
+        }
 
     @property
     def open_records(self) -> int:
@@ -564,6 +646,9 @@ class AuditStats:
                 state.processed = record
                 state.processed_count = 1
                 self.processed_unique += 1
+                for latency in self.latency_sla.values():
+                    if latency.rule.applies_to(record.key.topic_id):
+                        latency.add_processed()
                 if self.key_fairness is not None:
                     self.key_fairness.add_terminal(record)
                 self._add_terminal_unique(record, state)
@@ -663,6 +748,13 @@ class AuditStats:
             terminal = state.processed or state.failed or state.dropped
             if terminal is not None:
                 self.key_fairness.add_terminal_age(state.published, terminal)
+        if state.published is not None and state.processed is not None:
+            kafka_timestamp_ms = state.published.kafka_timestamp_ms
+            if kafka_timestamp_ms is not None:
+                latency_ms = state.processed.audit_timestamp_ms - kafka_timestamp_ms
+                for latency in self.latency_sla.values():
+                    if latency.rule.applies_to(key.topic_id):
+                        latency.add_latency(latency_ms)
         del self.open_by_key[key]
         self.recent_closed_by_key[key] = ClosedRecordState(
             closed_ms=state.last_seen_ms,
@@ -703,12 +795,22 @@ class AuditStats:
 
 
 class AuditAccumulator:
-    def __init__(self, open_record_ttl_ms: int | None) -> None:
+    def __init__(
+        self,
+        open_record_ttl_ms: int | None,
+        latency_sla_rules: tuple[LatencySlaRule, ...] = (),
+    ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
-        self.all = AuditStats(open_record_ttl_ms=open_record_ttl_ms)
+        self.all = AuditStats(
+            open_record_ttl_ms=open_record_ttl_ms,
+            latency_sla_rules=latency_sla_rules,
+        )
         self.by_topic = {
             topic_id: AuditStats(
                 open_record_ttl_ms=open_record_ttl_ms,
+                latency_sla_rules=tuple(
+                    rule for rule in latency_sla_rules if rule.applies_to(topic_id)
+                ),
                 key_fairness=KeyFairnessStats() if topic_id == 3 else None,
             )
             for topic_id in TOPIC_NAMES
@@ -734,6 +836,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-dir")
     parser.add_argument("--glob", default="*.log.gz")
     parser.add_argument("--metadata-file")
+    parser.add_argument(
+        "--sla-profile-file",
+        help="Resolved JSON SLA profile containing optional latency.rules definitions.",
+    )
     parser.add_argument(
         "--open-record-ttl-seconds",
         type=float,
@@ -935,6 +1041,10 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
     )
     if stats.key_fairness is not None:
         summary["key_fairness"] = stats.key_fairness.summary()
+    if stats.latency_sla:
+        summary["latency_sla"] = {
+            "rules": [latency.summary() for latency in stats.latency_sla.values()]
+        }
     return summary
 
 
@@ -949,6 +1059,64 @@ def load_metadata(path_value: str | None) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"metadata file must contain a JSON object: {path}")
     return value
+
+
+def load_latency_sla_rules(path_value: str | None) -> tuple[LatencySlaRule, ...]:
+    if not path_value:
+        return ()
+    path = Path(path_value)
+    if not path.is_file():
+        raise ValueError(f"SLA profile file was not found: {path}")
+    with path.open("r", encoding="utf-8") as file:
+        profile = json.load(file)
+    if not isinstance(profile, dict):
+        raise ValueError(f"SLA profile must contain a JSON object: {path}")
+    latency = profile.get("latency")
+    if latency in (None, ""):
+        return ()
+    if not isinstance(latency, dict) or not isinstance(latency.get("rules"), list):
+        raise ValueError(f"SLA profile latency.rules must be a list: {path}")
+    topic_ids_by_name = {name: topic_id for topic_id, name in TOPIC_NAMES.items()}
+    used_topics: set[str] = set()
+    identifiers: set[str] = set()
+    rules = []
+    for index, value in enumerate(latency["rules"], start=1):
+        if not isinstance(value, dict):
+            raise ValueError(f"Latency SLA rule {index} must be an object: {path}")
+        rule_id = str(value.get("id") or "")
+        if not rule_id or rule_id in identifiers:
+            raise ValueError(f"Latency SLA rule ids must be non-empty and unique: {path}")
+        identifiers.add(rule_id)
+        topics_value = value.get("topics")
+        if not isinstance(topics_value, list) or not topics_value:
+            raise ValueError(f"Latency SLA rule {rule_id!r} must define topics: {path}")
+        topics = tuple(str(topic) for topic in topics_value)
+        unknown_topics = sorted(set(topics) - set(topic_ids_by_name))
+        if unknown_topics:
+            raise ValueError(f"Unknown latency SLA topics {unknown_topics}: {path}")
+        overlapping_topics = sorted(set(topics) & used_topics)
+        if overlapping_topics:
+            raise ValueError(f"Latency SLA topics may occur in only one rule; repeated: {overlapping_topics}")
+        used_topics.update(topics)
+        max_ms = value.get("max_ms")
+        allowed_percent = value.get("allowed_exceed_percent")
+        if not isinstance(max_ms, int | float) or max_ms < 0:
+            raise ValueError(f"Latency SLA rule {rule_id!r} max_ms must be non-negative: {path}")
+        if not isinstance(allowed_percent, int | float) or not 0 <= allowed_percent <= 100:
+            raise ValueError(
+                f"Latency SLA rule {rule_id!r} allowed_exceed_percent must be between 0 and 100: {path}"
+            )
+        rules.append(
+            LatencySlaRule(
+                id=rule_id,
+                title=str(value.get("title") or rule_id),
+                topic_ids=frozenset(topic_ids_by_name[topic] for topic in topics),
+                topics=topics,
+                max_ms=round(max_ms),
+                allowed_exceed_percent=float(allowed_percent),
+            )
+        )
+    return tuple(rules)
 
 
 def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object]) -> dict[str, object]:
@@ -1040,6 +1208,7 @@ def main() -> int:
             if args.open_record_ttl_seconds is not None
             else None
         ),
+        latency_sla_rules=load_latency_sla_rules(args.sla_profile_file),
     )
     read_files(args.input_file, accumulator)
     if args.input_dir:
