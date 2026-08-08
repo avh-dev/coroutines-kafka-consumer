@@ -20,24 +20,23 @@ stubs:
 
 chaos_steps:
   - at: 45s
-    type: set_service_netem
+    duration: 45s
+    type: network_degradation
+    target: redis
     params:
-      target: redis
       delay_ms: 120
       jitter_ms: 30
-      duration: 45s
   - at: 105s
-    type: set_service_netem
+    duration: 45s
+    type: network_degradation
+    target: kafka
     params:
-      target: kafka
       delay_ms: 180
       jitter_ms: 60
       loss_percent: 0.2
-      duration: 45s
   - at: 135s
-    type: restart_service
-    params:
-      target: redis
+    type: service_restart
+    target: redis
 
 load_test:
   shards: 1

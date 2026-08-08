@@ -227,7 +227,34 @@ Definitions with `chaos_steps`, such as `chaos-smoke`, start a separate chaos
 executor after the load-test process starts. Chaos offsets are measured from
 that load-test start point. The executor writes its own log under
 `/opt/ckc-lab/results/runs/<run-id>/logs/chaos.log`, and the runner fails fast if a
-chaos step fails.
+chaos scenario fails. Instant scenarios define only their start offset:
+
+```yaml
+chaos_steps:
+  - at: 3m
+    type: pod_crash
+    target: ckc-demo
+```
+
+Duration-based scenarios define one semantic interval instead of separate
+apply/reset commands:
+
+```yaml
+chaos_steps:
+  - at: 4m10s
+    duration: 3m20s
+    type: service_outage
+    target: redis
+```
+
+Supported instant types are `pod_delete`, `pod_crash`, and `service_restart`.
+Supported duration-based types are `stubs_degradation`,
+`network_degradation`, and `service_outage`. The executor schedules the inverse
+action at the interval end and also restores every active interval if execution
+fails or receives `SIGINT`/`SIGTERM`. Preparation and run cleanup remove stale
+network degradation, unpause known services, and restore the configured stubs
+baseline. Overlapping duration-based scenarios for the same target are rejected
+as ambiguous.
 
 Pass the same choices explicitly for a non-interactive run:
 
