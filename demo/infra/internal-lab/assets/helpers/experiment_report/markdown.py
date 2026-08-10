@@ -94,7 +94,7 @@ def render_markdown(report: ExperimentReport) -> str:
     lines.extend(
         [
             f"- Traffic: order `{traffic.get('order_events', 0)}%`, batch `{traffic.get('batch_events', 0)}%`, telemetry `{traffic.get('cauldron_telemetry', 0)}%`",
-            f"- Planned chaos events: `{len(report.test_definition.get('chaos_steps', []))}`",
+            f"- Planned chaos scenarios: `{len(report.test_definition.get('chaos_scenarios', []))}`",
             "",
             "![Load profile](load-profile.svg)",
             "",

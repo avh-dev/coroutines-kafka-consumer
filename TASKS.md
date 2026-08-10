@@ -243,6 +243,7 @@
 | [INFRA-104](#infra-104) | Align application Thread Stats Grafana panels with the unified metric schema. | DONE |
 | [INFRA-105](#infra-105) | Isolate application Thread Stats Grafana queries from the Kafka broker agent job. | DONE |
 | [INFRA-106](#infra-106) | Generate local human-readable Markdown and SVG reports for completed internal-lab experiments. | DONE |
+| [INFRA-107](#infra-107) | Render semantic chaos events and intervals on experiment load-profile timelines. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2656,3 +2657,19 @@ Guarantee cleanup when a run finishes, fails, or is interrupted, and reject ambi
 Migrate the current demo test definitions without retaining compatibility with historical experiment definitions.
 
 Verification: 24 chaos-scenario, experiment-report, and audit-analyzer tests passed; Python and Bash syntax checks passed; all current chaos definitions normalized through the new contract.
+
+<a id="infra-107"></a>
+### INFRA-107 - Render semantic chaos timelines
+
+_Date: 2026-08-08_
+
+Render duration-based chaos scenarios as translucent ranges and instantaneous scenarios as timeline markers.
+Keep load phases aligned with the load curve and chaos descriptions in non-overlapping lanes below the chart.
+Protect elapsed-time labels from vertical marker lines and add separate action and service icon slots with self-contained SVG output.
+Bundle selected Kubernetes, Kafka, Redis, and Fluent Bit artwork, add a project-owned HTTP-stubs gear glyph, and retain deterministic fallbacks for unknown targets.
+Keep elapsed-time labels below the plot, add solid full-height vertical grid lines, gently round load-profile corners, and align each colored scenario line with its action icon.
+Use width-aware elapsed ticks, higher-contrast axes and chaos overlays, and a subtle rounded frame around the complete timeline.
+Format elapsed positions as compact durations rather than clock times and remove redundant tick marks from the gridded axis.
+Render stub-degradation events as expanded comparison cards containing only affected HTTP downstreams and highlighting changed p90/p95/p99/p100 delay and error-rate values.
+
+Verification: all 27 chaos-scenario, experiment-report, and audit-analyzer tests passed; Python and Bash syntax checks passed; the queue-backlog preview rendered a three-row stub comparison, one instant marker, compact elapsed labels, and paired icon slots for both cards.
