@@ -10,6 +10,8 @@ from .model import ExperimentReport
 
 
 PALETTE = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#4f46e5", "#64748b"]
+TOPIC_COLORS = ("#bfdbfe", "#ddd6fe", "#ccfbf1", "#fde68a")
+TOPIC_BOUNDARY_COLORS = ("#60a5fa", "#a78bfa", "#2dd4bf", "#fbbf24")
 ICON_ROOT = Path(__file__).resolve().parent / "icons" / "services"
 ACTION_COLORS = {
     "delete": "#dc2626",
@@ -124,28 +126,6 @@ def smoothed_line_path(points: list[tuple[float, float]], radius: float = 10) ->
         commands.append(f"Q {current[0]:.1f} {current[1]:.1f} {after[0]:.1f} {after[1]:.1f}")
     commands.append(f"L {unique[-1][0]:.1f} {unique[-1][1]:.1f}")
     return " ".join(commands)
-
-
-def ranges_without_intervals(total: float, intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    merged = []
-    for start, end in sorted(intervals):
-        start = min(total, max(0.0, start))
-        end = min(total, max(start, end))
-        if end <= start:
-            continue
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    uncovered = []
-    cursor = 0.0
-    for start, end in merged:
-        if cursor < start:
-            uncovered.append((cursor, start))
-        cursor = max(cursor, end)
-    if cursor < total:
-        uncovered.append((cursor, total))
-    return uncovered
 
 
 def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
@@ -307,8 +287,15 @@ def stubs_table_svg(
 
 def load_profile_svg(report: ExperimentReport) -> str:
     width = 1000
-    left, right, top = 85, 30, 72
-    plot_height = 198
+    phases = report.test_definition.get("load_phases", [])
+    load_topics = [
+        topic
+        for topic in report.test_definition.get("load_topics", [])
+        if isinstance(topic, dict) and float(topic.get("percent") or 0) > 0
+    ]
+    left, right = 75, 20
+    top = 92 if load_topics else 28
+    plot_height = 220
     axis_y = top + plot_height
     chaos_scenarios = [
         scenario
@@ -321,7 +308,6 @@ def load_profile_svg(report: ExperimentReport) -> str:
     cards_height += max(0, len(card_dimensions) - 1) * card_gap
     height = axis_y + 52 + max(38, cards_height) + 18
     plot_width = width - left - right
-    phases = report.test_definition.get("load_phases", [])
     load_total = sum(float(phase["duration_seconds"]) for phase in phases)
     chaos_total = max(
         [
@@ -370,10 +356,20 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 return start_tps + (end_tps - start_tps) * progress
         return phase_tps(phases[-1]["end_percent"]) if phases else 0
 
-    body = [
-        f'<rect data-chart-frame="true" x="0.5" y="0.5" width="{width-1}" height="{height-1}" rx="6" fill="none" stroke="#e5e7eb"/>',
-        f'<text class="title" x="{left}" y="28">Load profile and planned chaos events</text>',
-    ]
+    body = []
+    if load_topics:
+        legend_slot_width = plot_width / len(load_topics)
+        for index, topic in enumerate(load_topics):
+            percent = float(topic.get("percent") or 0)
+            topic_max_tps = maximum_tps * percent / 100
+            item_x = left + index * legend_slot_width
+            color = TOPIC_COLORS[index % len(TOPIC_COLORS)]
+            body.extend(
+                [
+                    f'<rect data-topic-legend="{esc(topic.get("topic"))}" x="{item_x:.1f}" y="34" width="12" height="12" rx="2" fill="{color}" stroke="{TOPIC_BOUNDARY_COLORS[index % len(TOPIC_BOUNDARY_COLORS)]}" stroke-width="0.8"/>',
+                    f'<text class="axis-label" x="{item_x+19:.1f}" y="44">{esc(topic.get("topic"))} · {format_tps(percent)}% · max {format_tps(topic_max_tps)} TPS</text>',
+                ]
+            )
     grid_lines = []
     tick = 0.0
     while tick <= axis_max_tps + tps_step / 2:
@@ -395,6 +391,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
     )
     body.extend(grid_lines)
     points = []
+    load_vertices = []
     phase_labels = []
     for phase in phases:
         start = float(phase["start_seconds"])
@@ -402,6 +399,12 @@ def load_profile_svg(report: ExperimentReport) -> str:
         start_point = (x(start), y(phase_tps(phase["start_percent"])))
         end_point = (x(end), y(phase_tps(phase["end_percent"])))
         points.extend([start_point, end_point])
+        load_vertices.extend(
+            [
+                (start, phase_tps(phase["start_percent"])),
+                (end, phase_tps(phase["end_percent"])),
+            ]
+        )
         dx = end_point[0] - start_point[0]
         dy = end_point[1] - start_point[1]
         length = max(1.0, math.hypot(dx, dy))
@@ -416,15 +419,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
     if points:
         area = " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
         polygon = f"{left},{axis_y} {area} {width-right},{axis_y}"
-        duration_intervals = [
-            (
-                float(scenario.get("at_seconds") or 0),
-                float(scenario.get("end_seconds") or scenario.get("at_seconds") or 0),
-            )
-            for scenario in chaos_scenarios
-            if scenario.get("duration_seconds") is not None
-        ]
-        normal_ranges = ranges_without_intervals(total, duration_intervals)
+        normal_ranges = [(0.0, total)]
         clip_paths = []
         for index, (range_start, range_end) in enumerate(normal_ranges):
             clip_paths.append(
@@ -433,11 +428,46 @@ def load_profile_svg(report: ExperimentReport) -> str:
             )
         if clip_paths:
             body.append(f'<defs>{"".join(clip_paths)}</defs>')
-        for index, _normal_range in enumerate(normal_ranges):
-            body.append(
-                f'<polygon data-profile-fill="normal" points="{polygon}" fill="#dbeafe" opacity="0.42" '
-                f'clip-path="url(#load-fill-{index})"/>'
-            )
+        if len(load_topics) > 1:
+            total_topic_percent = sum(float(topic.get("percent") or 0) for topic in load_topics)
+            cumulative_percent = 0.0
+            topic_polygons = []
+            topic_boundaries = []
+            for topic_index, topic in enumerate(load_topics):
+                lower_percent = cumulative_percent / total_topic_percent
+                cumulative_percent += float(topic.get("percent") or 0)
+                upper_percent = cumulative_percent / total_topic_percent
+                upper = [(x(seconds), y(tps * upper_percent)) for seconds, tps in load_vertices]
+                lower = [(x(seconds), y(tps * lower_percent)) for seconds, tps in reversed(load_vertices)]
+                topic_polygon = " ".join(f"{px:.1f},{py:.1f}" for px, py in [*upper, *lower])
+                topic_polygons.append((topic, TOPIC_COLORS[topic_index % len(TOPIC_COLORS)], topic_polygon))
+                if topic_index < len(load_topics) - 1:
+                    topic_boundaries.append(
+                        (
+                            topic,
+                            TOPIC_BOUNDARY_COLORS[topic_index % len(TOPIC_BOUNDARY_COLORS)],
+                            smoothed_line_path(upper, radius=7),
+                        )
+                    )
+            for range_index, _normal_range in enumerate(normal_ranges):
+                for topic, color, topic_polygon in topic_polygons:
+                    body.append(
+                        f'<polygon data-profile-fill="topic" data-topic="{esc(topic.get("topic"))}" '
+                        f'points="{topic_polygon}" fill="{color}" opacity="0.46" '
+                        f'clip-path="url(#load-fill-{range_index})"/>'
+                    )
+                for topic, color, boundary_path in topic_boundaries:
+                    body.append(
+                        f'<path data-topic-boundary="{esc(topic.get("topic"))}" d="{boundary_path}" '
+                        f'fill="none" stroke="{color}" stroke-width="1" stroke-opacity="0.72" '
+                        f'clip-path="url(#load-fill-{range_index})"/>'
+                    )
+        else:
+            for index, _normal_range in enumerate(normal_ranges):
+                body.append(
+                    f'<polygon data-profile-fill="normal" points="{polygon}" fill="#dbeafe" opacity="0.42" '
+                    f'clip-path="url(#load-fill-{index})"/>'
+                )
         load_path = smoothed_line_path(points)
 
     chaos_fills = []
@@ -497,10 +527,10 @@ def load_profile_svg(report: ExperimentReport) -> str:
         time_x = title_x + title_width + 10
         if duration is not None:
             chaos_fills.append(
-                f'<rect data-chaos-kind="interval" data-range-background="isolated" '
+                f'<rect data-chaos-kind="interval" data-range-background="overlay" '
                 f'data-scenario-type="{esc(scenario.get("type"))}" '
                 f'x="{start_x:.1f}" y="{top}" width="{max(2, end_x-start_x):.1f}" height="{plot_height}" '
-                f'fill="{color}" fill-opacity="0.22"/>'
+                f'fill="{color}" fill-opacity="0.38"/>'
             )
             chaos_overlays.extend(
                 [

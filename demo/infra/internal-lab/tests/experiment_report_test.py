@@ -337,9 +337,15 @@ class ExperimentReportTest(unittest.TestCase):
             svg = (report_dir / "load-profile.svg").read_text(encoding="utf-8")
             self.assertEqual("FAIL", model["evaluation_status"])
             self.assertIn("❌ FAIL", markdown)
+            self.assertIn("## Load profile and planned chaos", markdown)
+            self.assertNotIn("## Test definition", markdown)
+            self.assertNotIn("- Definition:", markdown)
             self.assertIn(">TPS</text>", svg)
+            self.assertNotIn(">Load profile and planned chaos events</text>", svg)
             self.assertIn(">0m</text>", svg)
             self.assertIn(">1m</text>", svg)
+            self.assertIn(">order.events.v1 · 60% · max 60 TPS</text>", svg)
+            self.assertIn(">batch.events.v1 · 40% · max 40 TPS</text>", svg)
             self.assertIn(">warmup · 10s</text>", svg)
             self.assertIn(">Delete random pod</text>", svg)
             self.assertIn(">· 40s–50s · 10s</text>", svg)
@@ -381,7 +387,7 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertEqual("service_outage", intervals[0].attrib["data-scenario-type"])
             self.assertGreater(float(intervals[0].attrib["width"]), 0)
-            self.assertEqual("0.22", intervals[0].attrib["fill-opacity"])
+            self.assertEqual("0.38", intervals[0].attrib["fill-opacity"])
             interval_start = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
@@ -415,11 +421,28 @@ class ExperimentReportTest(unittest.TestCase):
             profile_fills = [
                 element
                 for element in root_element.iter(f"{namespace}polygon")
-                if element.attrib.get("data-profile-fill") == "normal"
+                if element.attrib.get("data-profile-fill") in {"normal", "topic"}
             ]
-            self.assertEqual(3, len(profile_fills))
+            self.assertEqual(2, len(profile_fills))
             self.assertTrue(all("clip-path" in element.attrib for element in profile_fills))
-            self.assertEqual("isolated", intervals[0].attrib["data-range-background"])
+            self.assertEqual(
+                {"order.events.v1", "batch.events.v1"},
+                {element.attrib.get("data-topic") for element in profile_fills},
+            )
+            topic_legend = [
+                element
+                for element in root_element.iter(f"{namespace}rect")
+                if element.attrib.get("data-topic-legend")
+            ]
+            self.assertEqual(2, len(topic_legend))
+            self.assertEqual("overlay", intervals[0].attrib["data-range-background"])
+            topic_boundaries = [
+                element
+                for element in root_element.iter(f"{namespace}path")
+                if element.attrib.get("data-topic-boundary")
+            ]
+            self.assertEqual(1, len(topic_boundaries))
+            self.assertEqual("1", topic_boundaries[0].attrib["stroke-width"])
             self.assertEqual(
                 4,
                 len(
@@ -455,7 +478,7 @@ class ExperimentReportTest(unittest.TestCase):
                 any(
                     element.attrib.get("data-time-label-background") == "true"
                     and element.attrib.get("fill-opacity") == "0.82"
-                    and float(element.attrib["y"]) > 270
+                    and float(element.attrib["y"]) > 226
                     for element in root_element.iter(f"{namespace}rect")
                 )
             )
@@ -467,14 +490,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertGreaterEqual(len(vertical_grid), 2)
             self.assertTrue(all(element.attrib.get("stroke") == "#e5e7eb" for element in vertical_grid))
             self.assertTrue(all("stroke-dasharray" not in element.attrib for element in vertical_grid))
-            self.assertLess(svg.index('data-grid-axis="x"'), svg.index('data-profile-fill="normal"'))
-            self.assertLess(svg.index('data-profile-fill="normal"'), svg.index('data-chaos-kind="interval"'))
-            frame = next(
-                element
-                for element in root_element.iter(f"{namespace}rect")
-                if element.attrib.get("data-chart-frame") == "true"
+            self.assertLess(svg.index('data-grid-axis="x"'), svg.index('data-profile-fill="topic"'))
+            self.assertLess(svg.index('data-profile-fill="topic"'), svg.index('data-chaos-kind="interval"'))
+            self.assertFalse(
+                any(
+                    element.attrib.get("data-chart-frame") == "true"
+                    for element in root_element.iter(f"{namespace}rect")
+                )
             )
-            self.assertEqual("6", frame.attrib["rx"])
             axis_labels = [
                 element
                 for element in root_element.iter(f"{namespace}text")

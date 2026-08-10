@@ -94,6 +94,33 @@ STUB_STREAM_NAMES = {
     "registry": "Legacy brewing registry",
 }
 STUB_PERCENTILES = ("p90", "p95", "p99", "p100")
+LOAD_TOPIC_FIELDS = (
+    ("order.events.v1", "order", "order_event_percent"),
+    ("batch.events.v1", "batch", "batch_event_percent"),
+    ("cauldron.events.v1", "telemetry", "cauldron_telemetry_percent"),
+)
+
+
+def planned_load_topics(load_test: Any) -> list[dict[str, Any]]:
+    if not isinstance(load_test, dict):
+        return []
+    traffic = load_test.get("traffic_percent")
+    traffic = traffic if isinstance(traffic, dict) else {}
+    topics = []
+    for topic, label, field in LOAD_TOPIC_FIELDS:
+        traffic_field = {
+            "order_event_percent": "order_events",
+            "batch_event_percent": "batch_events",
+            "cauldron_telemetry_percent": "cauldron_telemetry",
+        }[field]
+        value = traffic.get(traffic_field, load_test.get(field, 0))
+        try:
+            percent = float(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if percent > 0:
+            topics.append({"topic": topic, "label": label, "percent": percent})
+    return topics
 
 
 def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
@@ -486,6 +513,7 @@ def analyze_experiment(
     test_definition = load_yaml(test_definition_path)
     load_test = test_definition.get("load_test") if isinstance(test_definition.get("load_test"), dict) else {}
     phases = parse_load_profile(str(load_test.get("load_profile") or ""))
+    load_topics = planned_load_topics(load_test)
     chaos_scenarios = normalize_chaos_scenarios(
         test_definition.get("chaos_steps"),
         test_definition.get("stubs"),
@@ -599,6 +627,7 @@ def analyze_experiment(
             "base_tps": experiment_summary.get("base_tps"),
             "load_test": load_test,
             "load_phases": phases,
+            "load_topics": load_topics,
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
         },
