@@ -80,28 +80,13 @@ def render_markdown(report: ExperimentReport) -> str:
         f"- Duration: `{number(report.duration_seconds, 0)} s`",
         f"- Configurations: `{len(report.targets)}`",
         "",
-        "## Test definition",
+        "## Load profile and planned chaos",
         "",
-        f"- Definition: `{report.test_definition.get('name', '')}`",
-        f"- Base load: `{report.test_definition.get('base_tps', '')} TPS`",
+        "![Load profile](load-profile.svg)",
+        "",
+        "## SLA",
+        "",
     ]
-    load_test = report.test_definition.get("load_test", {})
-    traffic = load_test.get("traffic_percent") or {
-        "order_events": load_test.get("order_event_percent"),
-        "batch_events": load_test.get("batch_event_percent"),
-        "cauldron_telemetry": load_test.get("cauldron_telemetry_percent"),
-    }
-    lines.extend(
-        [
-            f"- Traffic: order `{traffic.get('order_events', 0)}%`, batch `{traffic.get('batch_events', 0)}%`, telemetry `{traffic.get('cauldron_telemetry', 0)}%`",
-            f"- Planned chaos events: `{len(report.test_definition.get('chaos_steps', []))}`",
-            "",
-            "![Load profile](load-profile.svg)",
-            "",
-            "## SLA",
-            "",
-        ]
-    )
     if report.sla_profile:
         lines.extend(
             [

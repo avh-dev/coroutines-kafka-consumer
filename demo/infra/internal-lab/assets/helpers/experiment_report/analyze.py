@@ -78,6 +78,145 @@ def parse_load_profile(value: str) -> list[dict[str, Any]]:
     return phases
 
 
+CHAOS_PRESENTATION = {
+    "pod_delete": ("delete", "Delete random pod"),
+    "pod_crash": ("crash", "Crash random pod"),
+    "service_restart": ("restart", "Restart service"),
+    "stubs_degradation": ("degradation", "Degrade stubs"),
+    "network_degradation": ("network", "Degrade network"),
+    "service_outage": ("outage", "Service outage"),
+}
+
+
+STUB_STREAM_NAMES = {
+    "eta": "Arcane ETA ML",
+    "flavour": "Order flavour ML",
+    "registry": "Legacy brewing registry",
+}
+STUB_PERCENTILES = ("p90", "p95", "p99", "p100")
+LOAD_TOPIC_FIELDS = (
+    ("order.events.v1", "order", "order_event_percent"),
+    ("batch.events.v1", "batch", "batch_event_percent"),
+    ("cauldron.events.v1", "telemetry", "cauldron_telemetry_percent"),
+)
+
+
+def planned_load_topics(load_test: Any) -> list[dict[str, Any]]:
+    if not isinstance(load_test, dict):
+        return []
+    traffic = load_test.get("traffic_percent")
+    traffic = traffic if isinstance(traffic, dict) else {}
+    topics = []
+    for topic, label, field in LOAD_TOPIC_FIELDS:
+        traffic_field = {
+            "order_event_percent": "order_events",
+            "batch_event_percent": "batch_events",
+            "cauldron_telemetry_percent": "cauldron_telemetry",
+        }[field]
+        value = traffic.get(traffic_field, load_test.get(field, 0))
+        try:
+            percent = float(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if percent > 0:
+            topics.append({"topic": topic, "label": label, "percent": percent})
+    return topics
+
+
+def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
+    if not isinstance(baseline, dict) or not isinstance(degraded, dict):
+        return None
+    base_errors = baseline.get("error_rate_percent")
+    new_errors = degraded.get("error_rate_percent", base_errors)
+    rows = []
+    stream_ids = list(STUB_STREAM_NAMES)
+    stream_ids.extend(
+        key
+        for key, value in degraded.items()
+        if key not in stream_ids and key != "error_rate_percent" and isinstance(value, dict)
+    )
+    for stream_id in stream_ids:
+        raw_base_stream = baseline.get(stream_id)
+        raw_new_stream = degraded.get(stream_id)
+        if not isinstance(raw_base_stream, dict) and not isinstance(raw_new_stream, dict):
+            continue
+        base_stream = raw_base_stream
+        new_stream = raw_new_stream
+        if not isinstance(base_stream, dict):
+            base_stream = {}
+        if not isinstance(new_stream, dict):
+            new_stream = {}
+        values = {}
+        stream_changed = False
+        for percentile in STUB_PERCENTILES:
+            key = f"delay_{percentile}_ms"
+            base_value = base_stream.get(key)
+            new_value = new_stream.get(key, base_value)
+            changed = new_value != base_value
+            stream_changed = stream_changed or changed
+            values[percentile] = {
+                "base": base_value,
+                "new": new_value,
+                "changed": changed,
+            }
+        errors_changed = new_errors != base_errors
+        stream_changed = stream_changed or errors_changed
+        values["errors"] = {
+            "base": base_errors,
+            "new": new_errors,
+            "changed": errors_changed,
+        }
+        if stream_changed:
+            rows.append(
+                {
+                    "id": stream_id,
+                    "name": STUB_STREAM_NAMES.get(stream_id, stream_id.replace("_", " ").title()),
+                    "values": values,
+                }
+            )
+    if not rows:
+        return None
+    return {
+        "columns": [*STUB_PERCENTILES, "errors"],
+        "rows": rows,
+    }
+
+
+def normalize_chaos_scenarios(raw_scenarios: Any, baseline_stubs: Any = None) -> list[dict[str, Any]]:
+    if not isinstance(raw_scenarios, list):
+        return []
+    result = []
+    for raw in raw_scenarios:
+        if not isinstance(raw, dict):
+            continue
+        scenario_type = str(raw.get("type") or "chaos")
+        action, title = CHAOS_PRESENTATION.get(
+            scenario_type,
+            ("chaos", scenario_type.replace("_", " ").capitalize()),
+        )
+        at_seconds = duration_value_seconds(str(raw.get("at") or "0"))
+        duration_seconds = (
+            duration_value_seconds(str(raw["duration"]))
+            if raw.get("duration") not in (None, "")
+            else None
+        )
+        target = str(raw.get("target") or "").strip()
+        scenario = {
+            "type": scenario_type,
+            "action": action,
+            "title": title,
+            "target": target,
+            "at_seconds": at_seconds,
+            "duration_seconds": duration_seconds,
+            "end_seconds": at_seconds + duration_seconds if duration_seconds is not None else None,
+            "params": raw.get("params") if isinstance(raw.get("params"), dict) else {},
+        }
+        if scenario_type == "stubs_degradation":
+            scenario["stubs_changes"] = stubs_change_table(baseline_stubs, scenario["params"])
+        result.append(scenario)
+    return sorted(result, key=lambda scenario: float(scenario["at_seconds"]))
+
+
 def nested_value(document: dict[str, Any], path: list[Any]) -> Any:
     value: Any = document
     for key in path:
@@ -374,6 +513,11 @@ def analyze_experiment(
     test_definition = load_yaml(test_definition_path)
     load_test = test_definition.get("load_test") if isinstance(test_definition.get("load_test"), dict) else {}
     phases = parse_load_profile(str(load_test.get("load_profile") or ""))
+    load_topics = planned_load_topics(load_test)
+    chaos_scenarios = normalize_chaos_scenarios(
+        test_definition.get("chaos_steps"),
+        test_definition.get("stubs"),
+    )
     load_duration = float(sum(phase["duration_seconds"] for phase in phases))
     sla_profile = load_sla_profile(lab_root, experiment)
     prometheus = PrometheusClient(prometheus_url)
@@ -483,7 +627,9 @@ def analyze_experiment(
             "base_tps": experiment_summary.get("base_tps"),
             "load_test": load_test,
             "load_phases": phases,
+            "load_topics": load_topics,
             "chaos_steps": test_definition.get("chaos_steps") or [],
+            "chaos_scenarios": chaos_scenarios,
         },
         sla_profile=sla_profile,
         targets=targets,

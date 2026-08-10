@@ -454,9 +454,17 @@ reanalysis.
 Evidence Bundle export remains a separate manual operation. Reports state that
 evidence has not been exported and show the corresponding export command; they
 do not publish or commit any artifact automatically. Load-profile SVGs use TPS
-on the vertical axis and elapsed `HH:MM` on the horizontal axis. Phase names and
-minute/second durations follow the load segments; planned chaos events are
-connected to separate chronological labels below the plot. Recovery time is
+on the vertical axis and compact durations (`20s`, `2m`, `1h 5m`) on the horizontal axis. Phase names and
+minute/second durations follow the load segments. Instant chaos scenarios use
+timeline markers; duration-based scenarios use translucent ranges. Their cards
+occupy separate chronological lanes below the plot and reserve independent
+action and service icon slots. Stub-degradation cards also compare the configured
+p90/p95/p99/p100 delay and error-rate values, omitting unaffected downstreams
+and highlighting each `base → degraded` change. Time-axis labels remain below
+the plot on translucent backgrounds drawn over marker lines. Optional SVG,
+PNG, or WebP service artwork can be placed under
+`helpers/experiment_report/icons/services`; the renderer embeds it into the
+generated SVG and otherwise uses deterministic fallback badges. Recovery time is
 intentionally unavailable until the lab
 stores structured actual chaos-event timestamps and a recovery policy is
 defined.
