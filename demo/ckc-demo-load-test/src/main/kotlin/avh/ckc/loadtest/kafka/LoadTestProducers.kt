@@ -7,13 +7,18 @@ import avh.ckc.demo.serialization.BatchLifecycleEventSerializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.metrics.LoadTestMetrics
+import avh.ckc.loadtest.metrics.ProducerTopicStats
 import avh.ckc.loadtest.runtime.ShardContext
 import org.apache.kafka.clients.producer.Callback
 import org.apache.kafka.clients.producer.KafkaProducer
+import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
+import org.apache.kafka.common.serialization.Serializer
+import java.lang.Math.floorMod
 import java.util.concurrent.atomic.AtomicLong
 
 interface LoadTestPublisher {
@@ -30,92 +35,92 @@ interface LoadTestPublisher {
 
 class LoadTestProducers(
     private val config: LoadTestConfig,
-    shardContext: ShardContext,
+    private val shardContext: ShardContext,
+    private val poolSizes: ProducerPoolSizes,
+    private val metrics: LoadTestMetrics,
     private val auditLog: LoadTestAuditLog? = if (config.auditLogEnabled) LoadTestAuditLog.fromConfig(config, shardContext) else null
 ) : LoadTestPublisher, AutoCloseable {
-    private val lifecycleSent = AtomicLong(0)
-    private val lifecycleAcked = AtomicLong(0)
-    private val lifecycleFailed = AtomicLong(0)
-    private val batchSent = AtomicLong(0)
-    private val batchAcked = AtomicLong(0)
-    private val batchFailed = AtomicLong(0)
-    private val telemetrySent = AtomicLong(0)
-    private val telemetryAcked = AtomicLong(0)
-    private val telemetryFailed = AtomicLong(0)
+    private val lifecycleStats = ProducerTopicStats()
+    private val batchStats = ProducerTopicStats()
+    private val telemetryStats = ProducerTopicStats()
     private val lastLoggedTotal = AtomicLong(0)
 
-    private val lifecycleProducer by lazy {
-        KafkaProducer<String, OrderLifecycleEvent>(producerProperties(OrderLifecycleEventSerializer::class.java))
+    private val lifecycleProducerPool = lazy {
+        producerPool("order", poolSizes.order, OrderLifecycleEventSerializer::class.java)
     }
-    private val batchProducer by lazy {
-        KafkaProducer<String, BatchLifecycleEvent>(producerProperties(BatchLifecycleEventSerializer::class.java))
+    private val batchProducerPool = lazy {
+        producerPool("batch", poolSizes.batch, BatchLifecycleEventSerializer::class.java)
     }
-    private val telemetryProducer by lazy {
-        KafkaProducer<String, CauldronTelemetryEvent>(producerProperties(CauldronTelemetryEventSerializer::class.java))
+    private val telemetryProducerPool = lazy {
+        producerPool("telemetry", poolSizes.cauldronTelemetry, CauldronTelemetryEventSerializer::class.java)
+    }
+
+    init {
+        metrics.registerTopicStats("order", lifecycleStats)
+        metrics.registerTopicStats("batch", batchStats)
+        metrics.registerTopicStats("telemetry", telemetryStats)
     }
 
     override fun sendOrder(key: String, event: OrderLifecycleEvent) {
-        val sent = lifecycleSent.incrementAndGet()
+        val sent = lifecycleStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
-            recordDryRun(config.orderEventsTopic, key, lifecycleAcked)
-            maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
+            recordDryRun(config.orderEventsTopic, key, lifecycleStats.acked)
+            maybeLogProgress(sent + batchStats.sent.get() + telemetryStats.sent.get())
             return
         }
-        lifecycleProducer.send(
+        lifecycleProducerPool.value.send(
             ProducerRecord(config.orderEventsTopic, key, event),
             callback(
                 stream = "order",
                 key = key,
-                sentCounter = lifecycleAcked,
-                failureCounter = lifecycleFailed
+                ackedCounter = lifecycleStats.acked,
+                failureCounter = lifecycleStats.failed
             )
         )
-        maybeLogProgress(sent + batchSent.get() + telemetrySent.get())
+        maybeLogProgress(sent + batchStats.sent.get() + telemetryStats.sent.get())
     }
 
     override fun sendBatch(key: String, event: BatchLifecycleEvent) {
-        val sent = batchSent.incrementAndGet()
+        val sent = batchStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
-            recordDryRun(config.batchEventsTopic, key, batchAcked)
-            maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
+            recordDryRun(config.batchEventsTopic, key, batchStats.acked)
+            maybeLogProgress(lifecycleStats.sent.get() + sent + telemetryStats.sent.get())
             return
         }
-        batchProducer.send(
+        batchProducerPool.value.send(
             ProducerRecord(config.batchEventsTopic, key, event),
             callback(
                 stream = "batch",
                 key = key,
-                sentCounter = batchAcked,
-                failureCounter = batchFailed
+                ackedCounter = batchStats.acked,
+                failureCounter = batchStats.failed
             )
         )
-        maybeLogProgress(lifecycleSent.get() + sent + telemetrySent.get())
+        maybeLogProgress(lifecycleStats.sent.get() + sent + telemetryStats.sent.get())
     }
 
     override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
-        val sent = telemetrySent.incrementAndGet()
+        val sent = telemetryStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
-            recordDryRun(config.cauldronEventsTopic, key, telemetryAcked)
-            maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
+            recordDryRun(config.cauldronEventsTopic, key, telemetryStats.acked)
+            maybeLogProgress(lifecycleStats.sent.get() + batchStats.sent.get() + sent)
             return
         }
-        telemetryProducer.send(
+        telemetryProducerPool.value.send(
             ProducerRecord(config.cauldronEventsTopic, key, event),
             callback(
                 stream = "telemetry",
                 key = key,
-                sentCounter = telemetryAcked,
-                failureCounter = telemetryFailed
+                ackedCounter = telemetryStats.acked,
+                failureCounter = telemetryStats.failed
             )
         )
-        maybeLogProgress(lifecycleSent.get() + batchSent.get() + sent)
+        maybeLogProgress(lifecycleStats.sent.get() + batchStats.sent.get() + sent)
     }
 
     override fun flush() {
         if (config.publishEnabled) {
-            lifecycleProducer.flush()
-            batchProducer.flush()
-            telemetryProducer.flush()
+            initializedPools().forEach(TopicProducerPool<*, *>::flush)
         }
         logSnapshot("flush")
     }
@@ -123,9 +128,9 @@ class LoadTestProducers(
     override fun logSnapshot(reason: String) {
         println(
             "load-test producer snapshot reason=$reason " +
-                "lifecycle(sent=${lifecycleSent.get()}, acked=${lifecycleAcked.get()}, failed=${lifecycleFailed.get()}) " +
-                "batch(sent=${batchSent.get()}, acked=${batchAcked.get()}, failed=${batchFailed.get()}) " +
-                "telemetry(sent=${telemetrySent.get()}, acked=${telemetryAcked.get()}, failed=${telemetryFailed.get()})"
+                "order(pool=${poolSizes.order},sent=${lifecycleStats.sent.get()},acked=${lifecycleStats.acked.get()},failed=${lifecycleStats.failed.get()}) " +
+                "batch(pool=${poolSizes.batch},sent=${batchStats.sent.get()},acked=${batchStats.acked.get()},failed=${batchStats.failed.get()}) " +
+                "telemetry(pool=${poolSizes.cauldronTelemetry},sent=${telemetryStats.sent.get()},acked=${telemetryStats.acked.get()},failed=${telemetryStats.failed.get()})"
         )
     }
 
@@ -134,9 +139,7 @@ class LoadTestProducers(
             flush()
         } finally {
             if (config.publishEnabled) {
-                lifecycleProducer.close()
-                batchProducer.close()
-                telemetryProducer.close()
+                initializedPools().forEach(TopicProducerPool<*, *>::close)
             }
             logSnapshot("close")
         }
@@ -162,7 +165,7 @@ class LoadTestProducers(
     private fun callback(
         stream: String,
         key: String,
-        sentCounter: AtomicLong,
+        ackedCounter: AtomicLong,
         failureCounter: AtomicLong
     ): Callback =
         Callback { metadata: RecordMetadata?, exception: Exception? ->
@@ -174,7 +177,7 @@ class LoadTestProducers(
                 return@Callback
             }
 
-            val acked = sentCounter.incrementAndGet()
+            ackedCounter.incrementAndGet()
             val recordMetadata = metadata!!
             auditLog?.published(recordMetadata, key)
         }
@@ -195,4 +198,41 @@ class LoadTestProducers(
             "telemetry" -> config.cauldronEventsTopic
             else -> "unknown"
         }
+
+    private fun <V> producerPool(
+        topic: String,
+        size: Int,
+        valueSerializerClass: Class<out Serializer<V>>
+    ): TopicProducerPool<String, V> =
+        TopicProducerPool(
+            List(size) { producerIndex ->
+                KafkaProducer<String, V>(
+                    producerProperties(valueSerializerClass) +
+                        (ProducerConfig.CLIENT_ID_CONFIG to "ckc-load-test-$topic-s${shardContext.shardIndex}-p$producerIndex")
+                ).also { producer -> metrics.bindKafkaProducer(topic, producerIndex, producer) }
+            }
+        )
+
+    private fun initializedPools(): List<TopicProducerPool<*, *>> = buildList {
+        if (lifecycleProducerPool.isInitialized()) add(lifecycleProducerPool.value)
+        if (batchProducerPool.isInitialized()) add(batchProducerPool.value)
+        if (telemetryProducerPool.isInitialized()) add(telemetryProducerPool.value)
+    }
+}
+
+internal class TopicProducerPool<K, V>(
+    private val producers: List<Producer<K, V>>
+) {
+    init {
+        require(producers.isNotEmpty()) { "producer pool must not be empty" }
+    }
+
+    fun send(record: ProducerRecord<K, V>, callback: Callback) =
+        producers[indexFor(record.key())].send(record, callback)
+
+    fun flush() = producers.forEach(Producer<K, V>::flush)
+
+    fun close() = producers.forEach(Producer<K, V>::close)
+
+    internal fun indexFor(key: K?): Int = floorMod(key?.hashCode() ?: 0, producers.size)
 }

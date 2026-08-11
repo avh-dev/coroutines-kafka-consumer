@@ -51,7 +51,11 @@ class LoadTestConfigTest {
                 "KAFKA_PRODUCER_LINGER_MS" to "75",
                 "KAFKA_PRODUCER_BATCH_SIZE" to "131072",
                 "KAFKA_PRODUCER_COMPRESSION_TYPE" to "zstd",
-                "KAFKA_PRODUCER_BUFFER_MEMORY" to "134217728"
+                "KAFKA_PRODUCER_BUFFER_MEMORY" to "134217728",
+                "ORDER_TPS_PER_PRODUCER" to "700",
+                "BATCH_TPS_PER_PRODUCER" to "800",
+                "CAULDRON_TELEMETRY_TPS_PER_PRODUCER" to "900",
+                "LOAD_TEST_METRICS_PORT" to "19405"
             )
         )
 
@@ -79,5 +83,9 @@ class LoadTestConfigTest {
         assertEquals(131072, config.kafkaProducer.batchSize)
         assertEquals("zstd", config.kafkaProducer.compressionType)
         assertEquals(134217728L, config.kafkaProducer.bufferMemory)
+        assertEquals(700, config.producerCapacity.orderTps)
+        assertEquals(800, config.producerCapacity.batchTps)
+        assertEquals(900, config.producerCapacity.cauldronTelemetryTps)
+        assertEquals(19405, config.metricsPort)
     }
 }

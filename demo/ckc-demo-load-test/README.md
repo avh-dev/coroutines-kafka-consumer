@@ -38,9 +38,25 @@ Rules:
 - active worker count is capped by `BASE_TPS` so each worker has at least one integer TPS permit
 - generated entity ids include both identity dimensions, for example `order-1-5-00021212`
 - `ORDER_EVENT_PERCENT`, `BATCH_EVENT_PERCENT`, and `CAULDRON_TELEMETRY_PERCENT` split that total event budget across topics
+- `ORDER_TPS_PER_PRODUCER`, `BATCH_TPS_PER_PRODUCER`, and `CAULDRON_TELEMETRY_TPS_PER_PRODUCER` model the peak capacity of one independently scaled producer-service instance; each defaults to `1000`
+- each topic producer pool is sized once from its maximum load-profile rate using `ceil(peak topic TPS / TPS per producer)` and retains at least one producer for delegated prerequisite events
+- records use stable key affinity within a topic pool so scaling the producer service does not introduce generator-side same-key reordering
 - event generators use state queues when a suitable simulated entity exists and delegate prerequisite event generation while the state is warming up
 - `BREWING_STEP_BURST_EVERY`, `MIN_BREWING_STEP_BURST`, and `MAX_BREWING_STEP_BURST` emit same-key `BATCH_BREWING_STEP_COMPLETED` bursts, capped by remaining batch brewing steps, so ordered-by-key contention is observable without increasing total TPS
 - `TELEMETRY_SOURCE_MODE=FIXED_FLEET` prepares one active synthetic batch per configured cauldron and emits telemetry round-robin across the fixed cauldron fleet
 - the default `TELEMETRY_SOURCE_MODE=ACTIVE_BATCHES` keeps cauldron telemetry tied to batches that are active in the simulated business pipeline
 - `PUBLISH_ENABLED=false` keeps generation and audit output enabled but skips Kafka sends for local debugging
 - the load-test process flushes producers and exits when the profile schedule ends
+
+## Producer Metrics
+
+The load-test process exposes Prometheus metrics at `http://0.0.0.0:9405/metrics` by default. Override the port with `LOAD_TEST_METRICS_PORT`.
+
+Every Kafka producer is bound through Micrometer with bounded `shard`, `traffic.topic`, `producer.index`, and Kafka `client.id` dimensions. The native Kafka metrics include batch size, records per request, compression rate, record and byte throughput, queue and request latency, buffer pressure, retries, errors, and broker throttling. The endpoint also exposes:
+
+- `ckc.load.test.producer.pool.size`
+- `ckc.load.test.producer.records.sent`
+- `ckc.load.test.producer.records.acked`
+- `ckc.load.test.producer.records.failed`
+
+Producer client ids use the stable form `ckc-load-test-<topic>-s<shard>-p<producer>` and do not include the run id, avoiding a new Prometheus label value for every test run.

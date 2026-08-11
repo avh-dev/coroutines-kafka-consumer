@@ -84,6 +84,8 @@ data class LoadScenario(
         return null
     }
 
+    fun peakRatePercent(): Int = phases.maxOf { maxOf(it.fromRatePercent, it.toRatePercent) }
+
     companion object {
         fun parse(profile: String): LoadScenario = LoadScenario(LoadProfileParser.parse(profile))
     }

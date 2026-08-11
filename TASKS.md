@@ -137,6 +137,7 @@
 | [DEMO-81](#demo-81) | Add selectable Armeria and JDK transports for suspend and synchronous demo HTTP clients. | DONE |
 | [DEMO-82](#demo-82) | Align the demo Thread Stats actuator integration test with the current endpoint contract. | DONE |
 | [DEMO-83](#demo-83) | Model instantaneous and duration-based demo chaos scenarios with automatic recovery and cleanup. | DONE |
+| [DEMO-84](#demo-84) | Scale per-topic load-test Kafka producer pools from target throughput and expose producer diagnostics. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2673,3 +2674,14 @@ Format elapsed positions as compact durations rather than clock times and remove
 Render stub-degradation events as expanded comparison cards containing only affected HTTP downstreams and highlighting changed p90/p95/p99/p100 delay and error-rate values.
 
 Verification: all 27 chaos-scenario, experiment-report, and audit-analyzer tests passed; Python and Bash syntax checks passed; the queue-backlog preview rendered a three-row stub comparison, one instant marker, compact elapsed labels, and paired icon slots for both cards.
+
+<a id="demo-84"></a>
+### DEMO-84 - Scale load-test producers by topic throughput
+
+_Date: 2026-08-11_
+
+Model each topic as an independently scaled producer service with a configurable messages-per-second capacity per producer.
+Build stable per-topic Kafka producer pools from the peak load-profile throughput while preserving same-key producer affinity.
+Expose bounded Kafka producer and generator diagnostics for inspecting batching, compression, throughput, latency, backpressure, and failures.
+
+Verification: all 28 load-test tests passed, the application distribution built successfully, and a live dry-run scrape returned per-topic pool and sent/acked/failed metrics from the embedded Prometheus endpoint.
