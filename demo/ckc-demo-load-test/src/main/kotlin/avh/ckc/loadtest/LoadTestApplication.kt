@@ -3,6 +3,8 @@ package avh.ckc.loadtest
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.generator.TrafficGenerator
 import avh.ckc.loadtest.kafka.LoadTestProducers
+import avh.ckc.loadtest.kafka.ProducerPoolSizes
+import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.runtime.effectiveGeneratorWorkers
 import avh.ckc.loadtest.runtime.workerBaseTps
@@ -24,6 +26,7 @@ fun main() = runBlocking {
     System.setProperty("AUDIT_TCP_HOST", config.auditHost)
     System.setProperty("AUDIT_TCP_PORT", config.auditPort.toString())
     val scenario = LoadScenario.parse(config.loadProfile)
+    val producerPoolSizes = ProducerPoolSizes.from(config, scenario)
 
     val now = Instant.now()
     val effectiveStart = shardContext.testRunStartedAt ?: now
@@ -38,9 +41,17 @@ fun main() = runBlocking {
             "mix(order=${config.orderEventPercent},batch=${config.batchEventPercent},cauldron=${config.cauldronTelemetryPercent})"
     )
     println("workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} baseTpsPerJvm=${config.baseTps}")
+    println(
+        "producerPools(order=${producerPoolSizes.order},batch=${producerPoolSizes.batch},telemetry=${producerPoolSizes.cauldronTelemetry}) " +
+            "tpsPerProducer(order=${config.producerCapacity.orderTps},batch=${config.producerCapacity.batchTps}," +
+            "telemetry=${config.producerCapacity.cauldronTelemetryTps})"
+    )
+    println("loadTestMetrics=http://0.0.0.0:${config.metricsPort}/metrics")
 
-    LoadTestProducers(config, shardContext).use { producers ->
-        runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers)
+    LoadTestMetrics(config.metricsPort, shardContext.shardIndex, producerPoolSizes).use { metrics ->
+        LoadTestProducers(config, shardContext, producerPoolSizes, metrics).use { producers ->
+            runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers)
+        }
     }
 }
 

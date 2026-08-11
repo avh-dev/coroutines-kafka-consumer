@@ -30,7 +30,9 @@ data class LoadTestConfig(
     val auditPort: Int = 5170,
     val auditRunId: String = "local",
     val generatorWorkers: Int = defaultGeneratorWorkers(),
-    val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings()
+    val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings(),
+    val producerCapacity: TopicProducerCapacity = TopicProducerCapacity(),
+    val metricsPort: Int = 9405
 ) {
     init {
         require(baseTps > 0) { "baseTps must be positive" }
@@ -59,6 +61,10 @@ data class LoadTestConfig(
         require(kafkaProducer.batchSize > 0) { "kafkaProducer.batchSize must be positive" }
         require(kafkaProducer.bufferMemory > 0) { "kafkaProducer.bufferMemory must be positive" }
         require(kafkaProducer.compressionType.isNotBlank()) { "kafkaProducer.compressionType must not be blank" }
+        require(producerCapacity.orderTps > 0) { "producerCapacity.orderTps must be positive" }
+        require(producerCapacity.batchTps > 0) { "producerCapacity.batchTps must be positive" }
+        require(producerCapacity.cauldronTelemetryTps > 0) { "producerCapacity.cauldronTelemetryTps must be positive" }
+        require(metricsPort in 1..65535) { "metricsPort must be a valid TCP port" }
     }
 
     companion object {
@@ -94,7 +100,24 @@ data class LoadTestConfig(
                 auditPort = environment["AUDIT_TCP_PORT"]?.toIntOrNull() ?: 5170,
                 auditRunId = environment["AUDIT_RUN_ID"] ?: environment["TEST_RUN_ID"] ?: "local",
                 generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers(),
-                kafkaProducer = KafkaProducerSettings.fromEnvironment(environment)
+                kafkaProducer = KafkaProducerSettings.fromEnvironment(environment),
+                producerCapacity = TopicProducerCapacity.fromEnvironment(environment),
+                metricsPort = environment["LOAD_TEST_METRICS_PORT"]?.toIntOrNull() ?: 9405
+            )
+    }
+}
+
+data class TopicProducerCapacity(
+    val orderTps: Int = 1_000,
+    val batchTps: Int = 1_000,
+    val cauldronTelemetryTps: Int = 1_000
+) {
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): TopicProducerCapacity =
+            TopicProducerCapacity(
+                orderTps = environment["ORDER_TPS_PER_PRODUCER"]?.toIntOrNull() ?: 1_000,
+                batchTps = environment["BATCH_TPS_PER_PRODUCER"]?.toIntOrNull() ?: 1_000,
+                cauldronTelemetryTps = environment["CAULDRON_TELEMETRY_TPS_PER_PRODUCER"]?.toIntOrNull() ?: 1_000
             )
     }
 }
