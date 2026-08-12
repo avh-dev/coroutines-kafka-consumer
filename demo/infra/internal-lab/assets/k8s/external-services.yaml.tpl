@@ -162,6 +162,29 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ckc-external-load-test
+  namespace: ckc-perf
+spec:
+  ports:
+    - name: metrics
+      port: 9405
+      targetPort: 9405
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ckc-external-load-test
+  namespace: ckc-perf
+subsets:
+  - addresses:
+      - ip: __LAB_NODE_IP__
+    ports:
+      - name: metrics
+        port: 9405
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ckc-external-process-exporter
   namespace: ckc-perf
 spec:

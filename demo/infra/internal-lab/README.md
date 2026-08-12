@@ -33,6 +33,7 @@ lab host
     ckc-external-redis Service + Endpoints -> host Redis
     ckc-external-audit Service + Endpoints -> host Fluent Bit TCP collector
     ckc-external-loki Service + Endpoints -> host Loki
+    ckc-external-load-test Service + Endpoints -> host load-test Prometheus endpoint
 
   Docker Compose
     Redpanda or Apache Kafka -> host:9092
@@ -44,7 +45,7 @@ lab host
 
   Host runtime
     Docker build for ckc-perf/demo and ckc-perf/demo-stubs from synced dist layouts
-    ckc-demo-load-test as a host Java process under /opt/ckc-lab/load-test-runtime
+    ckc-demo-load-test as a host Java process under /opt/ckc-lab/load-test-runtime, metrics on host:9405
 ```
 
 Prometheus stays in Kubernetes so it can use Kubernetes service discovery and scrape app pods plus kubelet cAdvisor metrics. Grafana and Loki stay on the host so they do not add pod storage overhead to the Kubernetes test surface.
@@ -329,6 +330,18 @@ Before starting the load generator, the runner:
 - deletes and recreates Kafka topics on the selected host broker
 - reuses the long-lived `ckc-demo-stubs` deployment and applies its settings through `POST /settings`
 - applies the generated app Helm overlay with processing, audit logging, consumer metrics implementation, dispatcher, and worker settings overridden from the prompts
+
+Each test definition declares the modeled peak capacity of one independently scaled producer service:
+
+```yaml
+load_test:
+  producer_capacity_tps:
+    order: 1000
+    batch: 1000
+    telemetry: 1000
+```
+
+The load-test runtime calculates each topic's Kafka producer pool from the peak local topic TPS. The runner records these capacities in `run-metadata.json`, exposes the host process on port `9405`, and Prometheus scrapes it with job `ckc-load-test`. Grafana's `Load Test: Kafka Producers` row shows pool sizes, generated and acknowledged throughput, batch size, records per request, compression ratio, queue/request latency, broker throttling, buffer utilization, retries, errors, and in-flight pressure.
 
 To rerun only the load generator without resetting Redis, topics, or the app deployment:
 
@@ -768,6 +781,9 @@ sum by (consumer_impl, consumer_id) (rate(ckc_poll_records_sum[30s]))
 sum(rate(ckc_poll_records_sum[30s])) by (consumer_impl, consumer_id)
 sum(rate(ckc_processing_duration_seconds_count[30s])) by (consumer_impl, consumer_id)
 sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup="ckc-demo"})
+sum by (traffic_topic) (ckc_load_test_producer_pool_size{job="ckc-load-test"})
+avg by (traffic_topic) (kafka_producer_batch_size_avg{job="ckc-load-test"})
+avg by (traffic_topic) (kafka_producer_compression_rate_avg{job="ckc-load-test"})
 ```
 
 Use `kubectl top pods` for quick current snapshots. Use Prometheus/Grafana for profile comparisons because they preserve history and allow identical measurement windows.
@@ -792,6 +808,7 @@ curl -fsS "http://${LAB_HOST}:30080/actuator/health"
 curl -fsS "http://${LAB_HOST}:30080/actuator/prometheus" | head
 curl -fsS "http://${LAB_HOST}:30090/api/v1/targets"
 curl -fsS "http://${LAB_HOST}:9256/metrics" | head
+curl -fsS "http://${LAB_HOST}:9405/metrics" | head
 ```
 
 Host checks:

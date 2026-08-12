@@ -25,6 +25,10 @@ load_test:
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40
+  producer_capacity_tps:
+    order: 1000
+    batch: 1000
+    telemetry: 1000
   telemetry_source_mode: FIXED_FLEET
   load_profile: "0 -> (1m, ramp-10) -> 10 -> (3m, hold-10) -> 10 -> (1m, ramp-20) -> 20 -> (3m, hold-20) -> 20 -> (1m, ramp-30) -> 30 -> (3m, hold-30) -> 30 -> (1m, ramp-40) -> 40 -> (3m, hold-40) -> 40 -> (1m, ramp-50) -> 50 -> (3m, hold-50) -> 50 -> (1m, ramp-60) -> 60 -> (3m, hold-60) -> 60 -> (1m, ramp-70) -> 70 -> (3m, hold-70) -> 70 -> (1m, ramp-80) -> 80 -> (3m, hold-80) -> 80 -> (1m, ramp-90) -> 90 -> (3m, hold-90) -> 90 -> (1m, ramp-100) -> 100 -> (3m, hold-100) -> 100 -> (1m, cool-down) -> 0"
   cauldron_count: 75
