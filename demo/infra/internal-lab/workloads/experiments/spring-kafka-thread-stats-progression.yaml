@@ -29,14 +29,20 @@ defaults:
 targets:
   - name: spring-kafka
     profile: spring-kafka
+    env:
+      KAFKA_PRODUCER_LINGER_MS: 500
 
   - name: spring-kafka-thread-pool.partitions-pollers-and-workers
     profile: spring-kafka-thread-pool
     parallelism: [partitions, pollers, workers]
+    env:
+      KAFKA_PRODUCER_LINGER_MS: 500
 
   - name: spring-kafka-thread-pool.partitions-and-workers
     profile: spring-kafka-thread-pool
     parallelism: [partitions, workers]
+    env:
+      KAFKA_PRODUCER_LINGER_MS: 500
 
   - name: spring-kafka-thread-pool
     profile: spring-kafka-thread-pool

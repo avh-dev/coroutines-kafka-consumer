@@ -110,6 +110,16 @@ def value_at(data: dict[str, Any], *keys: str, default: Any = "") -> Any:
     return current
 
 
+def producer_capacity_tps(load_test: dict[str, Any], topic: str) -> int:
+    capacities = load_test.get("producer_capacity_tps", {})
+    if not isinstance(capacities, dict):
+        raise ValueError("load_test.producer_capacity_tps must be an object")
+    value = int(capacities.get(topic, 1000))
+    if value <= 0:
+        raise ValueError(f"load_test.producer_capacity_tps.{topic} must be positive")
+    return value
+
+
 def latency_settings_from_values(values: dict[str, Any], context: str, definition_path: Path) -> dict[str, int]:
     required_keys = ("delay_p90_ms", "delay_p95_ms", "delay_p99_ms", "delay_p100_ms")
     missing = [key for key in required_keys if key not in values]
@@ -329,6 +339,10 @@ def main() -> None:
         "ORDER_EVENT_PERCENT": str(load_test.get("order_event_percent", 40)),
         "BATCH_EVENT_PERCENT": str(load_test.get("batch_event_percent", 20)),
         "CAULDRON_TELEMETRY_PERCENT": str(load_test.get("cauldron_telemetry_percent", 40)),
+        "ORDER_TPS_PER_PRODUCER": str(producer_capacity_tps(load_test, "order")),
+        "BATCH_TPS_PER_PRODUCER": str(producer_capacity_tps(load_test, "batch")),
+        "CAULDRON_TELEMETRY_TPS_PER_PRODUCER": str(producer_capacity_tps(load_test, "telemetry")),
+        "LOAD_TEST_METRICS_PORT": "9405",
         "LOAD_PROFILE": str(load_test.get("load_profile", "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0")),
         "CAULDRON_COUNT": str(load_test.get("cauldron_count", 32)),
         "MIN_ORDERS_PER_BATCH": str(load_test.get("min_orders_per_batch", 3)),

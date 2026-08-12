@@ -24,6 +24,10 @@ load_test:
   order_event_percent: 35
   batch_event_percent: 25
   cauldron_telemetry_percent: 40
+  producer_capacity_tps:
+    order: 1000
+    batch: 1000
+    telemetry: 1000
   load_profile: "0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down) -> 0"
   cauldron_count: 2
   min_orders_per_batch: 2

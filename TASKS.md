@@ -245,6 +245,7 @@
 | [INFRA-105](#infra-105) | Isolate application Thread Stats Grafana queries from the Kafka broker agent job. | DONE |
 | [INFRA-106](#infra-106) | Generate local human-readable Markdown and SVG reports for completed internal-lab experiments. | DONE |
 | [INFRA-107](#infra-107) | Render semantic chaos events and intervals on experiment load-profile timelines. | DONE |
+| [INFRA-108](#infra-108) | Wire scaled load-test producer settings and Kafka producer metrics into the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2685,3 +2686,14 @@ Build stable per-topic Kafka producer pools from the peak load-profile throughpu
 Expose bounded Kafka producer and generator diagnostics for inspecting batching, compression, throughput, latency, backpressure, and failures.
 
 Verification: all 28 load-test tests passed, the application distribution built successfully, and a live dry-run scrape returned per-topic pool and sent/acked/failed metrics from the embedded Prometheus endpoint.
+
+<a id="infra-108"></a>
+### INFRA-108 - Observe scaled load-test producers
+
+_Date: 2026-08-11_
+
+Pass per-topic producer capacity from internal-lab test definitions into the load-test runtime and keep its lab metrics endpoint fixed on port 9405.
+Expose the host load-test metrics endpoint to Kubernetes Prometheus without changing the single-process internal-lab execution model.
+Add Grafana producer panels for pool size, throughput, batching, compression, latency, buffer pressure, retries, and failures.
+
+Verification: all 21 internal-lab tests passed; Python, Bash, POSIX shell, YAML, dashboard JSON, and 20 PromQL expressions validated; optilab smoke run `20260811T131027Z` completed successfully with configured pool sizes `2/2/2`, an `UP` Prometheus target, persisted capacity metadata, and samples in all 10 live Grafana producer panels.
