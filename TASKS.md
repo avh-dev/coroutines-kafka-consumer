@@ -138,6 +138,7 @@
 | [DEMO-82](#demo-82) | Align the demo Thread Stats actuator integration test with the current endpoint contract. | DONE |
 | [DEMO-83](#demo-83) | Model instantaneous and duration-based demo chaos scenarios with automatic recovery and cleanup. | DONE |
 | [DEMO-84](#demo-84) | Scale per-topic load-test Kafka producer pools from target throughput and expose producer diagnostics. | DONE |
+| [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer broker-poll and control threads as Kafka work. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2697,3 +2698,14 @@ Expose the host load-test metrics endpoint to Kubernetes Prometheus without chan
 Add Grafana producer panels for pool size, throughput, batching, compression, latency, buffer pressure, retries, and failures.
 
 Verification: all 21 internal-lab tests passed; Python, Bash, POSIX shell, YAML, dashboard JSON, and 20 PromQL expressions validated; optilab smoke run `20260811T131027Z` completed successfully with configured pool sizes `2/2/2`, an `UP` Prometheus target, persisted capacity metadata, and samples in all 10 live Grafana producer panels.
+
+<a id="demo-85"></a>
+### DEMO-85 - Classify CPC Kafka threads
+
+_Date: 2026-08-14_
+
+Classify Confluent Parallel Consumer `pc-broker-poll` and `pc-control` threads in the existing `kafka-client` Thread Stats group.
+Keep the Reactor processing dispatcher in the separate `confluent-parallel-worker` business group.
+Cover the CPC thread-name rules in the demo configuration test.
+
+Verification: the focused Thread Stats configuration test passed, historical CPC thread names resolved to the intended Kafka and business groups, and the updated demo image rolled out successfully on optilab with application health `UP`.
