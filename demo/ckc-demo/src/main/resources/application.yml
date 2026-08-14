@@ -92,6 +92,12 @@ thread-stats:
       value: pc-control
     - group: kafka-client
       type: prefix
+      value: pc-pool-
+    - group: kafka-client
+      type: prefix
+      value: micrometer-kafka-metrics
+    - group: kafka-client
+      type: prefix
       value: kafka-
     - group: armeria-client
       type: prefix

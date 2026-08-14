@@ -20,6 +20,8 @@ class ThreadStatsRulesConfigurationTest {
         assertTrue(rules.contains(ThreadStatsRule("confluent-parallel-worker", "pc-reactor-worker-")))
         assertTrue(rules.contains(ThreadStatsRule("kafka-client", "pc-broker-poll")))
         assertTrue(rules.contains(ThreadStatsRule("kafka-client", "pc-control")))
+        assertTrue(rules.contains(ThreadStatsRule("kafka-client", "pc-pool-")))
+        assertTrue(rules.contains(ThreadStatsRule("kafka-client", "micrometer-kafka-metrics")))
         assertTrue(rules.contains(ThreadStatsRule("virtual-thread-runtime", "ForkJoinPool-")))
         assertTrue(rules.contains(ThreadStatsRule("virtual-thread-runtime", "VirtualThread-unparker")))
         assertTrue(rules.contains(ThreadStatsRule("jvm-fork-join", "ForkJoinPool.commonPool-")))

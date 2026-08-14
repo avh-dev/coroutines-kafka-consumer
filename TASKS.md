@@ -138,7 +138,7 @@
 | [DEMO-82](#demo-82) | Align the demo Thread Stats actuator integration test with the current endpoint contract. | DONE |
 | [DEMO-83](#demo-83) | Model instantaneous and duration-based demo chaos scenarios with automatic recovery and cleanup. | DONE |
 | [DEMO-84](#demo-84) | Scale per-topic load-test Kafka producer pools from target throughput and expose producer diagnostics. | DONE |
-| [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer broker-poll and control threads as Kafka work. | DONE |
+| [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer and Kafka metrics support threads as Kafka work. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2704,8 +2704,9 @@ Verification: all 21 internal-lab tests passed; Python, Bash, POSIX shell, YAML,
 
 _Date: 2026-08-14_
 
-Classify Confluent Parallel Consumer `pc-broker-poll` and `pc-control` threads in the existing `kafka-client` Thread Stats group.
+Classify Confluent Parallel Consumer `pc-broker-poll`, `pc-control`, and `pc-pool-` threads in the existing `kafka-client` Thread Stats group.
+Classify the Kafka Micrometer binder's `micrometer-kafka-metrics` threads in the same group.
 Keep the Reactor processing dispatcher in the separate `confluent-parallel-worker` business group.
 Cover the CPC thread-name rules in the demo configuration test.
 
-Verification: the focused Thread Stats configuration test passed, historical CPC thread names resolved to the intended Kafka and business groups, and the updated demo image rolled out successfully on optilab with application health `UP`.
+Verification: the focused Thread Stats configuration test passed, all CPC names from the completed run resolved to the intended Kafka and business groups, and the updated demo image rolled out successfully on optilab. A live CPC actuator snapshot classified `micrometer-kafka-metrics` under Kafka and contained no `OTHER` section.
