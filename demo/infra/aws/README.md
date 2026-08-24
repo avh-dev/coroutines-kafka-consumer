@@ -76,6 +76,10 @@ a size-limited `/captures` volume only when at least one packet capture is
 configured. Completed `.pcap.gz`, JSON metadata, tcpdump stderr, index, and
 summary artifacts are written under
 `/opt/ckc-runner/reports/<run-id>/diagnostics/tcpdump` on the runner.
+The runner then analyzes the completed captures with tshark and writes both
+machine-readable and human-readable results under the sibling
+`diagnostics/pcap-analysis` directory. Generated experiment reports use those
+results for paired producer/consumer Kafka wire-breakdown bars.
 
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
