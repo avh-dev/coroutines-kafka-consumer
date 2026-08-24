@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-test-namespace", default="ckc-loadtest")
     parser.add_argument("--load-test-selector", default="app.kubernetes.io/name=ckc-load-test")
     parser.add_argument("--load-test-container", default="load-test")
+    parser.add_argument("--pod-interface", default="eth0")
     parser.add_argument("--host-interface", default="any")
     parser.add_argument("--host-address", default="")
     parser.add_argument("--host-exclude-network", default="")
@@ -144,7 +145,7 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
     raw_path = directory / f"{base_name}.pcap"
     capture_pattern = directory / f"{base_name}-%s.pcap"
     params = step["params"]
-    interface = args.host_interface if params["interface"] == "any" else params["interface"]
+    interface = args.host_interface if params["interface"] == "auto" else params["interface"]
     capture_filter = params["filter"]
     if args.host_address:
         host_address = str(ipaddress.ip_address(args.host_address))
@@ -157,7 +158,8 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
         "step": step["name"], "target": target, "backend": "host", "identity": identity,
         "required": step["required"], "requested_at_seconds": step["atSeconds"],
         "requested_duration_seconds": step["durationSeconds"], "started_at": iso(started),
-        "interface": interface, "snaplen": params["snaplen"], "filter": capture_filter,
+        "interface": interface, "configured_interface": params["interface"],
+        "snaplen": params["snaplen"], "filter": capture_filter,
         "configured_filter": params["filter"], "host_address": args.host_address or None,
         "excluded_network": args.host_exclude_network or None,
         "max_file_size_bytes": params["maxFileSizeBytes"], "command": command,
@@ -209,13 +211,15 @@ def capture_pod(
     remote_prefix = f"ckc-{step['name']}-{base_name}"
     remote_pattern = f"/captures/{remote_prefix}-%s.pcap"
     params = step["params"]
-    capture = tcpdump_command(params["interface"], params["snaplen"], step["durationSeconds"], remote_pattern, params["filter"])
+    interface = args.pod_interface if params["interface"] == "auto" else params["interface"]
+    capture = tcpdump_command(interface, params["snaplen"], step["durationSeconds"], remote_pattern, params["filter"])
     command = ["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", *capture]
     metadata: dict[str, Any] = {
         "step": step["name"], "target": target, "backend": "kubernetes", "identity": pod,
         "namespace": namespace, "container": container, "required": step["required"],
         "requested_at_seconds": step["atSeconds"], "requested_duration_seconds": step["durationSeconds"],
-        "started_at": iso(started), "interface": params["interface"], "snaplen": params["snaplen"],
+        "started_at": iso(started), "interface": interface, "configured_interface": params["interface"],
+        "snaplen": params["snaplen"],
         "filter": params["filter"], "max_file_size_bytes": params["maxFileSizeBytes"], "remote_pattern": remote_pattern,
         "command": command,
     }

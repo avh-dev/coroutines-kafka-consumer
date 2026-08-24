@@ -25,7 +25,7 @@ diagnostic_steps:
     targets: [application, load-test]
     duration: 5s
     params:
-      interface: any
+      interface: auto
       snaplen: 0
       filter: tcp port 9092
       max_file_size: 64Mi
