@@ -557,6 +557,50 @@ def thread_stats_coverage(
     }
 
 
+def packet_capture_coverage(run_dir: Path, metadata: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    configured = metadata.get("packet_captures")
+    configured = configured if isinstance(configured, dict) else {}
+    enabled = bool(configured.get("enabled"))
+    summary_path = run_dir / "diagnostics" / "tcpdump" / "summary.json"
+    if not summary_path.is_file():
+        if enabled:
+            warnings.append("Packet capture was enabled but its summary is unavailable")
+        return {
+            "enabled": enabled,
+            "status": "unavailable" if enabled else "disabled",
+            "attempted": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "raw_size_bytes": 0,
+            "compressed_size_bytes": 0,
+            "targets": {},
+        }
+    summary = load_json(summary_path)
+    captures = [item for item in summary.get("captures", []) if isinstance(item, dict)]
+    by_target: dict[str, dict[str, int]] = {}
+    for capture in captures:
+        target = str(capture.get("target") or "unknown")
+        target_summary = by_target.setdefault(target, {"attempted": 0, "succeeded": 0, "failed": 0})
+        target_summary["attempted"] += 1
+        if capture.get("status") == "success":
+            target_summary["succeeded"] += 1
+        elif capture.get("status") == "failed":
+            target_summary["failed"] += 1
+    failed = int(summary.get("captures_failed") or 0)
+    if failed:
+        warnings.append(f"Packet capture was incomplete: failed captures={failed}")
+    return {
+        "enabled": enabled,
+        "status": str(summary.get("status") or "unknown"),
+        "attempted": int(summary.get("captures_attempted") or 0),
+        "succeeded": int(summary.get("captures_succeeded") or 0),
+        "failed": failed,
+        "raw_size_bytes": sum(int(item.get("raw_size_bytes") or 0) for item in captures),
+        "compressed_size_bytes": sum(int(item.get("compressed_size_bytes") or 0) for item in captures),
+        "targets": by_target,
+    }
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -655,6 +699,7 @@ def analyze_experiment(
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
                 measurements=measurements,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
+                packet_captures=packet_capture_coverage(run_dir, metadata, warnings),
                 criteria=criteria,
                 latency_sla=latency_results,
                 warnings=warnings,
@@ -686,6 +731,7 @@ def analyze_experiment(
             "load_topics": load_topics,
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
+            "diagnostic_steps": test_definition.get("diagnostic_steps") or [],
         },
         sla_profile=sla_profile,
         targets=targets,

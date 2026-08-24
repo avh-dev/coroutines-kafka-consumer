@@ -206,6 +206,27 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"{number(thread_stats.get('pod_discovery_failures'), 0)} | "
                 f"{number(thread_stats.get('empty_pod_cycles'), 0)} |"
             )
+    if any(target.packet_captures.get("enabled") for target in report.targets):
+        lines.extend(
+            [
+                "",
+                "## Packet capture coverage",
+                "",
+                "| Configuration | Status | Successful / attempted | Failed | Raw size | Compressed size | Targets |",
+                "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for target in report.targets:
+            captures = target.packet_captures
+            target_cells = []
+            for name, values in sorted(captures.get("targets", {}).items()):
+                target_cells.append(f"{name}: {values.get('succeeded', 0)}/{values.get('attempted', 0)}")
+            lines.append(
+                f"| {cell(target.name)} | {cell(captures.get('status'))} | "
+                f"{number(captures.get('succeeded'), 0)} / {number(captures.get('attempted'), 0)} | "
+                f"{number(captures.get('failed'), 0)} | {number((captures.get('raw_size_bytes') or 0) / 1024 / 1024)} MiB | "
+                f"{number((captures.get('compressed_size_bytes') or 0) / 1024 / 1024)} MiB | {cell(', '.join(target_cells))} |"
+            )
     lines.extend(
         [
             "",
@@ -253,6 +274,13 @@ def render_markdown(report: ExperimentReport) -> str:
                 [
                     f"- Thread Stats summary: [summary.json](raw/{target.run_id}-thread-stats-summary.json)",
                     f"- Thread Stats index: [index.jsonl](raw/{target.run_id}-thread-stats-index.jsonl)",
+                ]
+            )
+        if target.packet_captures.get("enabled") and target.packet_captures.get("status") != "unavailable":
+            lines.extend(
+                [
+                    f"- Packet capture summary: [summary.json](raw/{target.run_id}-tcpdump-summary.json)",
+                    f"- Packet capture index: [index.jsonl](raw/{target.run_id}-tcpdump-index.jsonl)",
                 ]
             )
         lines.extend(

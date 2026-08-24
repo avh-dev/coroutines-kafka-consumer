@@ -171,6 +171,9 @@ class ExperimentReportTest(unittest.TestCase):
                     "enabled": True,
                     "interval_seconds": 60,
                 },
+                "packet_captures": {
+                    "enabled": True,
+                },
             },
         )
         self.write_json(
@@ -218,6 +221,25 @@ class ExperimentReportTest(unittest.TestCase):
         )
         (run_dir / "diagnostics" / "thread-stats" / "collector.log").write_text(
             "collector stopped\n", encoding="utf-8"
+        )
+        self.write_json(
+            run_dir / "diagnostics" / "tcpdump" / "summary.json",
+            {
+                "status": "success",
+                "captures_attempted": 2,
+                "captures_succeeded": 2,
+                "captures_failed": 0,
+                "captures": [
+                    {"target": "application", "status": "success", "raw_size_bytes": 2048, "compressed_size_bytes": 1024},
+                    {"target": "load-test", "status": "success", "raw_size_bytes": 4096, "compressed_size_bytes": 2048},
+                ],
+            },
+        )
+        (run_dir / "diagnostics" / "tcpdump" / "index.jsonl").write_text(
+            '{"status":"success"}\n', encoding="utf-8"
+        )
+        (run_dir / "diagnostics" / "tcpdump" / "executor.log").write_text(
+            "diagnostics completed\n", encoding="utf-8"
         )
         experiment_dir = root / "results" / "experiments" / "set-a"
         self.write_json(
@@ -340,6 +362,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(125.5, report.targets[0].measurements["latency_p95_ms"])
             self.assertEqual(100.0, report.targets[0].thread_stats["coverage_percent"])
             self.assertEqual(2, report.targets[0].thread_stats["pod_count"])
+            self.assertEqual(2, report.targets[0].packet_captures["succeeded"])
+            self.assertEqual(6144, report.targets[0].packet_captures["raw_size_bytes"])
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -376,6 +400,10 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("## Runtime measurements", markdown)
             self.assertIn("## Thread Stats snapshot coverage", markdown)
             self.assertIn("4 / 0 / 4", markdown)
+            self.assertIn("## Packet capture coverage", markdown)
+            self.assertIn("2 / 2", markdown)
+            self.assertTrue((report_dir / "raw" / "run-a-tcpdump-summary.json").is_file())
+            self.assertTrue((report_dir / "raw" / "run-a-tcpdump-index.jsonl").is_file())
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)

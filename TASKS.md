@@ -250,6 +250,7 @@
 | [INFRA-108](#infra-108) | Wire scaled load-test producer settings and Kafka producer metrics into the internal lab. | DONE |
 | [INFRA-109](#infra-109) | Add a focused CKC experiment comparing coroutine worker reserves across fixed and single-carrier virtual-thread dispatchers under large Kafka poll batches. | DONE |
 | [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | DONE |
+| [INFRA-113](#infra-113) | Add scheduled packet captures for application and load-test traffic in local and cloud lab runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2751,3 +2752,14 @@ Verify both images expose the tool without changing their application entrypoint
 Allow the load-test Gradle distribution into its Docker build context so the declared image can be built by the shared AWS workflow.
 
 Verification: both Gradle distributions and Docker images built successfully; both containers expose tcpdump 4.99.6 with libpcap 1.10.6 while retaining their original application entrypoints.
+
+<a id="infra-113"></a>
+### INFRA-113 - Add scheduled packet captures
+
+_Date: 2026-08-24_
+
+Add semantic `diagnostic_steps` that schedule bounded packet captures from the load-test timeline without treating observation as chaos.
+Grant `NET_RAW` and mount bounded capture storage only when diagnostics are enabled, then retrieve completed files before pod or Job cleanup.
+Use the same artifact contract for application and load-test targets across optilab and AWS, with host capture adapting the current optilab load generator.
+Compress captures on the runner, preserve structured status and checksums, and expose capture coverage in experiment reports and Evidence Bundles.
+Validate the full optilab path with a required two-point smoke capture: 180 consumer-side packets and 348 producer-side packets, with no files left in the pod.
