@@ -48,6 +48,51 @@ def write_report(report_dir: Path, report: Any) -> None:
     (report_dir / "throughput-average.svg").write_text(
         comparison_bar_svg(report, "throughput_average_rps", "Average processed throughput", "records/s"), encoding="utf-8"
     )
+    (report_dir / "poll-batch-average.svg").write_text(
+        comparison_bar_svg(
+            report,
+            "telemetry_poll_batch_average_records",
+            "Average telemetry poll batch",
+            "records",
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "active-workers-max.svg").write_text(
+        comparison_bar_svg(
+            report,
+            "telemetry_active_workers_max",
+            "Maximum sampled active telemetry workers",
+            "workers",
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "worker-allocation-average.svg").write_text(
+        comparison_bar_svg(
+            report,
+            "processing_worker_allocation_average_bytes_per_second",
+            "Average processing-worker allocation",
+            "bytes/s",
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "worker-cpu-average.svg").write_text(
+        comparison_bar_svg(
+            report,
+            "processing_worker_cpu_average_cores",
+            "Average processing-worker CPU",
+            "cores",
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "context-switches-average.svg").write_text(
+        comparison_bar_svg(
+            report,
+            "context_switches_average_per_second",
+            "Average demo process context switches",
+            "switches/s",
+        ),
+        encoding="utf-8",
+    )
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
 
 

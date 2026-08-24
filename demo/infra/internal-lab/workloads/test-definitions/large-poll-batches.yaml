@@ -1,0 +1,63 @@
+name: large-poll-batches
+
+stubs:
+  error_rate_percent: 0
+  eta:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+  flavour:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+  registry:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+
+load_test:
+  shards: 1
+  workers: 1
+  base_tps: 4500
+  order_event_percent: 0
+  batch_event_percent: 0
+  cauldron_telemetry_percent: 100
+  producer_capacity_tps:
+    order: 4500
+    batch: 4500
+    telemetry: 4500
+  telemetry_source_mode: FIXED_FLEET
+  load_profile: "100 -> (6m, steady) -> 100"
+  cauldron_count: 1000
+  min_orders_per_batch: 4
+  max_orders_per_batch: 8
+  min_brewing_steps: 5
+  max_brewing_steps: 10
+  max_burst: 1000
+  diagnostics_blob_size: 256
+
+chaos_steps:
+  - at: 180s
+    duration: 60s
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      error_rate_percent: 0
+      eta:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10
+      flavour:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10
+      registry:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10

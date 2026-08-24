@@ -1,0 +1,91 @@
+name: ckc-large-poll-batch-worker-comparison
+description: Compare 40 and 200 CKC coroutine workers on fixed and single-carrier virtual-thread dispatchers when large telemetry poll batches wake more workers than steady-state throughput requires.
+test_definition: large-poll-batches
+base_tps: 4500
+sla_profile: large-poll-batches
+
+defaults:
+  replicas: 1
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: false
+    METRICS_IMPLEMENTATION: MICROMETER
+    LETTUCE_METRICS_ENABLED: true
+    PROCESSING_DISPATCHER_TYPE: FIXED
+    KAFKA_CONSUMER_FETCH_MIN_BYTES: 196608
+    KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    KAFKA_CONSUMER_MAX_POLL_RECORDS: 1000
+    KAFKA_PRODUCER_LINGER_MS: 150
+    KAFKA_PRODUCER_BATCH_SIZE: 1048576
+    KAFKA_PRODUCER_COMPRESSION_TYPE: none
+
+targets:
+  - name: ckc-sync.virtual.1carrier.workers40
+    profile: ckc-sync
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    order_workers: 1
+    batch_workers: 1
+    telemetry_workers: 40
+    telemetry_queue_capacity: 4096
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+    helm:
+      env:
+        javaToolOptions: "-Xms256m -Xmx256m -XX:+UseSerialGC -Djdk.virtualThreadScheduler.parallelism=1 -Djdk.virtualThreadScheduler.maxPoolSize=1"
+
+  - name: ckc-sync.virtual.1carrier.workers200
+    profile: ckc-sync
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    order_workers: 1
+    batch_workers: 1
+    telemetry_workers: 200
+    telemetry_queue_capacity: 4096
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+    helm:
+      env:
+        javaToolOptions: "-Xms256m -Xmx256m -XX:+UseSerialGC -Djdk.virtualThreadScheduler.parallelism=1 -Djdk.virtualThreadScheduler.maxPoolSize=1"
+
+  - name: ckc.fixed.1.workers40
+    profile: ckc
+    env:
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    order_workers: 1
+    batch_workers: 1
+    telemetry_workers: 40
+    telemetry_queue_capacity: 4096
+
+  - name: ckc.fixed.1.workers200
+    profile: ckc
+    env:
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    order_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    batch_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    order_workers: 1
+    batch_workers: 1
+    telemetry_workers: 200
+    telemetry_queue_capacity: 4096

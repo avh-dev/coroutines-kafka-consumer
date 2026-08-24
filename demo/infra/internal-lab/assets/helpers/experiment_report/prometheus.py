@@ -31,6 +31,36 @@ STANDARD_MEASUREMENTS = {
         "sum(increase(container_cpu_usage_seconds_total"
         '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
+    "telemetry_poll_batch_average_records": (
+        "sum(increase(demo_ckc_poll_records_sum"
+        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])) / '
+        "clamp_min(sum(increase(demo_ckc_poll_records_count"
+        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])), 1)'
+    ),
+    "telemetry_poll_batch_max_records": (
+        "max(max_over_time(demo_ckc_poll_records_max"
+        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "telemetry_active_workers_average": (
+        "avg(avg_over_time(demo_ckc_workers_active"
+        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "telemetry_active_workers_max": (
+        "max(max_over_time(demo_ckc_workers_active"
+        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "processing_worker_cpu_average_cores": (
+        "sum(increase(thread_stats_cpu_seconds_total"
+        '{{job="ckc-demo", group=~"^(ckc-worker|virtual-thread-runtime)$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+    ),
+    "processing_worker_allocation_average_bytes_per_second": (
+        "sum(increase(thread_stats_allocated_bytes_total"
+        '{{job="ckc-demo", group=~"^(ckc-worker|virtual-thread-runtime)$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+    ),
+    "context_switches_average_per_second": (
+        "sum(increase(namedprocess_namegroup_thread_context_switches_total"
+        '{{job="ckc-host-process-exporter", groupname="ckc-demo"}}[{window}])) / {seconds}'
+    ),
 }
 
 

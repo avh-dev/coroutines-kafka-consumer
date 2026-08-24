@@ -34,7 +34,7 @@ if [ -n "${REPLICA_COUNT}" ] && ! echo "${REPLICA_COUNT}" | grep -Eq '^[1-9][0-9
   exit 1
 fi
 
-if ! k3s ctr images list -q | grep -Fxq "docker.io/ckc-perf/demo-stubs:latest"; then
+if ! k3s ctr images list -q | grep -Fx "docker.io/ckc-perf/demo-stubs:latest" >/dev/null; then
   echo "Required lab image is not loaded into k3s: docker.io/ckc-perf/demo-stubs:latest" >&2
   exit 1
 fi

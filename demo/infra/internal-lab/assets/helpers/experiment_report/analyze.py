@@ -535,10 +535,7 @@ def analyze_experiment(
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
         warnings: list[str] = []
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
-        measurements = {name: None for name in (
-            "latency_p95_ms", "latency_p99_ms", "freshness_gap_p95_ms",
-            "throughput_average_rps", "cpu_average_cores",
-        )}
+        measurements = {name: None for name in STANDARD_MEASUREMENTS}
         if start is not None:
             try:
                 measurements = collect_standard_measurements(prometheus, start, load_duration)
