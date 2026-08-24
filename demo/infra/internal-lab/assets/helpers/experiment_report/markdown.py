@@ -183,6 +183,29 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"{number(allocation / 1024 / 1024) if allocation is not None else '—'} MiB/s | "
                 f"{number(measurements.get('context_switches_average_per_second'))} switches/s |"
             )
+    if any(target.thread_stats.get("enabled") for target in report.targets):
+        lines.extend(
+            [
+                "",
+                "## Thread Stats snapshot coverage",
+                "",
+                "| Configuration | Pods | Cycles | Successful / partial / attempted | Coverage | Discovery failures | Empty pod cycles |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            thread_stats = target.thread_stats
+            coverage = thread_stats.get("coverage_percent")
+            lines.append(
+                f"| {cell(target.name)} | {number(thread_stats.get('pod_count'), 0)} | "
+                f"{number(thread_stats.get('cycles'), 0)} | "
+                f"{number(thread_stats.get('successful_snapshots'), 0)} / "
+                f"{number(thread_stats.get('partial_snapshots'), 0)} / "
+                f"{number(thread_stats.get('snapshot_attempts'), 0)} | "
+                f"{number(coverage) + '%' if coverage is not None else '—'} | "
+                f"{number(thread_stats.get('pod_discovery_failures'), 0)} | "
+                f"{number(thread_stats.get('empty_pod_cycles'), 0)} |"
+            )
     lines.extend(
         [
             "",
@@ -223,6 +246,17 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"- Overall SLA: **{status(target.evaluation_status)}**",
                 f"- Run metadata: [`{target.run_id}`](raw/{target.run_id}-metadata.json)",
                 f"- Raw audit summary: [summary.yaml](raw/{target.run_id}-audit-summary.yaml)",
+            ]
+        )
+        if target.thread_stats.get("enabled") and target.thread_stats.get("status") != "unavailable":
+            lines.extend(
+                [
+                    f"- Thread Stats summary: [summary.json](raw/{target.run_id}-thread-stats-summary.json)",
+                    f"- Thread Stats index: [index.jsonl](raw/{target.run_id}-thread-stats-index.jsonl)",
+                ]
+            )
+        lines.extend(
+            [
                 "- Evidence Bundle: not exported automatically; use `export-result.sh --experiment <experiment-set-id>` when needed.",
                 "",
             ]

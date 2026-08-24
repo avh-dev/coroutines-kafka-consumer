@@ -635,7 +635,30 @@ calculated report under:
     audit-<run-id>.log[.gz]
     analyzer-progress.log
     summary.yaml
+  diagnostics/
+    thread-stats/
+      collector.log
+      index.jsonl
+      summary.json
+      <pod-name>/
+        <timestamp>.json
+        <timestamp>.txt
 ```
+
+While the load test is active, the runner immediately collects a full Thread
+Stats actuator snapshot from every running demo pod and repeats the collection
+once per minute by default. Pod discovery runs before every cycle, so restarted
+pods and replica changes are reflected without restarting the collector. Each
+snapshot is stored under its pod name as both structured JSON and the formatted
+plain-text Thread Stats report with the same timestamp. `index.jsonl` preserves
+the pod UID, collection status, artifact paths, and sizes,
+while `summary.json` provides per-run and per-pod coverage totals. Collection
+errors are recorded in the index and `collector.log` without stopping the load
+test. Override `THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS` when a different
+sampling interval is required.
+
+Experiment reports include a Thread Stats coverage table. Evidence Bundle
+exports retain the complete `diagnostics` directory for every included run.
 
 The runner prints and saves `summary.yaml` with the selected test settings,
 published, processed, missing, duplicate, and ordering counts calculated from

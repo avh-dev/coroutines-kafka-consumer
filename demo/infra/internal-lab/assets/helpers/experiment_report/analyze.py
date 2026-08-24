@@ -499,6 +499,64 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def thread_stats_coverage(
+    run_dir: Path,
+    metadata: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    configured = metadata.get("thread_stats_snapshots")
+    configured = configured if isinstance(configured, dict) else {}
+    enabled = bool(configured.get("enabled"))
+    summary_path = run_dir / "diagnostics" / "thread-stats" / "summary.json"
+    if not summary_path.is_file():
+        if enabled:
+            warnings.append("Thread Stats collection was enabled but its summary is unavailable")
+        return {
+            "enabled": enabled,
+            "status": "unavailable" if enabled else "disabled",
+            "interval_seconds": configured.get("interval_seconds"),
+            "cycles": 0,
+            "snapshot_attempts": 0,
+            "successful_snapshots": 0,
+            "partial_snapshots": 0,
+            "failed_snapshots": 0,
+            "pod_discovery_failures": 0,
+            "empty_pod_cycles": 0,
+            "coverage_percent": None,
+            "pod_count": 0,
+        }
+    summary = load_json(summary_path)
+    failed = int(summary.get("failed_snapshots") or 0)
+    partial = int(summary.get("partial_snapshots") or 0)
+    discovery_failures = int(summary.get("pod_discovery_failures") or 0)
+    empty_cycles = int(summary.get("empty_pod_cycles") or 0)
+    if failed or partial or discovery_failures or empty_cycles:
+        warnings.append(
+            "Thread Stats collection was incomplete: "
+            f"partial snapshots={partial}, failed snapshots={failed}, "
+            f"discovery failures={discovery_failures}, empty pod cycles={empty_cycles}"
+        )
+    pods = summary.get("pods") if isinstance(summary.get("pods"), dict) else {}
+    summary_configuration = summary.get("configuration")
+    summary_configuration = summary_configuration if isinstance(summary_configuration, dict) else {}
+    return {
+        "enabled": enabled,
+        "status": str(summary.get("status") or "unknown"),
+        "interval_seconds": summary_configuration.get(
+            "interval_seconds", configured.get("interval_seconds")
+        ),
+        "cycles": int(summary.get("cycles") or 0),
+        "snapshot_attempts": int(summary.get("snapshot_attempts") or 0),
+        "successful_snapshots": int(summary.get("successful_snapshots") or 0),
+        "partial_snapshots": partial,
+        "failed_snapshots": failed,
+        "pod_discovery_failures": discovery_failures,
+        "empty_pod_cycles": empty_cycles,
+        "coverage_percent": summary.get("coverage_percent"),
+        "pod_count": len(pods),
+    }
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -596,6 +654,7 @@ def analyze_experiment(
                 configuration=configuration(metadata),
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
                 measurements=measurements,
+                thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 criteria=criteria,
                 latency_sla=latency_results,
                 warnings=warnings,
@@ -609,7 +668,7 @@ def analyze_experiment(
     execution_values = ["PASS" if target.execution_status == "COMPLETED" else "INCOMPLETE" for target in targets]
     generated = generated_at or datetime.now(timezone.utc)
     return ExperimentReport(
-        schema_version=1,
+        schema_version=2,
         generated_at=generated.isoformat(),
         experiment_set_id=experiment_set_id,
         name=str(experiment_summary.get("experiment") or experiment.get("name") or experiment_path.stem),

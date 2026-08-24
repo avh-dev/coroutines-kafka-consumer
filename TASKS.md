@@ -248,6 +248,7 @@
 | [INFRA-107](#infra-107) | Render semantic chaos events and intervals on experiment load-profile timelines. | DONE |
 | [INFRA-108](#infra-108) | Wire scaled load-test producer settings and Kafka producer metrics into the internal lab. | DONE |
 | [INFRA-109](#infra-109) | Add a focused CKC experiment comparing coroutine worker reserves across fixed and single-carrier virtual-thread dispatchers under large Kafka poll batches. | DONE |
+| [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2726,3 +2727,14 @@ Automatically disable the telemetry freshness-age limit in generated plans that 
 Avoid false missing-image failures in lab preparation by making the container-image checks safe under Bash `pipefail`.
 
 Verification: all 22 internal-lab tests passed; Python and Bash syntax checks passed; all generated run plans resolved to one partition, one poll loop, required parallelism 36, and configured concurrency 40/200. Live processing-enabled optilab experiment `20260823T154958Z`, with Lettuce metrics enabled and both fail-fast VT targets first, completed all four targets and passed the large-poll-batch SLA with 597-674 average records per poll and 933-1000 maximum records per poll. During the one-minute slowdown, both 40-worker targets fell to about 3.2K records/s and accumulated about 66K-69K lag, while both 200-worker targets sustained about 4.5K records/s without additional lag. The actuator and Prometheus contained per-command Lettuce completion histograms, and the live VT deployment retained exactly one `ForkJoinPool-1-worker-1` carrier.
+
+<a id="infra-112"></a>
+### INFRA-112 - Store per-pod Thread Stats diagnostic artifacts
+
+_Date: 2026-08-24_
+
+Replace the monolithic Thread Stats snapshot log with paired timestamped JSON and readable text artifacts grouped by application pod.
+Collect a full snapshot from every running demo pod once per minute while preserving pod identity and collection status in a machine-readable index.
+Expose collection coverage in run metadata and experiment reports, and keep the artifact layout compatible with local and cloud Kubernetes access.
+
+Verification: all 26 internal-lab tests passed; Python and Bash syntax checks passed; a live optilab collection discovered the running demo pod through Kubernetes, stored a readable 4.6 KiB text report beside its normalized 14.2 KiB full JSON snapshot, and reported 100% coverage without discovery or snapshot failures.

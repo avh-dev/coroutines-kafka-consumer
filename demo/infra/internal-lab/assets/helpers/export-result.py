@@ -881,6 +881,7 @@ def main() -> int:
         for run_dir in run_dirs:
             copy_tree(run_dir / "run-metadata.json", restore_root / "runs" / run_dir.name / "run-metadata.json")
             copy_tree(run_dir / "run-status.json", restore_root / "runs" / run_dir.name / "run-status.json")
+            copy_tree(run_dir / "diagnostics", restore_root / "runs" / run_dir.name / "diagnostics")
         copy_tree(lab_root / "grafana" / "dashboards", restore_root / "grafana" / "dashboards")
         dashboard = patch_export_dashboard(
             restore_root / "grafana" / "dashboards",

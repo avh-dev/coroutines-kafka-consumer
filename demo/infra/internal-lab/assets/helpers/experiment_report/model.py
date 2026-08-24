@@ -50,6 +50,7 @@ class TargetReport:
     configuration: dict[str, Any]
     delivery: dict[str, Any]
     measurements: dict[str, float | None]
+    thread_stats: dict[str, Any]
     criteria: list[CriterionResult] = field(default_factory=list)
     latency_sla: list[LatencySlaResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)

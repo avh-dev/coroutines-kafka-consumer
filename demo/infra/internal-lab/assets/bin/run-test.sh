@@ -50,7 +50,7 @@ EXPLICIT_WORKER_DISPATCHER_THREADS=0
 ENV_OVERRIDES=()
 RUN_INTERRUPTED=0
 THREAD_STATS_SNAPSHOT_ENABLED="${THREAD_STATS_SNAPSHOT_ENABLED:-true}"
-THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS="${THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS:-30}"
+THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS="${THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS:-60}"
 THREAD_STATS_SNAPSHOT_NAMESPACE="${THREAD_STATS_SNAPSHOT_NAMESPACE:-ckc-perf}"
 THREAD_STATS_SNAPSHOT_SELECTOR="${THREAD_STATS_SNAPSHOT_SELECTOR:-app.kubernetes.io/name=ckc-demo}"
 THREAD_STATS_SNAPSHOT_PORT="${THREAD_STATS_SNAPSHOT_PORT:-8080}"
@@ -1160,8 +1160,11 @@ AUDIT_ANALYZER_PROGRESS_FILE="${RUN_AUDIT_DIR}/analyzer-progress.log"
 AUDIT_ANALYZER_SUMMARY_FILE="${RUN_AUDIT_DIR}/summary.yaml"
 RUN_METADATA_FILE="${RUN_DIR}/run-metadata.json"
 RUN_STATUS_FILE="${RUN_DIR}/run-status.json"
-RUN_THREAD_STATS_DIR="${RUN_DIR}/thread-stats"
-RUN_THREAD_STATS_FILE="${RUN_THREAD_STATS_DIR}/snapshots.log"
+RUN_DIAGNOSTICS_DIR="${RUN_DIR}/diagnostics"
+RUN_THREAD_STATS_DIR="${RUN_DIAGNOSTICS_DIR}/thread-stats"
+RUN_THREAD_STATS_INDEX_FILE="${RUN_THREAD_STATS_DIR}/index.jsonl"
+RUN_THREAD_STATS_SUMMARY_FILE="${RUN_THREAD_STATS_DIR}/summary.json"
+RUN_THREAD_STATS_LOG_FILE="${RUN_THREAD_STATS_DIR}/collector.log"
 THREAD_STATS_SNAPSHOT_PID_PATH="${PID_DIR}/thread-stats-${RUN_ID}.pid"
 mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -1177,7 +1180,7 @@ write_run_metadata() {
   export KAFKA_PRODUCER_LINGER_MS KAFKA_PRODUCER_BATCH_SIZE KAFKA_PRODUCER_COMPRESSION_TYPE KAFKA_PRODUCER_BUFFER_MEMORY
   export CHAOS_STEPS_JSON
   export CONSUMER_DRAIN_TIMEOUT_SECONDS CONSUMER_DRAIN_STABLE_SECONDS CONSUMER_DRAIN_POLL_SECONDS
-  export THREAD_STATS_SNAPSHOT_ENABLED THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS RUN_THREAD_STATS_FILE
+  export THREAD_STATS_SNAPSHOT_ENABLED THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS RUN_THREAD_STATS_DIR RUN_THREAD_STATS_INDEX_FILE RUN_THREAD_STATS_SUMMARY_FILE RUN_THREAD_STATS_LOG_FILE
   python3 - <<'PY'
 import json
 import os
@@ -1297,7 +1300,10 @@ metadata = {
     "thread_stats_snapshots": {
         "enabled": env_bool("THREAD_STATS_SNAPSHOT_ENABLED"),
         "interval_seconds": env_int("THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS"),
-        "file": env("RUN_THREAD_STATS_FILE"),
+        "directory": env("RUN_THREAD_STATS_DIR"),
+        "index_file": env("RUN_THREAD_STATS_INDEX_FILE"),
+        "summary_file": env("RUN_THREAD_STATS_SUMMARY_FILE"),
+        "collector_log_file": env("RUN_THREAD_STATS_LOG_FILE"),
     },
 }
 run_plan = optional_json_file(env("RUN_PLAN_PATH"))
@@ -1410,60 +1416,14 @@ THREAD_STATS_SNAPSHOT_PID=""
 
 start_thread_stats_collector() {
   mkdir -p "${RUN_THREAD_STATS_DIR}"
-  : > "${RUN_THREAD_STATS_FILE}"
-
-  (
-    set +e
-    trap 'exit 0' INT TERM
-
-    endpoint="${THREAD_STATS_SNAPSHOT_ENDPOINT}"
-    case "${endpoint}" in
-      /*)
-        ;;
-      *)
-        endpoint="/${endpoint}"
-        ;;
-    esac
-
-    while true; do
-      timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-      pods_output="$(kubectl -n "${THREAD_STATS_SNAPSHOT_NAMESPACE}" get pods \
-        -l "${THREAD_STATS_SNAPSHOT_SELECTOR}" \
-        --field-selector=status.phase=Running \
-        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)"
-      pods_status="$?"
-
-      if [ "${pods_status}" -ne 0 ]; then
-        {
-          printf '===== thread-stats snapshot timestamp=%s pod=<pod-list> endpoint=%s =====\n' "${timestamp}" "${endpoint}"
-          printf '%s\n' "${pods_output}"
-          printf '===== end thread-stats snapshot timestamp=%s pod=<pod-list> status=%s =====\n\n' "${timestamp}" "${pods_status}"
-        } >> "${RUN_THREAD_STATS_FILE}"
-      elif [ -z "${pods_output}" ]; then
-        {
-          printf '===== thread-stats snapshot timestamp=%s pod=<none> endpoint=%s =====\n' "${timestamp}" "${endpoint}"
-          printf 'No running pods matched namespace=%s selector=%s.\n' "${THREAD_STATS_SNAPSHOT_NAMESPACE}" "${THREAD_STATS_SNAPSHOT_SELECTOR}"
-          printf '===== end thread-stats snapshot timestamp=%s pod=<none> status=0 =====\n\n' "${timestamp}"
-        } >> "${RUN_THREAD_STATS_FILE}"
-      else
-        while IFS= read -r pod; do
-          [ -n "${pod}" ] || continue
-          {
-            printf '===== thread-stats snapshot timestamp=%s pod=%s endpoint=%s =====\n' "${timestamp}" "${pod}" "${endpoint}"
-            kubectl -n "${THREAD_STATS_SNAPSHOT_NAMESPACE}" get --raw \
-              "/api/v1/namespaces/${THREAD_STATS_SNAPSHOT_NAMESPACE}/pods/${pod}:${THREAD_STATS_SNAPSHOT_PORT}/proxy${endpoint}" 2>&1
-            snapshot_status="$?"
-            printf '\n===== end thread-stats snapshot timestamp=%s pod=%s status=%s =====\n\n' "${timestamp}" "${pod}" "${snapshot_status}"
-          } >> "${RUN_THREAD_STATS_FILE}"
-        done <<EOF
-${pods_output}
-EOF
-      fi
-
-      sleep "${THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS}" &
-      wait "$!" || exit 0
-    done
-  ) &
+  nohup python3 "${LAB_ROOT}/helpers/collect-thread-stats.py" \
+    --output-dir "${RUN_THREAD_STATS_DIR}" \
+    --interval-seconds "${THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS}" \
+    --namespace "${THREAD_STATS_SNAPSHOT_NAMESPACE}" \
+    --selector "${THREAD_STATS_SNAPSHOT_SELECTOR}" \
+    --port "${THREAD_STATS_SNAPSHOT_PORT}" \
+    --endpoint "${THREAD_STATS_SNAPSHOT_ENDPOINT}" \
+    >/dev/null 2>&1 &
   THREAD_STATS_SNAPSHOT_PID="$!"
   echo "${THREAD_STATS_SNAPSHOT_PID}" > "${THREAD_STATS_SNAPSHOT_PID_PATH}"
 }
@@ -1485,7 +1445,7 @@ echo "  pid=${PID}"
 echo "  result=${RUN_DIR}"
 echo "  audit=${RUN_AUDIT_DIR}"
 if [ "${THREAD_STATS_SNAPSHOT_ENABLED}" = "true" ]; then
-  echo "  thread_stats=${RUN_THREAD_STATS_FILE}"
+  echo "  thread_stats=${RUN_THREAD_STATS_DIR}"
 fi
 echo "  pid_file=${PID_PATH}"
 echo "  bootstrap=127.0.0.1:9092"

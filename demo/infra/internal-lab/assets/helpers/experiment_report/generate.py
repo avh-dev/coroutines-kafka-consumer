@@ -126,6 +126,9 @@ def copy_report_sources(
         run_sources = {
             run_dir / "run-metadata.json": raw_dir / f"{target_report.run_id}-metadata.json",
             run_dir / "audit" / "summary.yaml": raw_dir / f"{target_report.run_id}-audit-summary.yaml",
+            run_dir / "diagnostics" / "thread-stats" / "summary.json": raw_dir / f"{target_report.run_id}-thread-stats-summary.json",
+            run_dir / "diagnostics" / "thread-stats" / "index.jsonl": raw_dir / f"{target_report.run_id}-thread-stats-index.jsonl",
+            run_dir / "diagnostics" / "thread-stats" / "collector.log": raw_dir / f"{target_report.run_id}-thread-stats-collector.log",
         }
         for source, target in run_sources.items():
             if source.is_file():
