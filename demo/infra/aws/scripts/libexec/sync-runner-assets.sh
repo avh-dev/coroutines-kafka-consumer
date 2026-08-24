@@ -39,6 +39,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/runner-assets \
   demo/infra/aws/test-definitions \
   demo/infra/shared/audit \
+  demo/infra/shared/pcap \
   demo/infra/shared/grafana \
   demo/infra/shared/test-orchestration
 
@@ -48,6 +49,7 @@ cat > "${COMMANDS_FILE}" <<EOF
 {
   "commands": [
     "set -euo pipefail",
+    "command -v tshark >/dev/null 2>&1 || dnf install -y wireshark-cli",
     "mkdir -p \\"${RUNNER_ASSETS_DIR}\\"",
     "python3 - <<'PY'",
     "import base64, pathlib",
