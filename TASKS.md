@@ -139,6 +139,7 @@
 | [DEMO-83](#demo-83) | Model instantaneous and duration-based demo chaos scenarios with automatic recovery and cleanup. | DONE |
 | [DEMO-84](#demo-84) | Scale per-topic load-test Kafka producer pools from target throughput and expose producer diagnostics. | DONE |
 | [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer and Kafka metrics support threads as Kafka work. | DONE |
+| [DEMO-86](#demo-86) | Install packet-capture tooling in the demo application and load-test container images. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2738,3 +2739,15 @@ Collect a full snapshot from every running demo pod once per minute while preser
 Expose collection coverage in run metadata and experiment reports, and keep the artifact layout compatible with local and cloud Kubernetes access.
 
 Verification: all 26 internal-lab tests passed; Python and Bash syntax checks passed; a live optilab collection discovered the running demo pod through Kubernetes, stored a readable 4.6 KiB text report beside its normalized 14.2 KiB full JSON snapshot, and reported 100% coverage without discovery or snapshot failures.
+
+<a id="demo-86"></a>
+### DEMO-86 - Add packet-capture tooling to lab images
+
+_Date: 2026-08-24_
+
+Install `tcpdump` in the demo application and load-test container images used by local and cloud lab runs.
+Keep packet capture dormant by default; Kubernetes capabilities, scheduling, collection, and analysis remain infrastructure concerns.
+Verify both images expose the tool without changing their application entrypoints.
+Allow the load-test Gradle distribution into its Docker build context so the declared image can be built by the shared AWS workflow.
+
+Verification: both Gradle distributions and Docker images built successfully; both containers expose tcpdump 4.99.6 with libpcap 1.10.6 while retaining their original application entrypoints.
