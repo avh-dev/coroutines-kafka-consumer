@@ -227,6 +227,37 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"{number(captures.get('failed'), 0)} | {number((captures.get('raw_size_bytes') or 0) / 1024 / 1024)} MiB | "
                 f"{number((captures.get('compressed_size_bytes') or 0) / 1024 / 1024)} MiB | {cell(', '.join(target_cells))} |"
             )
+    if any(target.pcap_analysis.get("status") not in {"disabled", "unavailable"} for target in report.targets):
+        lines.extend(
+            [
+                "",
+                "## Kafka traffic analysis",
+                "",
+                "![Kafka captured-wire breakdown](kafka-wire-breakdown.svg)",
+                "",
+                "The paired producer and consumer bars split captured bytes into network headers, non-Kafka TCP payload, Kafka protocol/envelope, record-batch headers, and compressed record data.",
+                "",
+                "| Configuration | Point | Connections observed / opened | Kafka messages | Record batches / records | Wire size | Network overhead | Compression ratio / saving |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            roles = target.pcap_analysis.get("roles", {})
+            for role in ("producer", "consumer"):
+                data = roles.get(role, {}) if isinstance(roles, dict) else {}
+                connections = data.get("connections", {}) if isinstance(data, dict) else {}
+                network = data.get("network", {}) if isinstance(data, dict) else {}
+                protocol = data.get("protocol", {}) if isinstance(data, dict) else {}
+                batches = protocol.get("record_batches", {}) if isinstance(protocol, dict) else {}
+                ratio = batches.get("compression_ratio_percent")
+                saving = batches.get("space_saving_percent")
+                compression = f"{number(ratio)}% / {number(saving)}%" if ratio is not None else "—"
+                lines.append(
+                    f"| {cell(target.name)} | {role} | {number(connections.get('observed'), 0)} / {number(connections.get('opened_during_capture'), 0)} | "
+                    f"{number(protocol.get('kafka_messages'), 0)} | {number(batches.get('batches'), 0)} / "
+                    f"{number(batches.get('records'), 0)} | {number((network.get('captured_wire_bytes') or 0) / 1024)} KiB | "
+                    f"{number(network.get('network_overhead_percent'))}% | {compression} |"
+                )
     lines.extend(
         [
             "",
@@ -281,6 +312,13 @@ def render_markdown(report: ExperimentReport) -> str:
                 [
                     f"- Packet capture summary: [summary.json](raw/{target.run_id}-tcpdump-summary.json)",
                     f"- Packet capture index: [index.jsonl](raw/{target.run_id}-tcpdump-index.jsonl)",
+                ]
+            )
+        if target.pcap_analysis.get("status") not in {"disabled", "unavailable"}:
+            lines.extend(
+                [
+                    f"- Kafka pcap analysis: [summary.json](raw/{target.run_id}-pcap-analysis.json)",
+                    f"- Human-readable Kafka pcap analysis: [summary.txt](raw/{target.run_id}-pcap-analysis.txt)",
                 ]
             )
         lines.extend(

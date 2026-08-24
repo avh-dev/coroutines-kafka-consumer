@@ -621,3 +621,59 @@ def comparison_values_svg(
 def comparison_bar_svg(report: ExperimentReport, measurement: str, title: str, unit: str) -> str:
     values = [(target.name, target.measurements.get(measurement)) for target in report.targets]
     return comparison_values_svg(values, title, unit)
+
+
+def kafka_wire_breakdown_svg(report: ExperimentReport) -> str:
+    segments = [
+        ("Network headers", "#64748b"),
+        ("Other TCP payload", "#cbd5e1"),
+        ("Kafka protocol", "#8b5cf6"),
+        ("Batch headers", "#f59e0b"),
+        ("Compressed records", "#10b981"),
+    ]
+    rows = []
+    for target in report.targets:
+        roles = target.pcap_analysis.get("roles", {})
+        for role in ("producer", "consumer"):
+            data = roles.get(role, {}) if isinstance(roles, dict) else {}
+            network = data.get("network", {}) if isinstance(data, dict) else {}
+            protocol = data.get("protocol", {}) if isinstance(data, dict) else {}
+            batches = protocol.get("record_batches", {}) if isinstance(protocol, dict) else {}
+            kafka = int(protocol.get("kafka_pdu_bytes") or 0)
+            batch_wire = int(batches.get("batch_wire_bytes") or 0)
+            batch_headers = int(batches.get("batch_header_bytes") or 0)
+            compressed = int(batches.get("compressed_record_bytes") or 0)
+            tcp_payload = int(network.get("tcp_payload_bytes") or 0)
+            values = [
+                int(network.get("network_header_bytes") or 0),
+                max(0, tcp_payload - kafka),
+                max(0, kafka - batch_wire),
+                batch_headers,
+                compressed,
+            ]
+            rows.append((target.name, role, values, int(network.get("captured_wire_bytes") or 0)))
+    width, left, right, top, row_height = 1100, 285, 100, 96, 34
+    height = max(210, top + len(rows) * row_height + 38)
+    plot_width = width - left - right
+    maximum = max((total for _, _, _, total in rows), default=1) or 1
+    body = [f'<text class="title" x="24" y="30">Kafka captured-wire breakdown</text>']
+    legend_x = 24
+    for label, color in segments:
+        body.extend([
+            f'<rect x="{legend_x}" y="48" width="12" height="12" rx="2" fill="{color}"/>',
+            f'<text class="muted" x="{legend_x+18}" y="59">{esc(label)}</text>',
+        ])
+        legend_x += 42 + len(label) * 7
+    for index, (name, role, values, total) in enumerate(rows):
+        py = top + index * row_height
+        body.append(f'<text class="label" x="{left-12}" y="{py+17}" text-anchor="end">{esc(name)} · {role}</text>')
+        body.append(f'<rect x="{left}" y="{py}" width="{plot_width}" height="22" rx="3" fill="#f3f4f6"/>')
+        offset = left
+        for value, (_, color) in zip(values, segments):
+            segment_width = plot_width * value / maximum
+            if segment_width > 0:
+                body.append(f'<rect x="{offset:.1f}" y="{py}" width="{segment_width:.1f}" height="22" fill="{color}"/>')
+            offset += segment_width
+        label = f"{total / 1024:.1f} KiB" if total else "unavailable"
+        body.append(f'<text class="label" x="{min(offset+8, width-right+5):.1f}" y="{py+16}">{label}</text>')
+    return svg_document(width, height, body, "Kafka captured-wire breakdown")

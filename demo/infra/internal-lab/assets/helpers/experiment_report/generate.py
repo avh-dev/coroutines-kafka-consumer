@@ -14,7 +14,7 @@ import yaml
 
 from .analyze import analyze_experiment, load_json, load_sla_profile, load_yaml
 from .markdown import render_markdown
-from .svg import comparison_bar_svg, comparison_values_svg, load_profile_svg
+from .svg import comparison_bar_svg, comparison_values_svg, kafka_wire_breakdown_svg, load_profile_svg
 
 
 def slugify(value: str) -> str:
@@ -93,6 +93,9 @@ def write_report(report_dir: Path, report: Any) -> None:
         ),
         encoding="utf-8",
     )
+    (report_dir / "kafka-wire-breakdown.svg").write_text(
+        kafka_wire_breakdown_svg(report), encoding="utf-8"
+    )
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
 
 
@@ -132,6 +135,9 @@ def copy_report_sources(
             run_dir / "diagnostics" / "tcpdump" / "summary.json": raw_dir / f"{target_report.run_id}-tcpdump-summary.json",
             run_dir / "diagnostics" / "tcpdump" / "index.jsonl": raw_dir / f"{target_report.run_id}-tcpdump-index.jsonl",
             run_dir / "diagnostics" / "tcpdump" / "executor.log": raw_dir / f"{target_report.run_id}-tcpdump-executor.log",
+            run_dir / "diagnostics" / "pcap-analysis" / "summary.json": raw_dir / f"{target_report.run_id}-pcap-analysis.json",
+            run_dir / "diagnostics" / "pcap-analysis" / "summary.txt": raw_dir / f"{target_report.run_id}-pcap-analysis.txt",
+            run_dir / "diagnostics" / "pcap-analysis" / "analyzer.log": raw_dir / f"{target_report.run_id}-pcap-analyzer.log",
         }
         for source, target in run_sources.items():
             if source.is_file():
