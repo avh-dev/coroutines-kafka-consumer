@@ -324,6 +324,13 @@ class ExperimentReportTest(unittest.TestCase):
                     "freshness_gap_p95_ms": None,
                     "throughput_average_rps": 90.0,
                     "cpu_average_cores": 1.0,
+                    "telemetry_poll_batch_average_records": 675.0,
+                    "telemetry_poll_batch_max_records": 950.0,
+                    "telemetry_active_workers_average": 20.0,
+                    "telemetry_active_workers_max": 200.0,
+                    "processing_worker_cpu_average_cores": 0.02,
+                    "processing_worker_allocation_average_bytes_per_second": 6 * 1024 * 1024,
+                    "context_switches_average_per_second": 700.0,
                 },
             ):
                 outputs = generate_experiment_reports(
@@ -337,6 +344,9 @@ class ExperimentReportTest(unittest.TestCase):
             svg = (report_dir / "load-profile.svg").read_text(encoding="utf-8")
             self.assertEqual("FAIL", model["evaluation_status"])
             self.assertIn("❌ FAIL", markdown)
+            self.assertIn("## Runtime measurements", markdown)
+            self.assertIn("675.00 / 950.00 records", markdown)
+            self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)
             self.assertNotIn("## Test definition", markdown)
             self.assertNotIn("- Definition:", markdown)
@@ -505,7 +515,17 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertGreaterEqual(len(axis_labels), 3)
             self.assertTrue(svg.startswith("<svg "))
-            for name in ("latency-sla-misses.svg", "latency-p95.svg", "cpu-average.svg", "throughput-average.svg"):
+            for name in (
+                "latency-sla-misses.svg",
+                "latency-p95.svg",
+                "cpu-average.svg",
+                "throughput-average.svg",
+                "poll-batch-average.svg",
+                "active-workers-max.svg",
+                "worker-allocation-average.svg",
+                "worker-cpu-average.svg",
+                "context-switches-average.svg",
+            ):
                 self.assertTrue((report_dir / name).is_file())
                 ET.parse(report_dir / name)
             ET.parse(report_dir / "load-profile.svg")

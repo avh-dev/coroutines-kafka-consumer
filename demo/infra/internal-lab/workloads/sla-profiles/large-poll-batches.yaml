@@ -1,0 +1,17 @@
+name: large-poll-batches
+description: Require the telemetry workload to exercise Kafka poll batches of at least 500 records.
+criteria:
+  - id: average-large-poll-batch
+    title: Average telemetry poll batch contains at least 500 records
+    source: measurement
+    measurement: telemetry_poll_batch_average_records
+    operator: gte
+    threshold: 500
+    unit: records
+  - id: maximum-large-poll-batch
+    title: Maximum telemetry poll batch contains at least 500 records
+    source: measurement
+    measurement: telemetry_poll_batch_max_records
+    operator: gte
+    threshold: 500
+    unit: records

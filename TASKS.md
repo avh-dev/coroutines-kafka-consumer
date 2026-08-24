@@ -247,6 +247,7 @@
 | [INFRA-106](#infra-106) | Generate local human-readable Markdown and SVG reports for completed internal-lab experiments. | DONE |
 | [INFRA-107](#infra-107) | Render semantic chaos events and intervals on experiment load-profile timelines. | DONE |
 | [INFRA-108](#infra-108) | Wire scaled load-test producer settings and Kafka producer metrics into the internal lab. | DONE |
+| [INFRA-109](#infra-109) | Add a focused CKC experiment comparing coroutine worker reserves across fixed and single-carrier virtual-thread dispatchers under large Kafka poll batches. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2710,3 +2711,18 @@ Keep the Reactor processing dispatcher in the separate `confluent-parallel-worke
 Cover the CPC thread-name rules in the demo configuration test.
 
 Verification: the focused Thread Stats configuration test passed, all CPC names from the completed run resolved to the intended Kafka and business groups, and the updated demo image rolled out successfully on optilab. A live CPC actuator snapshot classified `micrometer-kafka-metrics` under Kafka and contained no `OTHER` section.
+
+<a id="infra-109"></a>
+### INFRA-109 - Compare reserved CKC workers under large poll batches
+
+_Date: 2026-08-22_
+
+Add a single-topic internal-lab experiment that compares 40 and 200 CKC coroutine workers on one fixed dispatcher thread and on a `ckc-sync` virtual dispatcher restricted to one carrier thread.
+Shape Kafka producer and consumer batching so steady-state polls deliver at least 500 telemetry records while 40 workers remain sufficient for the configured suspend-only processing latency.
+Run the real Redis/HTTP processing path and degrade all demo-stub latencies from 1 ms to 10 ms for one minute so the reserved workers are exercised during a controlled latency spike.
+Keep Lettuce command metrics enabled so downstream Redis rate and latency remain observable during the comparison.
+Expose poll-batch, active-worker, processing-worker CPU/allocation, and context-switch measurements in generated experiment reports so the workload premise and worker fan-out are visible alongside CPU and throughput.
+Automatically disable the telemetry freshness-age limit in generated plans that select an at-least-once processing mode.
+Avoid false missing-image failures in lab preparation by making the container-image checks safe under Bash `pipefail`.
+
+Verification: all 22 internal-lab tests passed; Python and Bash syntax checks passed; all generated run plans resolved to one partition, one poll loop, required parallelism 36, and configured concurrency 40/200. Live processing-enabled optilab experiment `20260823T154958Z`, with Lettuce metrics enabled and both fail-fast VT targets first, completed all four targets and passed the large-poll-batch SLA with 597-674 average records per poll and 933-1000 maximum records per poll. During the one-minute slowdown, both 40-worker targets fell to about 3.2K records/s and accumulated about 66K-69K lag, while both 200-worker targets sustained about 4.5K records/s without additional lag. The actuator and Prometheus contained per-command Lettuce completion histograms, and the live VT deployment retained exactly one `ForkJoinPool-1-worker-1` carrier.

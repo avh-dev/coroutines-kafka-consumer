@@ -159,6 +159,30 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{number(duplicates.get('processed'), 0)} | {status(target.delivery_evaluation_status)} | "
             f"{status(target.latency_evaluation_status)} | {status(target.evaluation_status)} |"
         )
+    if any(target.measurements.get("telemetry_poll_batch_average_records") is not None for target in report.targets):
+        lines.extend(
+            [
+                "",
+                "## Runtime measurements",
+                "",
+                "| Configuration | Throughput | App CPU | Poll batch avg / max | Active workers avg / sampled max | Processing-worker CPU | Processing-worker allocation | Context switches |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            measurements = target.measurements
+            allocation = measurements.get("processing_worker_allocation_average_bytes_per_second")
+            lines.append(
+                f"| {cell(target.name)} | {number(measurements.get('throughput_average_rps'))} records/s | "
+                f"{number(measurements.get('cpu_average_cores'), 3)} cores | "
+                f"{number(measurements.get('telemetry_poll_batch_average_records'))} / "
+                f"{number(measurements.get('telemetry_poll_batch_max_records'))} records | "
+                f"{number(measurements.get('telemetry_active_workers_average'))} / "
+                f"{number(measurements.get('telemetry_active_workers_max'))} | "
+                f"{number(measurements.get('processing_worker_cpu_average_cores'), 3)} cores | "
+                f"{number(allocation / 1024 / 1024) if allocation is not None else '—'} MiB/s | "
+                f"{number(measurements.get('context_switches_average_per_second'))} switches/s |"
+            )
     lines.extend(
         [
             "",
@@ -171,6 +195,16 @@ def render_markdown(report: ExperimentReport) -> str:
             "![Average CPU](cpu-average.svg)",
             "",
             "![Average throughput](throughput-average.svg)",
+            "",
+            "![Average telemetry poll batch](poll-batch-average.svg)",
+            "",
+            "![Maximum sampled active telemetry workers](active-workers-max.svg)",
+            "",
+            "![Average processing-worker allocation](worker-allocation-average.svg)",
+            "",
+            "![Average processing-worker CPU](worker-cpu-average.svg)",
+            "",
+            "![Average demo process context switches](context-switches-average.svg)",
             "",
             "> Recovery time is not calculated yet because run results contain planned chaos offsets but no structured actual chaos-event timestamps.",
             "",

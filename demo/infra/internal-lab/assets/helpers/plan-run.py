@@ -525,6 +525,8 @@ def main() -> None:
                 )
 
         env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)
+        if topic_name == "telemetry" and not runtime_processing_mode(mode).startswith("FRESHNESS_FIRST_"):
+            env["freshnessFirstMaxRecordAgeSeconds"] = 0
         env[env_key(topic_name, "WorkerConcurrency")] = worker_concurrency
         env[env_key(topic_name, "PollLoopConcurrency")] = poll_loop_concurrency
         topic_work_channel_capacity = overrides["queue_capacity"] or work_channel_capacity(topic_name, mode, load_test)

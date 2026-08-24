@@ -203,7 +203,7 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON:-[]}" \
   python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" --reset-all >/dev/null 2>&1 || true
 
-if ! k3s ctr images list -q | grep -Fxq "docker.io/ckc-perf/demo:latest"; then
+if ! k3s ctr images list -q | grep -Fx "docker.io/ckc-perf/demo:latest" >/dev/null; then
   echo "Required lab image is not loaded into k3s: docker.io/ckc-perf/demo:latest" >&2
   exit 1
 fi

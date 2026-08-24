@@ -127,7 +127,12 @@ latencies make the rule incomplete rather than silently passing.
 Generic audit and Prometheus measurement criteria remain available. Supported
 operators are `eq`, `lte`, `lt`, `gte`, and `gt`; standard diagnostic
 measurements are `latency_p95_ms`, `latency_p99_ms`,
-`freshness_gap_p95_ms`, `throughput_average_rps`, and `cpu_average_cores`.
+`freshness_gap_p95_ms`, `throughput_average_rps`, `cpu_average_cores`,
+`telemetry_poll_batch_average_records`, `telemetry_poll_batch_max_records`,
+`telemetry_active_workers_average`, `telemetry_active_workers_max`,
+`processing_worker_cpu_average_cores`,
+`processing_worker_allocation_average_bytes_per_second`, and
+`context_switches_average_per_second`.
 
 `defaults.replicas`, target-level parallelism overrides, and target-level
 `helm` overrides are passed to the generated Helm values. The shared
