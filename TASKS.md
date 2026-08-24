@@ -254,6 +254,7 @@
 | [INFRA-113](#infra-113) | Add scheduled packet captures for application and load-test traffic in local and cloud lab runs. | DONE |
 | [INFRA-114](#infra-114) | Analyze Kafka packet captures and compare producer and consumer protocol traffic in experiment reports. | DONE |
 | [INFRA-115](#infra-115) | Compare uncompressed and LZ4 Kafka traffic for partition-parallel Spring Kafka and worker-parallel CKC consumers. | DONE |
+| [INFRA-116](#infra-116) | Repeat the Kafka compression comparison with random and zero-length telemetry diagnostics payloads. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2802,4 +2803,13 @@ Keep compression experiments representative by preventing large Kafka record bat
 
 Verification: `./gradlew :ckc-demo-load-test:test` passed, including focused coverage for independently randomized 256-byte payloads and zero-length payloads.
 
-Verification: all 36 internal-lab tests and 4 focused pcap analyzer tests passed. Optilab experiment set `20260824T153033Z` completed all four targets with throughput SLA PASS, 10/10 Thread Stats snapshots, and 4/4 successful captures per target. Spring/LZ4 compressed record payload to 31.77% while CKC/LZ4 reached 9.38%; CKC used about 0.94 application cores versus 2.26-2.31 for Spring and reduced sampled consumer wire from 14.96 MiB for Spring/LZ4 to 1.88 MiB.
+<a id="infra-116"></a>
+### INFRA-116 - Compare random and empty telemetry payload compression
+
+_Date: 2026-08-24_
+
+Extend the ten-minute, 5K TPS compression comparison to a full Spring/CKC, none/LZ4, random-256/empty payload matrix.
+Keep the application topology, processing cost, producer batching, resource limits, Thread Stats cadence, and packet-capture points identical across all eight targets.
+Use payload-to-wire ratios and the existing record-batch decomposition to separate realistic compression from protocol and polling overhead.
+
+Verification: all 36 internal-lab tests passed and all eight dry-run plans resolved the intended topology, codec, and diagnostics payload size. Optilab experiment set `20260824T180504Z` completed all eight ten-minute targets with throughput SLA PASS, 10/10 Thread Stats snapshots, and 4/4 successful captures per target. Random 256-byte payloads raised the LZ4 ratio to 70.95% for Spring and 62.25% for CKC, while empty payloads reached 37.97% and 18.39%; CKC used about 0.94-0.95 application cores versus 2.31-2.35 for Spring.
