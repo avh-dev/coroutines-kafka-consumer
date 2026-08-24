@@ -35,7 +35,7 @@ class ThreadStatsCollectorTest(unittest.TestCase):
             namespace="ckc-perf",
             selector="app.kubernetes.io/name=ckc-demo",
             port=8080,
-            endpoint="actuator/threadstats/json",
+            endpoint="actuator/threadstats",
             request_timeout_seconds=20,
             command_runner=runner,
             clock=lambda: datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
@@ -54,7 +54,9 @@ class ThreadStatsCollectorTest(unittest.TestCase):
                 output_dir,
                 [
                     completed(json.dumps(pods)),
-                    completed('{"pod":"a","groups":[{"name":"worker"}]}'),
+                    completed("Thread Stats for pod a"),
+                    completed(json.dumps('{"pod":"a","groups":[{"name":"worker"}]}')),
+                    completed("Thread Stats for pod b"),
                     completed('{"pod":"b","groups":[]}'),
                 ],
             )
@@ -67,7 +69,14 @@ class ThreadStatsCollectorTest(unittest.TestCase):
             self.assertEqual(["ckc-demo-a", "ckc-demo-b"], [item["pod"] for item in index])
             self.assertTrue(all(item["status"] == "success" for item in index))
             self.assertEqual("uid-a", index[0]["pod_uid"])
-            self.assertEqual({"pod": "a", "groups": [{"name": "worker"}]}, json.loads((output_dir / index[0]["path"]).read_text()))
+            self.assertEqual(
+                "Thread Stats for pod a\n",
+                (output_dir / index[0]["artifacts"]["text"]["path"]).read_text(),
+            )
+            self.assertEqual(
+                {"pod": "a", "groups": [{"name": "worker"}]},
+                json.loads((output_dir / index[0]["artifacts"]["json"]["path"]).read_text()),
+            )
             self.assertEqual(2, summary["snapshot_attempts"])
             self.assertEqual(2, summary["successful_snapshots"])
             self.assertEqual(100.0, summary["coverage_percent"])
@@ -79,7 +88,11 @@ class ThreadStatsCollectorTest(unittest.TestCase):
             output_dir = Path(directory)
             collector = self.collector(
                 output_dir,
-                [completed(json.dumps(pods)), completed(stderr="pod proxy failed", returncode=1)],
+                [
+                    completed(json.dumps(pods)),
+                    completed(stderr="text proxy failed", returncode=1),
+                    completed(stderr="json proxy failed", returncode=1),
+                ],
             )
             collector.prepare()
             collector.collect_cycle()
@@ -88,11 +101,37 @@ class ThreadStatsCollectorTest(unittest.TestCase):
             summary = json.loads(collector.summary_path.read_text(encoding="utf-8"))
 
             self.assertEqual("failed", record["status"])
-            self.assertEqual("pod proxy failed", record["error"])
-            self.assertIsNone(record["path"])
+            self.assertEqual("text proxy failed", record["artifacts"]["text"]["error"])
+            self.assertEqual("json proxy failed", record["artifacts"]["json"]["error"])
             self.assertEqual(1, summary["failed_snapshots"])
+            self.assertEqual(0, summary["partial_snapshots"])
             self.assertEqual(0.0, summary["coverage_percent"])
             self.assertFalse(any(output_dir.glob("ckc-demo-a/*.json")))
+            self.assertFalse(any(output_dir.glob("ckc-demo-a/*.txt")))
+
+    def test_preserves_text_artifact_when_json_collection_fails(self) -> None:
+        pods = {"items": [{"metadata": {"name": "ckc-demo-a", "uid": "uid-a"}}]}
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            collector = self.collector(
+                output_dir,
+                [
+                    completed(json.dumps(pods)),
+                    completed("Readable Thread Stats"),
+                    completed("not JSON"),
+                ],
+            )
+            collector.prepare()
+            collector.collect_cycle()
+
+            record = json.loads(collector.index_path.read_text(encoding="utf-8"))
+            summary = json.loads(collector.summary_path.read_text(encoding="utf-8"))
+
+            self.assertEqual("partial", record["status"])
+            self.assertEqual("success", record["artifacts"]["text"]["status"])
+            self.assertEqual("failed", record["artifacts"]["json"]["status"])
+            self.assertEqual(1, summary["partial_snapshots"])
+            self.assertEqual(0.0, summary["coverage_percent"])
 
     def test_records_discovery_failure_and_keeps_collector_usable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

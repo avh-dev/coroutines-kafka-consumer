@@ -518,6 +518,7 @@ def thread_stats_coverage(
             "cycles": 0,
             "snapshot_attempts": 0,
             "successful_snapshots": 0,
+            "partial_snapshots": 0,
             "failed_snapshots": 0,
             "pod_discovery_failures": 0,
             "empty_pod_cycles": 0,
@@ -526,12 +527,14 @@ def thread_stats_coverage(
         }
     summary = load_json(summary_path)
     failed = int(summary.get("failed_snapshots") or 0)
+    partial = int(summary.get("partial_snapshots") or 0)
     discovery_failures = int(summary.get("pod_discovery_failures") or 0)
     empty_cycles = int(summary.get("empty_pod_cycles") or 0)
-    if failed or discovery_failures or empty_cycles:
+    if failed or partial or discovery_failures or empty_cycles:
         warnings.append(
             "Thread Stats collection was incomplete: "
-            f"failed snapshots={failed}, discovery failures={discovery_failures}, empty pod cycles={empty_cycles}"
+            f"partial snapshots={partial}, failed snapshots={failed}, "
+            f"discovery failures={discovery_failures}, empty pod cycles={empty_cycles}"
         )
     pods = summary.get("pods") if isinstance(summary.get("pods"), dict) else {}
     summary_configuration = summary.get("configuration")
@@ -545,6 +548,7 @@ def thread_stats_coverage(
         "cycles": int(summary.get("cycles") or 0),
         "snapshot_attempts": int(summary.get("snapshot_attempts") or 0),
         "successful_snapshots": int(summary.get("successful_snapshots") or 0),
+        "partial_snapshots": partial,
         "failed_snapshots": failed,
         "pod_discovery_failures": discovery_failures,
         "empty_pod_cycles": empty_cycles,

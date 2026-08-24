@@ -189,7 +189,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 "",
                 "## Thread Stats snapshot coverage",
                 "",
-                "| Configuration | Pods | Cycles | Successful / attempted | Coverage | Discovery failures | Empty pod cycles |",
+                "| Configuration | Pods | Cycles | Successful / partial / attempted | Coverage | Discovery failures | Empty pod cycles |",
                 "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
@@ -200,6 +200,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"| {cell(target.name)} | {number(thread_stats.get('pod_count'), 0)} | "
                 f"{number(thread_stats.get('cycles'), 0)} | "
                 f"{number(thread_stats.get('successful_snapshots'), 0)} / "
+                f"{number(thread_stats.get('partial_snapshots'), 0)} / "
                 f"{number(thread_stats.get('snapshot_attempts'), 0)} | "
                 f"{number(coverage) + '%' if coverage is not None else '—'} | "
                 f"{number(thread_stats.get('pod_discovery_failures'), 0)} | "

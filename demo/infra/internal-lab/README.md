@@ -642,14 +642,16 @@ calculated report under:
       summary.json
       <pod-name>/
         <timestamp>.json
+        <timestamp>.txt
 ```
 
 While the load test is active, the runner immediately collects a full Thread
 Stats actuator snapshot from every running demo pod and repeats the collection
 once per minute by default. Pod discovery runs before every cycle, so restarted
 pods and replica changes are reflected without restarting the collector. Each
-snapshot is stored as an individual timestamped JSON file under its pod name;
-`index.jsonl` preserves the pod UID, collection status, artifact path, and size,
+snapshot is stored under its pod name as both structured JSON and the formatted
+plain-text Thread Stats report with the same timestamp. `index.jsonl` preserves
+the pod UID, collection status, artifact paths, and sizes,
 while `summary.json` provides per-run and per-pod coverage totals. Collection
 errors are recorded in the index and `collector.log` without stopping the load
 test. Override `THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS` when a different

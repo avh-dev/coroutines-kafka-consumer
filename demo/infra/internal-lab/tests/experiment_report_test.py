@@ -207,6 +207,7 @@ class ExperimentReportTest(unittest.TestCase):
                 "empty_pod_cycles": 0,
                 "snapshot_attempts": 4,
                 "successful_snapshots": 4,
+                "partial_snapshots": 0,
                 "failed_snapshots": 0,
                 "coverage_percent": 100.0,
                 "pods": {"ckc-demo-a": {}, "ckc-demo-b": {}},
@@ -374,7 +375,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("❌ FAIL", markdown)
             self.assertIn("## Runtime measurements", markdown)
             self.assertIn("## Thread Stats snapshot coverage", markdown)
-            self.assertIn("4 / 4", markdown)
+            self.assertIn("4 / 0 / 4", markdown)
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)

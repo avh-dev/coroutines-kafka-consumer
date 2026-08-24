@@ -2733,8 +2733,8 @@ Verification: all 22 internal-lab tests passed; Python and Bash syntax checks pa
 
 _Date: 2026-08-24_
 
-Replace the monolithic Thread Stats snapshot log with timestamped JSON artifacts grouped by application pod.
+Replace the monolithic Thread Stats snapshot log with paired timestamped JSON and readable text artifacts grouped by application pod.
 Collect a full snapshot from every running demo pod once per minute while preserving pod identity and collection status in a machine-readable index.
 Expose collection coverage in run metadata and experiment reports, and keep the artifact layout compatible with local and cloud Kubernetes access.
 
-Verification: all 25 internal-lab tests passed; Python and Bash syntax checks passed; a live optilab collection discovered the running demo pod through Kubernetes, stored its 9.5 KiB full JSON snapshot, and reported 100% coverage without discovery or snapshot failures.
+Verification: all 26 internal-lab tests passed; Python and Bash syntax checks passed; a live optilab collection discovered the running demo pod through Kubernetes, stored a readable 4.6 KiB text report beside its normalized 14.2 KiB full JSON snapshot, and reported 100% coverage without discovery or snapshot failures.

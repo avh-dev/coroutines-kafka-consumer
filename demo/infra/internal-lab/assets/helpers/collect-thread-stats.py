@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--namespace", default="ckc-perf")
     parser.add_argument("--selector", default="app.kubernetes.io/name=ckc-demo")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--endpoint", default="/actuator/threadstats/json")
+    parser.add_argument("--endpoint", default="/actuator/threadstats")
     parser.add_argument("--request-timeout-seconds", type=int, default=20)
     return parser.parse_args()
 
@@ -92,7 +92,9 @@ class ThreadStatsCollector:
         self.namespace = namespace
         self.selector = selector
         self.port = port
-        self.endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        normalized_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        self.text_endpoint = normalized_endpoint.removesuffix("/json")
+        self.json_endpoint = f"{self.text_endpoint}/json"
         self.request_timeout_seconds = request_timeout_seconds
         self.command_runner = command_runner
         self.clock = clock
@@ -110,13 +112,15 @@ class ThreadStatsCollector:
                 "namespace": namespace,
                 "selector": selector,
                 "port": port,
-                "endpoint": self.endpoint,
+                "text_endpoint": self.text_endpoint,
+                "json_endpoint": self.json_endpoint,
             },
             "cycles": 0,
             "pod_discovery_failures": 0,
             "empty_pod_cycles": 0,
             "snapshot_attempts": 0,
             "successful_snapshots": 0,
+            "partial_snapshots": 0,
             "failed_snapshots": 0,
             "pods": {},
         }
@@ -170,18 +174,16 @@ class ThreadStatsCollector:
             pods.append(Pod(name=str(metadata["name"]), uid=str(metadata.get("uid") or "")))
         return sorted(pods, key=lambda pod: pod.name)
 
-    def collect_pod(self, pod: Pod, captured_at: datetime) -> None:
-        captured_at_text = instant(captured_at)
-        relative_path = Path(safe_component(pod.name)) / f"{filename_timestamp(captured_at)}.json"
-        api_path = f"/api/v1/namespaces/{self.namespace}/pods/{pod.name}:{self.port}/proxy{self.endpoint}"
-        self.summary["snapshot_attempts"] += 1
-        record: dict[str, Any] = {
-            "schema_version": SCHEMA_VERSION,
-            "captured_at": captured_at_text,
-            "namespace": self.namespace,
-            "pod": pod.name,
-            "pod_uid": pod.uid,
-            "endpoint": self.endpoint,
+    def collect_artifact(
+        self,
+        pod: Pod,
+        endpoint: str,
+        relative_path: Path,
+        validate_json: bool,
+    ) -> dict[str, Any]:
+        api_path = f"/api/v1/namespaces/{self.namespace}/pods/{pod.name}:{self.port}/proxy{endpoint}"
+        artifact: dict[str, Any] = {
+            "endpoint": endpoint,
             "status": "failed",
             "path": None,
             "size_bytes": None,
@@ -202,28 +204,69 @@ class ThreadStatsCollector:
             )
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or result.stdout or "kubectl pod proxy failed").strip())
-            json.loads(result.stdout)
-            payload = result.stdout.rstrip("\n") + "\n"
+            if validate_json:
+                document = json.loads(result.stdout)
+                if isinstance(document, str):
+                    document = json.loads(document)
+                payload = json.dumps(document, indent=2, sort_keys=False) + "\n"
+            elif not result.stdout.strip():
+                raise RuntimeError("Thread Stats text response is empty")
+            else:
+                payload = result.stdout.rstrip("\n") + "\n"
             artifact_path = self.output_dir / relative_path
             atomic_write(artifact_path, payload)
-            record.update(
+            artifact.update(
                 status="success",
                 path=relative_path.as_posix(),
                 size_bytes=artifact_path.stat().st_size,
             )
-            self.summary["successful_snapshots"] += 1
         except (json.JSONDecodeError, RuntimeError, subprocess.TimeoutExpired) as error:
-            record["error"] = str(error)
-            self.summary["failed_snapshots"] += 1
-            self.log(f"snapshot failed pod={pod.name} uid={pod.uid or '-'} error={error}")
+            artifact["error"] = str(error)
+            self.log(
+                f"snapshot artifact failed pod={pod.name} uid={pod.uid or '-'} "
+                f"endpoint={endpoint} error={error}"
+            )
+        return artifact
+
+    def collect_pod(self, pod: Pod, captured_at: datetime) -> None:
+        captured_at_text = instant(captured_at)
+        relative_root = Path(safe_component(pod.name)) / filename_timestamp(captured_at)
+        self.summary["snapshot_attempts"] += 1
+        artifacts = {
+            "text": self.collect_artifact(pod, self.text_endpoint, Path(f"{relative_root}.txt"), False),
+            "json": self.collect_artifact(pod, self.json_endpoint, Path(f"{relative_root}.json"), True),
+        }
+        successful_artifacts = sum(artifact["status"] == "success" for artifact in artifacts.values())
+        if successful_artifacts == 2:
+            snapshot_status = "success"
+        elif successful_artifacts:
+            snapshot_status = "partial"
+        else:
+            snapshot_status = "failed"
+        self.summary[
+            {
+                "success": "successful_snapshots",
+                "partial": "partial_snapshots",
+                "failed": "failed_snapshots",
+            }[snapshot_status]
+        ] += 1
+        record: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "captured_at": captured_at_text,
+            "namespace": self.namespace,
+            "pod": pod.name,
+            "pod_uid": pod.uid,
+            "status": snapshot_status,
+            "artifacts": artifacts,
+        }
         pod_summary = self.summary["pods"].setdefault(
             pod.name,
-            {"uids": [], "attempts": 0, "successful": 0, "failed": 0, "last_captured_at": None},
+            {"uids": [], "attempts": 0, "successful": 0, "partial": 0, "failed": 0, "last_captured_at": None},
         )
         if pod.uid and pod.uid not in pod_summary["uids"]:
             pod_summary["uids"].append(pod.uid)
         pod_summary["attempts"] += 1
-        pod_summary["successful" if record["status"] == "success" else "failed"] += 1
+        pod_summary[{"success": "successful", "partial": "partial", "failed": "failed"}[snapshot_status]] += 1
         pod_summary["last_captured_at"] = captured_at_text
         self.append_index(record)
 
@@ -241,10 +284,8 @@ class ThreadStatsCollector:
                     "namespace": self.namespace,
                     "pod": None,
                     "pod_uid": None,
-                    "endpoint": self.endpoint,
                     "status": "discovery_failed",
-                    "path": None,
-                    "size_bytes": None,
+                    "artifacts": None,
                     "error": str(error),
                 }
             )
@@ -260,10 +301,8 @@ class ThreadStatsCollector:
                     "namespace": self.namespace,
                     "pod": None,
                     "pod_uid": None,
-                    "endpoint": self.endpoint,
                     "status": "no_running_pods",
-                    "path": None,
-                    "size_bytes": None,
+                    "artifacts": None,
                     "error": None,
                 }
             )
