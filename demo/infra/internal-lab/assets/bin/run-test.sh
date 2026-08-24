@@ -1439,6 +1439,7 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     --load-test-backend host \
     --host-interface any \
     --host-address "${LAB_NODE_IP}" \
+    --host-exclude-network 10.42.0.0/16 \
     > "${DIAGNOSTICS_LOG_PATH}" 2>&1 &
   DIAGNOSTICS_PID="$!"
   echo "${DIAGNOSTICS_PID}" > "${DIAGNOSTICS_PID_PATH}"

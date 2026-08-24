@@ -120,10 +120,10 @@ class DiagnosticStepsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             args = type(
                 "Args", (),
-                {"output_dir": directory, "host_interface": "any", "host_address": "10.10.20.2", "host_exclude_network": "", "dry_run": True},
+                {"output_dir": directory, "host_interface": "any", "host_address": "10.10.20.2", "host_exclude_network": "10.42.0.0/16", "dry_run": True},
             )()
             result = diagnostic_runner.capture_host(step, "load-test", args)
-        self.assertEqual("( tcp port 9092 ) and host 10.10.20.2", result["filter"])
+        self.assertEqual("( ( tcp port 9092 ) and host 10.10.20.2 ) and not net 10.42.0.0/16", result["filter"])
         self.assertEqual("10.10.20.2", result["host_address"])
 
     def test_tcpdump_uses_its_duration_rotation_and_keeps_root_identity(self) -> None:

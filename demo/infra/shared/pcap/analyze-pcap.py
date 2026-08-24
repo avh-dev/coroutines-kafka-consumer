@@ -401,7 +401,9 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
     roles = {stream: connection_role(data["request_apis"]) for stream, data in connections.items()}
     selected = {stream for stream, stream_role in roles.items() if stream_role in {role, "mixed"}}
     warnings = []
-    role_scoped_capture = metadata.get("backend") == "kubernetes" or bool(metadata.get("host_address"))
+    role_scoped_capture = metadata.get("backend") == "kubernetes" or (
+        bool(metadata.get("host_address")) and bool(metadata.get("excluded_network"))
+    )
     if role in {"producer", "consumer"} and role_scoped_capture:
         selected = set(connections)
     if not selected:
@@ -583,7 +585,8 @@ def render_text(summary: dict[str, Any]) -> str:
                 f"  batch headers: {human_bytes(batches.get('batch_header_bytes'))}",
                 f"  compressed / uncompressed records: {human_bytes(batches.get('compressed_record_bytes'))} / {human_bytes(batches.get('uncompressed_record_bytes'))}",
                 f"  compression ratio / saving: {batches.get('compression_ratio_percent')}% / {batches.get('space_saving_percent')}%",
-                f"  record values / keys / metadata: {human_bytes(batches.get('value_bytes'))} / {human_bytes(batches.get('key_bytes'))} / {human_bytes(batches.get('record_overhead_bytes'))}",
+                f"  codecs: {', '.join(f'{name}={count}' for name, count in batches.get('codecs', {}).items()) or 'unavailable'}",
+                f"  record values / keys / headers / metadata: {human_bytes(batches.get('value_bytes'))} / {human_bytes(batches.get('key_bytes'))} / {human_bytes(batches.get('header_bytes'))} / {human_bytes(batches.get('record_overhead_bytes'))}",
                 "  API messages:",
             ]
         )
