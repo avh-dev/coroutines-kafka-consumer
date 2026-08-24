@@ -252,6 +252,7 @@
 | [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | DONE |
 | [INFRA-113](#infra-113) | Add scheduled packet captures for application and load-test traffic in local and cloud lab runs. | DONE |
 | [INFRA-114](#infra-114) | Analyze Kafka packet captures and compare producer and consumer protocol traffic in experiment reports. | DONE |
+| [INFRA-115](#infra-115) | Compare uncompressed and LZ4 Kafka traffic for partition-parallel Spring Kafka and worker-parallel CKC consumers. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2776,3 +2777,17 @@ Persist machine-readable JSON plus a readable text summary beside each run, and 
 Rebuild the missing analyzer around tshark and native Kafka RecordBatch decompression, keeping the same post-workload path suitable for optilab and AWS artifacts.
 
 Verification: all 36 internal-lab tests and 3 focused analyzer tests passed; Python and Bash syntax checks passed. Live optilab smoke run `20260824T142956Z` resolved `eth0` for the application and `br-cf23c25e43fb` from the active Kafka Docker network for the host producer. Both captures had zero retransmissions and no duplicate interface observations; TCP payload equalled Kafka PDU bytes exactly at both points. Automatic JSON/text analysis reported 16 Produce request/response messages and 8 LZ4 batches on the producer side, plus 106 Kafka messages and 7 LZ4 batches on the consumer side.
+
+<a id="infra-115"></a>
+### INFRA-115 - Compare Kafka compression across parallelism models
+
+_Date: 2026-08-24_
+
+Add a ten-minute, 5K TPS experiment comparing Spring Kafka parallelism backed by 200 partitions with CKC parallelism backed by 200 workers over three partitions.
+Run both consumer layouts first without producer compression and then with LZ4, keeping workload, batching, processing, and resource settings fixed.
+Capture producer and consumer traffic twice during steady load and report wire/batch compression alongside application, producer, and broker resource cost.
+Classify the load generator in process-exporter and include its CPU/RSS in the report; raise the analyzer CSV field limit for reassembled Kafka payloads larger than 128 KiB.
+Add per-configuration totals for producer wire, consumer wire, message values, record attributes, useful logical payload, and record metadata.
+Normalize differing fixed-duration capture samples with separate producer and consumer logical-payload-to-wire ratios.
+
+Verification: all 36 internal-lab tests and 4 focused pcap analyzer tests passed. Optilab experiment set `20260824T153033Z` completed all four targets with throughput SLA PASS, 10/10 Thread Stats snapshots, and 4/4 successful captures per target. Spring/LZ4 compressed record payload to 31.77% while CKC/LZ4 reached 9.38%; CKC used about 0.94 application cores versus 2.26-2.31 for Spring and reduced sampled consumer wire from 14.96 MiB for Spring/LZ4 to 1.88 MiB.

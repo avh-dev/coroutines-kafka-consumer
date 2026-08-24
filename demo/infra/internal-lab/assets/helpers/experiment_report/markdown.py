@@ -183,6 +183,26 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"{number(allocation / 1024 / 1024) if allocation is not None else '—'} MiB/s | "
                 f"{number(measurements.get('context_switches_average_per_second'))} switches/s |"
             )
+    if any(target.measurements.get("broker_cpu_average_cores") is not None for target in report.targets):
+        lines.extend(
+            [
+                "",
+                "## Resource cost",
+                "",
+                "| Configuration | Application CPU / memory | Producer CPU / memory | Broker CPU / memory |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            measurements = target.measurements
+            lines.append(
+                f"| {cell(target.name)} | {number(measurements.get('cpu_average_cores'), 3)} cores / "
+                f"{number(measurements.get('application_memory_average_mib'))} MiB | "
+                f"{number(measurements.get('producer_cpu_average_cores'), 3)} cores / "
+                f"{number(measurements.get('producer_memory_average_mib'))} MiB | "
+                f"{number(measurements.get('broker_cpu_average_cores'), 3)} cores / "
+                f"{number(measurements.get('broker_memory_average_mib'))} MiB |"
+            )
     if any(target.thread_stats.get("enabled") for target in report.targets):
         lines.extend(
             [
@@ -258,6 +278,77 @@ def render_markdown(report: ExperimentReport) -> str:
                     f"{number(batches.get('records'), 0)} | {number((network.get('captured_wire_bytes') or 0) / 1024)} KiB | "
                     f"{number(network.get('network_overhead_percent'))}% | {compression} |"
                 )
+        lines.extend(
+            [
+                "",
+                "### Total captured traffic and logical record payload",
+                "",
+                "Total wire traffic adds the producer publish and consumer fetch observation points. Logical payload is the uncompressed record value plus its key and record headers; Kafka record metadata is reported separately.",
+                "",
+                "| Configuration | Producer wire | Consumer wire | Total wire | Message values | Attributes (keys + headers) | Useful logical payload | Record metadata |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            roles = target.pcap_analysis.get("roles", {})
+            totals = {
+                "producer_wire": 0,
+                "consumer_wire": 0,
+                "values": 0,
+                "attributes": 0,
+                "metadata": 0,
+            }
+            for role in ("producer", "consumer"):
+                data = roles.get(role, {}) if isinstance(roles, dict) else {}
+                network = data.get("network", {}) if isinstance(data, dict) else {}
+                protocol = data.get("protocol", {}) if isinstance(data, dict) else {}
+                batches = protocol.get("record_batches", {}) if isinstance(protocol, dict) else {}
+                totals[f"{role}_wire"] = int(network.get("captured_wire_bytes") or 0)
+                totals["values"] += int(batches.get("value_bytes") or 0)
+                totals["attributes"] += int(batches.get("key_bytes") or 0) + int(batches.get("header_bytes") or 0)
+                totals["metadata"] += int(batches.get("record_overhead_bytes") or 0)
+            total_wire = totals["producer_wire"] + totals["consumer_wire"]
+            useful = totals["values"] + totals["attributes"]
+            lines.append(
+                f"| {cell(target.name)} | {number(totals['producer_wire'] / 1024 / 1024)} MiB | "
+                f"{number(totals['consumer_wire'] / 1024 / 1024)} MiB | "
+                f"{number(total_wire / 1024 / 1024)} MiB | "
+                f"{number(totals['values'] / 1024 / 1024)} MiB | "
+                f"{number(totals['attributes'] / 1024 / 1024)} MiB | "
+                f"{number(useful / 1024 / 1024)} MiB | "
+                f"{number(totals['metadata'] / 1024 / 1024)} MiB |"
+            )
+        lines.extend(
+            [
+                "",
+                "### Logical payload to wire ratio",
+                "",
+                "The ratio divides uncompressed record values, keys, and headers by all captured wire bytes at the same observation point. A value above 1× means compression carried more than one logical payload byte per wire byte.",
+                "",
+                "| Configuration | Producer useful / wire | Consumer useful / wire |",
+                "| --- | ---: | ---: |",
+            ]
+        )
+        for target in report.targets:
+            roles = target.pcap_analysis.get("roles", {})
+            ratios = []
+            for role in ("producer", "consumer"):
+                data = roles.get(role, {}) if isinstance(roles, dict) else {}
+                network = data.get("network", {}) if isinstance(data, dict) else {}
+                protocol = data.get("protocol", {}) if isinstance(data, dict) else {}
+                batches = protocol.get("record_batches", {}) if isinstance(protocol, dict) else {}
+                wire = int(network.get("captured_wire_bytes") or 0)
+                useful = (
+                    int(batches.get("value_bytes") or 0)
+                    + int(batches.get("key_bytes") or 0)
+                    + int(batches.get("header_bytes") or 0)
+                )
+                ratios.append(useful / wire if wire else None)
+            lines.append(
+                f"| {cell(target.name)} | "
+                f"{number(ratios[0], 3) + '×' if ratios[0] is not None else '—'} | "
+                f"{number(ratios[1], 3) + '×' if ratios[1] is not None else '—'} |"
+            )
     lines.extend(
         [
             "",
@@ -268,6 +359,16 @@ def render_markdown(report: ExperimentReport) -> str:
             "![End-to-end latency p95](latency-p95.svg)",
             "",
             "![Average CPU](cpu-average.svg)",
+            "",
+            "![Average application working set](application-memory-average.svg)",
+            "",
+            "![Average Kafka broker CPU](broker-cpu-average.svg)",
+            "",
+            "![Average Kafka broker RSS](broker-memory-average.svg)",
+            "",
+            "![Average load generator CPU](producer-cpu-average.svg)",
+            "",
+            "![Average load generator RSS](producer-memory-average.svg)",
             "",
             "![Average throughput](throughput-average.svg)",
             "",

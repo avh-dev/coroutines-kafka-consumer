@@ -1,0 +1,78 @@
+name: kafka-compression-parallelism-comparison
+description: Compare uncompressed and LZ4 Kafka traffic for Spring Kafka parallelism backed by 200 partitions and CKC parallelism backed by 200 workers over three partitions.
+test_definition: kafka-compression-parallelism
+base_tps: 5000
+sla_profile: kafka-compression-parallelism
+
+defaults:
+  replicas: 1
+  planning_latency:
+    order_ms: 8
+    batch_ms: 8
+    telemetry_ms: 8
+  order_queue_capacity: 4096
+  batch_queue_capacity: 4096
+  telemetry_queue_capacity: 8192
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: false
+    METRICS_IMPLEMENTATION: MICROMETER
+    LETTUCE_METRICS_ENABLED: true
+    JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+    KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+    KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 100
+    KAFKA_CONSUMER_MAX_POLL_RECORDS: 1000
+    KAFKA_PRODUCER_LINGER_MS: 150
+    KAFKA_PRODUCER_BATCH_SIZE: 1048576
+    KAFKA_PRODUCER_BUFFER_MEMORY: 268435456
+  helm:
+    env:
+      javaToolOptions: "-Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC"
+    resources:
+      requests:
+        cpu: "2"
+        memory: 2Gi
+      limits:
+        cpu: "4"
+        memory: 3Gi
+
+targets:
+  - name: spring-kafka.partitions200.none
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: none
+
+  - name: ckc.partitions3.workers200.none
+    profile: ckc
+    parallelism: [partitions, workers, pollers]
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_partitions: 3
+    telemetry_workers: 200
+    telemetry_pollers: 1
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_PRODUCER_COMPRESSION_TYPE: none
+
+  - name: spring-kafka.partitions200.lz4
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+
+  - name: ckc.partitions3.workers200.lz4
+    profile: ckc
+    parallelism: [partitions, workers, pollers]
+    telemetry_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+    telemetry_partitions: 3
+    telemetry_workers: 200
+    telemetry_pollers: 1
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4

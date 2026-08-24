@@ -31,6 +31,26 @@ STANDARD_MEASUREMENTS = {
         "sum(increase(container_cpu_usage_seconds_total"
         '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
+    "application_memory_average_mib": (
+        "sum(avg_over_time(container_memory_working_set_bytes"
+        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / 1024 / 1024'
+    ),
+    "broker_cpu_average_cores": (
+        "sum(increase(namedprocess_namegroup_cpu_seconds_total"
+        '{{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka"}}[{window}])) / {seconds}'
+    ),
+    "broker_memory_average_mib": (
+        "sum(avg_over_time(namedprocess_namegroup_memory_bytes"
+        '{{job="ckc-host-process-exporter", groupname=~"redpanda|apache-kafka", memtype="resident"}}[{window}])) / 1024 / 1024'
+    ),
+    "producer_cpu_average_cores": (
+        "sum(increase(namedprocess_namegroup_cpu_seconds_total"
+        '{{job="ckc-host-process-exporter", groupname="ckc-load-test"}}[{window}])) / {seconds}'
+    ),
+    "producer_memory_average_mib": (
+        "sum(avg_over_time(namedprocess_namegroup_memory_bytes"
+        '{{job="ckc-host-process-exporter", groupname="ckc-load-test", memtype="resident"}}[{window}])) / 1024 / 1024'
+    ),
     "telemetry_poll_batch_average_records": (
         "sum(increase(demo_ckc_poll_records_sum"
         '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])) / '

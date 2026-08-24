@@ -12,6 +12,11 @@ process_names:
       - java
     cmdline:
       - avh\.ckc\.demo\.DemoApplicationKt
+  - name: ckc-load-test
+    comm:
+      - java
+    cmdline:
+      - avh\.ckc\.loadtest\.LoadTestApplicationKt
   - name: redis
     comm:
       - redis-server
