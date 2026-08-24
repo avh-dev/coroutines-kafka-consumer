@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib.util
 import json
 import os
 import re
@@ -14,6 +15,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
+    module_path = repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "diagnostic_steps.py"
+    spec = importlib.util.spec_from_file_location("ckc_diagnostic_steps", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load diagnostic step contract: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.normalize(definition, definition_path)
 
 
 def parse_args() -> argparse.Namespace:
@@ -355,9 +366,26 @@ def deploy_load_job(
     started_at: str,
     run_id: str,
     active_deadline_seconds: int,
+    packet_capture_enabled: bool,
 ) -> str:
     shards = as_int(load_test.get("shards"), 1)
     job_name = f"ckc-load-test-{run_id}"
+    capture_container = """
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - NET_RAW
+              drop:
+                - ALL
+          volumeMounts:
+            - name: packet-captures
+              mountPath: /captures""" if packet_capture_enabled else ""
+    capture_volume = """
+      volumes:
+        - name: packet-captures
+          emptyDir:
+            sizeLimit: 256Mi""" if packet_capture_enabled else ""
     manifest = f"""apiVersion: batch/v1
 kind: Job
 metadata:
@@ -380,6 +408,7 @@ spec:
         - name: load-test
           image: {yaml_string(image)}
           imagePullPolicy: {yaml_string(image_pull_policy)}
+{capture_container}
           env:
             - name: BOOTSTRAP_SERVERS
               value: {yaml_string(kafka_bootstrap)}
@@ -437,6 +466,7 @@ spec:
               value: {yaml_string(run_id)}
             - name: TEST_RUN_STARTED_AT
               value: {yaml_string(started_at)}
+{capture_volume}
 """
     kubectl_apply(manifest)
     return job_name
@@ -487,7 +517,13 @@ def require_profile_file(base_dir: Path, name: str) -> Path:
     return path
 
 
-def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: dict[str, Any], registry: str) -> None:
+def deploy_workloads(
+    repo_dir: Path,
+    definition: dict[str, Any],
+    lab_context: dict[str, Any],
+    registry: str,
+    packet_capture_enabled: bool,
+) -> None:
     deployment = require_section(definition, "deployment")
     app_profile = as_str(deployment.get("app_profile"), "ckc-single")
     charts_dir = repo_dir / "demo" / "infra" / "aws" / "helm"
@@ -531,6 +567,7 @@ def deploy_workloads(repo_dir: Path, definition: dict[str, Any], lab_context: di
             "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
             "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
             "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+            "diagnostics.packetCapture.enabled": packet_capture_enabled,
         },
     )
 
@@ -551,6 +588,7 @@ def main() -> None:
     temp_dir.mkdir(parents=True, exist_ok=True)
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
+    diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")
@@ -574,12 +612,19 @@ def main() -> None:
         "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0",
     )
     load_profile_seconds = estimate_load_profile_seconds(load_profile)
+    for step in diagnostic_steps:
+        if step["atSeconds"] + step["durationSeconds"] > load_profile_seconds:
+            raise ValueError(
+                f"Diagnostic step {step['name']!r} ends after the load profile ({load_profile_seconds}s)."
+            )
     wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     job_name: str | None = None
+    diagnostics_process: subprocess.Popen[str] | None = None
+    diagnostics_log = None
 
     try:
-        deploy_workloads(repo_dir, definition, lab_context, registry)
+        deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps))
         wait_for_demo_rollout()
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
@@ -593,8 +638,34 @@ def main() -> None:
             started_at,
             run_id,
             wait_timeout_seconds,
+            bool(diagnostic_steps),
         )
+        if diagnostic_steps:
+            diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            diagnostics_log = (diagnostics_dir / "executor.log").open("w", encoding="utf-8")
+            diagnostics_process = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "run-diagnostic-steps.py"),
+                    "--steps-json", json.dumps(diagnostic_steps, separators=(",", ":")),
+                    "--start-epoch-seconds", str(datetime.fromisoformat(started_at.replace("Z", "+00:00")).timestamp()),
+                    "--output-dir", str(diagnostics_dir),
+                    "--application-namespace", "ckc-app",
+                    "--load-test-backend", "kubernetes",
+                    "--load-test-namespace", "ckc-loadtest",
+                    "--load-test-selector", f"job-name={job_name}",
+                ],
+                stdout=diagnostics_log,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
         wait_for_job(job_name, wait_timeout_seconds)
+        if diagnostics_process is not None:
+            diagnostics_exit_code = diagnostics_process.wait()
+            diagnostics_process = None
+            if diagnostics_exit_code != 0:
+                raise RuntimeError(f"Required packet capture failed; see {diagnostics_dir / 'executor.log'}")
         collect_job_logs(job_name, reports_dir, run_id)
         print(f"Test definition '{definition.get('name', 'unnamed')}' completed.")
         print(f"  source={definition_path}")
@@ -602,6 +673,15 @@ def main() -> None:
         print(f"  expected_duration_seconds={load_profile_seconds}")
         print(f"  reports_dir={reports_dir}")
     finally:
+        if diagnostics_process is not None and diagnostics_process.poll() is None:
+            diagnostics_process.terminate()
+            try:
+                diagnostics_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                diagnostics_process.kill()
+                diagnostics_process.wait()
+        if diagnostics_log is not None:
+            diagnostics_log.close()
         stop_prometheus_bridge(port_forward_pid_file)
         collect_job_logs(job_name, reports_dir, run_id) if job_name else None
         if bool(lab_context.get("cleanup_workloads", True)):

@@ -57,6 +57,11 @@ env:
 
 resources: {}
 
+diagnostics:
+  packetCapture:
+    enabled: false
+    storageSizeLimit: 256Mi
+
 probes:
   readiness:
     initialDelaySeconds: 15

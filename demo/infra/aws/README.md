@@ -69,6 +69,14 @@
 5. On the runner, run one or more tests with `runner-assets/bin/run-test.sh`.
 6. On the runner, destroy the disposable lab with `runner-assets/bin/destroy-lab.sh` when it is no longer needed. Metrics history remains on the runner.
 
+Test definitions can use the same `diagnostic_steps` packet-capture contract as
+the internal lab. For AWS runs, both `application` and `load-test` targets are
+captured through Kubernetes pod exec. The test charts grant `NET_RAW` and mount
+a size-limited `/captures` volume only when at least one packet capture is
+configured. Completed `.pcap.gz`, JSON metadata, tcpdump stderr, index, and
+summary artifacts are written under
+`/opt/ckc-runner/reports/<run-id>/diagnostics/tcpdump` on the runner.
+
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
 `create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/aws/test-definitions/ckc-baseline.yaml`.

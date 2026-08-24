@@ -55,6 +55,7 @@ THREAD_STATS_SNAPSHOT_NAMESPACE="${THREAD_STATS_SNAPSHOT_NAMESPACE:-ckc-perf}"
 THREAD_STATS_SNAPSHOT_SELECTOR="${THREAD_STATS_SNAPSHOT_SELECTOR:-app.kubernetes.io/name=ckc-demo}"
 THREAD_STATS_SNAPSHOT_PORT="${THREAD_STATS_SNAPSHOT_PORT:-8080}"
 THREAD_STATS_SNAPSHOT_ENDPOINT="${THREAD_STATS_SNAPSHOT_ENDPOINT:-/actuator/threadstats}"
+DIAGNOSTIC_STEPS_JSON="${DIAGNOSTIC_STEPS_JSON:-[]}"
 
 usage() {
   cat <<EOF
@@ -1079,6 +1080,7 @@ reset_chaos_state() {
 
 PID_PATH="${PID_DIR}/load-test.pid"
 CHAOS_PID_PATH="${PID_DIR}/chaos.pid"
+DIAGNOSTICS_PID_PATH="${PID_DIR}/diagnostics.pid"
 if [ -f "${PID_PATH}" ]; then
   existing_pid="$(cat "${PID_PATH}")"
   if [ -n "${existing_pid}" ] && kill -0 "${existing_pid}" >/dev/null 2>&1; then
@@ -1094,6 +1096,14 @@ if [ -f "${CHAOS_PID_PATH}" ]; then
     exit 1
   fi
   rm -f "${CHAOS_PID_PATH}"
+fi
+if [ -f "${DIAGNOSTICS_PID_PATH}" ]; then
+  existing_diagnostics_pid="$(cat "${DIAGNOSTICS_PID_PATH}")"
+  if [ -n "${existing_diagnostics_pid}" ] && kill -0 "${existing_diagnostics_pid}" >/dev/null 2>&1; then
+    echo "Diagnostics executor is already running with pid ${existing_diagnostics_pid}." >&2
+    exit 1
+  fi
+  rm -f "${DIAGNOSTICS_PID_PATH}"
 fi
 
 if [ "${RUN_PREPARE}" -eq 1 ]; then
@@ -1165,6 +1175,7 @@ RUN_THREAD_STATS_DIR="${RUN_DIAGNOSTICS_DIR}/thread-stats"
 RUN_THREAD_STATS_INDEX_FILE="${RUN_THREAD_STATS_DIR}/index.jsonl"
 RUN_THREAD_STATS_SUMMARY_FILE="${RUN_THREAD_STATS_DIR}/summary.json"
 RUN_THREAD_STATS_LOG_FILE="${RUN_THREAD_STATS_DIR}/collector.log"
+RUN_PACKET_CAPTURE_DIR="${RUN_DIAGNOSTICS_DIR}/tcpdump"
 THREAD_STATS_SNAPSHOT_PID_PATH="${PID_DIR}/thread-stats-${RUN_ID}.pid"
 mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}"
 RUN_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -1178,7 +1189,7 @@ write_run_metadata() {
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
   export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE PUBLISH_ENABLED LOAD_TEST_WORKERS
   export KAFKA_PRODUCER_LINGER_MS KAFKA_PRODUCER_BATCH_SIZE KAFKA_PRODUCER_COMPRESSION_TYPE KAFKA_PRODUCER_BUFFER_MEMORY
-  export CHAOS_STEPS_JSON
+  export CHAOS_STEPS_JSON DIAGNOSTIC_STEPS_JSON RUN_PACKET_CAPTURE_DIR
   export CONSUMER_DRAIN_TIMEOUT_SECONDS CONSUMER_DRAIN_STABLE_SECONDS CONSUMER_DRAIN_POLL_SECONDS
   export THREAD_STATS_SNAPSHOT_ENABLED THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS RUN_THREAD_STATS_DIR RUN_THREAD_STATS_INDEX_FILE RUN_THREAD_STATS_SUMMARY_FILE RUN_THREAD_STATS_LOG_FILE
   python3 - <<'PY'
@@ -1297,6 +1308,11 @@ metadata = {
     },
     "stubs": json.loads(env("STUB_SETTINGS_JSON", "{}")),
     "chaos_steps": json.loads(env("CHAOS_STEPS_JSON", "[]")),
+    "diagnostic_steps": json.loads(env("DIAGNOSTIC_STEPS_JSON", "[]")),
+    "packet_captures": {
+        "enabled": bool(json.loads(env("DIAGNOSTIC_STEPS_JSON", "[]"))),
+        "directory": env("RUN_PACKET_CAPTURE_DIR"),
+    },
     "thread_stats_snapshots": {
         "enabled": env_bool("THREAD_STATS_SNAPSHOT_ENABLED"),
         "interval_seconds": env_int("THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS"),
@@ -1412,6 +1428,22 @@ if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   echo "${CHAOS_PID}" > "${CHAOS_PID_PATH}"
 fi
 
+DIAGNOSTICS_LOG_PATH="${RUN_PACKET_CAPTURE_DIR}/executor.log"
+DIAGNOSTICS_PID=""
+if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
+  mkdir -p "${RUN_PACKET_CAPTURE_DIR}"
+  nohup python3 "${LAB_ROOT}/helpers/run-diagnostic-steps.py" \
+    --steps-json "${DIAGNOSTIC_STEPS_JSON}" \
+    --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
+    --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
+    --load-test-backend host \
+    --host-interface any \
+    --host-exclude-network 10.42.0.0/16 \
+    > "${DIAGNOSTICS_LOG_PATH}" 2>&1 &
+  DIAGNOSTICS_PID="$!"
+  echo "${DIAGNOSTICS_PID}" > "${DIAGNOSTICS_PID_PATH}"
+fi
+
 THREAD_STATS_SNAPSHOT_PID=""
 
 start_thread_stats_collector() {
@@ -1455,6 +1487,10 @@ if [ -n "${CHAOS_PID}" ]; then
   echo "  chaos_pid=${CHAOS_PID}"
   echo "  chaos_log=${CHAOS_LOG_PATH}"
 fi
+if [ -n "${DIAGNOSTICS_PID}" ]; then
+  echo "  diagnostics_pid=${DIAGNOSTICS_PID}"
+  echo "  packet_captures=${RUN_PACKET_CAPTURE_DIR}"
+fi
 echo
 if [ -t 0 ]; then
   echo "Press q to stop the test early. Otherwise this script exits when the load-test process finishes."
@@ -1478,8 +1514,17 @@ stop_chaos() {
   reset_chaos_state
 }
 
+stop_diagnostics() {
+  if [ -n "${DIAGNOSTICS_PID:-}" ] && kill -0 "${DIAGNOSTICS_PID}" >/dev/null 2>&1; then
+    kill "${DIAGNOSTICS_PID}" >/dev/null 2>&1 || true
+    wait "${DIAGNOSTICS_PID}" >/dev/null 2>&1 || true
+  fi
+  rm -f "${DIAGNOSTICS_PID_PATH}"
+}
+
 stop_process() {
   stop_thread_stats_collector
+  stop_diagnostics
   stop_chaos
   if kill -0 "${PID}" >/dev/null 2>&1; then
     kill "${PID}" >/dev/null 2>&1 || true
@@ -1523,6 +1568,7 @@ while true; do
     LOAD_TEST_EXIT_CODE=0
     wait "${PID}" || LOAD_TEST_EXIT_CODE=$?
     stop_thread_stats_collector
+    stop_diagnostics
     stop_chaos
     reset_chaos_state
     echo "Load test finished."
@@ -1538,6 +1584,18 @@ while true; do
       echo "Chaos executor exited with status ${CHAOS_EXIT_CODE}. Log: ${CHAOS_LOG_PATH}" >&2
       stop_process
       exit "${CHAOS_EXIT_CODE}"
+    fi
+  fi
+
+  if [ -n "${DIAGNOSTICS_PID:-}" ] && ! kill -0 "${DIAGNOSTICS_PID}" >/dev/null 2>&1; then
+    rm -f "${DIAGNOSTICS_PID_PATH}"
+    DIAGNOSTICS_EXIT_CODE=0
+    wait "${DIAGNOSTICS_PID}" || DIAGNOSTICS_EXIT_CODE=$?
+    DIAGNOSTICS_PID=""
+    if [ "${DIAGNOSTICS_EXIT_CODE}" -ne 0 ]; then
+      echo "Diagnostics executor exited with status ${DIAGNOSTICS_EXIT_CODE}. Log: ${DIAGNOSTICS_LOG_PATH}" >&2
+      stop_process
+      exit "${DIAGNOSTICS_EXIT_CODE}"
     fi
   fi
 

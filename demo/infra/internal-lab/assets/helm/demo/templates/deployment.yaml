@@ -25,6 +25,18 @@ spec:
         - name: demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+{{- if .Values.diagnostics.packetCapture.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - NET_RAW
+              drop:
+                - ALL
+          volumeMounts:
+            - name: packet-captures
+              mountPath: /captures
+{{- end }}
           ports:
             - containerPort: 8080
           env:
@@ -147,4 +159,10 @@ spec:
 {{- with .Values.resources }}
           resources:
 {{ toYaml . | indent 12 }}
+{{- end }}
+{{- if .Values.diagnostics.packetCapture.enabled }}
+      volumes:
+        - name: packet-captures
+          emptyDir:
+            sizeLimit: {{ .Values.diagnostics.packetCapture.storageSizeLimit | quote }}
 {{- end }}
