@@ -5,8 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from diagnostic_steps import normalize as normalize_diagnostic_steps
 
 try:
     import yaml
@@ -258,6 +262,10 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
     return result
 
 
+def normalized_diagnostic_steps(definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
+    return normalize_diagnostic_steps(definition, definition_path)
+
+
 def parse_env_override(value: str) -> tuple[str, str]:
     key, separator, raw = value.partition("=")
     key = key.strip()
@@ -307,6 +315,7 @@ def main() -> None:
 
     stub_settings = stub_settings_from_definition(stubs, definition_path)
     chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
+    diagnostic_steps = normalized_diagnostic_steps(definition, definition_path)
 
     deployment_env = value_at(deployment_profile, "env", default={})
     if not isinstance(deployment_env, dict):
@@ -334,6 +343,8 @@ def main() -> None:
         "TOPIC_SPECS": ",".join(topic_specs),
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "CHAOS_STEPS_JSON": json.dumps(chaos_steps, separators=(",", ":")),
+        "DIAGNOSTIC_STEPS_JSON": json.dumps(diagnostic_steps, separators=(",", ":")),
+        "PACKET_CAPTURE_ENABLED": str(bool(diagnostic_steps)).lower(),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
         "BASE_TPS": str(run_plan_base_tps if run_plan_base_tps not in (None, "") else load_test.get("base_tps", 10000)),
         "ORDER_EVENT_PERCENT": str(load_test.get("order_event_percent", 40)),

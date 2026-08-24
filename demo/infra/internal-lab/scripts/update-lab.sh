@@ -270,7 +270,7 @@ LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
-ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml)"
+ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml tcpdump)"
 
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"

@@ -240,6 +240,7 @@ HELM_ARGS=(
   --set "env.kafkaConsumerFetchMinBytes=${KAFKA_CONSUMER_FETCH_MIN_BYTES:-8192}" \
   --set "env.kafkaConsumerFetchMaxWaitMs=${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:-250}" \
   --set "env.kafkaConsumerMaxPollRecords=${KAFKA_CONSUMER_MAX_POLL_RECORDS:-500}" \
+  --set "diagnostics.packetCapture.enabled=${PACKET_CAPTURE_ENABLED:-false}" \
   --set-string "podLabels.ckc_run_id=${AUDIT_RUN_ID}" \
   --set-string "podLabels.ckc_profile=${APP_PROFILE}" \
   --set-string "podLabels.ckc_test_definition=$(basename "${TEST_DEFINITION}" .yaml)"

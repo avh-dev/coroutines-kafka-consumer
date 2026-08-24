@@ -257,6 +257,37 @@ network degradation, unpause known services, and restore the configured stubs
 baseline. Overlapping duration-based scenarios for the same target are rejected
 as ambiguous.
 
+Definitions may also schedule packet captures independently from chaos:
+
+```yaml
+diagnostic_steps:
+  - at: 2m
+    type: tcpdump
+    name: kafka-before-degradation
+    targets: [application, load-test]
+    duration: 10s
+    params:
+      interface: any
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 256Mi
+    required: false
+```
+
+Offsets use the same load-test start point as chaos, but diagnostics never
+change workload state. Each capture is bounded by tcpdump's `-G`/`-W` options.
+Because tcpdump checks time rotation when a packet arrives, a `SIGINT` safety
+watchdog closes a quiet capture one second after its requested duration.
+The application capture runs inside every ready demo pod. On the internal lab,
+the load-test capture runs on all host interfaces while excluding the k3s pod
+CIDR, so it contains producer-to-broker traffic without duplicating consumer
+traffic; in AWS it runs in
+every load-test Job pod. The charts add only `NET_RAW` and a size-limited
+`/captures` `emptyDir`, and only when packet capture steps are present. Finished
+pcaps are copied to the runner, compressed there, checksummed, and removed from
+the pod. Optional failures are recorded without failing the workload;
+`required: true` makes a failed capture fail the run.
+
 Pass the same choices explicitly for a non-interactive run:
 
 ```sh
@@ -636,6 +667,14 @@ calculated report under:
     analyzer-progress.log
     summary.yaml
   diagnostics/
+    tcpdump/
+      executor.log
+      index.jsonl
+      summary.json
+      <step-name>/<target>/<pod-or-host>/
+        <timestamp>.pcap.gz
+        <timestamp>.json
+        <timestamp>.stderr.log
     thread-stats/
       collector.log
       index.jsonl
@@ -659,6 +698,9 @@ sampling interval is required.
 
 Experiment reports include a Thread Stats coverage table. Evidence Bundle
 exports retain the complete `diagnostics` directory for every included run.
+When captures are configured, reports also include packet-capture coverage,
+per-target success counts, and raw/compressed byte totals. Protocol-level pcap
+analysis is intentionally a separate post-processing step.
 
 The runner prints and saves `summary.yaml` with the selected test settings,
 published, processed, missing, duplicate, and ordering counts calculated from

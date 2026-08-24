@@ -129,6 +129,9 @@ def copy_report_sources(
             run_dir / "diagnostics" / "thread-stats" / "summary.json": raw_dir / f"{target_report.run_id}-thread-stats-summary.json",
             run_dir / "diagnostics" / "thread-stats" / "index.jsonl": raw_dir / f"{target_report.run_id}-thread-stats-index.jsonl",
             run_dir / "diagnostics" / "thread-stats" / "collector.log": raw_dir / f"{target_report.run_id}-thread-stats-collector.log",
+            run_dir / "diagnostics" / "tcpdump" / "summary.json": raw_dir / f"{target_report.run_id}-tcpdump-summary.json",
+            run_dir / "diagnostics" / "tcpdump" / "index.jsonl": raw_dir / f"{target_report.run_id}-tcpdump-index.jsonl",
+            run_dir / "diagnostics" / "tcpdump" / "executor.log": raw_dir / f"{target_report.run_id}-tcpdump-executor.log",
         }
         for source, target in run_sources.items():
             if source.is_file():
