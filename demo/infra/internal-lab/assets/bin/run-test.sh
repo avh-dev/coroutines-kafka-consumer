@@ -1438,7 +1438,7 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
     --load-test-backend host \
     --host-interface any \
-    --host-exclude-network 10.42.0.0/16 \
+    --host-address "${LAB_NODE_IP}" \
     > "${DIAGNOSTICS_LOG_PATH}" 2>&1 &
   DIAGNOSTICS_PID="$!"
   echo "${DIAGNOSTICS_PID}" > "${DIAGNOSTICS_PID_PATH}"
@@ -1688,6 +1688,21 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
 else
   echo "Audit logging disabled; skipping audit analysis."
+fi
+
+if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
+  echo "Running Kafka packet-capture analysis."
+  RUN_PCAP_ANALYSIS_DIR="${RUN_DIAGNOSTICS_DIR}/pcap-analysis"
+  mkdir -p "${RUN_PCAP_ANALYSIS_DIR}"
+  if ! python3 "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" "${RUN_DIR}" \
+    --output-dir "${RUN_PCAP_ANALYSIS_DIR}" \
+    > "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" 2>&1; then
+    echo "Packet-capture analysis failed. Log: ${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2
+    cat "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2 || true
+    write_run_status "failed" 1
+    exit 1
+  fi
+  cat "${RUN_PCAP_ANALYSIS_DIR}/summary.txt"
 fi
 
 if [ "${RUN_INTERRUPTED}" -eq 1 ]; then

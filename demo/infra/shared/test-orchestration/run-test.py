@@ -666,6 +666,23 @@ def main() -> None:
             diagnostics_process = None
             if diagnostics_exit_code != 0:
                 raise RuntimeError(f"Required packet capture failed; see {diagnostics_dir / 'executor.log'}")
+        if diagnostic_steps:
+            analysis_dir = reports_dir / run_id / "diagnostics" / "pcap-analysis"
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            analysis = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_dir / "demo" / "infra" / "shared" / "pcap" / "analyze-pcap.py"),
+                    str(reports_dir / run_id),
+                    "--output-dir", str(analysis_dir),
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            (analysis_dir / "analyzer.log").write_text(analysis.stdout + analysis.stderr, encoding="utf-8")
+            if analysis.returncode != 0:
+                raise RuntimeError(f"Packet-capture analysis failed; see {analysis_dir / 'analyzer.log'}")
         collect_job_logs(job_name, reports_dir, run_id)
         print(f"Test definition '{definition.get('name', 'unnamed')}' completed.")
         print(f"  source={definition_path}")

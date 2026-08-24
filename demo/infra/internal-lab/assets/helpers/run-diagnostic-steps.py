@@ -37,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-test-selector", default="app.kubernetes.io/name=ckc-load-test")
     parser.add_argument("--load-test-container", default="load-test")
     parser.add_argument("--host-interface", default="any")
+    parser.add_argument("--host-address", default="")
     parser.add_argument("--host-exclude-network", default="")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -145,7 +146,11 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
     params = step["params"]
     interface = args.host_interface if params["interface"] == "any" else params["interface"]
     capture_filter = params["filter"]
+    if args.host_address:
+        host_address = str(ipaddress.ip_address(args.host_address))
+        capture_filter = f"( {capture_filter} ) and host {host_address}"
     if args.host_exclude_network:
+        ipaddress.ip_network(args.host_exclude_network, strict=False)
         capture_filter = f"( {capture_filter} ) and not net {args.host_exclude_network}"
     command = tcpdump_command(interface, params["snaplen"], step["durationSeconds"], str(capture_pattern), capture_filter)
     metadata: dict[str, Any] = {
@@ -153,7 +158,8 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
         "required": step["required"], "requested_at_seconds": step["atSeconds"],
         "requested_duration_seconds": step["durationSeconds"], "started_at": iso(started),
         "interface": interface, "snaplen": params["snaplen"], "filter": capture_filter,
-        "configured_filter": params["filter"], "excluded_network": args.host_exclude_network or None,
+        "configured_filter": params["filter"], "host_address": args.host_address or None,
+        "excluded_network": args.host_exclude_network or None,
         "max_file_size_bytes": params["maxFileSizeBytes"], "command": command,
     }
     stderr = ""

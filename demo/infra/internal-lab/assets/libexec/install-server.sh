@@ -17,7 +17,7 @@ LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y ca-certificates curl gnupg iproute2 iptables lsb-release linux-tools-common linux-tools-generic openjdk-21-jre-headless python3-yaml tcpdump
+apt-get install -y ca-certificates curl gnupg iproute2 iptables lsb-release linux-tools-common linux-tools-generic openjdk-21-jre-headless python3-yaml tcpdump tshark
 
 if ! command -v docker >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings

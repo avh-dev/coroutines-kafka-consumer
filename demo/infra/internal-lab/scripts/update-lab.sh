@@ -179,6 +179,7 @@ sync_internal_lab_assets() {
 
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
+  sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads"
   sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
@@ -270,7 +271,7 @@ LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
-ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml tcpdump)"
+ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 && command -v tshark >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml tcpdump tshark)"
 
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
@@ -290,6 +291,7 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
 ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
+  demo/infra/shared/pcap \
   demo/infra/shared/workloads \
   demo/infra/shared/grafana \
   demo/infra/internal-lab/workloads)"
@@ -337,6 +339,7 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   ! remote_fingerprint_matches "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" ||
   ! remote_paths_exist \
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
+    "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" \
     "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
     "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
     "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
