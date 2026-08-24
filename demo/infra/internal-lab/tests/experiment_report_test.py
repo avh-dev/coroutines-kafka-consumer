@@ -167,6 +167,10 @@ class ExperimentReportTest(unittest.TestCase):
                         }
                     ]
                 },
+                "thread_stats_snapshots": {
+                    "enabled": True,
+                    "interval_seconds": 60,
+                },
             },
         )
         self.write_json(
@@ -191,6 +195,28 @@ class ExperimentReportTest(unittest.TestCase):
                     }
                 }
             },
+        )
+        self.write_json(
+            run_dir / "diagnostics" / "thread-stats" / "summary.json",
+            {
+                "schema_version": 1,
+                "status": "completed",
+                "configuration": {"interval_seconds": 60},
+                "cycles": 2,
+                "pod_discovery_failures": 0,
+                "empty_pod_cycles": 0,
+                "snapshot_attempts": 4,
+                "successful_snapshots": 4,
+                "failed_snapshots": 0,
+                "coverage_percent": 100.0,
+                "pods": {"ckc-demo-a": {}, "ckc-demo-b": {}},
+            },
+        )
+        (run_dir / "diagnostics" / "thread-stats" / "index.jsonl").write_text(
+            '{"status":"success"}\n', encoding="utf-8"
+        )
+        (run_dir / "diagnostics" / "thread-stats" / "collector.log").write_text(
+            "collector stopped\n", encoding="utf-8"
         )
         experiment_dir = root / "results" / "experiments" / "set-a"
         self.write_json(
@@ -311,6 +337,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("PASS", report.evaluation_status)
             self.assertEqual("PASS", report.targets[0].criteria[0].status)
             self.assertEqual(125.5, report.targets[0].measurements["latency_p95_ms"])
+            self.assertEqual(100.0, report.targets[0].thread_stats["coverage_percent"])
+            self.assertEqual(2, report.targets[0].thread_stats["pod_count"])
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -345,6 +373,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("FAIL", model["evaluation_status"])
             self.assertIn("❌ FAIL", markdown)
             self.assertIn("## Runtime measurements", markdown)
+            self.assertIn("## Thread Stats snapshot coverage", markdown)
+            self.assertIn("4 / 4", markdown)
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)
@@ -536,6 +566,9 @@ class ExperimentReportTest(unittest.TestCase):
                 "sla-profile.yaml",
                 "run-a-metadata.json",
                 "run-a-audit-summary.yaml",
+                "run-a-thread-stats-summary.json",
+                "run-a-thread-stats-index.jsonl",
+                "run-a-thread-stats-collector.log",
             ):
                 self.assertTrue((report_dir / "raw" / name).is_file())
 

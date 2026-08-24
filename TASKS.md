@@ -248,7 +248,7 @@
 | [INFRA-107](#infra-107) | Render semantic chaos events and intervals on experiment load-profile timelines. | DONE |
 | [INFRA-108](#infra-108) | Wire scaled load-test producer settings and Kafka producer metrics into the internal lab. | DONE |
 | [INFRA-109](#infra-109) | Add a focused CKC experiment comparing coroutine worker reserves across fixed and single-carrier virtual-thread dispatchers under large Kafka poll batches. | DONE |
-| [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | IN_PROGRESS |
+| [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2736,3 +2736,5 @@ _Date: 2026-08-24_
 Replace the monolithic Thread Stats snapshot log with timestamped JSON artifacts grouped by application pod.
 Collect a full snapshot from every running demo pod once per minute while preserving pod identity and collection status in a machine-readable index.
 Expose collection coverage in run metadata and experiment reports, and keep the artifact layout compatible with local and cloud Kubernetes access.
+
+Verification: all 25 internal-lab tests passed; Python and Bash syntax checks passed; a live optilab collection discovered the running demo pod through Kubernetes, stored its 9.5 KiB full JSON snapshot, and reported 100% coverage without discovery or snapshot failures.
