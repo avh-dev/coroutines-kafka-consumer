@@ -140,6 +140,7 @@
 | [DEMO-84](#demo-84) | Scale per-topic load-test Kafka producer pools from target throughput and expose producer diagnostics. | DONE |
 | [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer and Kafka metrics support threads as Kafka work. | DONE |
 | [DEMO-86](#demo-86) | Install packet-capture tooling in the demo application and load-test container images. | DONE |
+| [DEMO-87](#demo-87) | Generate incompressible random telemetry diagnostics payloads for realistic Kafka compression tests. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2789,5 +2790,16 @@ Capture producer and consumer traffic twice during steady load and report wire/b
 Classify the load generator in process-exporter and include its CPU/RSS in the report; raise the analyzer CSV field limit for reassembled Kafka payloads larger than 128 KiB.
 Add per-configuration totals for producer wire, consumer wire, message values, record attributes, useful logical payload, and record metadata.
 Normalize differing fixed-duration capture samples with separate producer and consumer logical-payload-to-wire ratios.
+
+<a id="demo-87"></a>
+### DEMO-87 - Randomize telemetry diagnostics payloads
+
+_Date: 2026-08-24_
+
+Replace the repeating telemetry diagnostics byte pattern with independently generated random bytes for every event.
+Preserve the configured payload size, including zero-length payloads, and cover size and per-event variation with focused tests.
+Keep compression experiments representative by preventing large Kafka record batches from exploiting an artificial cross-record pattern.
+
+Verification: `./gradlew :ckc-demo-load-test:test` passed, including focused coverage for independently randomized 256-byte payloads and zero-length payloads.
 
 Verification: all 36 internal-lab tests and 4 focused pcap analyzer tests passed. Optilab experiment set `20260824T153033Z` completed all four targets with throughput SLA PASS, 10/10 Thread Stats snapshots, and 4/4 successful captures per target. Spring/LZ4 compressed record payload to 31.77% while CKC/LZ4 reached 9.38%; CKC used about 0.94 application cores versus 2.26-2.31 for Spring and reduced sampled consumer wire from 14.96 MiB for Spring/LZ4 to 1.88 MiB.
