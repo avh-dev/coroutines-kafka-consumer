@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 dnf update -y
-dnf install -y docker git unzip tar gzip shadow-utils dnf-plugins-core
+dnf install -y docker git unzip tar gzip shadow-utils dnf-plugins-core wireshark-cli
 
 systemctl enable --now docker
 usermod -aG docker ec2-user

@@ -113,6 +113,30 @@ class DiagnosticStepsTest(unittest.TestCase):
             self.assertEqual(1, len(metadata_files))
             self.assertIn("\n  ", metadata_files[0].read_text(encoding="utf-8"))
 
+    def test_host_capture_can_be_limited_to_load_generator_address(self) -> None:
+        step = self.normalize(
+            [{"at": 0, "duration": "5s", "type": "tcpdump", "name": "producer", "targets": ["load-test"]}]
+        )[0]
+        with tempfile.TemporaryDirectory() as directory:
+            args = type(
+                "Args", (),
+                {"output_dir": directory, "host_interface": "any", "host_address": "10.10.20.2", "host_exclude_network": "10.42.0.0/16", "dry_run": True},
+            )()
+            result = diagnostic_runner.capture_host(step, "load-test", args)
+        self.assertEqual("( ( tcp port 9092 ) and host 10.10.20.2 ) and not net 10.42.0.0/16", result["filter"])
+        self.assertEqual("10.10.20.2", result["host_address"])
+
+    def test_pod_capture_resolves_any_to_eth0(self) -> None:
+        step = self.normalize(
+            [{"at": 0, "duration": "5s", "type": "tcpdump", "name": "consumer", "targets": ["application"]}]
+        )[0]
+        with tempfile.TemporaryDirectory() as directory:
+            args = type("Args", (), {"output_dir": directory, "pod_interface": "eth0", "dry_run": True})()
+            result = diagnostic_runner.capture_pod(step, "application", "ckc-perf", "demo-0", "demo", args)
+        self.assertEqual("eth0", result["interface"])
+        self.assertEqual("auto", result["configured_interface"])
+        self.assertEqual("eth0", result["command"][result["command"].index("-i") + 1])
+
     def test_tcpdump_uses_its_duration_rotation_and_keeps_root_identity(self) -> None:
         command = diagnostic_runner.tcpdump_command("any", 0, 10, "/captures/test-%s.pcap", "tcp port 9092")
         self.assertIn("-G", command)

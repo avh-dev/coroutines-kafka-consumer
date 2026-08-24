@@ -601,6 +601,24 @@ def packet_capture_coverage(run_dir: Path, metadata: dict[str, Any], warnings: l
     }
 
 
+def packet_capture_analysis(run_dir: Path, enabled: bool, warnings: list[str]) -> dict[str, Any]:
+    summary_path = run_dir / "diagnostics" / "pcap-analysis" / "summary.json"
+    if not summary_path.is_file():
+        if enabled:
+            warnings.append("Kafka packet-capture analysis is unavailable")
+        return {"status": "unavailable" if enabled else "disabled", "roles": {}}
+    summary = load_json(summary_path)
+    status = str(summary.get("status") or "unknown")
+    if status != "success":
+        warnings.append(f"Kafka packet-capture analysis status is {status}")
+    return {
+        "status": status,
+        "tshark_version": summary.get("tshark_version"),
+        "roles": summary.get("roles") if isinstance(summary.get("roles"), dict) else {},
+        "warnings": summary.get("warnings") if isinstance(summary.get("warnings"), list) else [],
+    }
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -677,6 +695,7 @@ def analyze_experiment(
         execution = "COMPLETED" if status.get("status") == "completed" and int(target.get("exit_code", 1)) == 0 else str(status.get("status") or "unknown").upper()
         started = parse_instant(target.get("started_at") or status.get("started_at"))
         ended = parse_instant(target.get("ended_at") or status.get("ended_at"))
+        packet_captures = packet_capture_coverage(run_dir, metadata, warnings)
         targets.append(
             TargetReport(
                 name=str(target.get("name") or target.get("target") or run_dir.name),
@@ -699,7 +718,8 @@ def analyze_experiment(
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
                 measurements=measurements,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
-                packet_captures=packet_capture_coverage(run_dir, metadata, warnings),
+                packet_captures=packet_captures,
+                pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
                 criteria=criteria,
                 latency_sla=latency_results,
                 warnings=warnings,

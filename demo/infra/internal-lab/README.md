@@ -267,7 +267,7 @@ diagnostic_steps:
     targets: [application, load-test]
     duration: 10s
     params:
-      interface: any
+      interface: auto
       snaplen: 0
       filter: tcp port 9092
       max_file_size: 256Mi
@@ -279,14 +279,24 @@ change workload state. Each capture is bounded by tcpdump's `-G`/`-W` options.
 Because tcpdump checks time rotation when a packet arrives, a `SIGINT` safety
 watchdog closes a quiet capture one second after its requested duration.
 The application capture runs inside every ready demo pod. On the internal lab,
-the load-test capture runs on all host interfaces while excluding the k3s pod
-CIDR, so it contains producer-to-broker traffic without duplicating consumer
-traffic; in AWS it runs in
-every load-test Job pod. The charts add only `NET_RAW` and a size-limited
+the load-test capture resolves the active Kafka/Redpanda container's Docker
+network and listens only on that bridge. The configured lab-node address and
+pod-CIDR filter then select producer-to-broker traffic without duplicating
+packets across host and veth interfaces. Kubernetes captures use `eth0` when
+the diagnostic interface is `auto`; in AWS they run in every load-test Job pod.
+The charts add only `NET_RAW` and a size-limited
 `/captures` `emptyDir`, and only when packet capture steps are present. Finished
 pcaps are copied to the runner, compressed there, checksummed, and removed from
 the pod. Optional failures are recorded without failing the workload;
 `required: true` makes a failed capture fail the run.
+
+After the workload and audit analysis finish, tshark analyzes all completed
+captures. It writes `summary.json` and a human-readable `summary.txt`, including
+connections, Kafka API requests/responses, record and batch counts, wire versus
+TCP/IP overhead, codec use, compressed size, and decompressed record size. The
+experiment report includes paired producer/consumer wire-breakdown bars. For
+TLS captures, transport and TLS framing remain available while Kafka batch
+details are explicitly reported as unavailable.
 
 Pass the same choices explicitly for a non-interactive run:
 
@@ -675,6 +685,10 @@ calculated report under:
         <timestamp>.pcap.gz
         <timestamp>.json
         <timestamp>.stderr.log
+    pcap-analysis/
+      analyzer.log
+      summary.json
+      summary.txt
     thread-stats/
       collector.log
       index.jsonl

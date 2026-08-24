@@ -241,6 +241,40 @@ class ExperimentReportTest(unittest.TestCase):
         (run_dir / "diagnostics" / "tcpdump" / "executor.log").write_text(
             "diagnostics completed\n", encoding="utf-8"
         )
+        pcap_roles = {}
+        for role, wire_bytes, messages, batches, records in (
+            ("producer", 20_000, 16, 8, 79),
+            ("consumer", 24_000, 108, 6, 55),
+        ):
+            pcap_roles[role] = {
+                "capture_count": 1,
+                "connections": {"observed": 3},
+                "network": {
+                    "captured_wire_bytes": wire_bytes,
+                    "network_header_bytes": 4_000,
+                    "network_overhead_percent": 20.0,
+                    "tcp_payload_bytes": wire_bytes - 4_000,
+                },
+                "protocol": {
+                    "kafka_messages": messages,
+                    "kafka_pdu_bytes": 12_000,
+                    "record_batches": {
+                        "batches": batches, "records": records, "batch_wire_bytes": 8_000,
+                        "batch_header_bytes": 488, "compressed_record_bytes": 7_512,
+                        "compression_ratio_percent": 24.0, "space_saving_percent": 76.0,
+                    },
+                },
+            }
+        self.write_json(
+            run_dir / "diagnostics" / "pcap-analysis" / "summary.json",
+            {"status": "success", "tshark_version": "TShark test", "roles": pcap_roles, "warnings": []},
+        )
+        (run_dir / "diagnostics" / "pcap-analysis" / "summary.txt").write_text(
+            "Kafka packet capture analysis\n", encoding="utf-8"
+        )
+        (run_dir / "diagnostics" / "pcap-analysis" / "analyzer.log").write_text(
+            "analysis complete\n", encoding="utf-8"
+        )
         experiment_dir = root / "results" / "experiments" / "set-a"
         self.write_json(
             experiment_dir / "summary.json",
@@ -364,6 +398,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(2, report.targets[0].thread_stats["pod_count"])
             self.assertEqual(2, report.targets[0].packet_captures["succeeded"])
             self.assertEqual(6144, report.targets[0].packet_captures["raw_size_bytes"])
+            self.assertEqual(79, report.targets[0].pcap_analysis["roles"]["producer"]["protocol"]["record_batches"]["records"])
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -404,6 +439,11 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("2 / 2", markdown)
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-summary.json").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-index.jsonl").is_file())
+            self.assertTrue((report_dir / "raw" / "run-a-pcap-analysis.json").is_file())
+            self.assertTrue((report_dir / "raw" / "run-a-pcap-analysis.txt").is_file())
+            self.assertTrue((report_dir / "kafka-wire-breakdown.svg").is_file())
+            self.assertIn("## Kafka traffic analysis", markdown)
+            self.assertIn("producer", markdown)
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)

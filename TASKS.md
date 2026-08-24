@@ -251,6 +251,7 @@
 | [INFRA-109](#infra-109) | Add a focused CKC experiment comparing coroutine worker reserves across fixed and single-carrier virtual-thread dispatchers under large Kafka poll batches. | DONE |
 | [INFRA-112](#infra-112) | Store full Thread Stats snapshots as timestamped per-pod diagnostic artifacts during internal-lab runs. | DONE |
 | [INFRA-113](#infra-113) | Add scheduled packet captures for application and load-test traffic in local and cloud lab runs. | DONE |
+| [INFRA-114](#infra-114) | Analyze Kafka packet captures and compare producer and consumer protocol traffic in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2763,3 +2764,15 @@ Grant `NET_RAW` and mount bounded capture storage only when diagnostics are enab
 Use the same artifact contract for application and load-test targets across optilab and AWS, with host capture adapting the current optilab load generator.
 Compress captures on the runner, preserve structured status and checksums, and expose capture coverage in experiment reports and Evidence Bundles.
 Validate the full optilab path with a required two-point smoke capture: 180 consumer-side packets and 348 producer-side packets, with no files left in the pod.
+
+<a id="infra-114"></a>
+### INFRA-114 - Analyze Kafka packet captures
+
+_Date: 2026-08-24_
+
+Analyze every captured Kafka connection and aggregate request/response message counts by API type for producer and consumer observation points.
+Report connection counts, wire bytes, TCP/IP overhead, Kafka payload, record-batch overhead, and compression savings with explicit unavailable estimates for encrypted traffic.
+Persist machine-readable JSON plus a readable text summary beside each run, and render paired producer/consumer comparison bars for every experiment target.
+Rebuild the missing analyzer around tshark and native Kafka RecordBatch decompression, keeping the same post-workload path suitable for optilab and AWS artifacts.
+
+Verification: all 36 internal-lab tests and 3 focused analyzer tests passed; Python and Bash syntax checks passed. Live optilab smoke run `20260824T142956Z` resolved `eth0` for the application and `br-cf23c25e43fb` from the active Kafka Docker network for the host producer. Both captures had zero retransmissions and no duplicate interface observations; TCP payload equalled Kafka PDU bytes exactly at both points. Automatic JSON/text analysis reported 16 Produce request/response messages and 8 LZ4 batches on the producer side, plus 106 Kafka messages and 7 LZ4 batches on the consumer side.

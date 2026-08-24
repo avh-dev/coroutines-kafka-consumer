@@ -93,7 +93,7 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             params = {}
         if not isinstance(params, dict):
             raise ValueError(f"{context}.params must be an object: {definition_path}")
-        interface = str(params.get("interface", "any")).strip()
+        interface = str(params.get("interface", "auto")).strip()
         if not re.fullmatch(r"[A-Za-z0-9_.:@-]{1,64}", interface):
             raise ValueError(f"{context}.params.interface is invalid: {definition_path}")
         snaplen = int(params.get("snaplen", 0))

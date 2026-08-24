@@ -1431,13 +1431,36 @@ fi
 DIAGNOSTICS_LOG_PATH="${RUN_PACKET_CAPTURE_DIR}/executor.log"
 DIAGNOSTICS_PID=""
 if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
+  resolve_kafka_capture_interface() {
+    case "${LAB_KAFKA_IMPLEMENTATION}" in
+      apache-kafka) kafka_container="ckc-perf-kafka" ;;
+      redpanda) kafka_container="ckc-perf-redpanda" ;;
+      *) echo "Unsupported Kafka implementation for packet capture: ${LAB_KAFKA_IMPLEMENTATION}" >&2; return 1 ;;
+    esac
+    network_id="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{"\n"}}{{end}}' "${kafka_container}" | sed -n '1p')"
+    if [ -z "${network_id}" ]; then
+      echo "Could not resolve the Docker network for ${kafka_container}." >&2
+      return 1
+    fi
+    bridge_name="$(docker network inspect "${network_id}" --format '{{index .Options "com.docker.network.bridge.name"}}')"
+    if [ -z "${bridge_name}" ] || [ "${bridge_name}" = "<no value>" ]; then
+      bridge_name="br-$(printf '%s' "${network_id}" | cut -c1-12)"
+    fi
+    if ! ip link show dev "${bridge_name}" >/dev/null 2>&1; then
+      echo "Resolved Kafka Docker bridge does not exist: ${bridge_name}" >&2
+      return 1
+    fi
+    printf '%s\n' "${bridge_name}"
+  }
+  KAFKA_CAPTURE_INTERFACE="$(resolve_kafka_capture_interface)"
   mkdir -p "${RUN_PACKET_CAPTURE_DIR}"
   nohup python3 "${LAB_ROOT}/helpers/run-diagnostic-steps.py" \
     --steps-json "${DIAGNOSTIC_STEPS_JSON}" \
     --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
     --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
     --load-test-backend host \
-    --host-interface any \
+    --host-interface "${KAFKA_CAPTURE_INTERFACE}" \
+    --host-address "${LAB_NODE_IP}" \
     --host-exclude-network 10.42.0.0/16 \
     > "${DIAGNOSTICS_LOG_PATH}" 2>&1 &
   DIAGNOSTICS_PID="$!"
@@ -1688,6 +1711,21 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
 else
   echo "Audit logging disabled; skipping audit analysis."
+fi
+
+if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
+  echo "Running Kafka packet-capture analysis."
+  RUN_PCAP_ANALYSIS_DIR="${RUN_DIAGNOSTICS_DIR}/pcap-analysis"
+  mkdir -p "${RUN_PCAP_ANALYSIS_DIR}"
+  if ! python3 "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" "${RUN_DIR}" \
+    --output-dir "${RUN_PCAP_ANALYSIS_DIR}" \
+    > "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" 2>&1; then
+    echo "Packet-capture analysis failed. Log: ${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2
+    cat "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2 || true
+    write_run_status "failed" 1
+    exit 1
+  fi
+  cat "${RUN_PCAP_ANALYSIS_DIR}/summary.txt"
 fi
 
 if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
