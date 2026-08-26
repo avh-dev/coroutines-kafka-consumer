@@ -1,0 +1,64 @@
+name: kafka-compression-parallelism
+
+stubs:
+  error_rate_percent: 0
+  eta:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+  flavour:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+  registry:
+    delay_p90_ms: 1
+    delay_p95_ms: 1
+    delay_p99_ms: 1
+    delay_p100_ms: 1
+
+diagnostic_steps:
+  - at: 2m
+    type: tcpdump
+    name: kafka-steady-early
+    targets: [application, load-test]
+    duration: 5s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+    required: true
+  - at: 7m
+    type: tcpdump
+    name: kafka-steady-late
+    targets: [application, load-test]
+    duration: 5s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+    required: true
+
+load_test:
+  shards: 1
+  workers: 1
+  base_tps: 5000
+  order_event_percent: 0
+  batch_event_percent: 0
+  cauldron_telemetry_percent: 100
+  producer_capacity_tps:
+    order: 5000
+    batch: 5000
+    telemetry: 5000
+  telemetry_source_mode: FIXED_FLEET
+  load_profile: "0 -> (1m, warmup) -> 100 -> (8m, steady) -> 100 -> (1m, cool-down) -> 0"
+  cauldron_count: 5000
+  min_orders_per_batch: 4
+  max_orders_per_batch: 8
+  min_brewing_steps: 5
+  max_brewing_steps: 10
+  max_burst: 1000
+  diagnostics_blob_size: 256

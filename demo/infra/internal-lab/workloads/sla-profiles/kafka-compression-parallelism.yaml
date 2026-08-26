@@ -1,0 +1,10 @@
+name: kafka-compression-parallelism
+description: Require each compression and parallelism profile to sustain at least 90% of the requested 5K TPS workload.
+criteria:
+  - id: sustained-throughput
+    title: Average processed throughput is at least 4.5K records/s
+    source: measurement
+    measurement: throughput_average_rps
+    operator: gte
+    threshold: 4500
+    unit: records/s

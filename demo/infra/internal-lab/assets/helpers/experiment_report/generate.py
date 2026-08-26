@@ -45,6 +45,26 @@ def write_report(report_dir: Path, report: Any) -> None:
     (report_dir / "cpu-average.svg").write_text(
         comparison_bar_svg(report, "cpu_average_cores", "Average application CPU", "cores"), encoding="utf-8"
     )
+    (report_dir / "application-memory-average.svg").write_text(
+        comparison_bar_svg(report, "application_memory_average_mib", "Average application working set", "MiB"),
+        encoding="utf-8",
+    )
+    (report_dir / "broker-cpu-average.svg").write_text(
+        comparison_bar_svg(report, "broker_cpu_average_cores", "Average Kafka broker CPU", "cores"),
+        encoding="utf-8",
+    )
+    (report_dir / "broker-memory-average.svg").write_text(
+        comparison_bar_svg(report, "broker_memory_average_mib", "Average Kafka broker RSS", "MiB"),
+        encoding="utf-8",
+    )
+    (report_dir / "producer-cpu-average.svg").write_text(
+        comparison_bar_svg(report, "producer_cpu_average_cores", "Average load generator CPU", "cores"),
+        encoding="utf-8",
+    )
+    (report_dir / "producer-memory-average.svg").write_text(
+        comparison_bar_svg(report, "producer_memory_average_mib", "Average load generator RSS", "MiB"),
+        encoding="utf-8",
+    )
     (report_dir / "throughput-average.svg").write_text(
         comparison_bar_svg(report, "throughput_average_rps", "Average processed throughput", "records/s"), encoding="utf-8"
     )

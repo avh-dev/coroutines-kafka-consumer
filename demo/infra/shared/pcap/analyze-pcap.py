@@ -88,6 +88,7 @@ def tshark_rows(path: Path, executable: str) -> list[dict[str, str]]:
     result = subprocess.run(command, check=False, text=True, capture_output=True)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"TShark failed for {path}")
+    csv.field_size_limit(sys.maxsize)
     return list(csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"'))
 
 

@@ -5,9 +5,11 @@ import avh.ckc.demo.proto.EventMetadata
 import com.google.protobuf.ByteString
 import java.time.Instant
 import kotlin.math.sin
+import kotlin.random.Random
 
 class CauldronTelemetryFactory(
-    private val diagnosticsBlobSize: Int
+    private val diagnosticsBlobSize: Int,
+    private val random: Random = Random.Default
 ) {
     fun create(activeBatch: ActiveBatch, occurredAt: Instant): CauldronTelemetryEvent {
         val sample = activeBatch.telemetrySequence++
@@ -29,7 +31,7 @@ class CauldronTelemetryFactory(
             .setBubbleRateHz(7.5 + (wobble * 1.2))
             .setFuelLevelPct((65.0 - sample * 0.4).coerceAtLeast(5.0))
             .setSootIndex((0.2 + sample * 0.01).coerceAtMost(0.95))
-            .setDiagnosticsBlob(ByteString.copyFrom(ByteArray(diagnosticsBlobSize) { (sample.toInt() + it).toByte() }))
+            .setDiagnosticsBlob(ByteString.copyFrom(random.nextBytes(diagnosticsBlobSize)))
             .build()
     }
 }

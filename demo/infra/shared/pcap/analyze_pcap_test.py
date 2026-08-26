@@ -4,6 +4,7 @@ import importlib.util
 import struct
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("analyze-pcap.py")
@@ -52,6 +53,14 @@ def batch(records: bytes, count: int) -> bytes:
 
 
 class AnalyzePcapTest(unittest.TestCase):
+    def test_tshark_rows_accepts_reassembled_fields_larger_than_csv_default(self) -> None:
+        raw = "a" * (128 * 1024 + 1)
+        stdout = "\t".join(analyze_pcap.FIELDS) + "\n" + "\t".join(["1", *([""] * 24), raw, *([""] * 6)]) + "\n"
+        completed = analyze_pcap.subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+        with patch.object(analyze_pcap.subprocess, "run", return_value=completed):
+            rows = analyze_pcap.tshark_rows(Path("large.pcap"), "tshark")
+        self.assertEqual(raw, rows[0]["tcp.reassembled.data"])
+
     def test_record_breakdown_is_exhaustive(self) -> None:
         encoded = record(b"key", b"value", b"trace", b"abc")
         sizes = analyze_pcap.record_sizes(encoded)
