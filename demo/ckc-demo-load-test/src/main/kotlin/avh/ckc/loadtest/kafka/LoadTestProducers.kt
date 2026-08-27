@@ -7,6 +7,7 @@ import avh.ckc.demo.serialization.BatchLifecycleEventSerializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import avh.ckc.loadtest.config.LoadTestConfig
+import avh.ckc.loadtest.config.KafkaProducerSettings
 import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.metrics.ProducerTopicStats
 import avh.ckc.loadtest.runtime.ShardContext
@@ -46,13 +47,28 @@ class LoadTestProducers(
     private val lastLoggedTotal = AtomicLong(0)
 
     private val lifecycleProducerPool = lazy {
-        producerPool("order", poolSizes.order, OrderLifecycleEventSerializer::class.java)
+        producerPool(
+            "order",
+            poolSizes.order,
+            config.topicKafkaProducers.order,
+            OrderLifecycleEventSerializer::class.java
+        )
     }
     private val batchProducerPool = lazy {
-        producerPool("batch", poolSizes.batch, BatchLifecycleEventSerializer::class.java)
+        producerPool(
+            "batch",
+            poolSizes.batch,
+            config.topicKafkaProducers.batch,
+            BatchLifecycleEventSerializer::class.java
+        )
     }
     private val telemetryProducerPool = lazy {
-        producerPool("telemetry", poolSizes.cauldronTelemetry, CauldronTelemetryEventSerializer::class.java)
+        producerPool(
+            "telemetry",
+            poolSizes.cauldronTelemetry,
+            config.topicKafkaProducers.telemetry,
+            CauldronTelemetryEventSerializer::class.java
+        )
     }
 
     init {
@@ -150,14 +166,17 @@ class LoadTestProducers(
         auditLog?.generated(topic, key)
     }
 
-    private fun producerProperties(valueSerializerClass: Class<*>): Map<String, Any> = mapOf(
+    private fun producerProperties(
+        settings: KafkaProducerSettings,
+        valueSerializerClass: Class<*>
+    ): Map<String, Any> = mapOf(
         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to config.bootstrapServers,
         ProducerConfig.ACKS_CONFIG to "all",
         ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
-        ProducerConfig.LINGER_MS_CONFIG to config.kafkaProducer.lingerMs,
-        ProducerConfig.BATCH_SIZE_CONFIG to config.kafkaProducer.batchSize,
-        ProducerConfig.COMPRESSION_TYPE_CONFIG to config.kafkaProducer.compressionType,
-        ProducerConfig.BUFFER_MEMORY_CONFIG to config.kafkaProducer.bufferMemory,
+        ProducerConfig.LINGER_MS_CONFIG to settings.lingerMs,
+        ProducerConfig.BATCH_SIZE_CONFIG to settings.batchSize,
+        ProducerConfig.COMPRESSION_TYPE_CONFIG to settings.compressionType,
+        ProducerConfig.BUFFER_MEMORY_CONFIG to settings.bufferMemory,
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to valueSerializerClass
     )
@@ -202,12 +221,13 @@ class LoadTestProducers(
     private fun <V> producerPool(
         topic: String,
         size: Int,
+        settings: KafkaProducerSettings,
         valueSerializerClass: Class<out Serializer<V>>
     ): TopicProducerPool<String, V> =
         TopicProducerPool(
             List(size) { producerIndex ->
                 KafkaProducer<String, V>(
-                    producerProperties(valueSerializerClass) +
+                    producerProperties(settings, valueSerializerClass) +
                         (ProducerConfig.CLIENT_ID_CONFIG to "ckc-load-test-$topic-s${shardContext.shardIndex}-p$producerIndex")
                 ).also { producer -> metrics.bindKafkaProducer(topic, producerIndex, producer) }
             }

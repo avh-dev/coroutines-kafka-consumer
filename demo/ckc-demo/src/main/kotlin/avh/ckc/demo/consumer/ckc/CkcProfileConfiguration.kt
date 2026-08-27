@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
 import avh.ckc.demo.proto.BatchLifecycleEvent
@@ -121,13 +122,14 @@ private class CkcConsumerRuntime(
     private var running = false
 
     override fun start() {
-        val commonProperties = mapOf(
+        val commonProperties = mapOf<String, Any>(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
-        ) + properties.kafka.consumerProperties()
+        )
 
         orderConsumer = DemoConsumers.orderConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            commonProperties + properties.kafkaConsumerProperties(properties.consumers.order) +
+                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             orderConsumerMetrics,
             properties.audit,
             properties.consumers.order,
@@ -137,7 +139,8 @@ private class CkcConsumerRuntime(
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            commonProperties + properties.kafkaConsumerProperties(properties.consumers.batch) +
+                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             batchConsumerMetrics,
             properties.audit,
             properties.consumers.batch,
@@ -147,7 +150,8 @@ private class CkcConsumerRuntime(
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
-            commonProperties + mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            commonProperties + properties.kafkaConsumerProperties(properties.consumers.telemetry) +
+                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,
@@ -182,9 +186,3 @@ private class CkcConsumerRuntime(
 
     override fun isAutoStartup(): Boolean = true
 }
-
-private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
-    ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,
-    ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
-    ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords
-)

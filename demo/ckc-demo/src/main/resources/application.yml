@@ -162,6 +162,7 @@ armeria:
     port: ${SERVER_PORT:8080}
 
 demo:
+  experiment-target-name: ${EXPERIMENT_TARGET_NAME:}
   kafka:
     enabled: ${KAFKA_ENABLED:false}
     bootstrap-servers: localhost:9092
@@ -170,6 +171,8 @@ demo:
       fetch-min-bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
       fetch-max-wait-ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
       max-poll-records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
+      fetch-max-bytes: ${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}
+      max-partition-fetch-bytes: ${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}
       commit-interval-ms: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}
   topics:
     order-events: order.events.v1
@@ -209,16 +212,34 @@ demo:
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${ORDER_WORK_CHANNEL_CAPACITY:1024}
+      kafka:
+        fetch-min-bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch-max-wait-ms: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max-poll-records: ${ORDER_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch-max-bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max-partition-fetch-bytes: ${ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     batch:
       processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
       worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${BATCH_WORK_CHANNEL_CAPACITY:1024}
+      kafka:
+        fetch-min-bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch-max-wait-ms: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max-poll-records: ${BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch-max-bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max-partition-fetch-bytes: ${BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     telemetry:
       processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}
       work-channel-capacity: ${TELEMETRY_WORK_CHANNEL_CAPACITY:256}
+      kafka:
+        fetch-min-bytes: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch-max-wait-ms: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max-poll-records: ${TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch-max-bytes: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max-partition-fetch-bytes: ${TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
 
 management:
   endpoints:

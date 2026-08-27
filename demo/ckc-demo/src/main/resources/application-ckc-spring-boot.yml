@@ -46,6 +46,8 @@ ckc:
         fetch.min.bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
         fetch.max.wait.ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
         max.poll.records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
+        fetch.max.bytes: ${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}
+        max.partition.fetch.bytes: ${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}
   consumers:
     order-events:
       auto-startup: ${KAFKA_ENABLED:false}
@@ -61,6 +63,11 @@ ckc:
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
       kafka-properties:
         enable.auto.commit: false
+        fetch.min.bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch.max.wait.ms: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max.poll.records: ${ORDER_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch.max.bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max.partition.fetch.bytes: ${ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     batch-events:
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
@@ -75,6 +82,11 @@ ckc:
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
       kafka-properties:
         enable.auto.commit: false
+        fetch.min.bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch.max.wait.ms: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max.poll.records: ${BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch.max.bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max.partition.fetch.bytes: ${BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     cauldron-events:
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
@@ -90,3 +102,8 @@ ckc:
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
       kafka-properties:
         enable.auto.commit: true
+        fetch.min.bytes: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
+        fetch.max.wait.ms: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
+        max.poll.records: ${TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}
+        fetch.max.bytes: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
+        max.partition.fetch.bytes: ${TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}

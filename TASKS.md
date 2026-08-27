@@ -141,6 +141,7 @@
 | [DEMO-85](#demo-85) | Classify Confluent Parallel Consumer and Kafka metrics support threads as Kafka work. | DONE |
 | [DEMO-86](#demo-86) | Install packet-capture tooling in the demo application and load-test container images. | DONE |
 | [DEMO-87](#demo-87) | Generate incompressible random telemetry diagnostics payloads for realistic Kafka compression tests. | DONE |
+| [DEMO-88](#demo-88) | Pass experiment target names into demo profile metrics and support topic-specific Kafka producer and consumer settings. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2813,3 +2814,14 @@ Keep the application topology, processing cost, producer batching, resource limi
 Use payload-to-wire ratios and the existing record-batch decomposition to separate realistic compression from protocol and polling overhead.
 
 Verification: all 36 internal-lab tests passed and all eight dry-run plans resolved the intended topology, codec, and diagnostics payload size. Optilab experiment set `20260824T180504Z` completed all eight ten-minute targets with throughput SLA PASS, 10/10 Thread Stats snapshots, and 4/4 successful captures per target. Random 256-byte payloads raised the LZ4 ratio to 70.95% for Spring and 62.25% for CKC, while empty payloads reached 37.97% and 18.39%; CKC used about 0.94-0.95 application cores versus 2.31-2.35 for Spring.
+
+<a id="demo-88"></a>
+### DEMO-88 - Add experiment identity and topic-specific Kafka settings
+
+_Date: 2026-08-27_
+
+Pass the experiment target name into the demo profile-info metric while retaining the Spring profile as diagnostic metadata.
+Allow load-test producer batching settings and demo consumer fetch settings to vary by topic with shared settings as backwards-compatible fallbacks.
+Expose the resolved settings in diagnostics so reports can describe the actual Kafka client configuration used by each run.
+
+Verification: `./gradlew :ckc-demo:test :ckc-demo-load-test:test` passed with focused coverage for explicit experiment profile labels, topic consumer override resolution, Spring Kafka factory properties, and topic producer fallback behavior.

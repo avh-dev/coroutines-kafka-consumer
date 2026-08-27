@@ -97,6 +97,10 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 
 The consumer profiles expose demo-only switches for consumer experiments:
 
+- `EXPERIMENT_TARGET_NAME` overrides the human-readable `profile` tag on `ckc.demo.consumer.profile.info`; the active Spring profile remains available as `spring_profile`.
+- Shared `KAFKA_CONSUMER_FETCH_MIN_BYTES`, `KAFKA_CONSUMER_FETCH_MAX_WAIT_MS`, `KAFKA_CONSUMER_MAX_POLL_RECORDS`, `KAFKA_CONSUMER_FETCH_MAX_BYTES`, and `KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES` settings can be overridden per topic with the `ORDER_`, `BATCH_`, or `TELEMETRY_` prefix.
+- Load-test producer `KAFKA_PRODUCER_LINGER_MS`, `KAFKA_PRODUCER_BATCH_SIZE`, `KAFKA_PRODUCER_COMPRESSION_TYPE`, and `KAFKA_PRODUCER_BUFFER_MEMORY` settings use the same optional `ORDER_`, `BATCH_`, and `TELEMETRY_` topic prefixes.
+
 - `DEMO_CONSUMER_PROCESSING_ENABLED=false` keeps consuming and deserializing records, but replaces the demo business handler with a small consumer-layer latency-only delay.
 - `PROCESSING_DISPATCHER_TYPE=AUTO` selects the dispatcher used by profiles that run work through a coroutine dispatcher. `AUTO` preserves each profile's default: fixed threads for `ckc`, `spring-kafka-coroutines-naive`, and `confluent-parallel-reactor`; `Dispatchers.IO` for `ckc-sync`. Supported explicit values are `DEFAULT`, `FIXED`, `IO`, and `VIRTUAL`, depending on profile.
 - `WORKER_DISPATCHER_THREADS=8` limits the shared fixed worker pool when `PROCESSING_DISPATCHER_TYPE=FIXED` or a profile's `AUTO` default resolves to fixed threads. Per-consumer `*_WORKER_CONCURRENCY` settings remain independent upper bounds.

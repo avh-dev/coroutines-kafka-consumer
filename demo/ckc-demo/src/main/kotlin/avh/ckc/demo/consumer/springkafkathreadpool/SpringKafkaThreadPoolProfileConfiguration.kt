@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.springkafkathreadpool
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.AuditDropReasons
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -155,15 +156,10 @@ class SpringKafkaThreadPoolProfileConfiguration {
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
             ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
-        ) + properties.kafka.consumerProperties()
+        ) + properties.kafkaConsumerProperties(runtime) + mapOf(
+            ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG to properties.kafka.consumer.commitIntervalMs
+        )
     }
-
-    private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
-        ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,
-        ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
-        ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords,
-        ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG to consumer.commitIntervalMs
-    )
 
     private fun ConcurrentKafkaListenerContainerFactory<*, *>.configureTimeBasedCommits(
         properties: DemoApplicationProperties

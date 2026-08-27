@@ -31,6 +31,7 @@ data class LoadTestConfig(
     val auditRunId: String = "local",
     val generatorWorkers: Int = defaultGeneratorWorkers(),
     val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings(),
+    val topicKafkaProducers: TopicKafkaProducerSettings = TopicKafkaProducerSettings.shared(kafkaProducer),
     val producerCapacity: TopicProducerCapacity = TopicProducerCapacity(),
     val metricsPort: Int = 9405
 ) {
@@ -57,10 +58,12 @@ data class LoadTestConfig(
         require(auditPort > 0) { "auditPort must be positive" }
         require(auditRunId.isNotBlank()) { "auditRunId must not be blank" }
         require(generatorWorkers > 0) { "generatorWorkers must be positive" }
-        require(kafkaProducer.lingerMs >= 0) { "kafkaProducer.lingerMs must be non-negative" }
-        require(kafkaProducer.batchSize > 0) { "kafkaProducer.batchSize must be positive" }
-        require(kafkaProducer.bufferMemory > 0) { "kafkaProducer.bufferMemory must be positive" }
-        require(kafkaProducer.compressionType.isNotBlank()) { "kafkaProducer.compressionType must not be blank" }
+        topicKafkaProducers.all().forEach { (topic, producer) ->
+            require(producer.lingerMs >= 0) { "$topic kafkaProducer.lingerMs must be non-negative" }
+            require(producer.batchSize > 0) { "$topic kafkaProducer.batchSize must be positive" }
+            require(producer.bufferMemory > 0) { "$topic kafkaProducer.bufferMemory must be positive" }
+            require(producer.compressionType.isNotBlank()) { "$topic kafkaProducer.compressionType must not be blank" }
+        }
         require(producerCapacity.orderTps > 0) { "producerCapacity.orderTps must be positive" }
         require(producerCapacity.batchTps > 0) { "producerCapacity.batchTps must be positive" }
         require(producerCapacity.cauldronTelemetryTps > 0) { "producerCapacity.cauldronTelemetryTps must be positive" }
@@ -68,8 +71,9 @@ data class LoadTestConfig(
     }
 
     companion object {
-        fun fromEnvironment(environment: Map<String, String> = System.getenv()): LoadTestConfig =
-            LoadTestConfig(
+        fun fromEnvironment(environment: Map<String, String> = System.getenv()): LoadTestConfig {
+            val sharedKafkaProducer = KafkaProducerSettings.fromEnvironment(environment)
+            return LoadTestConfig(
                 bootstrapServers = environment["BOOTSTRAP_SERVERS"] ?: "localhost:9092",
                 orderEventsTopic = environment["ORDER_EVENTS_TOPIC"] ?: "order.events.v1",
                 batchEventsTopic = environment["BATCH_EVENTS_TOPIC"] ?: "batch.events.v1",
@@ -100,10 +104,12 @@ data class LoadTestConfig(
                 auditPort = environment["AUDIT_TCP_PORT"]?.toIntOrNull() ?: 5170,
                 auditRunId = environment["AUDIT_RUN_ID"] ?: environment["TEST_RUN_ID"] ?: "local",
                 generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers(),
-                kafkaProducer = KafkaProducerSettings.fromEnvironment(environment),
+                kafkaProducer = sharedKafkaProducer,
+                topicKafkaProducers = TopicKafkaProducerSettings.fromEnvironment(environment, sharedKafkaProducer),
                 producerCapacity = TopicProducerCapacity.fromEnvironment(environment),
                 metricsPort = environment["LOAD_TEST_METRICS_PORT"]?.toIntOrNull() ?: 9405
             )
+        }
     }
 }
 
@@ -129,13 +135,46 @@ data class KafkaProducerSettings(
     val bufferMemory: Long = 32 * 1024 * 1024L
 ) {
     companion object {
-        fun fromEnvironment(environment: Map<String, String>): KafkaProducerSettings =
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            prefix: String = "",
+            fallback: KafkaProducerSettings = KafkaProducerSettings()
+        ): KafkaProducerSettings =
             KafkaProducerSettings(
-                lingerMs = environment["KAFKA_PRODUCER_LINGER_MS"]?.toIntOrNull() ?: 20,
-                batchSize = environment["KAFKA_PRODUCER_BATCH_SIZE"]?.toIntOrNull() ?: 64 * 1024,
-                compressionType = environment["KAFKA_PRODUCER_COMPRESSION_TYPE"]?.takeIf(String::isNotBlank) ?: "lz4",
-                bufferMemory = environment["KAFKA_PRODUCER_BUFFER_MEMORY"]?.toLongOrNull() ?: 32 * 1024 * 1024L
+                lingerMs = environment["${prefix}KAFKA_PRODUCER_LINGER_MS"]?.toIntOrNull() ?: fallback.lingerMs,
+                batchSize = environment["${prefix}KAFKA_PRODUCER_BATCH_SIZE"]?.toIntOrNull() ?: fallback.batchSize,
+                compressionType = environment["${prefix}KAFKA_PRODUCER_COMPRESSION_TYPE"]
+                    ?.takeIf(String::isNotBlank)
+                    ?: fallback.compressionType,
+                bufferMemory = environment["${prefix}KAFKA_PRODUCER_BUFFER_MEMORY"]?.toLongOrNull()
+                    ?: fallback.bufferMemory
             )
+    }
+}
+
+data class TopicKafkaProducerSettings(
+    val order: KafkaProducerSettings,
+    val batch: KafkaProducerSettings,
+    val telemetry: KafkaProducerSettings
+) {
+    fun all(): List<Pair<String, KafkaProducerSettings>> = listOf(
+        "order" to order,
+        "batch" to batch,
+        "telemetry" to telemetry
+    )
+
+    companion object {
+        fun shared(settings: KafkaProducerSettings): TopicKafkaProducerSettings =
+            TopicKafkaProducerSettings(settings, settings, settings)
+
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            shared: KafkaProducerSettings
+        ): TopicKafkaProducerSettings = TopicKafkaProducerSettings(
+            order = KafkaProducerSettings.fromEnvironment(environment, "ORDER_", shared),
+            batch = KafkaProducerSettings.fromEnvironment(environment, "BATCH_", shared),
+            telemetry = KafkaProducerSettings.fromEnvironment(environment, "TELEMETRY_", shared)
+        )
     }
 }
 
