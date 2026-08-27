@@ -142,6 +142,7 @@
 | [DEMO-86](#demo-86) | Install packet-capture tooling in the demo application and load-test container images. | DONE |
 | [DEMO-87](#demo-87) | Generate incompressible random telemetry diagnostics payloads for realistic Kafka compression tests. | DONE |
 | [DEMO-88](#demo-88) | Pass experiment target names into demo profile metrics and support topic-specific Kafka producer and consumer settings. | DONE |
+| [DEMO-89](#demo-89) | Reconfigure load-test Kafka producer pools during a run and emit timestamped experiment events for each change. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2825,3 +2826,14 @@ Allow load-test producer batching settings and demo consumer fetch settings to v
 Expose the resolved settings in diagnostics so reports can describe the actual Kafka client configuration used by each run.
 
 Verification: `./gradlew :ckc-demo:test :ckc-demo-load-test:test` passed with focused coverage for explicit experiment profile labels, topic consumer override resolution, Spring Kafka factory properties, and topic producer fallback behavior.
+
+<a id="demo-89"></a>
+### DEMO-89 - Reconfigure load-test producers during a run
+
+_Date: 2026-08-27_
+
+Accept a scheduled sequence of per-topic Kafka producer configuration changes in the load-test process.
+Replace active producer pools safely without racing concurrent sends, preserving asynchronous acknowledgements through a bounded flush and close transition.
+Emit structured events with actual start, completion, and failure timestamps so orchestration can build reports and Grafana annotations from observed execution.
+
+Verification: `./gradlew :ckc-demo-load-test:test` passed with schedule parsing, lazy and active pool replacement, generation-scoped Kafka metrics cleanup, and actual structured start/success event coverage.

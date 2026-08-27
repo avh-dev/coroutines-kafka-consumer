@@ -1,6 +1,7 @@
 package avh.ckc.loadtest.config
 
 import java.time.Duration
+import kotlinx.serialization.json.Json
 
 data class LoadTestConfig(
     val bootstrapServers: String,
@@ -32,6 +33,7 @@ data class LoadTestConfig(
     val generatorWorkers: Int = defaultGeneratorWorkers(),
     val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings(),
     val topicKafkaProducers: TopicKafkaProducerSettings = TopicKafkaProducerSettings.shared(kafkaProducer),
+    val producerConfigSteps: List<ProducerConfigStep> = emptyList(),
     val producerCapacity: TopicProducerCapacity = TopicProducerCapacity(),
     val metricsPort: Int = 9405
 ) {
@@ -63,6 +65,15 @@ data class LoadTestConfig(
             require(producer.batchSize > 0) { "$topic kafkaProducer.batchSize must be positive" }
             require(producer.bufferMemory > 0) { "$topic kafkaProducer.bufferMemory must be positive" }
             require(producer.compressionType.isNotBlank()) { "$topic kafkaProducer.compressionType must not be blank" }
+        }
+        producerConfigSteps.forEachIndexed { index, step ->
+            require(step.atSeconds >= 0) { "producerConfigSteps[$index].atSeconds must be non-negative" }
+            if (index > 0) {
+                require(step.atSeconds >= producerConfigSteps[index - 1].atSeconds) {
+                    "producerConfigSteps must be ordered by atSeconds"
+                }
+            }
+            step.validate("producerConfigSteps[$index]")
         }
         require(producerCapacity.orderTps > 0) { "producerCapacity.orderTps must be positive" }
         require(producerCapacity.batchTps > 0) { "producerCapacity.batchTps must be positive" }
@@ -106,10 +117,14 @@ data class LoadTestConfig(
                 generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers(),
                 kafkaProducer = sharedKafkaProducer,
                 topicKafkaProducers = TopicKafkaProducerSettings.fromEnvironment(environment, sharedKafkaProducer),
+                producerConfigSteps = parseProducerConfigSteps(environment["PRODUCER_CONFIG_STEPS_JSON"]),
                 producerCapacity = TopicProducerCapacity.fromEnvironment(environment),
                 metricsPort = environment["LOAD_TEST_METRICS_PORT"]?.toIntOrNull() ?: 9405
             )
         }
+
+        private fun parseProducerConfigSteps(value: String?): List<ProducerConfigStep> =
+            Json.decodeFromString(value?.takeIf(String::isNotBlank) ?: "[]")
     }
 }
 
@@ -134,6 +149,13 @@ data class KafkaProducerSettings(
     val compressionType: String = "lz4",
     val bufferMemory: Long = 32 * 1024 * 1024L
 ) {
+    fun withOverrides(step: ProducerConfigStep): KafkaProducerSettings = copy(
+        lingerMs = step.lingerMs ?: lingerMs,
+        batchSize = step.batchSize ?: batchSize,
+        compressionType = step.compressionType?.takeIf(String::isNotBlank) ?: compressionType,
+        bufferMemory = step.bufferMemory ?: bufferMemory
+    )
+
     companion object {
         fun fromEnvironment(
             environment: Map<String, String>,
