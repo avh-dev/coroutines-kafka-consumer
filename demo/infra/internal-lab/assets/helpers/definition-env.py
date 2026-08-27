@@ -11,6 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from diagnostic_steps import normalize as normalize_diagnostic_steps
+from producer_config_steps import normalize as normalize_producer_config_steps
 
 try:
     import yaml
@@ -316,6 +317,7 @@ def main() -> None:
     stub_settings = stub_settings_from_definition(stubs, definition_path)
     chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
     diagnostic_steps = normalized_diagnostic_steps(definition, definition_path)
+    producer_config_steps = normalize_producer_config_steps(load_test, definition_path)
 
     deployment_env = value_at(deployment_profile, "env", default={})
     if not isinstance(deployment_env, dict):
@@ -344,6 +346,7 @@ def main() -> None:
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "CHAOS_STEPS_JSON": json.dumps(chaos_steps, separators=(",", ":")),
         "DIAGNOSTIC_STEPS_JSON": json.dumps(diagnostic_steps, separators=(",", ":")),
+        "PRODUCER_CONFIG_STEPS_JSON": json.dumps(producer_config_steps, separators=(",", ":")),
         "PACKET_CAPTURE_ENABLED": str(bool(diagnostic_steps)).lower(),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
         "BASE_TPS": str(run_plan_base_tps if run_plan_base_tps not in (None, "") else load_test.get("base_tps", 10000)),
@@ -367,7 +370,18 @@ def main() -> None:
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
+        "KAFKA_PRODUCER_LINGER_MS": str(load_test.get("kafka_producer_linger_ms", "")),
+        "KAFKA_PRODUCER_BATCH_SIZE": str(load_test.get("kafka_producer_batch_size", "")),
+        "KAFKA_PRODUCER_COMPRESSION_TYPE": str(load_test.get("kafka_producer_compression_type", "")),
+        "KAFKA_PRODUCER_BUFFER_MEMORY": str(load_test.get("kafka_producer_buffer_memory", "")),
     }
+
+    for topic in ("order", "batch", "telemetry"):
+        prefix = topic.upper()
+        for suffix in ("linger_ms", "batch_size", "compression_type", "buffer_memory"):
+            assignments[f"{prefix}_KAFKA_PRODUCER_{suffix.upper()}"] = str(
+                load_test.get(f"{topic}_kafka_producer_{suffix}", "")
+            )
 
     for override in args.env:
         key, value = parse_env_override(override)

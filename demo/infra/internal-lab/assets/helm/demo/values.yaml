@@ -11,6 +11,7 @@ service:
   nodePort: null
 
 env:
+  experimentTargetName: ""
   springProfilesActive: ckc
   kafkaEnabled: true
   demoKafkaEnabled: true
@@ -41,6 +42,23 @@ env:
   kafkaConsumerFetchMinBytes: 8192
   kafkaConsumerFetchMaxWaitMs: 250
   kafkaConsumerMaxPollRecords: 500
+  kafkaConsumerFetchMaxBytes: 52428800
+  kafkaConsumerMaxPartitionFetchBytes: 1048576
+  orderKafkaConsumerFetchMinBytes: ""
+  orderKafkaConsumerFetchMaxWaitMs: ""
+  orderKafkaConsumerMaxPollRecords: ""
+  orderKafkaConsumerFetchMaxBytes: ""
+  orderKafkaConsumerMaxPartitionFetchBytes: ""
+  batchKafkaConsumerFetchMinBytes: ""
+  batchKafkaConsumerFetchMaxWaitMs: ""
+  batchKafkaConsumerMaxPollRecords: ""
+  batchKafkaConsumerFetchMaxBytes: ""
+  batchKafkaConsumerMaxPartitionFetchBytes: ""
+  telemetryKafkaConsumerFetchMinBytes: ""
+  telemetryKafkaConsumerFetchMaxWaitMs: ""
+  telemetryKafkaConsumerMaxPollRecords: ""
+  telemetryKafkaConsumerFetchMaxBytes: ""
+  telemetryKafkaConsumerMaxPartitionFetchBytes: ""
   auditLogEnabled: true
   orderProcessingMode: AT_LEAST_ONCE_KEY_ORDERING
   orderWorkerConcurrency: 2

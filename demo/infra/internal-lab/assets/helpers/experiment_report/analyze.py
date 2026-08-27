@@ -629,7 +629,12 @@ def analyze_experiment(
     experiment_path = Path(str(experiment_summary["experiment_file"]))
     experiment = load_yaml(experiment_path)
     test_definition_name = str(experiment_summary["test_definition"])
-    test_definition_path = lab_root / "workloads" / "test-definitions" / f"{test_definition_name}.yaml"
+    resolved_test_path = str(experiment_summary.get("resolved_test_path") or "").strip()
+    test_definition_path = (
+        Path(resolved_test_path)
+        if resolved_test_path
+        else lab_root / "workloads" / "test-definitions" / f"{test_definition_name}.yaml"
+    )
     test_definition = load_yaml(test_definition_path)
     load_test = test_definition.get("load_test") if isinstance(test_definition.get("load_test"), dict) else {}
     phases = parse_load_profile(str(load_test.get("load_profile") or ""))

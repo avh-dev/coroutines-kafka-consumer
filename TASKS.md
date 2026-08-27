@@ -257,6 +257,7 @@
 | [INFRA-114](#infra-114) | Analyze Kafka packet captures and compare producer and consumer protocol traffic in experiment reports. | DONE |
 | [INFRA-115](#infra-115) | Compare uncompressed and LZ4 Kafka traffic for partition-parallel Spring Kafka and worker-parallel CKC consumers. | DONE |
 | [INFRA-116](#infra-116) | Repeat the Kafka compression comparison with random and zero-length telemetry diagnostics payloads. | DONE |
+| [INFRA-117](#infra-117) | Allow experiments to inherit, override, or fully define their test configuration and persist the resolved test artifact. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2837,3 +2838,15 @@ Replace active producer pools safely without racing concurrent sends, preserving
 Emit structured events with actual start, completion, and failure timestamps so orchestration can build reports and Grafana annotations from observed execution.
 
 Verification: `./gradlew :ckc-demo-load-test:test` passed with schedule parsing, lazy and active pool replacement, generation-scoped Kafka metrics cleanup, and actual structured start/success event coverage.
+
+<a id="infra-117"></a>
+### INFRA-117 - Make experiment tests self-contained
+
+_Date: 2026-08-27_
+
+Allow an experiment-level `test` section to extend a reusable test-definition preset, override any mapping value, replace lists, or define a complete test inline.
+Materialize and validate the resolved test before planning targets, then use that exact artifact for every run and later report generation.
+Retain compatibility with existing `test_definition` experiments while making presets optional for experiment-specific workloads.
+Wire readable target names, per-topic Kafka producer/consumer settings, and scheduled producer reconfiguration from the resolved experiment into local and shared runners.
+
+Verification: all 42 internal-lab unit tests passed; modified Python helpers compiled, Bash scripts passed syntax checks, and the internal-lab demo Helm chart rendered successfully.
