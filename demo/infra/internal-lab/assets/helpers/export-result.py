@@ -878,10 +878,21 @@ def main() -> int:
         audit_root.mkdir(parents=True)
         if result_type == "experiment":
             copy_tree(result_dir, restore_root / "experiment")
+        annotation_exports = []
         for run_dir in run_dirs:
             copy_tree(run_dir / "run-metadata.json", restore_root / "runs" / run_dir.name / "run-metadata.json")
             copy_tree(run_dir / "run-status.json", restore_root / "runs" / run_dir.name / "run-status.json")
+            copy_tree(run_dir / "experiment-events.jsonl", restore_root / "runs" / run_dir.name / "experiment-events.jsonl")
             copy_tree(run_dir / "diagnostics", restore_root / "runs" / run_dir.name / "diagnostics")
+            events_path = run_dir / "experiment-events.jsonl"
+            event_count = (
+                sum(1 for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip())
+                if events_path.is_file()
+                else 0
+            )
+            annotation_exports.append(
+                {"run_id": run_dir.name, "path": f"runs/{run_dir.name}/experiment-events.jsonl", "events": event_count}
+            )
         copy_tree(lab_root / "grafana" / "dashboards", restore_root / "grafana" / "dashboards")
         dashboard = patch_export_dashboard(
             restore_root / "grafana" / "dashboards",
@@ -926,6 +937,7 @@ def main() -> int:
             },
             "runs": [path.name for path in run_dirs],
             "audit": audit_exports,
+            "annotations": annotation_exports,
             "loki": loki_exports,
             "loki_data": loki_data,
             "metrics": metrics_export,

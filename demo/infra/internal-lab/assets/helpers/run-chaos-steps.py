@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from experiment_events import append_event
+
 
 def parse_args() -> argparse.Namespace:
     lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-lab")
@@ -532,13 +534,26 @@ def execute_scenarios(
                 f"running chaos scenario {index + 1}/{len(scenarios)} "
                 f"phase={phase} at={at_seconds}s type={scenario_type} target={scenario.get('target', '-')}"
             )
-            if phase == "start":
-                if scenario_type in DURATION_SCENARIO_TYPES:
-                    active[index] = scenario
-                start_scenario(scenario, configure_stubs, dry_run=dry_run)
-            else:
-                recover_scenario(scenario, configure_stubs, dry_run=dry_run)
-                active.pop(index, None)
+            event = {
+                "source": "chaos",
+                "type": scenario_type,
+                "status": "started",
+                "title": f"Chaos {phase} · {scenario_type} · {scenario.get('target', '-')}",
+                "details": {"phase": phase, "target": scenario.get("target", ""), "scheduledAtSeconds": at_seconds},
+            }
+            append_event(event)
+            try:
+                if phase == "start":
+                    if scenario_type in DURATION_SCENARIO_TYPES:
+                        active[index] = scenario
+                    start_scenario(scenario, configure_stubs, dry_run=dry_run)
+                else:
+                    recover_scenario(scenario, configure_stubs, dry_run=dry_run)
+                    active.pop(index, None)
+            except Exception as error:
+                append_event({**event, "status": "failed", "error": str(error)})
+                raise
+            append_event({**event, "status": "completed"})
         log("chaos executor finished")
     finally:
         cleanup_scenarios(list(active.values()), configure_stubs, dry_run=dry_run)

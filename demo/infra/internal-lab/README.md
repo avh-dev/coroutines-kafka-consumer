@@ -566,7 +566,8 @@ Each export contains `summary.md`, `metrics-logs-<experiment-name>-<date>.tar.gz
 and `audit-<experiment-name>-<date>.tar.gz`. The metrics/logs archive contains
 the local Grafana helper scripts, dashboard JSON, prebuilt Loki data, Prometheus
 query-range TSDB blocks for dashboard metrics in the selected run or experiment
-time window, run metadata, and `manifest.json`. The audit archive contains
+time window, run metadata, the actual `experiment-events.jsonl` timelines, and
+`manifest.json`. The audit archive contains
 `audit/<run-id>` artifacts for each run. Use `--skip-loki` or
 `--skip-prometheus` when those services are unavailable or their data is not
 needed. The exported dashboard is renamed to
@@ -591,6 +592,9 @@ default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
 `PROMETHEUS_PORT` before starting the script. `open-grafana-with-logs-and-metrics.sh` prepares exported Prometheus and Loki data,
 starts Docker Compose, prints dashboard, Prometheus, and Loki links, then waits
 until `q` is pressed.
+It also replays the exported producer-reconfiguration, chaos, and diagnostic
+events through the Grafana annotations API. The same actual timestamps appear
+on the generated experiment load-profile diagram and in its event table.
 The restored Prometheus uses a short query lookback so exported timeline/info
 series do not extend across target boundaries after staleness markers are lost
 while rebuilding TSDB blocks from raw samples.

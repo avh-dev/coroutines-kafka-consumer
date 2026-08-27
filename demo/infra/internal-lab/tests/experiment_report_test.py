@@ -376,6 +376,23 @@ class ExperimentReportTest(unittest.TestCase):
             root = Path(directory)
             summary_path = self.fixture(root)
             summary = json.loads(summary_path.read_text(encoding="utf-8"))["experiments"][0]
+            run_dir = Path(summary["targets"][0]["run_dir"])
+            (run_dir / "experiment-events.jsonl").write_text(
+                json.dumps(
+                    {
+                        "eventId": "event-1",
+                        "runId": "run-a",
+                        "timestamp": "2026-08-07T10:00:30Z",
+                        "source": "producer",
+                        "type": "producer_config_reconfigured",
+                        "status": "success",
+                        "title": "Producer config · telemetry",
+                        "details": {"topic": "telemetry", "lingerMs": 50},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             measurements = {
                 "latency_p95_ms": 125.5,
                 "latency_p99_ms": 300.0,
@@ -399,6 +416,10 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(2, report.targets[0].packet_captures["succeeded"])
             self.assertEqual(6144, report.targets[0].packet_captures["raw_size_bytes"])
             self.assertEqual(79, report.targets[0].pcap_analysis["roles"]["producer"]["protocol"]["record_batches"]["records"])
+            self.assertEqual(30.0, report.targets[0].events[0]["at_seconds"])
+            self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
+            svg = svg_renderer.load_profile_svg(report)
+            self.assertIn("target-a: Producer config · telemetry [success]", svg)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

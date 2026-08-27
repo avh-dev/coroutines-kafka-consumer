@@ -141,6 +141,12 @@ Consumer fetch settings are target-specific environment overrides. Shared
 `TELEMETRY_` variants are passed through the internal-lab Helm deployment; this
 allows unlike topics to use different fetch sizes, waits, and poll limits.
 
+During a run, producer reconfiguration, chaos actions, and diagnostic captures
+append their actual lifecycle timestamps to `experiment-events.jsonl`. Events
+are shown immediately as annotations on the `ckc-overview` Grafana dashboard;
+Grafana downtime does not fail the workload because the JSONL file remains the
+source used by reports and exported bundles.
+
 SLA profiles support inheritance, declarative delivery criteria, and exact
 per-record latency rules. The standard experiment profile is:
 

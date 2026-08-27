@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from experiment_events import append_event
+
 
 STOP = threading.Event()
 
@@ -331,7 +333,24 @@ def wait_and_execute_step(step: dict[str, Any], args: argparse.Namespace) -> lis
             return []
     if STOP.is_set():
         return []
-    return execute_step(step, args)
+    event = {
+        "source": "diagnostic",
+        "type": str(step["type"]),
+        "status": "started",
+        "title": f"Diagnostic · {step['name']}",
+        "details": {"name": step["name"], "targets": step["targets"], "scheduledAtSeconds": step["atSeconds"]},
+    }
+    append_event(event)
+    records = execute_step(step, args)
+    failed = [record for record in records if isinstance(record, dict) and record.get("status") == "failed"]
+    append_event(
+        {
+            **event,
+            "status": "failed" if failed else "completed",
+            "details": {**event["details"], "captures": len(records), "failures": len(failed)},
+        }
+    )
+    return records
 
 
 def main() -> int:

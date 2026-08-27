@@ -131,6 +131,11 @@ PROMETHEUS_PORT="${PROMETHEUS_PORT}" \
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR}" \
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d --wait
 
+echo "Replaying experiment annotations..."
+python3 "${SCRIPT_DIR}/import-grafana-annotations.py" \
+  --root "${SCRIPT_DIR}/.." \
+  --grafana-url "http://127.0.0.1:${GRAFANA_PORT}"
+
 dashboard_link="$(dashboard_url)"
 echo
 echo "Dashboard:  ${dashboard_link}"
