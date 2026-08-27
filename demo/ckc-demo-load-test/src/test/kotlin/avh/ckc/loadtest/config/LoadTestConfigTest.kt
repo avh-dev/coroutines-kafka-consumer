@@ -88,4 +88,27 @@ class LoadTestConfigTest {
         assertEquals(900, config.producerCapacity.cauldronTelemetryTps)
         assertEquals(19405, config.metricsPort)
     }
+
+    @Test
+    fun `topic producer settings override shared settings independently`() {
+        val config = LoadTestConfig.fromEnvironment(
+            mapOf(
+                "KAFKA_PRODUCER_LINGER_MS" to "20",
+                "KAFKA_PRODUCER_BATCH_SIZE" to "65536",
+                "KAFKA_PRODUCER_COMPRESSION_TYPE" to "lz4",
+                "KAFKA_PRODUCER_BUFFER_MEMORY" to "33554432",
+                "ORDER_KAFKA_PRODUCER_LINGER_MS" to "5",
+                "BATCH_KAFKA_PRODUCER_BATCH_SIZE" to "131072",
+                "TELEMETRY_KAFKA_PRODUCER_COMPRESSION_TYPE" to "zstd",
+                "TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY" to "67108864"
+            )
+        )
+
+        assertEquals(5, config.topicKafkaProducers.order.lingerMs)
+        assertEquals(65536, config.topicKafkaProducers.order.batchSize)
+        assertEquals(20, config.topicKafkaProducers.batch.lingerMs)
+        assertEquals(131072, config.topicKafkaProducers.batch.batchSize)
+        assertEquals("zstd", config.topicKafkaProducers.telemetry.compressionType)
+        assertEquals(67108864L, config.topicKafkaProducers.telemetry.bufferMemory)
+    }
 }

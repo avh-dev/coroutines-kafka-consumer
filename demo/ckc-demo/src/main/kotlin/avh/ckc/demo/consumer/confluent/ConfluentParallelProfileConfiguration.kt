@@ -1,6 +1,7 @@
 package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.toConfluentProcessingOrder
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -72,18 +73,18 @@ private class ConfluentParallelConsumerRuntime(
 
     override fun isAutoStartup(): Boolean = true
 
-    private fun commonConsumerProperties(): Map<String, Any> = mapOf(
+    private fun commonConsumerProperties(runtime: DemoApplicationProperties.ConsumerRuntime): Map<String, Any> = mapOf(
         ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
         ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest",
         ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
         ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false
-    ) + properties.kafka.consumerProperties()
+    ) + properties.kafkaConsumerProperties(runtime)
 
     private fun orderProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "order-lifecycle",
             topic = properties.topics.orderEvents,
-            consumerProperties = commonConsumerProperties() + mapOf(
+            consumerProperties = commonConsumerProperties(properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             ),
@@ -95,7 +96,7 @@ private class ConfluentParallelConsumerRuntime(
         newManagedProcessors(
             name = "batch-lifecycle",
             topic = properties.topics.batchEvents,
-            consumerProperties = commonConsumerProperties() + mapOf(
+            consumerProperties = commonConsumerProperties(properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
             ),
@@ -107,7 +108,7 @@ private class ConfluentParallelConsumerRuntime(
         newManagedProcessors(
             name = "cauldron-telemetry",
             topic = properties.topics.cauldronEvents,
-            consumerProperties = commonConsumerProperties() + mapOf(
+            consumerProperties = commonConsumerProperties(properties.consumers.telemetry) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
             ),
@@ -186,12 +187,6 @@ private class ConfluentParallelConsumerRuntime(
         private const val STOP_JOIN_TIMEOUT_MILLIS = 10_000L
     }
 }
-
-private fun DemoApplicationProperties.Kafka.consumerProperties(): Map<String, Any> = mapOf(
-    ConsumerConfig.FETCH_MIN_BYTES_CONFIG to consumer.fetchMinBytes,
-    ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to consumer.fetchMaxWaitMs,
-    ConsumerConfig.MAX_POLL_RECORDS_CONFIG to consumer.maxPollRecords
-)
 
 private data class ManagedProcessor(
     val processor: ParallelStreamProcessor<*, *>,

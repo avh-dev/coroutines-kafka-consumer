@@ -23,6 +23,9 @@ class DemoApplicationPropertiesTest {
         assertEquals(1, properties.kafka.consumer.fetchMinBytes)
         assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(500, properties.kafka.consumer.maxPollRecords)
+        assertEquals(50 * 1024 * 1024, properties.kafka.consumer.fetchMaxBytes)
+        assertEquals(1024 * 1024, properties.kafka.consumer.maxPartitionFetchBytes)
+        assertEquals("", properties.experimentTargetName)
         assertEquals("ckc-demo", properties.kafka.groupId)
         assertEquals(2, properties.consumers.order.workerConcurrency)
         assertEquals(1, properties.consumers.order.pollLoopConcurrency)
@@ -62,11 +65,16 @@ class DemoApplicationPropertiesTest {
                 "demo.kafka.consumer.fetch-min-bytes" to "65536",
                 "demo.kafka.consumer.fetch-max-wait-ms" to "100",
                 "demo.kafka.consumer.max-poll-records" to "200",
+                "demo.kafka.consumer.fetch-max-bytes" to "16777216",
+                "demo.kafka.consumer.max-partition-fetch-bytes" to "2097152",
+                "demo.experiment-target-name" to "spring.many-consumers.linger50",
                 "demo.kafka.group-id" to "demo-test-group",
                 "demo.consumers.order.worker-concurrency" to "12",
                 "demo.consumers.order.poll-loop-concurrency" to "3",
                 "demo.consumers.order.work-channel-capacity" to "2048",
                 "demo.consumers.order.processing-mode" to "at-least-once-key-ordering",
+                "demo.consumers.order.kafka.fetch-min-bytes" to "4096",
+                "demo.consumers.order.kafka.max-poll-records" to "50",
                 "demo.consumers.telemetry.worker-concurrency" to "8",
                 "demo.consumers.telemetry.poll-loop-concurrency" to "2",
                 "demo.consumers.telemetry.work-channel-capacity" to "512",
@@ -99,11 +107,16 @@ class DemoApplicationPropertiesTest {
         assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
         assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(200, properties.kafka.consumer.maxPollRecords)
+        assertEquals(16777216, properties.kafka.consumer.fetchMaxBytes)
+        assertEquals(2097152, properties.kafka.consumer.maxPartitionFetchBytes)
+        assertEquals("spring.many-consumers.linger50", properties.experimentTargetName)
         assertEquals("demo-test-group", properties.kafka.groupId)
         assertEquals(12, properties.consumers.order.workerConcurrency)
         assertEquals(3, properties.consumers.order.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.order.workChannelCapacity)
         assertEquals(ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING, properties.consumers.order.processingMode)
+        assertEquals(4096, properties.consumers.order.kafka.fetchMinBytes)
+        assertEquals(50, properties.consumers.order.kafka.maxPollRecords)
         assertEquals(8, properties.consumers.telemetry.workerConcurrency)
         assertEquals(2, properties.consumers.telemetry.pollLoopConcurrency)
         assertEquals(512, properties.consumers.telemetry.workChannelCapacity)

@@ -69,7 +69,9 @@ class MetricsConfiguration {
         properties: DemoApplicationProperties
     ): Gauge {
         val profile = activeConsumerProfile(environment)
-        val timelineProfile = DemoProfileTimelineLabel(properties).resolve(profile)
+        val timelineProfile = properties.experimentTargetName.trim().ifEmpty {
+            DemoProfileTimelineLabel(properties).resolve(profile)
+        }
         return Gauge.builder("ckc.demo.consumer.profile.info") { 1.0 }
             .description("Static marker for the active demo consumer implementation.")
             .tag("consumer_impl", consumerImplementation(profile))

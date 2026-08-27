@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 
 @ConfigurationProperties(prefix = "demo")
 data class DemoApplicationProperties(
+    var experimentTargetName: String = "",
     var kafka: Kafka = Kafka(),
     var topics: Topics = Topics(),
     var model: Model = Model(),
@@ -24,7 +25,17 @@ data class DemoApplicationProperties(
         var fetchMinBytes: Int = 1,
         var fetchMaxWaitMs: Int = 500,
         var maxPollRecords: Int = 500,
+        var fetchMaxBytes: Int = 50 * 1024 * 1024,
+        var maxPartitionFetchBytes: Int = 1024 * 1024,
         var commitIntervalMs: Int = 5_000
+    )
+
+    data class KafkaConsumerOverrides(
+        var fetchMinBytes: Int? = null,
+        var fetchMaxWaitMs: Int? = null,
+        var maxPollRecords: Int? = null,
+        var fetchMaxBytes: Int? = null,
+        var maxPartitionFetchBytes: Int? = null
     )
 
     data class Topics(
@@ -112,6 +123,7 @@ data class DemoApplicationProperties(
         var workerConcurrency: Int = 1,
         var pollLoopConcurrency: Int = 1,
         var workChannelCapacity: Int = 1024,
-        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+        var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        var kafka: KafkaConsumerOverrides = KafkaConsumerOverrides()
     )
 }

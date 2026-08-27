@@ -46,6 +46,12 @@ fun main() = runBlocking {
             "tpsPerProducer(order=${config.producerCapacity.orderTps},batch=${config.producerCapacity.batchTps}," +
             "telemetry=${config.producerCapacity.cauldronTelemetryTps})"
     )
+    println(
+        config.topicKafkaProducers.all().joinToString(prefix = "producerSettings ", separator = " ") { (topic, settings) ->
+            "$topic(lingerMs=${settings.lingerMs},batchSize=${settings.batchSize}," +
+                "compression=${settings.compressionType},bufferMemory=${settings.bufferMemory})"
+        }
+    )
     println("loadTestMetrics=http://0.0.0.0:${config.metricsPort}/metrics")
 
     LoadTestMetrics(config.metricsPort, shardContext.shardIndex, producerPoolSizes).use { metrics ->
