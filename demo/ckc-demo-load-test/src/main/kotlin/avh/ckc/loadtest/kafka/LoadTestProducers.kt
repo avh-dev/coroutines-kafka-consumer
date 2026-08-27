@@ -8,8 +8,6 @@ import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.config.KafkaProducerSettings
-import avh.ckc.loadtest.config.ProducerConfigStep
-import avh.ckc.loadtest.config.ProducerTopic
 import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.metrics.ProducerTopicStats
 import avh.ckc.loadtest.runtime.ShardContext
@@ -22,10 +20,6 @@ import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
 import org.apache.kafka.common.serialization.Serializer
 import java.lang.Math.floorMod
-import java.time.Duration
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 interface LoadTestPublisher {
@@ -40,36 +34,41 @@ interface LoadTestPublisher {
     fun logSnapshot(reason: String)
 }
 
-fun interface ProducerConfigTarget {
-    fun reconfigure(step: ProducerConfigStep)
-}
-
 class LoadTestProducers(
     private val config: LoadTestConfig,
     private val shardContext: ShardContext,
     private val poolSizes: ProducerPoolSizes,
     private val metrics: LoadTestMetrics,
     private val auditLog: LoadTestAuditLog? = if (config.auditLogEnabled) LoadTestAuditLog.fromConfig(config, shardContext) else null
-) : LoadTestPublisher, ProducerConfigTarget, AutoCloseable {
+) : LoadTestPublisher, AutoCloseable {
     private val lifecycleStats = ProducerTopicStats()
     private val batchStats = ProducerTopicStats()
     private val telemetryStats = ProducerTopicStats()
     private val lastLoggedTotal = AtomicLong(0)
 
-    private val lifecycleProducerPool = SwitchableProducerPool<String, OrderLifecycleEvent>(
-        config.topicKafkaProducers.order
-    ) { settings, generation ->
-        producerPool("order", poolSizes.order, settings, generation, OrderLifecycleEventSerializer::class.java)
+    private val lifecycleProducerPool = lazy {
+        producerPool(
+            "order",
+            poolSizes.order,
+            config.topicKafkaProducers.order,
+            OrderLifecycleEventSerializer::class.java
+        )
     }
-    private val batchProducerPool = SwitchableProducerPool<String, BatchLifecycleEvent>(
-        config.topicKafkaProducers.batch
-    ) { settings, generation ->
-        producerPool("batch", poolSizes.batch, settings, generation, BatchLifecycleEventSerializer::class.java)
+    private val batchProducerPool = lazy {
+        producerPool(
+            "batch",
+            poolSizes.batch,
+            config.topicKafkaProducers.batch,
+            BatchLifecycleEventSerializer::class.java
+        )
     }
-    private val telemetryProducerPool = SwitchableProducerPool<String, CauldronTelemetryEvent>(
-        config.topicKafkaProducers.telemetry
-    ) { settings, generation ->
-        producerPool("telemetry", poolSizes.cauldronTelemetry, settings, generation, CauldronTelemetryEventSerializer::class.java)
+    private val telemetryProducerPool = lazy {
+        producerPool(
+            "telemetry",
+            poolSizes.cauldronTelemetry,
+            config.topicKafkaProducers.telemetry,
+            CauldronTelemetryEventSerializer::class.java
+        )
     }
 
     init {
@@ -85,7 +84,7 @@ class LoadTestProducers(
             maybeLogProgress(sent + batchStats.sent.get() + telemetryStats.sent.get())
             return
         }
-        lifecycleProducerPool.send(
+        lifecycleProducerPool.value.send(
             ProducerRecord(config.orderEventsTopic, key, event),
             callback(
                 stream = "order",
@@ -104,7 +103,7 @@ class LoadTestProducers(
             maybeLogProgress(lifecycleStats.sent.get() + sent + telemetryStats.sent.get())
             return
         }
-        batchProducerPool.send(
+        batchProducerPool.value.send(
             ProducerRecord(config.batchEventsTopic, key, event),
             callback(
                 stream = "batch",
@@ -123,7 +122,7 @@ class LoadTestProducers(
             maybeLogProgress(lifecycleStats.sent.get() + batchStats.sent.get() + sent)
             return
         }
-        telemetryProducerPool.send(
+        telemetryProducerPool.value.send(
             ProducerRecord(config.cauldronEventsTopic, key, event),
             callback(
                 stream = "telemetry",
@@ -137,7 +136,7 @@ class LoadTestProducers(
 
     override fun flush() {
         if (config.publishEnabled) {
-            producerPools().forEach(SwitchableProducerPool<*, *>::flush)
+            initializedPools().forEach(TopicProducerPool<*, *>::flush)
         }
         logSnapshot("flush")
     }
@@ -156,21 +155,9 @@ class LoadTestProducers(
             flush()
         } finally {
             if (config.publishEnabled) {
-                producerPools().forEach(SwitchableProducerPool<*, *>::close)
+                initializedPools().forEach(TopicProducerPool<*, *>::close)
             }
             logSnapshot("close")
-        }
-    }
-
-    override fun reconfigure(step: ProducerConfigStep) {
-        if (step.topic == ProducerTopic.ALL || step.topic == ProducerTopic.ORDER) {
-            lifecycleProducerPool.reconfigure(lifecycleProducerPool.currentSettings().withOverrides(step))
-        }
-        if (step.topic == ProducerTopic.ALL || step.topic == ProducerTopic.BATCH) {
-            batchProducerPool.reconfigure(batchProducerPool.currentSettings().withOverrides(step))
-        }
-        if (step.topic == ProducerTopic.ALL || step.topic == ProducerTopic.TELEMETRY) {
-            telemetryProducerPool.reconfigure(telemetryProducerPool.currentSettings().withOverrides(step))
         }
     }
 
@@ -235,56 +222,37 @@ class LoadTestProducers(
         topic: String,
         size: Int,
         settings: KafkaProducerSettings,
-        generation: Int,
         valueSerializerClass: Class<out Serializer<V>>
     ): TopicProducerPool<String, V> =
         TopicProducerPool(
             List(size) { producerIndex ->
                 KafkaProducer<String, V>(
                     producerProperties(settings, valueSerializerClass) +
-                        (ProducerConfig.CLIENT_ID_CONFIG to
-                            "ckc-load-test-$topic-s${shardContext.shardIndex}-g$generation-p$producerIndex")
-                ).also { producer -> metrics.bindKafkaProducer(topic, generation, producerIndex, producer) }
-            },
-            onClose = { metrics.unbindKafkaProducers(topic, generation) }
+                        (ProducerConfig.CLIENT_ID_CONFIG to "ckc-load-test-$topic-s${shardContext.shardIndex}-p$producerIndex")
+                ).also { producer -> metrics.bindKafkaProducer(topic, producerIndex, producer) }
+            }
         )
 
-    private fun producerPools(): List<SwitchableProducerPool<*, *>> =
-        listOf(lifecycleProducerPool, batchProducerPool, telemetryProducerPool)
+    private fun initializedPools(): List<TopicProducerPool<*, *>> = buildList {
+        if (lifecycleProducerPool.isInitialized()) add(lifecycleProducerPool.value)
+        if (batchProducerPool.isInitialized()) add(batchProducerPool.value)
+        if (telemetryProducerPool.isInitialized()) add(telemetryProducerPool.value)
+    }
 }
 
 internal class TopicProducerPool<K, V>(
-    private val producers: List<Producer<K, V>>,
-    private val onClose: () -> Unit = {}
-) : ProducerPool<K, V> {
+    private val producers: List<Producer<K, V>>
+) {
     init {
         require(producers.isNotEmpty()) { "producer pool must not be empty" }
     }
 
-    override fun send(record: ProducerRecord<K, V>, callback: Callback) {
+    fun send(record: ProducerRecord<K, V>, callback: Callback) =
         producers[indexFor(record.key())].send(record, callback)
-    }
 
-    override fun flush() = producers.forEach(Producer<K, V>::flush)
+    fun flush() = producers.forEach(Producer<K, V>::flush)
 
-    override fun close() {
-        val executor = Executors.newFixedThreadPool(producers.size.coerceAtMost(32))
-        try {
-            executor.invokeAll(
-                producers.map { producer -> Callable { producer.close(PRODUCER_CLOSE_TIMEOUT) } },
-                PRODUCER_POOL_CLOSE_TIMEOUT.seconds,
-                TimeUnit.SECONDS
-            )
-        } finally {
-            executor.shutdownNow()
-            onClose()
-        }
-    }
+    fun close() = producers.forEach(Producer<K, V>::close)
 
     internal fun indexFor(key: K?): Int = floorMod(key?.hashCode() ?: 0, producers.size)
-
-    companion object {
-        private val PRODUCER_CLOSE_TIMEOUT: Duration = Duration.ofSeconds(10)
-        private val PRODUCER_POOL_CLOSE_TIMEOUT: Duration = Duration.ofSeconds(15)
-    }
 }

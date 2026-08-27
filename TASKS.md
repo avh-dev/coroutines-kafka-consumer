@@ -143,6 +143,7 @@
 | [DEMO-87](#demo-87) | Generate incompressible random telemetry diagnostics payloads for realistic Kafka compression tests. | DONE |
 | [DEMO-88](#demo-88) | Pass experiment target names into demo profile metrics and support topic-specific Kafka producer and consumer settings. | DONE |
 | [DEMO-89](#demo-89) | Reconfigure load-test Kafka producer pools during a run and emit timestamped experiment events for each change. | DONE |
+| [DEMO-90](#demo-90) | Remove runtime Kafka producer reconfiguration and return load-test producers to fixed per-run configuration. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -2877,3 +2878,14 @@ Start producers at `linger.ms=0`, warm up for two minutes, then increase linger 
 Capture representative Kafka traffic near the beginning, middle, and end of the sweep while runtime events mark every actual reconfiguration.
 
 Verification: the resolved experiment validated as a 13-minute load profile with ten ordered producer changes, three diagnostic captures, and two Spring Kafka targets; all 44 internal-lab unit tests passed. The experiment was not executed.
+
+<a id="demo-90"></a>
+### DEMO-90 - Remove runtime producer reconfiguration
+
+_Date: 2026-08-27_
+
+Remove scheduled producer configuration changes, switchable producer pools, and producer-generation metrics from the load-test application.
+Return each topic producer pool to one immutable configuration for the full process lifetime while retaining topic-specific producer settings.
+This avoids accumulating retired Kafka producer metrics and resources during a run.
+
+Verification: `./gradlew :ckc-demo-load-test:test` passed.

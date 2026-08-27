@@ -8,8 +8,6 @@ import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.runtime.effectiveGeneratorWorkers
 import avh.ckc.loadtest.runtime.workerBaseTps
-import avh.ckc.loadtest.runtime.LoadTestExperimentEvents
-import avh.ckc.loadtest.runtime.ProducerConfigStepRunner
 import avh.ckc.loadtest.scenario.LoadScenario
 import avh.ckc.loadtest.scenario.ScenarioEvaluationContext
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -17,7 +15,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.cancelAndJoin
 import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -59,7 +56,7 @@ fun main() = runBlocking {
 
     LoadTestMetrics(config.metricsPort, shardContext.shardIndex, producerPoolSizes).use { metrics ->
         LoadTestProducers(config, shardContext, producerPoolSizes, metrics).use { producers ->
-            runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers, effectiveStart)
+            runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers)
         }
     }
 }
@@ -69,46 +66,34 @@ private suspend fun runTrafficGenerators(
     config: LoadTestConfig,
     scenario: LoadScenario,
     producers: LoadTestProducers,
-    workerCount: Int,
-    runStartedAt: Instant
+    workerCount: Int
 ) {
-    coroutineScope {
-        val producerConfigJob = launch {
-            ProducerConfigStepRunner(
-                config.producerConfigSteps,
-                runStartedAt,
-                producers,
-                LoadTestExperimentEvents(shardContext)
-            ).run()
-        }
-        try {
-            if (workerCount == 1) {
-                TrafficGenerator(
-                    shardContext = shardContext,
-                    config = config.copy(baseTps = workerBaseTps(config.baseTps, workerIndex = 0, totalWorkers = 1)),
-                    scenario = scenario,
-                    producers = producers
-                ).run()
-            } else {
-                newLoadGeneratorDispatcher(workerCount).use { dispatcher ->
-                    (0 until workerCount).map { workerIndex ->
-                        launch(dispatcher) {
-                            TrafficGenerator(
-                                shardContext = shardContext,
-                                config = config.copy(
-                                    baseTps = workerBaseTps(config.baseTps, workerIndex, workerCount)
-                                ),
-                                scenario = scenario,
-                                producers = producers,
-                                workerIndex = workerIndex,
-                                totalWorkers = workerCount
-                            ).run(flushOnCompletion = false)
-                        }
-                    }.joinAll()
+    if (workerCount == 1) {
+        TrafficGenerator(
+            shardContext = shardContext,
+            config = config.copy(baseTps = workerBaseTps(config.baseTps, workerIndex = 0, totalWorkers = 1)),
+            scenario = scenario,
+            producers = producers
+        ).run()
+        return
+    }
+
+    newLoadGeneratorDispatcher(workerCount).use { dispatcher ->
+        coroutineScope {
+            (0 until workerCount).map { workerIndex ->
+                launch(dispatcher) {
+                    TrafficGenerator(
+                        shardContext = shardContext,
+                        config = config.copy(
+                            baseTps = workerBaseTps(config.baseTps, workerIndex, workerCount)
+                        ),
+                        scenario = scenario,
+                        producers = producers,
+                        workerIndex = workerIndex,
+                        totalWorkers = workerCount
+                    ).run(flushOnCompletion = false)
                 }
-            }
-        } finally {
-            producerConfigJob.cancelAndJoin()
+            }.joinAll()
         }
     }
     producers.logSnapshot("workers-complete")

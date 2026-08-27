@@ -26,7 +26,7 @@ class LoadTestMetrics(
     private val kafkaMetricsScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "load-test-kafka-metrics").apply { isDaemon = true }
     }
-    private val kafkaBinders = CopyOnWriteArrayList<KafkaMetricsBinding>()
+    private val kafkaBinders = CopyOnWriteArrayList<KafkaClientMetrics>()
     private val server = HttpServer.create(InetSocketAddress(port), 0).apply {
         createContext("/metrics", ::serveMetrics)
         executor = Executors.newSingleThreadExecutor { runnable ->
@@ -47,42 +47,21 @@ class LoadTestMetrics(
         registerCounter("ckc.load.test.producer.records.failed", "Records rejected or failed by Kafka", topic, stats.failed)
     }
 
-    fun bindKafkaProducer(topic: String, generation: Int, producerIndex: Int, producer: Producer<*, *>) {
-        val generationTag = generation.toString()
+    fun bindKafkaProducer(topic: String, producerIndex: Int, producer: Producer<*, *>) {
         KafkaClientMetrics(
             producer,
-            listOf(
-                shardTag,
-                Tag.of("traffic.topic", topic),
-                Tag.of("producer.generation", generationTag),
-                Tag.of("producer.index", producerIndex.toString())
-            ),
+            listOf(shardTag, Tag.of("traffic.topic", topic), Tag.of("producer.index", producerIndex.toString())),
             kafkaMetricsScheduler
         ).also { binder ->
             binder.bindTo(registry)
-            kafkaBinders += KafkaMetricsBinding(topic, generationTag, binder)
+            kafkaBinders += binder
         }
-    }
-
-    fun unbindKafkaProducers(topic: String, generation: Int) {
-        val generationTag = generation.toString()
-        kafkaBinders.filter { it.topic == topic && it.generation == generationTag }.forEach { binding ->
-            binding.binder.close()
-            kafkaBinders.remove(binding)
-        }
-        registry.meters
-            .filter { meter ->
-                meter.id.getTag("traffic.topic") == topic &&
-                    meter.id.getTag("producer.generation") == generationTag
-            }
-            .toList()
-            .forEach(registry::remove)
     }
 
     override fun close() {
         server.stop(0)
         (server.executor as? java.util.concurrent.ExecutorService)?.shutdownNow()
-        kafkaBinders.forEach { it.binder.close() }
+        kafkaBinders.forEach(KafkaClientMetrics::close)
         kafkaMetricsScheduler.shutdownNow()
         registry.close()
     }
@@ -113,12 +92,6 @@ class LoadTestMetrics(
         exchange.responseBody.use { it.write(body) }
     }
 }
-
-private data class KafkaMetricsBinding(
-    val topic: String,
-    val generation: String,
-    val binder: KafkaClientMetrics
-)
 
 class ProducerTopicStats {
     val sent = AtomicLong()
