@@ -65,6 +65,11 @@ def topic_summary(target: TargetReport) -> str:
 
 
 def render_markdown(report: ExperimentReport) -> str:
+    timeline_title = (
+        "Load profile and observed experiment events"
+        if report.test_definition.get("observed_events")
+        else "Load profile and planned chaos"
+    )
     lines = [
         f"# Experiment Report: {report.name}",
         "",
@@ -80,13 +85,28 @@ def render_markdown(report: ExperimentReport) -> str:
         f"- Duration: `{number(report.duration_seconds, 0)} s`",
         f"- Configurations: `{len(report.targets)}`",
         "",
-        "## Load profile and planned chaos",
+        f"## {timeline_title}",
         "",
         "![Load profile](load-profile.svg)",
         "",
-        "## SLA",
-        "",
     ]
+    observed_events = report.test_definition.get("observed_events") or []
+    if observed_events:
+        lines.extend(
+            [
+                "| Target | Actual offset | Source | Event | Status |",
+                "|---|---:|---|---|---|",
+                *[
+                    f"| {cell(event.get('target_name'))} | {number(event.get('at_seconds'), 1)} s | "
+                    f"{cell(event.get('source'))} | {cell(event.get('title') or event.get('type'))} | "
+                    f"{cell(event.get('status'))} |"
+                    for event in observed_events
+                    if isinstance(event, dict)
+                ],
+                "",
+            ]
+        )
+    lines.extend(["## SLA", ""])
     if report.sla_profile:
         lines.extend(
             [

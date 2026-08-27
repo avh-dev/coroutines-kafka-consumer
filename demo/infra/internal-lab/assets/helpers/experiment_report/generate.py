@@ -152,6 +152,7 @@ def copy_report_sources(
         run_dir = Path(target_report.run_dir)
         run_sources = {
             run_dir / "run-metadata.json": raw_dir / f"{target_report.run_id}-metadata.json",
+            run_dir / "experiment-events.jsonl": raw_dir / f"{target_report.run_id}-experiment-events.jsonl",
             run_dir / "audit" / "summary.yaml": raw_dir / f"{target_report.run_id}-audit-summary.yaml",
             run_dir / "diagnostics" / "thread-stats" / "summary.json": raw_dir / f"{target_report.run_id}-thread-stats-summary.json",
             run_dir / "diagnostics" / "thread-stats" / "index.jsonl": raw_dir / f"{target_report.run_id}-thread-stats-index.jsonl",

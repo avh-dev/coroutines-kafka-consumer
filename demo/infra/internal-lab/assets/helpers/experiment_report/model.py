@@ -53,6 +53,7 @@ class TargetReport:
     thread_stats: dict[str, Any]
     packet_captures: dict[str, Any]
     pcap_analysis: dict[str, Any]
+    events: list[dict[str, Any]] = field(default_factory=list)
     criteria: list[CriterionResult] = field(default_factory=list)
     latency_sla: list[LatencySlaResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)

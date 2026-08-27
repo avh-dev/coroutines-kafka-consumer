@@ -297,11 +297,30 @@ def load_profile_svg(report: ExperimentReport) -> str:
     top = 92 if load_topics else 28
     plot_height = 220
     axis_y = top + plot_height
-    chaos_scenarios = [
+    planned_chaos_scenarios = [
         scenario
         for scenario in report.test_definition.get("chaos_scenarios", [])
         if isinstance(scenario, dict)
     ]
+    observed_events = [
+        event
+        for event in report.test_definition.get("observed_events", [])
+        if isinstance(event, dict)
+    ]
+    chaos_scenarios = (
+        [
+            {
+                "at_seconds": event.get("at_seconds", 0),
+                "type": event.get("type", "event"),
+                "action": "chaos",
+                "target": (event.get("details") or {}).get("target") or (event.get("details") or {}).get("topic") or event.get("source", "event"),
+                "title": f"{event.get('target_name', '')}: {event.get('title') or event.get('type')} [{event.get('status', '')}]",
+            }
+            for event in observed_events
+        ]
+        if observed_events
+        else planned_chaos_scenarios
+    )
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)

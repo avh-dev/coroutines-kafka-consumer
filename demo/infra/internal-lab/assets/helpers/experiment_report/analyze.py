@@ -648,6 +648,7 @@ def analyze_experiment(
     prometheus = PrometheusClient(prometheus_url)
     targets: list[TargetReport] = []
     report_warnings: list[str] = []
+    observed_events: list[dict[str, Any]] = []
 
     for target in experiment_summary.get("targets", []):
         run_dir = Path(str(target.get("run_dir") or ""))
@@ -701,6 +702,22 @@ def analyze_experiment(
         started = parse_instant(target.get("started_at") or status.get("started_at"))
         ended = parse_instant(target.get("ended_at") or status.get("ended_at"))
         packet_captures = packet_capture_coverage(run_dir, metadata, warnings)
+        events: list[dict[str, Any]] = []
+        events_path = run_dir / "experiment-events.jsonl"
+        if events_path.is_file():
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    warnings.append("Experiment event timeline contains an invalid JSONL record")
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                timestamp = parse_instant(event.get("timestamp"))
+                event["at_seconds"] = max(0.0, (timestamp - start).total_seconds()) if timestamp and start else 0.0
+                event["target_name"] = str(target.get("name") or target.get("target") or run_dir.name)
+                events.append(event)
+                observed_events.append(event)
         targets.append(
             TargetReport(
                 name=str(target.get("name") or target.get("target") or run_dir.name),
@@ -725,6 +742,7 @@ def analyze_experiment(
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
+                events=events,
                 criteria=criteria,
                 latency_sla=latency_results,
                 warnings=warnings,
@@ -757,6 +775,7 @@ def analyze_experiment(
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
             "diagnostic_steps": test_definition.get("diagnostic_steps") or [],
+            "observed_events": observed_events,
         },
         sla_profile=sla_profile,
         targets=targets,
