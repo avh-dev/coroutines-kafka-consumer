@@ -20,6 +20,7 @@ def load_helper(name: str, filename: str):
 
 
 definition_env = load_helper("producer_definition_env_for_test", "definition-env.py")
+producer_steps = load_helper("producer_steps_for_test", "producer_config_steps.py")
 
 
 class LoadTestProducerConfigTest(unittest.TestCase):
@@ -46,6 +47,31 @@ class LoadTestProducerConfigTest(unittest.TestCase):
     def test_rejects_non_object_capacity_config(self) -> None:
         with self.assertRaisesRegex(ValueError, "producer_capacity_tps must be an object"):
             definition_env.producer_capacity_tps({"producer_capacity_tps": 1000}, "order")
+
+    def test_normalizes_scheduled_topic_config(self) -> None:
+        result = producer_steps.normalize(
+            {
+                "producer_config_steps": [
+                    {"at": "1m", "topic": "telemetry", "linger_ms": 50},
+                    {"at": "2m30s", "topic": "all", "batch_size": 131072, "compression_type": "lz4"},
+                ]
+            },
+            Path("test.yaml"),
+        )
+        self.assertEqual(
+            [
+                {"atSeconds": 60, "topic": "telemetry", "lingerMs": 50},
+                {"atSeconds": 150, "topic": "all", "batchSize": 131072, "compressionType": "lz4"},
+            ],
+            result,
+        )
+
+    def test_rejects_unsorted_scheduled_config(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be ordered"):
+            producer_steps.normalize(
+                {"producer_config_steps": [{"at": "2m", "linger_ms": 10}, {"at": "1m", "linger_ms": 20}]},
+                Path("test.yaml"),
+            )
 
 
 if __name__ == "__main__":

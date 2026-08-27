@@ -19,6 +19,7 @@ from typing import Any
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, parse_load_profile
+from experiment_test import resolve_experiment_test, write_resolved_test
 
 try:
     import yaml
@@ -578,9 +579,11 @@ def run_one(
     profile = str(test.get("profile", ""))
     deployment = str(test.get("deployment", ""))
     test_definition = str(test["test_definition"])
+    resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
-    command = command_for_run(run_test, test, test_definition, env)
-    expected_seconds = test_expected_seconds(lab_root, test_definition)
+    env.setdefault("EXPERIMENT_TARGET_NAME", name)
+    command = command_for_run(run_test, test, resolved_test_path, env)
+    expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
     before = run_dirs(lab_root)
     started_at = datetime.now(timezone.utc)
@@ -654,6 +657,7 @@ def run_one(
         "profile": profile,
         "deployment": deployment,
         "test_definition": test_definition,
+        "resolved_test_path": resolved_test_path,
         "env": env,
         "started_at": started_at.isoformat(),
         "ended_at": ended_at.isoformat(),
@@ -756,18 +760,25 @@ def run_experiment(
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    test_definition = str(experiment.get("test_definition") or "")
-    if not test_definition:
-        raise ValueError(f"Experiment must define test_definition: {experiment_path}")
-    definition = load_yaml(resolve_named_yaml(lab_root / "workloads" / "test-definitions", test_definition))
+    resolved_test = resolve_experiment_test(
+        experiment,
+        lab_root / "workloads" / "test-definitions",
+    )
+    definition = resolved_test.definition
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict) or not load_test.get("load_profile"):
-        raise ValueError(f"Test definition must define load_test.load_profile: {test_definition}")
+        raise ValueError("Resolved experiment test must define load_test.load_profile")
     parse_load_profile(str(load_test["load_profile"]))
-    if "base_tps" not in experiment:
-        raise ValueError(f"Experiment must define base_tps: {experiment_path}")
+    base_tps = experiment.get("base_tps", load_test.get("base_tps"))
+    if base_tps in (None, ""):
+        raise ValueError(f"Experiment or inline test must define base_tps: {experiment_path}")
+    base_tps = int(base_tps)
+    definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
+    resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
+    write_resolved_test(resolved_test_path, definition)
+    test_definition = resolved_test.source_name
     log_path = log_dir / f"{experiment_name}.log"
     sla_profile_file = log_dir / f"{experiment_name}-sla-profile.json" if sla_profile else None
     if sla_profile_file is not None:
@@ -782,7 +793,7 @@ def run_experiment(
             "experiment": experiment_name,
             "experiment_file": str(experiment_path),
             "test_definition": test_definition,
-            "base_tps": experiment["base_tps"],
+            "base_tps": base_tps,
             "targets": len(targets),
         },
         log_dir,
@@ -791,13 +802,20 @@ def run_experiment(
         log_file.write(f"experiment: {experiment_name}\n")
         log_file.write(f"experiment_file: {experiment_path}\n")
         log_file.write(f"test_definition: {test_definition}\n")
-        log_file.write(f"base_tps: {experiment['base_tps']}\n")
+        log_file.write(f"base_tps: {base_tps}\n")
+        log_file.write(f"resolved_test: {resolved_test_path}\n")
         description = experiment.get("description")
         if description:
             log_file.write(f"description: {description}\n")
         for index, target in enumerate(targets, start=1):
             target_run = merge_target_defaults(defaults, target)
-            target_run.update({"test_definition": test_definition, "base_tps": experiment["base_tps"]})
+            target_run.update(
+                {
+                    "test_definition": test_definition,
+                    "resolved_test_path": str(resolved_test_path),
+                    "base_tps": base_tps,
+                }
+            )
             result = run_one(run_test, lab_root, defaults, global_env, target_run, index, len(targets), log_file, hook, log_dir)
             results.append(result)
             if result["interrupted"]:
@@ -834,7 +852,8 @@ def run_experiment(
         "experiment": experiment_name,
         "description": experiment.get("description", ""),
         "test_definition": test_definition,
-        "base_tps": experiment["base_tps"],
+        "resolved_test_path": str(resolved_test_path),
+        "base_tps": base_tps,
         "experiment_file": str(experiment_path),
         "sla_profile_file": str(sla_profile_file) if sla_profile_file else "",
         "result_dir": str(log_dir),

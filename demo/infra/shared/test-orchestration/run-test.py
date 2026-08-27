@@ -17,13 +17,18 @@ from pathlib import Path
 from typing import Any
 
 
-def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
-    module_path = repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "diagnostic_steps.py"
-    spec = importlib.util.spec_from_file_location("ckc_diagnostic_steps", module_path)
+def load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load diagnostic step contract: {module_path}")
+        raise RuntimeError(f"Could not load helper module: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
+    module_path = repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "diagnostic_steps.py"
+    module = load_module(module_path, "ckc_diagnostic_steps")
     return module.normalize(definition, definition_path)
 
 
@@ -367,6 +372,7 @@ def deploy_load_job(
     run_id: str,
     active_deadline_seconds: int,
     packet_capture_enabled: bool,
+    producer_config_steps: list[dict[str, Any]],
 ) -> str:
     shards = as_int(load_test.get("shards"), 1)
     job_name = f"ckc-load-test-{run_id}"
@@ -460,6 +466,32 @@ spec:
               value: {yaml_string(as_str(load_test.get("kafka_producer_compression_type"), ""))}
             - name: KAFKA_PRODUCER_BUFFER_MEMORY
               value: {yaml_string(as_str(load_test.get("kafka_producer_buffer_memory"), ""))}
+            - name: ORDER_KAFKA_PRODUCER_LINGER_MS
+              value: {yaml_string(as_str(load_test.get("order_kafka_producer_linger_ms"), ""))}
+            - name: ORDER_KAFKA_PRODUCER_BATCH_SIZE
+              value: {yaml_string(as_str(load_test.get("order_kafka_producer_batch_size"), ""))}
+            - name: ORDER_KAFKA_PRODUCER_COMPRESSION_TYPE
+              value: {yaml_string(as_str(load_test.get("order_kafka_producer_compression_type"), ""))}
+            - name: ORDER_KAFKA_PRODUCER_BUFFER_MEMORY
+              value: {yaml_string(as_str(load_test.get("order_kafka_producer_buffer_memory"), ""))}
+            - name: BATCH_KAFKA_PRODUCER_LINGER_MS
+              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_linger_ms"), ""))}
+            - name: BATCH_KAFKA_PRODUCER_BATCH_SIZE
+              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_batch_size"), ""))}
+            - name: BATCH_KAFKA_PRODUCER_COMPRESSION_TYPE
+              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_compression_type"), ""))}
+            - name: BATCH_KAFKA_PRODUCER_BUFFER_MEMORY
+              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_buffer_memory"), ""))}
+            - name: TELEMETRY_KAFKA_PRODUCER_LINGER_MS
+              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_linger_ms"), ""))}
+            - name: TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE
+              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_batch_size"), ""))}
+            - name: TELEMETRY_KAFKA_PRODUCER_COMPRESSION_TYPE
+              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_compression_type"), ""))}
+            - name: TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY
+              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_buffer_memory"), ""))}
+            - name: PRODUCER_CONFIG_STEPS_JSON
+              value: {yaml_string(json.dumps(producer_config_steps, separators=(",", ":")))}
             - name: TOTAL_SHARDS
               value: "{shards}"
             - name: TEST_RUN_ID
@@ -589,6 +621,13 @@ def main() -> None:
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
+    producer_steps_module = load_module(
+        repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "producer_config_steps.py",
+        "producer_config_steps",
+    )
+    producer_config_steps = producer_steps_module.normalize(
+        require_section(definition, "load_test"), definition_path
+    )
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")
@@ -639,6 +678,7 @@ def main() -> None:
             run_id,
             wait_timeout_seconds,
             bool(diagnostic_steps),
+            producer_config_steps,
         )
         if diagnostic_steps:
             diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"

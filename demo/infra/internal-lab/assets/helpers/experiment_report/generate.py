@@ -131,10 +131,14 @@ def copy_report_sources(
     sources = {
         summary_path: raw_dir / "experiment-set-summary.json",
         Path(str(experiment_summary["experiment_file"])): raw_dir / "experiment.yaml",
-        lab_root
-        / "workloads"
-        / "test-definitions"
-        / f"{experiment_summary['test_definition']}.yaml": raw_dir / "test-definition.yaml",
+        (
+            Path(str(experiment_summary["resolved_test_path"]))
+            if experiment_summary.get("resolved_test_path")
+            else lab_root
+            / "workloads"
+            / "test-definitions"
+            / f"{experiment_summary['test_definition']}.yaml"
+        ): raw_dir / "test-definition.yaml",
     }
     for source, target in sources.items():
         if source.is_file():

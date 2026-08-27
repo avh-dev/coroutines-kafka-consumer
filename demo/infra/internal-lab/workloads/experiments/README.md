@@ -1,8 +1,9 @@
 # Internal-lab Experiments
 
 `demo/infra/internal-lab/workloads/experiments` contains experiment definitions.
-An experiment runs one `test_definition` at one explicit `base_tps` against one
-or more inline consumer targets. Each experiment may select a reusable
+An experiment runs one resolved test at one explicit `base_tps` against one
+or more inline consumer targets. The test can extend a reusable definition or
+be written completely inline. Each experiment may select a reusable
 `sla_profile` from `../sla-profiles`; completed experiment sets generate local
 Markdown and SVG reports under their result directory.
 
@@ -95,6 +96,50 @@ targets:
         limits:
           memory: 3Gi
 ```
+
+`test_definition` remains supported as the short legacy form. New experiments
+can use `test.extends` and override any nested test field. Objects merge
+recursively, while lists (including chaos, diagnostics, and producer config
+steps) replace the inherited list. `null` removes an inherited field:
+
+```yaml
+test:
+  extends: telemetry-freshness-fairness
+  load_test:
+    producer_config_steps:
+      - at: 3m
+        topic: telemetry
+        linger_ms: 50
+      - at: 6m
+        topic: all
+        linger_ms: 500
+        batch_size: 131072
+  chaos_steps:
+    - at: 4m
+      type: service_restart
+      target: redis
+  diagnostic_steps: null
+```
+
+Omit `extends` to define the complete `stubs` and `load_test` sections directly
+inside `test`. Every run stores the fully resolved YAML beside the experiment
+summary, and report generation uses that snapshot.
+
+The target `name` is automatically passed to the demo as
+`EXPERIMENT_TARGET_NAME`, so `ckc.demo.consumer.profile.info` uses the readable
+experiment name for its `profile` tag while retaining the Spring profile in
+`spring_profile`.
+
+Initial producer settings may be shared (`kafka_producer_linger_ms`,
+`kafka_producer_batch_size`, `kafka_producer_compression_type`, and
+`kafka_producer_buffer_memory`) or prefixed with `order_`, `batch_`, or
+`telemetry_` under `load_test`. Scheduled steps inherit the current settings
+for fields they do not mention and can target one topic or `all`.
+
+Consumer fetch settings are target-specific environment overrides. Shared
+`KAFKA_CONSUMER_*` values and corresponding `ORDER_`, `BATCH_`, and
+`TELEMETRY_` variants are passed through the internal-lab Helm deployment; this
+allows unlike topics to use different fetch sizes, waits, and poll limits.
 
 SLA profiles support inheritance, declarative delivery criteria, and exact
 per-record latency rules. The standard experiment profile is:
