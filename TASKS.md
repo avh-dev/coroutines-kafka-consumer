@@ -261,6 +261,7 @@
 | [INFRA-117](#infra-117) | Allow experiments to inherit, override, or fully define their test configuration and persist the resolved test artifact. | DONE |
 | [INFRA-118](#infra-118) | Record actual experiment events and expose them in reports, live Grafana annotations, and restored result bundles. | DONE |
 | [INFRA-119](#infra-119) | Add a Spring Kafka experiment sweeping producer linger from 0 to 1000 ms with LZ4 and no compression. | DONE |
+| [INFRA-120](#infra-120) | Make Grafana experiment annotations opt-in and replace runtime linger sweeps with fixed five-minute targets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2889,3 +2890,16 @@ Return each topic producer pool to one immutable configuration for the full proc
 This avoids accumulating retired Kafka producer metrics and resources during a run.
 
 Verification: `./gradlew :ckc-demo-load-test:test` passed.
+
+<a id="infra-120"></a>
+### INFRA-120 - Make experiment annotations optional
+
+_Date: 2026-08-27_
+
+Disable live and restored-bundle Grafana annotations by default while retaining the experiment event journal and report timeline.
+Remove producer reconfiguration schedules and their load-test event wrapper from local and shared orchestration.
+Replace the runtime linger sweep with independent five-minute Spring Kafka targets for every compression and linger configuration.
+
+The comparison now contains 22 static targets: `linger.ms=0..1000` in 100 ms increments for both LZ4 and no compression. Each target includes one steady-state packet capture, while Grafana annotation publishing and bundle replay remain explicitly opt-in.
+
+Verification: all 44 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, the dashboard JSON parsed, and the resolved experiment validated as 22 fixed five-minute targets. The experiment was not executed.

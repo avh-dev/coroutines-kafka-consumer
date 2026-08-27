@@ -6,6 +6,12 @@ GRAFANA_PORT="${GRAFANA_PORT:-3000}"
 LOKI_PORT="${LOKI_PORT:-3100}"
 PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR:-${SCRIPT_DIR}/../.runtime}"
+GRAFANA_ANNOTATIONS_ENABLED="${GRAFANA_ANNOTATIONS_ENABLED:-false}"
+
+if [ "${GRAFANA_ANNOTATIONS_ENABLED}" != "true" ] && [ "${GRAFANA_ANNOTATIONS_ENABLED}" != "false" ]; then
+  echo "GRAFANA_ANNOTATIONS_ENABLED must be true or false: ${GRAFANA_ANNOTATIONS_ENABLED}" >&2
+  exit 1
+fi
 
 dashboard_url() {
   python3 - "${SCRIPT_DIR}/../manifest.json" "${GRAFANA_PORT}" <<'PY'
@@ -131,10 +137,14 @@ PROMETHEUS_PORT="${PROMETHEUS_PORT}" \
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR}" \
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d --wait
 
-echo "Replaying experiment annotations..."
-python3 "${SCRIPT_DIR}/import-grafana-annotations.py" \
-  --root "${SCRIPT_DIR}/.." \
-  --grafana-url "http://127.0.0.1:${GRAFANA_PORT}"
+if [ "${GRAFANA_ANNOTATIONS_ENABLED}" = "true" ]; then
+  echo "Replaying experiment annotations..."
+  python3 "${SCRIPT_DIR}/import-grafana-annotations.py" \
+    --root "${SCRIPT_DIR}/.." \
+    --grafana-url "http://127.0.0.1:${GRAFANA_PORT}"
+else
+  echo "Grafana annotations are disabled. Set GRAFANA_ANNOTATIONS_ENABLED=true to replay them."
+fi
 
 dashboard_link="$(dashboard_url)"
 echo

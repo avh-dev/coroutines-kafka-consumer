@@ -11,7 +11,6 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from diagnostic_steps import normalize as normalize_diagnostic_steps
-from producer_config_steps import normalize as normalize_producer_config_steps
 
 try:
     import yaml
@@ -317,7 +316,6 @@ def main() -> None:
     stub_settings = stub_settings_from_definition(stubs, definition_path)
     chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
     diagnostic_steps = normalized_diagnostic_steps(definition, definition_path)
-    producer_config_steps = normalize_producer_config_steps(load_test, definition_path)
 
     deployment_env = value_at(deployment_profile, "env", default={})
     if not isinstance(deployment_env, dict):
@@ -346,7 +344,6 @@ def main() -> None:
         "STUB_SETTINGS_JSON": json.dumps(stub_settings, separators=(",", ":")),
         "CHAOS_STEPS_JSON": json.dumps(chaos_steps, separators=(",", ":")),
         "DIAGNOSTIC_STEPS_JSON": json.dumps(diagnostic_steps, separators=(",", ":")),
-        "PRODUCER_CONFIG_STEPS_JSON": json.dumps(producer_config_steps, separators=(",", ":")),
         "PACKET_CAPTURE_ENABLED": str(bool(diagnostic_steps)).lower(),
         "LOAD_TEST_SHARDS": str(load_test.get("shards", 1)),
         "BASE_TPS": str(run_plan_base_tps if run_plan_base_tps not in (None, "") else load_test.get("base_tps", 10000)),

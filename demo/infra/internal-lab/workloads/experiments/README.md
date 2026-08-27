@@ -99,21 +99,15 @@ targets:
 
 `test_definition` remains supported as the short legacy form. New experiments
 can use `test.extends` and override any nested test field. Objects merge
-recursively, while lists (including chaos, diagnostics, and producer config
-steps) replace the inherited list. `null` removes an inherited field:
+recursively, while lists (including chaos and diagnostics) replace the
+inherited list. `null` removes an inherited field:
 
 ```yaml
 test:
   extends: telemetry-freshness-fairness
   load_test:
-    producer_config_steps:
-      - at: 3m
-        topic: telemetry
-        linger_ms: 50
-      - at: 6m
-        topic: all
-        linger_ms: 500
-        batch_size: 131072
+    kafka_producer_linger_ms: 50
+    kafka_producer_batch_size: 131072
   chaos_steps:
     - at: 4m
       type: service_restart
@@ -133,19 +127,21 @@ experiment name for its `profile` tag while retaining the Spring profile in
 Initial producer settings may be shared (`kafka_producer_linger_ms`,
 `kafka_producer_batch_size`, `kafka_producer_compression_type`, and
 `kafka_producer_buffer_memory`) or prefixed with `order_`, `batch_`, or
-`telemetry_` under `load_test`. Scheduled steps inherit the current settings
-for fields they do not mention and can target one topic or `all`.
+`telemetry_` under `load_test`. Producer settings remain fixed for the complete
+target run; use separate targets to compare different settings.
 
 Consumer fetch settings are target-specific environment overrides. Shared
 `KAFKA_CONSUMER_*` values and corresponding `ORDER_`, `BATCH_`, and
 `TELEMETRY_` variants are passed through the internal-lab Helm deployment; this
 allows unlike topics to use different fetch sizes, waits, and poll limits.
 
-During a run, producer reconfiguration, chaos actions, and diagnostic captures
+During a run, chaos actions and diagnostic captures
 append their actual lifecycle timestamps to `experiment-events.jsonl`. Events
-are shown immediately as annotations on the `ckc-overview` Grafana dashboard;
-Grafana downtime does not fail the workload because the JSONL file remains the
-source used by reports and exported bundles.
+remain visible in reports and exported bundles. Live Grafana annotations are
+disabled by default to avoid timeline noise; set
+`EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED=true` in experiment environment
+overrides to publish them. Grafana downtime does not fail the workload because
+the JSONL file remains authoritative.
 
 SLA profiles support inheritance, declarative delivery criteria, and exact
 per-record latency rules. The standard experiment profile is:
