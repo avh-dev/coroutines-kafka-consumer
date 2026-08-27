@@ -47,15 +47,19 @@ class LoadTestMetricsTest {
             shardIndex = 2,
             poolSizes = ProducerPoolSizes(order = 1, batch = 1, cauldronTelemetry = 1)
         ).use { metrics ->
-            metrics.bindKafkaProducer("order", 0, producer)
+            metrics.bindKafkaProducer("order", generation = 0, producerIndex = 0, producer = producer)
 
             val scrape = metrics.registry.scrape()
 
             assertContains(scrape, "kafka_producer_batch_size_avg{")
             assertContains(scrape, "client_id=\"test-order\"")
             assertContains(scrape, "producer_index=\"0\"")
+            assertContains(scrape, "producer_generation=\"0\"")
             assertContains(scrape, "traffic_topic=\"order\"")
             assertContains(scrape, "} 64000.0")
+
+            metrics.unbindKafkaProducers("order", 0)
+            kotlin.test.assertFalse(metrics.registry.scrape().contains("kafka_producer_batch_size_avg{"))
         }
     }
 

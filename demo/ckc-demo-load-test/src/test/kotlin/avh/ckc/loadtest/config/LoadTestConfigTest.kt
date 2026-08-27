@@ -111,4 +111,21 @@ class LoadTestConfigTest {
         assertEquals("zstd", config.topicKafkaProducers.telemetry.compressionType)
         assertEquals(67108864L, config.topicKafkaProducers.telemetry.bufferMemory)
     }
+
+    @Test
+    fun `reads ordered producer configuration steps`() {
+        val config = LoadTestConfig.fromEnvironment(
+            mapOf(
+                "PRODUCER_CONFIG_STEPS_JSON" to
+                    """[{"atSeconds":60,"topic":"telemetry","lingerMs":50},{"atSeconds":120,"topic":"all","batchSize":131072}]"""
+            )
+        )
+
+        assertEquals(2, config.producerConfigSteps.size)
+        assertEquals(60, config.producerConfigSteps[0].atSeconds)
+        assertEquals(ProducerTopic.TELEMETRY, config.producerConfigSteps[0].topic)
+        assertEquals(50, config.producerConfigSteps[0].lingerMs)
+        assertEquals(ProducerTopic.ALL, config.producerConfigSteps[1].topic)
+        assertEquals(131072, config.producerConfigSteps[1].batchSize)
+    }
 }
