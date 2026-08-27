@@ -259,6 +259,7 @@
 | [INFRA-116](#infra-116) | Repeat the Kafka compression comparison with random and zero-length telemetry diagnostics payloads. | DONE |
 | [INFRA-117](#infra-117) | Allow experiments to inherit, override, or fully define their test configuration and persist the resolved test artifact. | DONE |
 | [INFRA-118](#infra-118) | Record actual experiment events and expose them in reports, live Grafana annotations, and restored result bundles. | DONE |
+| [INFRA-119](#infra-119) | Add a Spring Kafka experiment sweeping producer linger from 0 to 1000 ms with LZ4 and no compression. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2865,3 +2866,14 @@ The run wrapper now preserves load-test stdout, consumes its structured producer
 Experiment reports render the observed target-aware timeline and retain the raw journal; the live and restored dashboards expose the same events through Grafana's annotations API.
 
 Verification: all 44 internal-lab unit tests passed; the load-test event wrapper was exercised end to end, modified Python files compiled, Bash scripts passed syntax checks, the Helm chart rendered, and the dashboard JSON annotation layer was validated.
+
+<a id="infra-119"></a>
+### INFRA-119 - Compare Spring Kafka producer linger sweeps
+
+_Date: 2026-08-27_
+
+Add a 5000 TPS telemetry experiment for the standard Spring Kafka consumer with identical LZ4 and uncompressed targets.
+Start producers at `linger.ms=0`, warm up for two minutes, then increase linger by 100 ms every minute through 1000 ms.
+Capture representative Kafka traffic near the beginning, middle, and end of the sweep while runtime events mark every actual reconfiguration.
+
+Verification: the resolved experiment validated as a 13-minute load profile with ten ordered producer changes, three diagnostic captures, and two Spring Kafka targets; all 44 internal-lab unit tests passed. The experiment was not executed.
