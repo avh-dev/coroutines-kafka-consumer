@@ -383,11 +383,11 @@ class ExperimentReportTest(unittest.TestCase):
                         "eventId": "event-1",
                         "runId": "run-a",
                         "timestamp": "2026-08-07T10:00:30Z",
-                        "source": "producer",
-                        "type": "producer_config_reconfigured",
+                        "source": "diagnostic",
+                        "type": "tcpdump",
                         "status": "success",
-                        "title": "Producer config · telemetry",
-                        "details": {"topic": "telemetry", "lingerMs": 50},
+                        "title": "Packet capture · kafka-steady",
+                        "details": {"targets": "application,load-test", "durationSeconds": 5},
                     }
                 )
                 + "\n",
@@ -419,7 +419,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(30.0, report.targets[0].events[0]["at_seconds"])
             self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
             svg = svg_renderer.load_profile_svg(report)
-            self.assertIn("target-a: Producer config · telemetry [success]", svg)
+            self.assertIn("target-a: Packet capture · kafka-steady [success]", svg)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

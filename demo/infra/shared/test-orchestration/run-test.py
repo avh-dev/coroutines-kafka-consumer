@@ -372,7 +372,6 @@ def deploy_load_job(
     run_id: str,
     active_deadline_seconds: int,
     packet_capture_enabled: bool,
-    producer_config_steps: list[dict[str, Any]],
 ) -> str:
     shards = as_int(load_test.get("shards"), 1)
     job_name = f"ckc-load-test-{run_id}"
@@ -490,8 +489,6 @@ spec:
               value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_compression_type"), ""))}
             - name: TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY
               value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_buffer_memory"), ""))}
-            - name: PRODUCER_CONFIG_STEPS_JSON
-              value: {yaml_string(json.dumps(producer_config_steps, separators=(",", ":")))}
             - name: TOTAL_SHARDS
               value: "{shards}"
             - name: TEST_RUN_ID
@@ -621,13 +618,6 @@ def main() -> None:
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
-    producer_steps_module = load_module(
-        repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "producer_config_steps.py",
-        "producer_config_steps",
-    )
-    producer_config_steps = producer_steps_module.normalize(
-        require_section(definition, "load_test"), definition_path
-    )
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")
@@ -678,7 +668,6 @@ def main() -> None:
             run_id,
             wait_timeout_seconds,
             bool(diagnostic_steps),
-            producer_config_steps,
         )
         if diagnostic_steps:
             diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"

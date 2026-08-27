@@ -46,6 +46,13 @@ def append_event(event: dict[str, Any], path: Path | str | None = None) -> dict[
 
 
 def publish_grafana_annotation(event: dict[str, Any]) -> None:
+    if os.environ.get("EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED", "false").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "y",
+    }:
+        return
     grafana_url = os.environ.get("EXPERIMENT_GRAFANA_URL", "http://127.0.0.1:3000").rstrip("/")
     if not grafana_url:
         return
