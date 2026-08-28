@@ -50,115 +50,29 @@ defaults:
         memory: 2Gi
 
 targets:
-  - name: spring.many-consumers.lz4.linger0
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 0
-
-  - name: spring.many-consumers.lz4.linger100
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 100
-
-  - name: spring.many-consumers.lz4.linger200
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 200
-
-  - name: spring.many-consumers.lz4.linger300
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 300
-
-  - name: spring.many-consumers.lz4.linger400
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 400
-
-  - name: spring.many-consumers.lz4.linger500
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 500
-
-  - name: spring.many-consumers.lz4.linger600
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 600
-
-  - name: spring.many-consumers.lz4.linger700
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 700
-
-  - name: spring.many-consumers.lz4.linger800
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 800
-
-  - name: spring.many-consumers.lz4.linger900
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 900
-
-  - name: spring.many-consumers.lz4.linger1000
-    profile: spring-kafka
-    parallelism: [partitions, pollers]
-    telemetry_partitions: 200
-    telemetry_pollers: 200
-    env:
-      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
-      KAFKA_PRODUCER_LINGER_MS: 1000
 
   - name: spring.many-consumers.none.linger0
+    annotation_label: compression.type=none · linger.ms=0
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
     telemetry_pollers: 200
     env:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
+      KAFKA_PRODUCER_LINGER_MS: 0
+
+  - name: spring.many-consumers.lz4.linger0
+    annotation_label: compression.type=lz4 · linger.ms=0
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
       KAFKA_PRODUCER_LINGER_MS: 0
 
   - name: spring.many-consumers.none.linger100
+    annotation_label: compression.type=none · linger.ms=100
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -167,7 +81,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 100
 
+  - name: spring.many-consumers.lz4.linger100
+    annotation_label: compression.type=lz4 · linger.ms=100
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 100
+
   - name: spring.many-consumers.none.linger200
+    annotation_label: compression.type=none · linger.ms=200
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -176,7 +101,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 200
 
+  - name: spring.many-consumers.lz4.linger200
+    annotation_label: compression.type=lz4 · linger.ms=200
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 200
+
   - name: spring.many-consumers.none.linger300
+    annotation_label: compression.type=none · linger.ms=300
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -185,7 +121,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 300
 
+  - name: spring.many-consumers.lz4.linger300
+    annotation_label: compression.type=lz4 · linger.ms=300
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 300
+
   - name: spring.many-consumers.none.linger400
+    annotation_label: compression.type=none · linger.ms=400
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -194,7 +141,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 400
 
+  - name: spring.many-consumers.lz4.linger400
+    annotation_label: compression.type=lz4 · linger.ms=400
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 400
+
   - name: spring.many-consumers.none.linger500
+    annotation_label: compression.type=none · linger.ms=500
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -203,7 +161,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 500
 
+  - name: spring.many-consumers.lz4.linger500
+    annotation_label: compression.type=lz4 · linger.ms=500
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 500
+
   - name: spring.many-consumers.none.linger600
+    annotation_label: compression.type=none · linger.ms=600
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -212,7 +181,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 600
 
+  - name: spring.many-consumers.lz4.linger600
+    annotation_label: compression.type=lz4 · linger.ms=600
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 600
+
   - name: spring.many-consumers.none.linger700
+    annotation_label: compression.type=none · linger.ms=700
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -221,7 +201,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 700
 
+  - name: spring.many-consumers.lz4.linger700
+    annotation_label: compression.type=lz4 · linger.ms=700
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 700
+
   - name: spring.many-consumers.none.linger800
+    annotation_label: compression.type=none · linger.ms=800
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -230,7 +221,18 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 800
 
+  - name: spring.many-consumers.lz4.linger800
+    annotation_label: compression.type=lz4 · linger.ms=800
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 800
+
   - name: spring.many-consumers.none.linger900
+    annotation_label: compression.type=none · linger.ms=900
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
@@ -239,11 +241,32 @@ targets:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
       KAFKA_PRODUCER_LINGER_MS: 900
 
+  - name: spring.many-consumers.lz4.linger900
+    annotation_label: compression.type=lz4 · linger.ms=900
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
+      KAFKA_PRODUCER_LINGER_MS: 900
+
   - name: spring.many-consumers.none.linger1000
+    annotation_label: compression.type=none · linger.ms=1000
     profile: spring-kafka
     parallelism: [partitions, pollers]
     telemetry_partitions: 200
     telemetry_pollers: 200
     env:
       KAFKA_PRODUCER_COMPRESSION_TYPE: none
+      KAFKA_PRODUCER_LINGER_MS: 1000
+
+  - name: spring.many-consumers.lz4.linger1000
+    annotation_label: compression.type=lz4 · linger.ms=1000
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    telemetry_partitions: 200
+    telemetry_pollers: 200
+    env:
+      KAFKA_PRODUCER_COMPRESSION_TYPE: lz4
       KAFKA_PRODUCER_LINGER_MS: 1000

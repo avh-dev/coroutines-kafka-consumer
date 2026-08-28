@@ -265,6 +265,7 @@
 | [INFRA-121](#infra-121) | Publish one informative Grafana annotation at the start of every test run while keeping detailed event annotations optional. | DONE |
 | [INFRA-122](#infra-122) | Reduce run-start Grafana annotations to the target values that distinguish experiment runs. | DONE |
 | [INFRA-123](#infra-123) | Use explicit run annotation labels and emit only the annotation type as a Grafana tag. | DONE |
+| [INFRA-124](#infra-124) | Interleave uncompressed and LZ4 linger targets for adjacent like-for-like comparison. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2943,3 +2944,15 @@ Reduce Grafana annotation tags to one tag containing only the event type.
 The short lab comparison now uses `compression.type=lz4` and `compression.type=none`, while both targets retain the same `linger.ms=200` outside the annotation text.
 
 Verification: all 48 internal-lab unit tests passed; modified Python files compiled and Bash scripts passed syntax checks. Optilab was updated, installed helpers matched the repository, a mocked installed publisher produced exactly one `run_started` tag, and the lab-only experiment resolved with no diagnostics or chaos. No experiment was started.
+
+<a id="infra-124"></a>
+### INFRA-124 - Interleave compression targets by linger
+
+_Date: 2026-08-28_
+
+Order the long Spring Kafka linger comparison as adjacent uncompressed and LZ4 target pairs for each increasing `linger.ms` value.
+Give every target an explicit annotation label naming both varying producer parameters.
+
+The sequence now runs `none` then `lz4` at each linger value from 0 through 1000 ms before advancing by 100 ms.
+
+Verification: all 48 internal-lab unit tests passed; the resolved experiment validated as 11 ordered compression pairs with 22 five-minute targets and explicit labels. Optilab was updated and its installed experiment matched the repository byte-for-byte. The experiment was not started.
