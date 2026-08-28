@@ -54,8 +54,18 @@ class ExperimentEventsTest(unittest.TestCase):
             {"EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED": "true", "EXPERIMENT_GRAFANA_URL": "http://grafana"},
             clear=True,
         ), patch.object(events.urllib.request, "urlopen", return_value=response) as urlopen:
-            events.publish_grafana_annotation({"timestamp": "2026-08-27T12:00:00Z", "type": "chaos"})
+            events.publish_grafana_annotation(
+                {
+                    "timestamp": "2026-08-27T12:00:00Z",
+                    "type": "chaos",
+                    "text": "custom annotation text",
+                    "annotationTags": ["target:test-a"],
+                }
+            )
         urlopen.assert_called_once()
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual("custom annotation text", payload["text"])
+        self.assertIn("target:test-a", payload["tags"])
 
 
 if __name__ == "__main__":

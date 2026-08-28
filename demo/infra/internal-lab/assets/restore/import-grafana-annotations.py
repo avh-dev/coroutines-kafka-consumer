@@ -16,6 +16,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Replay exported experiment events as Grafana annotations.")
     parser.add_argument("--root", required=True)
     parser.add_argument("--grafana-url", default="http://127.0.0.1:3000")
+    parser.add_argument("--include-events", action="store_true", help="Also replay non-run experiment events.")
+    parser.add_argument("--exclude-run-starts", action="store_true", help="Do not replay run-start annotations.")
     return parser.parse_args()
 
 
@@ -51,7 +53,11 @@ def main() -> int:
     for path in sorted((root / "runs").glob("*/experiment-events.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             event = json.loads(line)
+            is_run_start = event.get("type") == "run_started"
+            if (is_run_start and args.exclude_run_starts) or (not is_run_start and not args.include_events):
+                continue
             timestamp = datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00"))
+            extra_tags = event.get("annotationTags") if isinstance(event.get("annotationTags"), list) else []
             payload = {
                 "dashboardUID": dashboard_uid,
                 "time": int(timestamp.timestamp() * 1000),
@@ -61,8 +67,9 @@ def main() -> int:
                     str(event.get("type") or "event"),
                     str(event.get("status") or "completed"),
                     f"run:{event.get('runId') or path.parent.name}",
+                    *(str(tag) for tag in extra_tags if str(tag).strip()),
                 ],
-                "text": text(event),
+                "text": str(event.get("text") or text(event)),
             }
             request = urllib.request.Request(
                 f"{args.grafana_url.rstrip('/')}/api/annotations",
