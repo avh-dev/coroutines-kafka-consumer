@@ -23,7 +23,7 @@ class RunStartAnnotationsTest(unittest.TestCase):
                 "experiment": {
                     "name": "spring-kafka-linger-sweep-comparison",
                     "target": "spring.many-consumers.lz4.linger500",
-                    "variant": "lz4 · linger500",
+                    "annotation_label": "compression.type=lz4 · linger.ms=500",
                 },
                 "application": {"profile": "spring-kafka", "replica_count": 1},
                 "load_test": {
@@ -36,12 +36,12 @@ class RunStartAnnotationsTest(unittest.TestCase):
 
         self.assertEqual("run_started", event["type"])
         self.assertEqual("started", event["status"])
-        self.assertEqual("lz4 · linger500", event["title"])
-        self.assertEqual("lz4 · linger500", event["text"])
-        self.assertEqual(["ckc-run", "variant:lz4 · linger500"], event["annotationTags"])
+        self.assertEqual("compression.type=lz4 · linger.ms=500", event["title"])
+        self.assertEqual("compression.type=lz4 · linger.ms=500", event["text"])
+        self.assertNotIn("annotationTags", event)
         self.assertEqual(
             {
-                "variant": "lz4 · linger500",
+                "annotationLabel": "compression.type=lz4 · linger.ms=500",
                 "target": "spring.many-consumers.lz4.linger500",
             },
             event["details"],

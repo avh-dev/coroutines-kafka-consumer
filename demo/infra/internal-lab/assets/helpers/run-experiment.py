@@ -175,7 +175,7 @@ def merge_target_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> d
     return result
 
 
-def target_variant_labels(targets: list[dict[str, Any]]) -> list[str]:
+def target_annotation_labels(targets: list[dict[str, Any]]) -> list[str]:
     names = [str(target.get("name") or target.get("id") or "run") for target in targets]
     tokenized = [name.split(".") for name in names]
     common_tokens = 0
@@ -184,7 +184,11 @@ def target_variant_labels(targets: list[dict[str, Any]]) -> list[str]:
             break
         common_tokens += 1
     labels = []
-    for name, tokens in zip(names, tokenized):
+    for target, name, tokens in zip(targets, names, tokenized):
+        explicit = str(target.get("annotation_label") or "").strip()
+        if explicit:
+            labels.append(explicit)
+            continue
         variant = tokens[common_tokens:] if common_tokens < len(tokens) else tokens
         labels.append(" · ".join(variant) or name)
     return labels
@@ -315,6 +319,8 @@ def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, 
                 raise ValueError(f"Experiment targets[{index}] must define planning_latency.{topic}_ms: {path}")
         target.setdefault("id", str(target.get("name") or target.get("profile") or target.get("deployment")))
         target.setdefault("name", target["id"])
+        if "annotation_label" in target and not str(target["annotation_label"]).strip():
+            raise ValueError(f"Experiment targets[{index}].annotation_label must not be blank: {path}")
         normalized.append(target)
     return normalized
 
@@ -601,7 +607,7 @@ def run_one(
     env.setdefault("EXPERIMENT_NAME", experiment_name)
     env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
     env.setdefault("EXPERIMENT_TARGET_TOTAL", str(total))
-    env.setdefault("EXPERIMENT_RUN_VARIANT_LABEL", str(test.get("run_variant_label") or name))
+    env.setdefault("EXPERIMENT_RUN_ANNOTATION_LABEL", str(test.get("run_annotation_label") or name))
     command = command_for_run(run_test, test, resolved_test_path, env)
     expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
@@ -795,7 +801,7 @@ def run_experiment(
     base_tps = int(base_tps)
     definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
-    variant_labels = target_variant_labels(targets)
+    annotation_labels = target_annotation_labels(targets)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
     write_resolved_test(resolved_test_path, definition)
@@ -835,7 +841,7 @@ def run_experiment(
                     "test_definition": test_definition,
                     "resolved_test_path": str(resolved_test_path),
                     "base_tps": base_tps,
-                    "run_variant_label": variant_labels[index - 1],
+                    "run_annotation_label": annotation_labels[index - 1],
                 }
             )
             result = run_one(

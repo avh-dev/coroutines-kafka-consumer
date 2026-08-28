@@ -70,18 +70,10 @@ def publish_grafana_annotation(
         return
     try:
         timestamp = datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00"))
-        extra_tags = event.get("annotationTags") if isinstance(event.get("annotationTags"), list) else []
         payload: dict[str, Any] = {
             "dashboardUID": os.environ.get("EXPERIMENT_GRAFANA_DASHBOARD_UID", "ckc-overview"),
             "time": int(timestamp.timestamp() * 1000),
-            "tags": [
-                "ckc-experiment",
-                str(event.get("source") or "orchestration"),
-                str(event.get("type") or "event"),
-                str(event.get("status") or "completed"),
-                f"run:{event.get('runId') or 'unknown'}",
-                *(str(tag) for tag in extra_tags if str(tag).strip()),
-            ],
+            "tags": [str(event.get("type") or "event")],
             "text": event_text(event),
         }
         request = urllib.request.Request(

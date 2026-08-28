@@ -264,6 +264,7 @@
 | [INFRA-120](#infra-120) | Make Grafana experiment annotations opt-in and replace runtime linger sweeps with fixed five-minute targets. | DONE |
 | [INFRA-121](#infra-121) | Publish one informative Grafana annotation at the start of every test run while keeping detailed event annotations optional. | DONE |
 | [INFRA-122](#infra-122) | Reduce run-start Grafana annotations to the target values that distinguish experiment runs. | DONE |
+| [INFRA-123](#infra-123) | Use explicit run annotation labels and emit only the annotation type as a Grafana tag. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2930,3 +2931,15 @@ Keep complete run configuration in run metadata and the exported experiment summ
 For the Spring Kafka linger comparison the 22 markers now read only `lz4 · lingerN` or `none · lingerN`; `run_id` remains a service tag rather than annotation text.
 
 Verification: all 48 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, and all 22 resolved experiment labels were checked. Optilab was updated, installed assets matched the repository, the installed helper produced a variant-only marker, and Grafana remained healthy. No experiment was started.
+
+<a id="infra-123"></a>
+### INFRA-123 - Make run annotation labels explicit
+
+_Date: 2026-08-28_
+
+Allow experiment targets to define the exact short text shown in their run-start annotation instead of inferring parameter semantics from target names.
+Reduce Grafana annotation tags to one tag containing only the event type.
+
+The short lab comparison now uses `compression.type=lz4` and `compression.type=none`, while both targets retain the same `linger.ms=200` outside the annotation text.
+
+Verification: all 48 internal-lab unit tests passed; modified Python files compiled and Bash scripts passed syntax checks. Optilab was updated, installed helpers matched the repository, a mocked installed publisher produced exactly one `run_started` tag, and the lab-only experiment resolved with no diagnostics or chaos. No experiment was started.
