@@ -6,10 +6,15 @@ GRAFANA_PORT="${GRAFANA_PORT:-3000}"
 LOKI_PORT="${LOKI_PORT:-3100}"
 PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR:-${SCRIPT_DIR}/../.runtime}"
-GRAFANA_ANNOTATIONS_ENABLED="${GRAFANA_ANNOTATIONS_ENABLED:-false}"
+GRAFANA_RUN_ANNOTATIONS_ENABLED="${GRAFANA_RUN_ANNOTATIONS_ENABLED:-true}"
+GRAFANA_EVENT_ANNOTATIONS_ENABLED="${GRAFANA_EVENT_ANNOTATIONS_ENABLED:-${GRAFANA_ANNOTATIONS_ENABLED:-false}}"
 
-if [ "${GRAFANA_ANNOTATIONS_ENABLED}" != "true" ] && [ "${GRAFANA_ANNOTATIONS_ENABLED}" != "false" ]; then
-  echo "GRAFANA_ANNOTATIONS_ENABLED must be true or false: ${GRAFANA_ANNOTATIONS_ENABLED}" >&2
+if [ "${GRAFANA_RUN_ANNOTATIONS_ENABLED}" != "true" ] && [ "${GRAFANA_RUN_ANNOTATIONS_ENABLED}" != "false" ]; then
+  echo "GRAFANA_RUN_ANNOTATIONS_ENABLED must be true or false: ${GRAFANA_RUN_ANNOTATIONS_ENABLED}" >&2
+  exit 1
+fi
+if [ "${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" != "true" ] && [ "${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" != "false" ]; then
+  echo "GRAFANA_EVENT_ANNOTATIONS_ENABLED must be true or false: ${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" >&2
   exit 1
 fi
 
@@ -137,13 +142,21 @@ PROMETHEUS_PORT="${PROMETHEUS_PORT}" \
 RESTORE_WORK_DIR="${RESTORE_WORK_DIR}" \
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d --wait
 
-if [ "${GRAFANA_ANNOTATIONS_ENABLED}" = "true" ]; then
+if [ "${GRAFANA_RUN_ANNOTATIONS_ENABLED}" = "true" ] || [ "${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" = "true" ]; then
   echo "Replaying experiment annotations..."
-  python3 "${SCRIPT_DIR}/import-grafana-annotations.py" \
-    --root "${SCRIPT_DIR}/.." \
+  annotation_args=(
+    --root "${SCRIPT_DIR}/.."
     --grafana-url "http://127.0.0.1:${GRAFANA_PORT}"
+  )
+  if [ "${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" = "true" ]; then
+    annotation_args+=(--include-events)
+  fi
+  if [ "${GRAFANA_RUN_ANNOTATIONS_ENABLED}" = "false" ]; then
+    annotation_args+=(--exclude-run-starts)
+  fi
+  python3 "${SCRIPT_DIR}/import-grafana-annotations.py" "${annotation_args[@]}"
 else
-  echo "Grafana annotations are disabled. Set GRAFANA_ANNOTATIONS_ENABLED=true to replay them."
+  echo "Grafana annotations are disabled."
 fi
 
 dashboard_link="$(dashboard_url)"

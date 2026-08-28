@@ -262,6 +262,7 @@
 | [INFRA-118](#infra-118) | Record actual experiment events and expose them in reports, live Grafana annotations, and restored result bundles. | DONE |
 | [INFRA-119](#infra-119) | Add a Spring Kafka experiment sweeping producer linger from 0 to 1000 ms with LZ4 and no compression. | DONE |
 | [INFRA-120](#infra-120) | Make Grafana experiment annotations opt-in and replace runtime linger sweeps with fixed five-minute targets. | DONE |
+| [INFRA-121](#infra-121) | Publish one informative Grafana annotation at the start of every test run while keeping detailed event annotations optional. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2903,3 +2904,16 @@ Replace the runtime linger sweep with independent five-minute Spring Kafka targe
 The comparison now contains 22 static targets: `linger.ms=0..1000` in 100 ms increments for both LZ4 and no compression. Each target includes one steady-state packet capture, while Grafana annotation publishing and bundle replay remain explicitly opt-in.
 
 Verification: all 44 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, the dashboard JSON parsed, and the resolved experiment validated as 22 fixed five-minute targets. The experiment was not executed.
+
+<a id="infra-121"></a>
+### INFRA-121 - Annotate test-run starts in Grafana
+
+_Date: 2026-08-28_
+
+Publish one compact, filterable Grafana annotation when each target load-test process starts.
+Include the experiment target, run id, profile, load, parallelism, and relevant Kafka producer settings.
+Keep detailed chaos and diagnostic annotations behind their existing opt-in flag and retain the complete JSONL report timeline.
+
+Run-start annotations are enabled by default and carry filterable experiment, target, profile, compression, linger, and run tags plus compact topology, load, producer, and consumer details. Exported bundles replay run starts by default while detailed event replay remains opt-in.
+
+Verification: all 46 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, and the annotation helper was exercised against real run metadata. `update-lab.sh` completed on optilab; installed assets matched the repository, Grafana reported healthy, and all lab Kubernetes workloads were Ready. No experiment was started.

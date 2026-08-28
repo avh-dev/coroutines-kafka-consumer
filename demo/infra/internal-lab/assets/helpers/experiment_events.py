@@ -17,6 +17,9 @@ def utc_iso() -> str:
 
 
 def event_text(event: dict[str, Any]) -> str:
+    custom_text = str(event.get("text") or "").strip()
+    if custom_text:
+        return custom_text
     details = event.get("details") if isinstance(event.get("details"), dict) else {}
     detail_text = ", ".join(f"{key}={value}" for key, value in sorted(details.items()) if value not in (None, ""))
     title = str(event.get("title") or event.get("type") or "experiment event")
@@ -24,7 +27,12 @@ def event_text(event: dict[str, Any]) -> str:
     return " · ".join(value for value in (title, status, detail_text) if value)
 
 
-def append_event(event: dict[str, Any], path: Path | str | None = None) -> dict[str, Any]:
+def append_event(
+    event: dict[str, Any],
+    path: Path | str | None = None,
+    *,
+    publish_annotation: bool = True,
+) -> dict[str, Any]:
     raw_path = str(path or os.environ.get("EXPERIMENT_EVENTS_FILE", "")).strip()
     normalized = dict(event)
     normalized.setdefault("eventId", str(uuid.uuid4()))
@@ -41,12 +49,16 @@ def append_event(event: dict[str, Any], path: Path | str | None = None) -> dict[
             output.write(json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n")
             output.flush()
             fcntl.flock(output.fileno(), fcntl.LOCK_UN)
-    publish_grafana_annotation(normalized)
+    if publish_annotation:
+        publish_grafana_annotation(normalized)
     return normalized
 
 
-def publish_grafana_annotation(event: dict[str, Any]) -> None:
-    if os.environ.get("EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED", "false").lower() not in {
+def publish_grafana_annotation(
+    event: dict[str, Any],
+    enabled_env: str = "EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED",
+) -> None:
+    if os.environ.get(enabled_env, "false").lower() not in {
         "1",
         "true",
         "yes",
@@ -58,6 +70,7 @@ def publish_grafana_annotation(event: dict[str, Any]) -> None:
         return
     try:
         timestamp = datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00"))
+        extra_tags = event.get("annotationTags") if isinstance(event.get("annotationTags"), list) else []
         payload: dict[str, Any] = {
             "dashboardUID": os.environ.get("EXPERIMENT_GRAFANA_DASHBOARD_UID", "ckc-overview"),
             "time": int(timestamp.timestamp() * 1000),
@@ -67,6 +80,7 @@ def publish_grafana_annotation(event: dict[str, Any]) -> None:
                 str(event.get("type") or "event"),
                 str(event.get("status") or "completed"),
                 f"run:{event.get('runId') or 'unknown'}",
+                *(str(tag) for tag in extra_tags if str(tag).strip()),
             ],
             "text": event_text(event),
         }

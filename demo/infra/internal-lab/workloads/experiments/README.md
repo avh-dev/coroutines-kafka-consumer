@@ -135,13 +135,17 @@ Consumer fetch settings are target-specific environment overrides. Shared
 `TELEMETRY_` variants are passed through the internal-lab Helm deployment; this
 allows unlike topics to use different fetch sizes, waits, and poll limits.
 
-During a run, chaos actions and diagnostic captures
-append their actual lifecycle timestamps to `experiment-events.jsonl`. Events
-remain visible in reports and exported bundles. Live Grafana annotations are
-disabled by default to avoid timeline noise; set
-`EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED=true` in experiment environment
-overrides to publish them. Grafana downtime does not fail the workload because
-the JSONL file remains authoritative.
+Each target run publishes one `run_started` Grafana annotation by default. Its
+text and tags identify the experiment, target, run id, profile, load,
+parallelism, and effective producer settings. Set
+`EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED=false` to disable these markers.
+
+Chaos actions and diagnostic captures also append their actual lifecycle
+timestamps to `experiment-events.jsonl`, so they remain visible in reports and
+exported bundles. Their noisier live Grafana annotations stay disabled by
+default; set `EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED=true` to publish them.
+Grafana downtime never fails the workload because the JSONL file remains
+authoritative.
 
 SLA profiles support inheritance, declarative delivery criteria, and exact
 per-record latency rules. The standard experiment profile is:

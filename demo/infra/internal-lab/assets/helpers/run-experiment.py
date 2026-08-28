@@ -571,6 +571,7 @@ def run_one(
     test: dict[str, Any],
     index: int,
     total: int,
+    experiment_name: str,
     log_file,
     hook: Path | None,
     log_dir: Path,
@@ -582,6 +583,9 @@ def run_one(
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
     env.setdefault("EXPERIMENT_TARGET_NAME", name)
+    env.setdefault("EXPERIMENT_NAME", experiment_name)
+    env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
+    env.setdefault("EXPERIMENT_TARGET_TOTAL", str(total))
     command = command_for_run(run_test, test, resolved_test_path, env)
     expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
@@ -816,7 +820,19 @@ def run_experiment(
                     "base_tps": base_tps,
                 }
             )
-            result = run_one(run_test, lab_root, defaults, global_env, target_run, index, len(targets), log_file, hook, log_dir)
+            result = run_one(
+                run_test,
+                lab_root,
+                defaults,
+                global_env,
+                target_run,
+                index,
+                len(targets),
+                experiment_name,
+                log_file,
+                hook,
+                log_dir,
+            )
             results.append(result)
             if result["interrupted"]:
                 break
