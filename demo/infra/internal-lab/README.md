@@ -593,8 +593,8 @@ default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
 starts Docker Compose, prints dashboard, Prometheus, and Loki links, then waits
 until `q` is pressed.
 Chaos and diagnostic timestamps always remain available on the generated
-experiment load-profile diagram and in its event table. Exported run-start
-annotations are replayed into Grafana by default. Detailed chaos and diagnostic
+experiment load-profile diagram and in its event table. Compact variant-only
+run-start annotations are replayed into Grafana by default. Detailed chaos and diagnostic
 annotations remain optional; start the bundle with
 `GRAFANA_EVENT_ANNOTATIONS_ENABLED=true ./open-grafana-with-logs-and-metrics.sh`
 to include them, or set `GRAFANA_RUN_ANNOTATIONS_ENABLED=false` to suppress the

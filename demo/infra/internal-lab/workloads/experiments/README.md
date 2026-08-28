@@ -135,9 +135,10 @@ Consumer fetch settings are target-specific environment overrides. Shared
 `TELEMETRY_` variants are passed through the internal-lab Helm deployment; this
 allows unlike topics to use different fetch sizes, waits, and poll limits.
 
-Each target run publishes one `run_started` Grafana annotation by default. Its
-text and tags identify the experiment, target, run id, profile, load,
-parallelism, and effective producer settings. Set
+Each target run publishes one `run_started` Grafana annotation by default. The
+marker contains only the part of the readable target name that differs across
+the experiment, for example `lz4 · linger500`; complete configuration remains
+in run metadata and the report summary. Set
 `EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED=false` to disable these markers.
 
 Chaos actions and diagnostic captures also append their actual lifecycle

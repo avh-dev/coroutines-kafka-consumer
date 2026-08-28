@@ -263,6 +263,7 @@
 | [INFRA-119](#infra-119) | Add a Spring Kafka experiment sweeping producer linger from 0 to 1000 ms with LZ4 and no compression. | DONE |
 | [INFRA-120](#infra-120) | Make Grafana experiment annotations opt-in and replace runtime linger sweeps with fixed five-minute targets. | DONE |
 | [INFRA-121](#infra-121) | Publish one informative Grafana annotation at the start of every test run while keeping detailed event annotations optional. | DONE |
+| [INFRA-122](#infra-122) | Reduce run-start Grafana annotations to the target values that distinguish experiment runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2917,3 +2918,15 @@ Keep detailed chaos and diagnostic annotations behind their existing opt-in flag
 Run-start annotations are enabled by default and carry filterable experiment, target, profile, compression, linger, and run tags plus compact topology, load, producer, and consumer details. Exported bundles replay run starts by default while detailed event replay remains opt-in.
 
 Verification: all 46 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, and the annotation helper was exercised against real run metadata. `update-lab.sh` completed on optilab; installed assets matched the repository, Grafana reported healthy, and all lab Kubernetes workloads were Ready. No experiment was started.
+
+<a id="infra-122"></a>
+### INFRA-122 - Keep run annotations variant-only
+
+_Date: 2026-08-28_
+
+Replace the verbose run-start annotation body with a compact label derived from the part of target names that differs between experiment runs.
+Keep complete run configuration in run metadata and the exported experiment summary instead of duplicating it in Grafana markers.
+
+For the Spring Kafka linger comparison the 22 markers now read only `lz4 · lingerN` or `none · lingerN`; `run_id` remains a service tag rather than annotation text.
+
+Verification: all 48 internal-lab unit tests passed; modified Python files compiled, Bash scripts passed syntax checks, and all 22 resolved experiment labels were checked. Optilab was updated, installed assets matched the repository, the installed helper produced a variant-only marker, and Grafana remained healthy. No experiment was started.
