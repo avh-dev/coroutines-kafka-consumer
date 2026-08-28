@@ -57,18 +57,10 @@ def main() -> int:
             if (is_run_start and args.exclude_run_starts) or (not is_run_start and not args.include_events):
                 continue
             timestamp = datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00"))
-            extra_tags = event.get("annotationTags") if isinstance(event.get("annotationTags"), list) else []
             payload = {
                 "dashboardUID": dashboard_uid,
                 "time": int(timestamp.timestamp() * 1000),
-                "tags": [
-                    "ckc-experiment",
-                    str(event.get("source") or "orchestration"),
-                    str(event.get("type") or "event"),
-                    str(event.get("status") or "completed"),
-                    f"run:{event.get('runId') or path.parent.name}",
-                    *(str(tag) for tag in extra_tags if str(tag).strip()),
-                ],
+                "tags": [str(event.get("type") or "event")],
                 "text": str(event.get("text") or text(event)),
             }
             request = urllib.request.Request(

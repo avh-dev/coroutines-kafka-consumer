@@ -65,7 +65,7 @@ class ExperimentEventsTest(unittest.TestCase):
         urlopen.assert_called_once()
         payload = json.loads(urlopen.call_args.args[0].data)
         self.assertEqual("custom annotation text", payload["text"])
-        self.assertIn("target:test-a", payload["tags"])
+        self.assertEqual(["chaos"], payload["tags"])
 
 
 if __name__ == "__main__":
