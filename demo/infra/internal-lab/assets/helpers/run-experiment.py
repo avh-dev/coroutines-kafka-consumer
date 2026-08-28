@@ -175,6 +175,21 @@ def merge_target_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> d
     return result
 
 
+def target_variant_labels(targets: list[dict[str, Any]]) -> list[str]:
+    names = [str(target.get("name") or target.get("id") or "run") for target in targets]
+    tokenized = [name.split(".") for name in names]
+    common_tokens = 0
+    for values in zip(*tokenized):
+        if len(set(values)) != 1:
+            break
+        common_tokens += 1
+    labels = []
+    for name, tokens in zip(names, tokenized):
+        variant = tokens[common_tokens:] if common_tokens < len(tokens) else tokens
+        labels.append(" · ".join(variant) or name)
+    return labels
+
+
 def topic_planning_latency(target: dict[str, Any], topic: str) -> Any:
     planning_latency = target.get("planning_latency")
     if not isinstance(planning_latency, dict):
@@ -586,6 +601,7 @@ def run_one(
     env.setdefault("EXPERIMENT_NAME", experiment_name)
     env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
     env.setdefault("EXPERIMENT_TARGET_TOTAL", str(total))
+    env.setdefault("EXPERIMENT_RUN_VARIANT_LABEL", str(test.get("run_variant_label") or name))
     command = command_for_run(run_test, test, resolved_test_path, env)
     expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
@@ -779,6 +795,7 @@ def run_experiment(
     base_tps = int(base_tps)
     definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
+    variant_labels = target_variant_labels(targets)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
     write_resolved_test(resolved_test_path, definition)
@@ -818,6 +835,7 @@ def run_experiment(
                     "test_definition": test_definition,
                     "resolved_test_path": str(resolved_test_path),
                     "base_tps": base_tps,
+                    "run_variant_label": variant_labels[index - 1],
                 }
             )
             result = run_one(
