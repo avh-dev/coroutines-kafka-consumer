@@ -4,11 +4,14 @@ locals {
   msk_min_insync_replicas         = max(local.msk_internal_replication_factor - 1, 1)
 
   tags = {
-    Project     = var.project
-    Environment = var.environment
-    Owner       = var.owner
-    ManagedBy   = "terraform"
-    Repository  = "coroutines-kafka-consumer"
+    Project      = var.project
+    Environment  = var.environment
+    ExperimentId = var.experiment_id
+    SessionId    = var.session_id
+    Owner        = var.owner
+    ExpiresAt    = var.expires_at
+    ManagedBy    = "terraform"
+    Repository   = "coroutines-kafka-consumer"
   }
 }
 
@@ -105,6 +108,17 @@ resource "aws_security_group_rule" "runner_remote_write_from_load_lab" {
   description       = "Prometheus remote_write from CKC load-lab"
   from_port         = var.runner_remote_write_port
   to_port           = var.runner_remote_write_port
+  protocol          = "tcp"
+  cidr_blocks       = [var.vpc_cidr]
+}
+
+resource "aws_security_group_rule" "runner_audit_from_load_lab" {
+  count             = var.enable_runner_observability_peering ? 1 : 0
+  type              = "ingress"
+  security_group_id = data.aws_security_group.runner[0].id
+  description       = "Compact audit records from the CKC load-lab"
+  from_port         = var.runner_audit_port
+  to_port           = var.runner_audit_port
   protocol          = "tcp"
   cidr_blocks       = [var.vpc_cidr]
 }
@@ -268,6 +282,7 @@ module "eks" {
   create_kms_key                           = false
   encryption_config                        = null
   create_cloudwatch_log_group              = false
+  enabled_log_types                        = []
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
@@ -279,6 +294,18 @@ module "eks" {
     coredns                = {}
     kube-proxy             = {}
     eks-pod-identity-agent = {}
+  }
+
+  access_entries = var.runner_role_arn == "" ? {} : {
+    runner = {
+      principal_arn = var.runner_role_arn
+      policy_associations = {
+        cluster_admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
   }
 
   eks_managed_node_groups = {

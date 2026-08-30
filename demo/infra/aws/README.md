@@ -28,14 +28,23 @@
 
 ## Model
 
+- `scripts/run-experiment.sh`
+  Runs one checkout-local AWS session from creation through verified teardown.
+
+- `terraform/session-artifacts`
+  Creates the encrypted, public-access-blocked S3 bucket deleted last in the session.
+
 - `terraform/runner`
-  Creates the long-lived private EC2 runner.
+  Creates an ephemeral EC2 runner for one session. The runner stores temporary
+  VictoriaMetrics, Grafana, audit, and report data while the lab exists.
 
 - `terraform/ecr`
-  Creates the long-lived ECR repositories.
+  Creates the only experiment workflow resources intentionally retained between
+  sessions: ECR repositories for the three workload images.
 
 - `assets/terraform`
-  Defines the disposable AWS test lab synced to the runner.
+  Defines the disposable AWS test lab. Terraform executes from the initiating
+  checkout and keeps its state under `.demo-infra/aws/sessions/<session-id>`.
 
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
@@ -49,25 +58,92 @@
 - `../shared/audit`
   Shared audit analysis code. AWS audit chunks can be downloaded from S3 and analyzed from any machine with Python and AWS CLI access.
 
+## Checkout-local smoke
+
+Run the workflow from any prepared checkout. The initiating host can be a
+developer laptop, optilab, or a CI worker; no `/opt/ckc-lab` installation and no
+pre-existing EC2 runner are required.
+
+Prerequisites:
+
+- Bash and Python 3;
+- AWS CLI credentials for the target account;
+- Terraform 1.8 or newer;
+- Docker with Buildx when building the current checkout;
+- the normal Gradle/JDK prerequisites for the demo distributions.
+
+The default command builds linux/amd64 images, ensures the persistent ECR
+repositories exist, runs the short AWS smoke definition, downloads and verifies
+the result, and tears the session down:
+
+```bash
+./demo/infra/aws/scripts/run-experiment.sh run \
+  --region us-east-1 \
+  --test-definition demo/infra/aws/test-definitions/smoke-test.yaml
+```
+
+Reuse existing `latest` images with `--skip-build-images`. Session state and
+results stay below `.demo-infra/aws/sessions`; change the root with the global
+`--work-dir` option before the `run` subcommand.
+
+SIGINT/SIGTERM and ordinary failures still enter the teardown path. If the
+initiating machine loses power or the process is forcibly killed, inspect or
+clean the recorded session from the same or a copied checkout-local work
+directory:
+
+```bash
+./demo/infra/aws/scripts/run-experiment.sh status <session-id>
+./demo/infra/aws/scripts/run-experiment.sh cleanup <session-id>
+```
+
+Cleanup never keeps AWS resources merely because the test or export failed. It
+first removes Kubernetes workloads, then destroys the lab, runner, and artifact
+bucket, deletes the exact EKS CloudWatch log group, and finally queries AWS for
+resources still carrying the session tag as well as that untagged log group.
+The local `cleanup-report.json` records that independent check. After a clean
+verification, downloaded Terraform provider/module caches are removed while
+the small state files, command log, lifecycle metadata, and results are kept.
+
 ## Access Model
 
-- The runner has no public IP.
+- The ephemeral runner has no inbound security-group rules and is controlled
+  through AWS Systems Manager. It currently uses a public address for outbound
+  bootstrap traffic without accepting inbound connections.
 - Shell access uses AWS Systems Manager Session Manager.
-- Grafana and Prometheus-compatible storage run on the runner host.
-- Outbound internet access from the runner goes through a NAT gateway.
+- Grafana, VictoriaMetrics, and the compact audit receiver run on the runner.
+- Outbound internet access from the runner uses its public subnet and internet gateway; its security group still has no inbound rules.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
 - `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
 - AWS labs expose Kafka consumer lag through `kafka_exporter` metrics for both in-cluster Kafka and MSK. MSK profiles also start a runner-side CloudWatch exporter for managed `AWS/Kafka` lag metrics such as `MaxOffsetLag`, `SumOffsetLag`, and `EstimatedMaxTimeLag`.
 - The disposable lab Terraform creates same-account VPC peering, routes, and runner security-group ingress for the remote-write path. `destroy-lab` removes that networking with the lab.
 
-## Typical Flow
+## Result layout
 
-1. Create the long-lived base with local `scripts/create-runner-and-ecr.sh`.
-2. Build and push images, then sync runner assets with local `scripts/update-aws-lab.sh`.
-3. Connect to the runner with local `scripts/connect-runner.sh`.
-4. On the runner, start `tmux` and run `runner-assets/bin/create-lab.sh`.
-5. On the runner, run one or more tests with `runner-assets/bin/run-test.sh`.
-6. On the runner, destroy the disposable lab with `runner-assets/bin/destroy-lab.sh` when it is no longer needed. Metrics history remains on the runner.
+The downloaded result contains run metadata, the resolved test, application and
+load-test logs, compact audit chunks, packet-capture diagnostics when selected,
+the dashboard, runner service logs, and a stopped VictoriaMetrics data archive.
+`artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
+bucket can be considered safely disposable. Audit analysis runs locally only
+after AWS teardown, and the final session directory contains a portable
+`<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
+Compose, and Grafana provisioning, so viewing the metrics does not require the
+original repository checkout.
+
+Open the archived metrics with:
+
+```bash
+tar -xzf <run-id>-result.tar.gz
+cd <run-id>
+./restore/open-result.sh
+```
+
+Stop the local containers with `./restore/close-result.sh` from the same
+extracted result directory. Grafana binds to `0.0.0.0:3002` by default; pass
+`./restore/open-result.sh . 3002 127.0.0.1` to restrict it to the local host.
+
+The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
+entrypoints remain available for manual infrastructure development. They are
+not the lifecycle used by the ephemeral smoke command.
 
 Test definitions can use the same `diagnostic_steps` packet-capture contract as
 the internal lab. For AWS runs, both `application` and `load-test` targets are

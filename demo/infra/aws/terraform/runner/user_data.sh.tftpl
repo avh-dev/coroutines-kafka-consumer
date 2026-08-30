@@ -9,6 +9,7 @@ usermod -aG docker ec2-user
 
 mkdir -p /opt/ckc-runner/prometheus
 mkdir -p /opt/ckc-runner/grafana
+mkdir -p /opt/ckc-runner/audit
 mkdir -p /opt/ckc-runner/reports
 mkdir -p /opt/ckc-runner/config
 mkdir -p /opt/ckc-runner/bin
@@ -50,6 +51,34 @@ cat > /opt/ckc-runner/config/prometheus.yml <<'EOF'
 ${default_prometheus_config}
 EOF
 
+cat > /opt/ckc-runner/config/fluent-bit.yaml <<'EOF'
+service:
+  flush: 1
+  daemon: off
+  log_level: info
+  http_server: on
+  http_listen: 0.0.0.0
+  http_port: 2020
+  health_check: on
+
+pipeline:
+  inputs:
+    - name: tcp
+      listen: 0.0.0.0
+      port: 5170
+      chunk_size: 256
+      buffer_size: 1024
+      format: json
+
+  outputs:
+    - name: file
+      match: '*'
+      path: /audit
+      file: audit.log
+      format: template
+      template: '{message}'
+EOF
+
 cat > /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml <<'EOF'
 ${grafana_dashboard_provider_config}
 EOF
@@ -69,6 +98,7 @@ EOF
 chmod +x /opt/ckc-runner/bin/configure-observability.sh
 chown 65534:65534 /opt/ckc-runner/prometheus
 chown 472:472 /opt/ckc-runner/grafana
+chown -R 1000:1000 /opt/ckc-runner/audit
 
 cat > /etc/systemd/system/ckc-runner-observability.service <<'EOF'
 [Unit]

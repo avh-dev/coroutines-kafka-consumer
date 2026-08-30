@@ -1,14 +1,24 @@
 # AWS Terraform
 
-`demo/infra/aws/terraform` contains long-lived Terraform stacks that are applied from the local machine.
+`demo/infra/aws/terraform` contains checkout-owned Terraform stacks.
+
+- `session-artifacts/`
+  Ephemeral S3 transport for runner assets and one verified result.
 
 - `runner/`
-  Private EC2 runner with Docker, Terraform, kubectl, Helm, AWS CLI, Grafana, and a Prometheus-compatible VictoriaMetrics remote-write receiver.
+  Ephemeral EC2 runner with Docker, kubectl, Helm, AWS CLI, Grafana, compact
+  audit ingestion, and a VictoriaMetrics remote-write receiver.
 
 - `ecr/`
   Shared ECR repositories for the app, stubs, and load-test images.
 
-Typical first-time setup:
+The preferred workflow invokes all session stacks through
+`scripts/run-experiment.sh`. It sets a stack-specific `TF_DATA_DIR` and explicit
+local state file under `.demo-infra/aws/sessions/<session-id>`, so no state is
+owned exclusively by the runner being deleted.
+
+The manual long-lived runner workflow below is retained for infrastructure
+development, not for reproducible experiment sessions:
 
 ```sh
 cp demo/infra/aws/terraform/runner/terraform.tfvars.example demo/infra/aws/terraform/runner/terraform.tfvars

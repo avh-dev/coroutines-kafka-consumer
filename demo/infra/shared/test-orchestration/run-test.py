@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--job-wait-buffer-seconds", type=int, default=120)
     parser.add_argument("--definition-json")
     parser.add_argument("--test-definition-path", help="Path to the YAML test definition inside the runner repo.")
+    parser.add_argument("--run-id", help="Stable run id supplied by the checkout-local AWS session controller.")
     return parser.parse_args()
 
 
@@ -372,6 +373,8 @@ def deploy_load_job(
     run_id: str,
     active_deadline_seconds: int,
     packet_capture_enabled: bool,
+    audit_tcp_host: str,
+    audit_tcp_port: int,
 ) -> str:
     shards = as_int(load_test.get("shards"), 1)
     job_name = f"ckc-load-test-{run_id}"
@@ -455,6 +458,10 @@ spec:
               value: "{str(as_bool(load_test.get("publish_enabled"), True)).lower()}"
             - name: AUDIT_LOG_ENABLED
               value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
+            - name: AUDIT_TCP_HOST
+              value: {yaml_string(audit_tcp_host)}
+            - name: AUDIT_TCP_PORT
+              value: "{audit_tcp_port}"
             - name: LOAD_TEST_WORKERS
               value: {yaml_string(as_str(load_test.get("workers"), ""))}
             - name: KAFKA_PRODUCER_LINGER_MS
@@ -501,8 +508,8 @@ spec:
     return job_name
 
 
-def collect_job_logs(job_name: str, reports_dir: Path, run_id: str) -> None:
-    reports_dir.mkdir(parents=True, exist_ok=True)
+def collect_job_logs(job_name: str, logs_dir: Path) -> None:
+    logs_dir.mkdir(parents=True, exist_ok=True)
     pods = json.loads(
         run(
             ["kubectl", "-n", "ckc-loadtest", "get", "pods", "-l", f"job-name={job_name}", "-o", "json"],
@@ -512,7 +519,32 @@ def collect_job_logs(job_name: str, reports_dir: Path, run_id: str) -> None:
     for item in pods.get("items", []):
         pod_name = item["metadata"]["name"]
         log_text = run(["kubectl", "-n", "ckc-loadtest", "logs", pod_name], capture_output=True, check=False)
-        (reports_dir / f"{run_id}-{pod_name}.log").write_text(log_text, encoding="utf-8")
+        (logs_dir / f"{pod_name}.log").write_text(log_text, encoding="utf-8")
+
+
+def collect_workload_logs(logs_dir: Path) -> None:
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    for namespace, selector in (
+        ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
+    ):
+        pods_text = run(
+            ["kubectl", "-n", namespace, "get", "pods", "-l", selector, "-o", "json"],
+            capture_output=True,
+            check=False,
+        )
+        if not pods_text.strip():
+            continue
+        try:
+            pods = json.loads(pods_text)
+        except json.JSONDecodeError:
+            continue
+        for item in pods.get("items", []):
+            pod_name = item.get("metadata", {}).get("name")
+            if not pod_name:
+                continue
+            log_text = run(["kubectl", "-n", namespace, "logs", pod_name], capture_output=True, check=False)
+            (logs_dir / f"{namespace}-{pod_name}.log").write_text(log_text, encoding="utf-8")
 
 
 def wait_for_job(job_name: str, timeout_seconds: int) -> None:
@@ -552,6 +584,7 @@ def deploy_workloads(
     lab_context: dict[str, Any],
     registry: str,
     packet_capture_enabled: bool,
+    run_id: str,
 ) -> None:
     deployment = require_section(definition, "deployment")
     app_profile = as_str(deployment.get("app_profile"), "ckc-single")
@@ -592,6 +625,9 @@ def deploy_workloads(
             "image.pullPolicy": image_pull_policy,
             "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
             "env.redisHost": as_str(lab_context.get("redis_host"), ""),
+            "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
+            "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
+            "env.auditRunId": run_id,
             "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
             "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
             "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
@@ -647,18 +683,39 @@ def main() -> None:
                 f"Diagnostic step {step['name']!r} ends after the load profile ({load_profile_seconds}s)."
             )
     wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
+        raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
     job_name: str | None = None
     diagnostics_process: subprocess.Popen[str] | None = None
     diagnostics_log = None
 
+    run_dir = reports_dir / run_id
+    logs_dir = run_dir / "logs"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "resolved-test.json").write_text(json_dump(definition) + "\n", encoding="utf-8")
+    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    metadata = {
+        "run_id": run_id,
+        "test_name": definition.get("name", "unnamed"),
+        "test_definition": str(definition_path),
+        "region": args.region,
+        "environment": args.environment,
+        "started_at": started_at,
+        "load_profile": load_profile,
+        "expected_duration_seconds": load_profile_seconds,
+        "kafka_mode": lab_context.get("kafka_mode"),
+        "redis_mode": lab_context.get("redis_mode"),
+    }
+    (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
+    status = "FAILED"
+
     try:
-        deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps))
+        deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id)
         wait_for_demo_rollout()
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         deploy_definition_config_map(definition)
-        started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         job_name = deploy_load_job(
             f"{registry}/load-test:latest",
             load_test,
@@ -668,6 +725,8 @@ def main() -> None:
             run_id,
             wait_timeout_seconds,
             bool(diagnostic_steps),
+            as_str(lab_context.get("audit_tcp_host"), ""),
+            as_int(lab_context.get("audit_tcp_port"), 5170),
         )
         if diagnostic_steps:
             diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
@@ -712,12 +771,14 @@ def main() -> None:
             (analysis_dir / "analyzer.log").write_text(analysis.stdout + analysis.stderr, encoding="utf-8")
             if analysis.returncode != 0:
                 raise RuntimeError(f"Packet-capture analysis failed; see {analysis_dir / 'analyzer.log'}")
-        collect_job_logs(job_name, reports_dir, run_id)
+        collect_job_logs(job_name, logs_dir)
+        collect_workload_logs(logs_dir)
+        status = "COMPLETED"
         print(f"Test definition '{definition.get('name', 'unnamed')}' completed.")
         print(f"  source={definition_path}")
         print(f"  run_id={run_id}")
         print(f"  expected_duration_seconds={load_profile_seconds}")
-        print(f"  reports_dir={reports_dir}")
+        print(f"  reports_dir={run_dir}")
     finally:
         if diagnostics_process is not None and diagnostics_process.poll() is None:
             diagnostics_process.terminate()
@@ -729,7 +790,13 @@ def main() -> None:
         if diagnostics_log is not None:
             diagnostics_log.close()
         stop_prometheus_bridge(port_forward_pid_file)
-        collect_job_logs(job_name, reports_dir, run_id) if job_name else None
+        collect_job_logs(job_name, logs_dir) if job_name else None
+        collect_workload_logs(logs_dir)
+        ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        (run_dir / "run-status.json").write_text(
+            json_dump({"run_id": run_id, "status": status, "started_at": started_at, "ended_at": ended_at}) + "\n",
+            encoding="utf-8",
+        )
         if bool(lab_context.get("cleanup_workloads", True)):
             cleanup_workloads(job_name)
 

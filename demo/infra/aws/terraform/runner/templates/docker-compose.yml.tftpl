@@ -1,6 +1,18 @@
 services:
+  audit:
+    image: cr.fluentbit.io/fluent/fluent-bit:4.2.3
+    container_name: audit
+    restart: unless-stopped
+    command: ["-c", "/fluent-bit/etc/fluent-bit.yaml"]
+    ports:
+      - "5170:5170"
+    volumes:
+      - /opt/ckc-runner/config/fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml:ro
+      - /opt/ckc-runner/audit:/audit
+
   prometheus:
     image: victoriametrics/victoria-metrics:v1.102.1
+    container_name: prometheus
     restart: unless-stopped
     command:
       - -storageDataPath=/victoria-metrics-data
@@ -14,6 +26,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.6.0
+    container_name: grafana
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"

@@ -11,16 +11,26 @@ TERRAFORM_DIR="${REPO_DIR}/demo/infra/aws/assets/terraform/load-lab"
 CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
+SKIP_TERRAFORM="${CKC_LOAD_LAB_SKIP_TERRAFORM:-false}"
 
-if [ -z "${PROFILE_NAME}" ] && [ -f "${LAB_CONTEXT_PATH}" ]; then
-  PROFILE_NAME="$(python3 - <<PY
+if [ -f "${LAB_CONTEXT_PATH}" ]; then
+  CONTEXT_VALUES="$(python3 - <<PY
 import json
 from pathlib import Path
 
 data = json.loads(Path("${LAB_CONTEXT_PATH}").read_text(encoding="utf-8"))
 print(data.get("profile_name", ""))
+print(data.get("cluster_name", ""))
 PY
 )"
+  if [ -z "${PROFILE_NAME}" ]; then
+    PROFILE_NAME="$(printf '%s\n' "${CONTEXT_VALUES}" | sed -n '1p')"
+  fi
+  CONTEXT_CLUSTER_NAME="$(printf '%s\n' "${CONTEXT_VALUES}" | sed -n '2p')"
+  if [ -n "${CONTEXT_CLUSTER_NAME}" ]; then
+    CLUSTER_NAME="${CONTEXT_CLUSTER_NAME}"
+    KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
+  fi
 fi
 
 if [ -z "${PROFILE_NAME}" ]; then
@@ -45,10 +55,12 @@ kubectl delete namespace ckc-app --ignore-not-found=true
 kubectl delete namespace ckc-observability --ignore-not-found=true
 docker rm -f ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent >/dev/null 2>&1
 
-terraform -chdir="${TERRAFORM_DIR}" init
-terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve -input=false \
-  -var="aws_region=${REGION}" \
-  -var="environment=${ENVIRONMENT}" \
-  "${PROFILE_ARGS[@]}"
+if [ "${SKIP_TERRAFORM}" != "true" ]; then
+  terraform -chdir="${TERRAFORM_DIR}" init
+  terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve -input=false \
+    -var="aws_region=${REGION}" \
+    -var="environment=${ENVIRONMENT}" \
+    "${PROFILE_ARGS[@]}"
+fi
 
 rm -f "${LAB_CONTEXT_PATH}"

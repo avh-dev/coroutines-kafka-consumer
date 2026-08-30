@@ -19,6 +19,7 @@ PREFIX="${REGISTRY}/ckc-load-lab-${ENVIRONMENT}"
 DEMO_IMAGE="${PREFIX}/demo:latest"
 DEMO_STUBS_IMAGE="${PREFIX}/demo-stubs:latest"
 LOAD_TEST_IMAGE="${PREFIX}/load-test:latest"
+TARGET_PLATFORM="${CKC_AWS_IMAGE_PLATFORM:-linux/amd64}"
 
 cd "${REPO_DIR}"
 
@@ -36,14 +37,11 @@ aws ecr describe-repositories \
 
 aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
 
-docker build -f demo/ckc-demo/Dockerfile -t "${DEMO_IMAGE}" demo/ckc-demo
-docker push "${DEMO_IMAGE}"
+docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo/Dockerfile -t "${DEMO_IMAGE}" demo/ckc-demo
 
-docker build -f demo/ckc-demo-stubs/Dockerfile -t "${DEMO_STUBS_IMAGE}" demo/ckc-demo-stubs
-docker push "${DEMO_STUBS_IMAGE}"
+docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo-stubs/Dockerfile -t "${DEMO_STUBS_IMAGE}" demo/ckc-demo-stubs
 
-docker build -f demo/ckc-demo-load-test/Dockerfile -t "${LOAD_TEST_IMAGE}" demo/ckc-demo-load-test
-docker push "${LOAD_TEST_IMAGE}"
+docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo-load-test/Dockerfile -t "${LOAD_TEST_IMAGE}" demo/ckc-demo-load-test
 
 printf 'Pushed images:\n'
 printf '  %s\n' "${DEMO_IMAGE}"
