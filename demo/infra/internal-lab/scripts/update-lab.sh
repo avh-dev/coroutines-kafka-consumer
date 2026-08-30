@@ -180,6 +180,7 @@ sync_internal_lab_assets() {
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
+  sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads"
   sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"

@@ -8,6 +8,7 @@ RUN_ID="${3:?run id is required}"
 BUCKET="${4:?artifact bucket is required}"
 PREFIX="${5:-sessions/${RUN_ID}/result}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
+REPO_DIR="${CKC_RUNNER_REPO_DIR:-${RUNNER_HOME}/assets/repo}"
 RUN_DIR="${RUNNER_HOME}/reports/${RUN_ID}"
 AUDIT_SOURCE="${RUNNER_HOME}/audit/audit.log"
 

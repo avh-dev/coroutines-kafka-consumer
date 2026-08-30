@@ -267,6 +267,7 @@
 | [INFRA-123](#infra-123) | Use explicit run annotation labels and emit only the annotation type as a Grafana tag. | DONE |
 | [INFRA-124](#infra-124) | Interleave uncompressed and LZ4 linger targets for adjacent like-for-like comparison. | DONE |
 | [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
+| [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2979,3 +2980,21 @@ The final result bundle now embeds a self-contained Docker restore kit with Vict
 Portable restore verification used a freshly extracted `smoke-20260829-a6` archive outside the repository: Grafana 11.6 started successfully, provisioned the 17-panel CKC Overview dashboard, reported a healthy Prometheus datasource, and queried 221 metric names from the archived VictoriaMetrics database. The bundled close script then removed both containers and their Docker network.
 
 Grafana restore now binds to `0.0.0.0:3002` by default for access from another host, with optional port and bind-address arguments for local-only or alternate bindings. Docker inspection verified the rebuilt portable bundle published the test port on `HostIp=0.0.0.0`; documentation warns that the default Grafana credentials must not be exposed to an untrusted network.
+
+<a id="infra-126"></a>
+### INFRA-126 - Share result bundles across local and AWS labs
+
+_Date: 2026-08-30_
+
+Extract the mature internal-lab dashboard patching, experiment summary, time-window selection, manifest, and Docker restore behavior into a shared result-bundle foundation.
+Use thin internal-lab and AWS adapters, explicit environment capabilities, and a stable telemetry label schema so each bundle keeps relevant panels without showing known-empty environment-specific sections.
+Complete AWS application, load-generator, Kafka, pod-resource, logs, and annotation collection, and preserve anonymous read-only Grafana access in portable reports.
+Verify the result with an approximately ten-minute AWS smoke reaching at least 5,000 TPS, then validate dashboard data coverage, audit correctness, autonomous restore, and complete AWS teardown.
+
+Live verification: `smoke-20260830-5k-b` ran the 600-second `smoke-5k` profile in `eu-central-1` with two load shards targeting 5,000 messages/s. The portable 74 MiB result contains 8,840,853 audit records, 9,224 Loki log lines, the exact experiment time range, anonymous read-only Grafana access, and environment-aware dashboard capabilities.
+
+The restored VictoriaMetrics database exposes application, load-test, Kafka lag, Thread Stats, Lettuce, and per-pod CPU/memory series; Grafana and Loki were queried successfully through their anonymous datasource proxies. AWS-only finalization excludes the three host-service rows and the unsupported demo process context-switch panel while retaining the shared dashboard source and useful pod panels.
+
+The load deliberately exceeded the small three-node smoke lab: 5,717,532 records were published, 1,168,972 processed, 1,954,323 cauldron records dropped with `queue_overflow`, and 2,594,229 order/batch records remained without terminal outcomes when the run ended. The result therefore verifies high-volume collection and overload visibility, not a correctness/pass capacity target.
+
+Post-teardown verification reported `CLEAN`: no active instances, volumes, NAT gateways, EIPs, ENIs, subnets, security groups, VPCs, endpoints, peerings, session bucket, or EKS log group remained. Cleanup now distinguishes authoritative service state from stale Resource Groups Tagging API history, preventing deleted resources from creating a false incomplete result.

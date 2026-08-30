@@ -416,6 +416,9 @@ spec:
         - name: load-test
           image: {yaml_string(image)}
           imagePullPolicy: {yaml_string(image_pull_policy)}
+          ports:
+            - name: metrics
+              containerPort: 9405
 {capture_container}
           env:
             - name: BOOTSTRAP_SERVERS
@@ -703,6 +706,8 @@ def main() -> None:
         "environment": args.environment,
         "started_at": started_at,
         "load_profile": load_profile,
+        "load_test": load_test,
+        "deployment": definition.get("deployment", {}),
         "expected_duration_seconds": load_profile_seconds,
         "kafka_mode": lab_context.get("kafka_mode"),
         "redis_mode": lab_context.get("redis_mode"),

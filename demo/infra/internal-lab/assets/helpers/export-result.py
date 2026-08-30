@@ -19,6 +19,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+SHARED_RESULT_BUNDLE = Path(__file__).resolve().parents[3] / "shared"
+if SHARED_RESULT_BUNDLE.is_dir():
+    sys.path.insert(0, str(SHARED_RESULT_BUNDLE))
+
+from result_bundle.dashboard import metric_names_from_dashboard as shared_metric_names_from_dashboard
+from result_bundle.dashboard import patch_dashboard as shared_patch_dashboard
+
 LOKI_IMAGE = "grafana/loki:3.3.2"
 
 
@@ -303,15 +310,7 @@ def prometheus_get(prometheus_url: str, path: str, params: dict[str, str]) -> di
 
 
 def metric_names_from_dashboard(dashboard_dir: Path) -> list[str]:
-    names: set[str] = set()
-    for dashboard in dashboard_dir.glob("*.json"):
-        try:
-            data = json.loads(dashboard.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        for expression in iter_dashboard_expressions(data):
-            names.update(referenced_metric_names(expression))
-    return sorted(names)
+    return shared_metric_names_from_dashboard(dashboard_dir)
 
 
 def utc_iso(value: datetime | None) -> str:
@@ -534,43 +533,24 @@ def patch_export_dashboard(
     source = dashboard_dir / "ckc-overview.json"
     if not source.is_file():
         return {"uid": "ckc-overview", "title": "CKC Overview"}
-    dashboard = load_json(source)
-    dashboard["uid"] = "ckc-experiment"
-    dashboard["title"] = f"CKC experiment: {export_name} ({export_id.removeprefix(export_name + '-')})"
-    if start and end:
-        dashboard["time"] = {"from": utc_minute(floor_minute(start)), "to": utc_minute(ceil_minute(end))}
-        dashboard["timezone"] = "utc"
-    info_panel_height = experiment_panel_height(result_type, result_dir, run_dirs)
-    for panel in dashboard.get("panels", []):
-        grid = panel.get("gridPos")
-        if isinstance(grid, dict) and isinstance(grid.get("y"), int):
-            grid["y"] += info_panel_height
-    max_id = max((int(panel.get("id", 0)) for panel in dashboard.get("panels", []) if isinstance(panel, dict)), default=0)
-    dashboard.setdefault("panels", []).insert(
-        0,
-        {
-            "id": max_id + 1,
-            "type": "text",
-            "title": "Experiment",
-            "gridPos": {"h": info_panel_height, "w": 24, "x": 0, "y": 0},
-            "options": {
-                "mode": "markdown",
-                "content": experiment_panel_markdown(
-                    result_type=result_type,
-                    result_dir=result_dir,
-                    export_name=export_name,
-                    export_id=export_id,
-                    run_dirs=run_dirs,
-                    start=start,
-                    end=end,
-                ),
-            },
-        },
+    result = shared_patch_dashboard(
+        source,
+        dashboard_dir / "ckc-experiment.json",
+        title=f"CKC experiment: {export_name} ({export_id.removeprefix(export_name + '-')})",
+        markdown=experiment_panel_markdown(
+            result_type=result_type,
+            result_dir=result_dir,
+            export_name=export_name,
+            export_id=export_id,
+            run_dirs=run_dirs,
+            start=start,
+            end=end,
+        ),
+        start=start,
+        end=end,
     )
-    target = dashboard_dir / "ckc-experiment.json"
-    target.write_text(json.dumps(dashboard, indent=2) + "\n", encoding="utf-8")
     source.unlink()
-    return {"uid": str(dashboard["uid"]), "title": str(dashboard["title"])}
+    return {"uid": str(result["uid"]), "title": str(result["title"])}
 
 
 def iter_dashboard_expressions(value: Any) -> Iterable[str]:

@@ -113,7 +113,7 @@ metadata:
   name: ckc-alloy-discovery
 rules:
   - apiGroups: [""]
-    resources: ["pods", "nodes", "endpoints", "services"]
+    resources: ["pods", "nodes", "nodes/proxy", "endpoints", "services"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -178,12 +178,126 @@ data:
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-demo"
+      }
     }
 
     prometheus.scrape "ckc_demo" {
       targets      = discovery.relabel.ckc_demo.output
       metrics_path = "/actuator/prometheus"
       forward_to   = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "ckc_load_test_pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-loadtest"]
+      }
+    }
+
+    discovery.relabel "ckc_load_test" {
+      targets = discovery.kubernetes.ckc_load_test_pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        regex         = "ckc-load-test"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex         = "9405"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-load-test"
+      }
+    }
+
+    prometheus.scrape "ckc_load_test" {
+      targets      = discovery.relabel.ckc_load_test.output
+      metrics_path = "/metrics"
+      forward_to   = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "kubernetes_nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "kubernetes_cadvisor" {
+      targets = discovery.kubernetes.kubernetes_nodes.targets
+
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc:443"
+      }
+
+      rule {
+        target_label = "__scheme__"
+        replacement  = "https"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/\$1/proxy/metrics/cadvisor"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "kubernetes-cadvisor"
+      }
+    }
+
+    prometheus.scrape "kubernetes_cadvisor" {
+      targets           = discovery.relabel.kubernetes_cadvisor.output
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      forward_to        = [prometheus.remote_write.runner.receiver]
+
+      tls_config {
+        insecure_skip_verify = true
+      }
     }
 
     discovery.kubernetes "kafka_exporter_pods" {
@@ -227,6 +341,11 @@ data:
       rule {
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-kafka-exporter"
       }
     }
 

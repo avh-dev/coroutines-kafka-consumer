@@ -132,8 +132,11 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("restore/open-result.sh", paths)
         self.assertIn("restore/close-result.sh", paths)
         self.assertIn("restore/docker-compose.yml", paths)
+        self.assertIn("restore/finalize-result.py", paths)
         self.assertIn("restore/grafana/provisioning/dashboards/ckc.yml", paths)
         self.assertIn("restore/grafana/provisioning/datasources/prometheus.yml", paths)
+        self.assertIn("config/ckc-experiment.json", paths)
+        self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
         self.assertIn("CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS:-0.0.0.0", compose)
 
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
@@ -188,7 +191,25 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(2, run_command.call_count)
         sleep.assert_called_once_with(1)
 
-    def test_cleanup_verification_ignores_terminated_ec2_tagging_records(self) -> None:
+    def test_runner_wait_polls_ec2_status_then_waits_for_ssm(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            ready = {"InstanceStatuses": [{
+                "InstanceState": {"Name": "running"},
+                "InstanceStatus": {"Status": "ok"},
+                "SystemStatus": {"Status": "ok"},
+            }]}
+            with (
+                patch.object(controller, "aws_json", return_value=ready) as aws_json,
+                patch.object(controller, "run", return_value="Online") as run_command,
+            ):
+                controller.wait_for_runner("i-test", timeout_seconds=1)
+            self.assertEqual(1, aws_json.call_count)
+            self.assertEqual(1, run_command.call_count)
+            self.assertEqual("aws", run_command.call_args.args[0][0])
+            self.assertEqual("ssm", run_command.call_args.args[0][1])
+
+    def test_cleanup_verification_ignores_stale_ec2_tagging_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["artifact_bucket"] = "deleted-bucket"
@@ -196,18 +217,44 @@ class AwsSessionTest(unittest.TestCase):
                 "ResourceTagMappingList": [
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:instance/i-deleted", "Tags": []},
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:volume/vol-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:subnet/subnet-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:network-interface/eni-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:natgateway/nat-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:security-group/sg-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:vpc-peering-connection/pcx-deleted", "Tags": []},
                 ]
             }
-            with patch.object(
-                controller,
-                "aws_json",
-                side_effect=[tagged, {"Reservations": []}, {"Volumes": []}, [], {"logGroups": []}],
-            ):
+
+            def aws_response(command: list[str]) -> object:
+                operation = command[1]
+                if operation == "get-resources":
+                    return tagged
+                if operation == "describe-instances":
+                    return {"Reservations": []}
+                if operation == "list-buckets":
+                    return []
+                if operation == "describe-log-groups":
+                    return {"logGroups": []}
+                collection = {
+                    "describe-volumes": "Volumes",
+                    "describe-subnets": "Subnets",
+                    "describe-network-interfaces": "NetworkInterfaces",
+                    "describe-nat-gateways": "NatGateways",
+                    "describe-security-groups": "SecurityGroups",
+                    "describe-vpc-peering-connections": "VpcPeeringConnections",
+                    "describe-vpcs": "Vpcs",
+                    "describe-vpc-endpoints": "VpcEndpoints",
+                    "describe-addresses": "Addresses",
+                }[operation]
+                return {collection: []}
+
+            with patch.object(controller, "aws_json", side_effect=aws_response):
                 controller.verify_cleanup(timeout_seconds=0)
             report = json.loads((Path(directory) / "cleanup-report.json").read_text(encoding="utf-8"))
         self.assertEqual("CLEAN", report["status"])
         self.assertEqual([], report["remaining_resources"])
-        self.assertEqual(2, len(report["tagged_resources"]))
+        self.assertEqual(7, len(report["tagged_resources"]))
+        self.assertTrue(all(not values for values in report["active_ec2"].values()))
 
     def test_cleanup_deletes_the_exact_eks_log_group(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -242,6 +289,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("AUDIT_TCP_HOST", manifests[0])
         self.assertIn("10.52.0.10", manifests[0])
         self.assertIn("AUDIT_TCP_PORT", manifests[0])
+        self.assertIn("containerPort: 9405", manifests[0])
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # Restore an AWS smoke result
 
 `open-result.sh` starts the same VictoriaMetrics and Grafana versions used by
-the ephemeral runner against a downloaded result directory. The AWS session
+the ephemeral runner, plus a local Loki populated from the archived logs. The AWS session
 must already be destroyed; restore uses only local files and Docker.
 
 Every final result bundle contains this restore kit, including Grafana
@@ -22,7 +22,7 @@ From a repository checkout, an explicit result path remains supported:
   .demo-infra/aws/sessions/<session-id>/result
 ```
 
-Grafana listens on `0.0.0.0:3002` by default so the report can be viewed from
+Grafana allows anonymous read-only access and listens on `0.0.0.0:3002` by default so the report can be viewed from
 another machine. Pass a second argument to select another port and a third
 argument to select another bind address, for example:
 
@@ -31,7 +31,7 @@ argument to select another bind address, for example:
 ```
 
 The same address can be set with
-`CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS`. Grafana initially uses `admin/admin`;
+`CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS`. Administrative access remains `admin/admin`;
 do not expose this listener to an untrusted network without changing the
 password or adding network-level access controls.
 

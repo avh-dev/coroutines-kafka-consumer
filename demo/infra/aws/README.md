@@ -113,7 +113,7 @@ the small state files, command log, lifecycle metadata, and results are kept.
 - Grafana, VictoriaMetrics, and the compact audit receiver run on the runner.
 - Outbound internet access from the runner uses its public subnet and internet gateway; its security group still has no inbound rules.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
-- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
+- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers application and load-generator pods, Kafka exporter, and kubelet cAdvisor through the Kubernetes API; it normalizes stable job labels and remote-writes application, producer, lag, thread, and pod-resource metrics to the runner.
 - AWS labs expose Kafka consumer lag through `kafka_exporter` metrics for both in-cluster Kafka and MSK. MSK profiles also start a runner-side CloudWatch exporter for managed `AWS/Kafka` lag metrics such as `MaxOffsetLag`, `SumOffsetLag`, and `EstimatedMaxTimeLag`.
 - The disposable lab Terraform creates same-account VPC peering, routes, and runner security-group ingress for the remote-write path. `destroy-lab` removes that networking with the lab.
 
@@ -121,12 +121,12 @@ the small state files, command log, lifecycle metadata, and results are kept.
 
 The downloaded result contains run metadata, the resolved test, application and
 load-test logs, compact audit chunks, packet-capture diagnostics when selected,
-the dashboard, runner service logs, and a stopped VictoriaMetrics data archive.
+the environment-filtered shared dashboard, runner service logs, Loki-ready log records, and a stopped VictoriaMetrics data archive.
 `artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
 bucket can be considered safely disposable. Audit analysis runs locally only
 after AWS teardown, and the final session directory contains a portable
 `<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
-Compose, and Grafana provisioning, so viewing the metrics does not require the
+Compose, anonymous read-only Grafana provisioning, and local Loki import, so viewing the metrics and logs does not require the
 original repository checkout.
 
 Open the archived metrics with:

@@ -1,4 +1,14 @@
 services:
+  loki:
+    image: grafana/loki:3.3.2
+    user: "0:0"
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "127.0.0.1:${CKC_AWS_RESTORE_LOKI_PORT:-3102}:3100"
+    volumes:
+      - ${CKC_AWS_RESTORE_RESULT_DIR}/restore/loki.yaml:/etc/loki/loki.yaml:ro
+      - ${CKC_AWS_RESTORE_ROOT}/loki:/loki
+
   prometheus:
     image: victoriametrics/victoria-metrics:v1.102.1
     command:
@@ -14,9 +24,12 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
     volumes:
       - ${CKC_AWS_RESTORE_ROOT}/grafana:/var/lib/grafana
       - ${CKC_AWS_GRAFANA_PROVISIONING_DIR}:/etc/grafana/provisioning:ro
-      - ${CKC_AWS_RESTORE_RESULT_DIR}/config/ckc-overview.json:/var/lib/grafana/dashboards/ckc-overview.json:ro
+      - ${CKC_AWS_RESTORE_RESULT_DIR}/config/ckc-experiment.json:/var/lib/grafana/dashboards/ckc-experiment.json:ro
     depends_on:
+      - loki
       - prometheus

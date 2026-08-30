@@ -42,9 +42,11 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/restore \
   demo/infra/aws/test-definitions \
   demo/infra/internal-lab/assets/helpers \
+  demo/infra/internal-lab/assets/restore \
   demo/infra/shared/audit \
   demo/infra/shared/pcap \
   demo/infra/shared/grafana \
+  demo/infra/shared/result_bundle \
   demo/infra/shared/test-orchestration
 
 if [ -n "${ARTIFACT_BUCKET}" ]; then
