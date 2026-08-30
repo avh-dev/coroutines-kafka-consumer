@@ -8,6 +8,8 @@ PROFILE_NAME="${3:-default}"
 TEST_DEFINITION_PATH="${4:-demo/infra/aws/test-definitions/ckc-baseline.yaml}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
+PROVISIONED_CONTEXT_PATH="${CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH:-}"
+IMAGE_ENVIRONMENT="${CKC_AWS_IMAGE_ENVIRONMENT:-dev}"
 TERRAFORM_DIR="${REPO_DIR}/demo/infra/aws/assets/terraform/load-lab"
 PROFILE_PATH="${TERRAFORM_DIR}/profiles/${PROFILE_NAME}.tfvars"
 CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
@@ -24,6 +26,28 @@ elif [ "${PROFILE_NAME}" != "default" ]; then
 fi
 
 mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}"
+
+infra_output() {
+  local name="$1"
+  if [ -n "${PROVISIONED_CONTEXT_PATH}" ]; then
+    python3 - "${PROVISIONED_CONTEXT_PATH}" "${name}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = data.get(sys.argv[2], "")
+if isinstance(value, bool):
+    print(str(value).lower())
+elif isinstance(value, (dict, list)):
+    print(json.dumps(value, separators=(",", ":")))
+else:
+    print(value)
+PY
+  else
+    terraform -chdir="${TERRAFORM_DIR}" output -raw "${name}"
+  fi
+}
 
 discover_service_name() {
   local namespace="$1"
@@ -388,11 +412,20 @@ EOF
     -remoteWrite.url=http://127.0.0.1:9090/api/v1/write >/dev/null
 }
 
-terraform -chdir="${TERRAFORM_DIR}" init
-terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
-  -var="aws_region=${REGION}" \
-  -var="environment=${ENVIRONMENT}" \
-  "${PROFILE_ARGS[@]}"
+if [ -z "${PROVISIONED_CONTEXT_PATH}" ]; then
+  terraform -chdir="${TERRAFORM_DIR}" init
+  terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
+    -var="aws_region=${REGION}" \
+    -var="environment=${ENVIRONMENT}" \
+    "${PROFILE_ARGS[@]}"
+else
+  CLUSTER_NAME="$(infra_output cluster_name)"
+  if [ -z "${CLUSTER_NAME}" ]; then
+    echo "Provisioned lab context does not contain cluster_name: ${PROVISIONED_CONTEXT_PATH}" >&2
+    exit 1
+  fi
+  KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
+fi
 
 aws eks update-kubeconfig --region "${REGION}" --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG_PATH}"
 export KUBECONFIG="${KUBECONFIG_PATH}"
@@ -405,9 +438,9 @@ wait_for_cluster_readiness
 helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm repo update
 
-KAFKA_MODE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kafka_mode)"
+KAFKA_MODE="$(infra_output kafka_mode)"
 if [ "${KAFKA_MODE}" = "kubernetes" ]; then
-  KAFKA_BROKERS="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kubernetes_kafka_brokers)"
+  KAFKA_BROKERS="$(infra_output kubernetes_kafka_brokers)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${KAFKA_BROKERS}"
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
@@ -455,8 +488,8 @@ EOF
   KAFKA_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
 else
-  KAFKA_BOOTSTRAP="$(terraform -chdir="${TERRAFORM_DIR}" output -raw msk_bootstrap_brokers)"
-  MSK_BROKER_NODES="$(terraform -chdir="${TERRAFORM_DIR}" output -raw msk_number_of_broker_nodes)"
+  KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
+  MSK_BROKER_NODES="$(infra_output msk_number_of_broker_nodes)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${MSK_BROKER_NODES}"
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
@@ -469,10 +502,10 @@ python3 "${REPO_DIR}/demo/infra/shared/test-orchestration/prepare-kafka-topics.p
   --test-definition-path "${TEST_DEFINITION_PATH}" \
   --repo-dir "${REPO_DIR}"
 
-REDIS_MODE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw elasticache_mode)"
+REDIS_MODE="$(infra_output elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
-  REDIS_ARCHITECTURE="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kubernetes_redis_architecture)"
-  REDIS_REPLICA_COUNT="$(terraform -chdir="${TERRAFORM_DIR}" output -raw kubernetes_redis_replica_count)"
+  REDIS_ARCHITECTURE="$(infra_output kubernetes_redis_architecture)"
+  REDIS_REPLICA_COUNT="$(infra_output kubernetes_redis_replica_count)"
   REDIS_VALUES_FILE="$(mktemp "${TEMP_DIR}/redis-values.XXXXXX.yaml")"
   cat > "${REDIS_VALUES_FILE}" <<EOF
 architecture: ${REDIS_ARCHITECTURE}
@@ -492,16 +525,17 @@ EOF
   REDIS_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-redis 6379 master redis)"
   REDIS_HOST="${REDIS_SERVICE}.ckc-app.svc.cluster.local"
 else
-  REDIS_HOST="$(terraform -chdir="${TERRAFORM_DIR}" output -raw elasticache_primary_endpoint)"
+  REDIS_HOST="$(infra_output elasticache_primary_endpoint)"
 fi
 
 python3 "${REPO_DIR}/demo/infra/shared/test-orchestration/flush-redis.py" \
   --host "${REDIS_HOST}"
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${ENVIRONMENT}"
+REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${IMAGE_ENVIRONMENT}"
 RUNNER_PRIVATE_IP="$(get_runner_private_ip)"
 REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
+AUDIT_TCP_HOST="${RUNNER_PRIVATE_IP}"
 
 deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
 deploy_observability_agent "${REMOTE_WRITE_URL}"
@@ -533,6 +567,8 @@ context = {
     "registry": "${REGISTRY}",
     "prometheus_bridge_enabled": False,
     "remote_write_url": "${REMOTE_WRITE_URL}",
+    "audit_tcp_host": "${AUDIT_TCP_HOST}",
+    "audit_tcp_port": 5170,
     "kafka_exporter_enabled": True,
     "msk_cloudwatch_enabled": "${MSK_CLOUDWATCH_ENABLED}" == "true",
     "msk_cloudwatch_cluster_name": "${MSK_CLOUDWATCH_CLUSTER_NAME}",
@@ -549,6 +585,7 @@ echo "  kafka_bootstrap=${KAFKA_BOOTSTRAP}"
 echo "  redis_mode=${REDIS_MODE}"
 echo "  redis_host=${REDIS_HOST}"
 echo "  remote_write_url=${REMOTE_WRITE_URL}"
+echo "  audit_tcp_host=${AUDIT_TCP_HOST}"
 echo "  kafka_exporter_enabled=true"
 echo "  msk_cloudwatch_enabled=${MSK_CLOUDWATCH_ENABLED}"
 echo "  lab_context=${LAB_CONTEXT_PATH}"

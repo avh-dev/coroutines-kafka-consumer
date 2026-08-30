@@ -4,6 +4,8 @@ set -eu
 
 REGION="${1:-us-east-1}"
 INSTANCE_ID="${2:-}"
+ARTIFACT_BUCKET="${3:-}"
+ARTIFACT_KEY="${4:-runner-assets/runner-assets.tar.gz}"
 RUNNER_ASSETS_DIR="${CKC_RUNNER_ASSETS_DIR:-/opt/ckc-runner/assets}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOCAL_REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../../.." && pwd)"
@@ -37,15 +39,40 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/audit \
   demo/infra/aws/helm \
   demo/infra/aws/runner-assets \
+  demo/infra/aws/restore \
   demo/infra/aws/test-definitions \
+  demo/infra/internal-lab/assets/helpers \
   demo/infra/shared/audit \
   demo/infra/shared/pcap \
   demo/infra/shared/grafana \
   demo/infra/shared/test-orchestration
 
-BUNDLE_BASE64="$(base64 < "${BUNDLE_FILE}" | tr -d '\n')"
-
-cat > "${COMMANDS_FILE}" <<EOF
+if [ -n "${ARTIFACT_BUCKET}" ]; then
+  aws s3 cp "${BUNDLE_FILE}" "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" --region "${REGION}" --only-show-errors
+  cat > "${COMMANDS_FILE}" <<EOF
+{
+  "commands": [
+    "set -euo pipefail",
+    "command -v tshark >/dev/null 2>&1 || dnf install -y wireshark-cli",
+    "mkdir -p \"${RUNNER_ASSETS_DIR}\"",
+    "aws s3 cp \"s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}\" \"${BUNDLE_TARGET}\" --region \"${REGION}\" --only-show-errors",
+    "mkdir -p \"${REPO_TARGET}\"",
+    "tar -xzf \"${BUNDLE_TARGET}\" -C \"${REPO_TARGET}\"",
+    "find \"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \"${REPO_TARGET}/demo/infra/aws/restore\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \"${REPO_TARGET}/demo/infra/aws/audit\" -type f -name '*.sh' -exec chmod +x {} +",
+    "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
+    "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
+    "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",
+    "cp \"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json",
+    "echo synced=true",
+    "echo repo_dir=${REPO_TARGET}"
+  ]
+}
+EOF
+else
+  BUNDLE_BASE64="$(base64 < "${BUNDLE_FILE}" | tr -d '\n')"
+  cat > "${COMMANDS_FILE}" <<EOF
 {
   "commands": [
     "set -euo pipefail",
@@ -59,6 +86,7 @@ cat > "${COMMANDS_FILE}" <<EOF
     "mkdir -p \\"${REPO_TARGET}\\"",
     "tar -xzf \\"${BUNDLE_TARGET}\\" -C \\"${REPO_TARGET}\\"",
     "find \\"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\\" -type f -name '*.sh' -exec chmod +x {} +",
+    "find \\"${REPO_TARGET}/demo/infra/aws/restore\\" -type f -name '*.sh' -exec chmod +x {} +",
     "find \\"${REPO_TARGET}/demo/infra/aws/audit\\" -type f -name '*.sh' -exec chmod +x {} +",
     "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
@@ -69,6 +97,7 @@ cat > "${COMMANDS_FILE}" <<EOF
   ]
 }
 EOF
+fi
 
 COMMAND_ID="$(aws ssm send-command \
   --region "${REGION}" \

@@ -10,6 +10,30 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "session_id" {
+  description = "Unique AWS experiment session identifier."
+  type        = string
+  default     = "dev"
+}
+
+variable "experiment_id" {
+  description = "Experiment identifier used for cost attribution."
+  type        = string
+  default     = "manual"
+}
+
+variable "expires_at" {
+  description = "UTC cleanup deadline recorded as a tag."
+  type        = string
+  default     = "manual"
+}
+
+variable "runner_role_arn" {
+  description = "Ephemeral runner role that receives cluster-admin access through an EKS access entry."
+  type        = string
+  default     = ""
+}
+
 variable "owner" {
   description = "Owner tag for the lab resources."
   type        = string
@@ -38,6 +62,12 @@ variable "runner_remote_write_port" {
   description = "Runner TCP port that accepts Prometheus remote_write traffic."
   type        = number
   default     = 8428
+}
+
+variable "runner_audit_port" {
+  description = "Runner TCP port that receives compact audit records."
+  type        = number
+  default     = 5170
 }
 
 variable "kubernetes_version" {

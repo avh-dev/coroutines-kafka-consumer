@@ -266,6 +266,7 @@
 | [INFRA-122](#infra-122) | Reduce run-start Grafana annotations to the target values that distinguish experiment runs. | DONE |
 | [INFRA-123](#infra-123) | Use explicit run annotation labels and emit only the annotation type as a Grafana tag. | DONE |
 | [INFRA-124](#infra-124) | Interleave uncompressed and LZ4 linger targets for adjacent like-for-like comparison. | DONE |
+| [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -2956,3 +2957,25 @@ Give every target an explicit annotation label naming both varying producer para
 The sequence now runs `none` then `lz4` at each linger value from 0 through 1000 ms before advancing by 100 ms.
 
 Verification: all 48 internal-lab unit tests passed; the resolved experiment validated as 11 ordered compression pairs with 22 five-minute targets and explicit labels. Optilab was updated and its installed experiment matched the repository byte-for-byte. The experiment was not started.
+
+<a id="infra-125"></a>
+### INFRA-125 - Add an ephemeral AWS experiment smoke workflow
+
+_Date: 2026-08-29_
+
+Run an end-to-end AWS smoke experiment from any prepared checkout without depending on optilab-specific paths or a pre-existing runner.
+Create the runner, disposable lab, and artifact transport for one session; download a portable local result before deleting every session-owned AWS resource.
+Keep Terraform state and resumable lifecycle metadata under the checkout-local ignored work area, tag and inventory every resource for later cost attribution, and verify cleanup independently after teardown.
+Reuse the shared test, audit, diagnostics, metrics, logs, and report assets so the first smoke is a vertical slice toward longer production-like experiments.
+
+Live verification: `smoke-20260829-a6` completed successfully in `eu-central-1` with an ephemeral EKS cluster, three Kubernetes Kafka brokers, Kubernetes Redis, and a checkout-created SSM runner. All 517 published records reached one terminal processed outcome with no failures, missing terminal records, duplicates, or terminal records without publish.
+
+The audit, application and runner logs, resolved test, Grafana dashboard, and VictoriaMetrics data were downloaded and bundled locally before teardown. Independent post-cleanup checks found no EKS clusters, live EC2 instances, EBS volumes, NAT gateways, or session S3 buckets; only the intentionally persistent ECR image repositories remain.
+
+Follow-up verification found an empty, untagged EKS control-plane CloudWatch log group created outside Terraform ownership. The live residue was deleted, EKS control-plane logging was disabled for the disposable lab, and cleanup now explicitly deletes and independently verifies the exact log-group name.
+
+The final result bundle now embeds a self-contained Docker restore kit with VictoriaMetrics, Grafana, dashboard/data-source provisioning, and one-command startup. Finalization rebuilds the manifest after local audit and session metadata are added, so the manifest covers the complete portable report rather than only the S3 transport payload.
+
+Portable restore verification used a freshly extracted `smoke-20260829-a6` archive outside the repository: Grafana 11.6 started successfully, provisioned the 17-panel CKC Overview dashboard, reported a healthy Prometheus datasource, and queried 221 metric names from the archived VictoriaMetrics database. The bundled close script then removed both containers and their Docker network.
+
+Grafana restore now binds to `0.0.0.0:3002` by default for access from another host, with optional port and bind-address arguments for local-only or alternate bindings. Docker inspection verified the rebuilt portable bundle published the test port on `HostIp=0.0.0.0`; documentation warns that the default Grafana credentials must not be exposed to an untrusted network.

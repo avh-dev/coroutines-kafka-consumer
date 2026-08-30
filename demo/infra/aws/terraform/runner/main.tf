@@ -3,11 +3,14 @@ locals {
   observability_root = "${path.module}/../../../shared/grafana"
 
   tags = {
-    Project     = var.project
-    Environment = var.environment
-    Owner       = var.owner
-    ManagedBy   = "terraform"
-    Repository  = "coroutines-kafka-consumer"
+    Project      = var.project
+    Environment  = var.environment
+    ExperimentId = var.experiment_id
+    SessionId    = var.session_id
+    Owner        = var.owner
+    ExpiresAt    = var.expires_at
+    ManagedBy    = "terraform"
+    Repository   = "coroutines-kafka-consumer"
   }
 }
 
@@ -112,8 +115,76 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 }
 
 resource "aws_iam_role_policy_attachment" "admin" {
+  count      = var.artifact_bucket_arn == "" ? 1 : 0
   role       = aws_iam_role.runner.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+data "aws_iam_policy_document" "runner_session" {
+  count = var.artifact_bucket_arn == "" ? 0 : 1
+
+  statement {
+    sid = "ArtifactBucketList"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket",
+    ]
+    resources = [var.artifact_bucket_arn]
+  }
+
+  statement {
+    sid = "ArtifactObjects"
+    actions = [
+      "s3:AbortMultipartUpload",
+      "s3:GetObject",
+      "s3:ListMultipartUploadParts",
+      "s3:PutObject",
+    ]
+    resources = ["${var.artifact_bucket_arn}/*"]
+  }
+
+  statement {
+    sid = "EksAccess"
+    actions = [
+      "eks:DescribeCluster",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ImagePull"
+    actions = [
+      "ecr:GetAuthorizationToken",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ImageRead"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "MskMetrics"
+    actions = [
+      "cloudwatch:GetMetricData",
+      "cloudwatch:GetMetricStatistics",
+      "cloudwatch:ListMetrics",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "runner_session" {
+  count  = var.artifact_bucket_arn == "" ? 0 : 1
+  name   = "${local.name}-session"
+  role   = aws_iam_role.runner.id
+  policy = data.aws_iam_policy_document.runner_session[0].json
 }
 
 resource "aws_iam_instance_profile" "runner" {

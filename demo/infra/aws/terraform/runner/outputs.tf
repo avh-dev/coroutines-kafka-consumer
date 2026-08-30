@@ -8,6 +8,11 @@ output "private_ip" {
   value       = aws_instance.runner.private_ip
 }
 
+output "role_arn" {
+  description = "Runner IAM role ARN used for EKS access entries."
+  value       = aws_iam_role.runner.arn
+}
+
 output "ssm_start_session_command" {
   description = "Command to open an SSM session."
   value       = "aws ssm start-session --target ${aws_instance.runner.id} --region ${var.aws_region}"

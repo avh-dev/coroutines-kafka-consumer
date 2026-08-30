@@ -10,6 +10,30 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "session_id" {
+  description = "Unique AWS experiment session identifier."
+  type        = string
+  default     = "dev"
+}
+
+variable "experiment_id" {
+  description = "Experiment identifier used for cost attribution."
+  type        = string
+  default     = "manual"
+}
+
+variable "expires_at" {
+  description = "UTC cleanup deadline recorded as a tag."
+  type        = string
+  default     = "manual"
+}
+
+variable "artifact_bucket_arn" {
+  description = "ARN of the ephemeral bucket used to exchange runner assets and results."
+  type        = string
+  default     = ""
+}
+
 variable "owner" {
   description = "Owner tag for runner resources."
   type        = string

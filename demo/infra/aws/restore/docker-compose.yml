@@ -1,0 +1,22 @@
+services:
+  prometheus:
+    image: victoriametrics/victoria-metrics:v1.102.1
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -httpListenAddr=:9090
+    volumes:
+      - ${CKC_AWS_RESTORE_ROOT}/prometheus:/victoria-metrics-data
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports:
+      - "${CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS:-0.0.0.0}:${CKC_AWS_RESTORE_GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ${CKC_AWS_RESTORE_ROOT}/grafana:/var/lib/grafana
+      - ${CKC_AWS_GRAFANA_PROVISIONING_DIR}:/etc/grafana/provisioning:ro
+      - ${CKC_AWS_RESTORE_RESULT_DIR}/config/ckc-overview.json:/var/lib/grafana/dashboards/ckc-overview.json:ro
+    depends_on:
+      - prometheus
