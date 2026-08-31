@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard import metric_names_from_dashboard, patch_dashboard
+from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
@@ -54,6 +55,39 @@ class DashboardTest(unittest.TestCase):
             root = Path(directory)
             (root / "dashboard.json").write_text(json.dumps({"targets": [{"expr": "rate(demo_requests_total[5m])"}]}))
             self.assertEqual(["demo_requests_total"], metric_names_from_dashboard(root))
+
+    def test_shared_experiment_panel_links_run_and_logs_to_exact_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            (run_dir / "run-metadata.json").write_text(json.dumps({
+                "test_name": "ckc.fixed.2",
+                "test_definition": "6min",
+                "load_test": {"base_tps": 12000},
+                "application": {"run_profile": "ckc", "replica_count": 2},
+                "run_plan": {"topics": [{
+                    "name": "order", "partitions": 2, "worker_concurrency": 105, "poll_loop_concurrency": 1,
+                }]},
+            }))
+            (run_dir / "run-status.json").write_text(json.dumps({
+                "status": "COMPLETED",
+                "started_at": "2026-08-31T10:01:20Z",
+                "ended_at": "2026-08-31T10:07:40Z",
+            }))
+            markdown = experiment_panel_markdown(
+                result_type="run",
+                result_dir=run_dir,
+                run_dirs=[run_dir],
+                start=datetime(2026, 8, 31, 10, 1, 20, tzinfo=timezone.utc),
+                end=datetime(2026, 8, 31, 10, 7, 40, tzinfo=timezone.utc),
+                loki_selector='{run_id="run-a"}',
+            )
+            self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", markdown)
+            self.assertIn("from=1788170460000", markdown)
+            self.assertIn("to=1788170880000", markdown)
+            self.assertIn("[Open logs](/explore?", markdown)
+            self.assertIn("run_id", markdown)
+            self.assertIn("[ckc.fixed.2](/d/ckc-experiment/ckc-experiment?", markdown)
+            self.assertIn("2/105/1", markdown)
 
 
 if __name__ == "__main__":

@@ -533,6 +533,66 @@ class SessionController:
             check=False,
         )
 
+    def prepare_lab_destroy(self, timeout_seconds: int = 900) -> None:
+        """Delete managed node groups first, then remove detached VPC-CNI ENIs.
+
+        EKS occasionally leaves an available secondary ENI after deleting a
+        managed node group. Such an ENI is outside Terraform state but keeps
+        the node security group and subnet alive indefinitely.
+        """
+        stack = self.state.get("terraform", {}).get("lab", {})
+        if not stack.get("created"):
+            return
+        region = self.config["region"]
+        cluster_name = f"ckc-load-lab-{self.config['aws_environment']}"
+        try:
+            response = self.aws_json([
+                "eks", "list-nodegroups", "--region", region, "--cluster-name", cluster_name,
+            ]) or {}
+        except CommandError:
+            return
+        nodegroups = response.get("nodegroups", [])
+        for nodegroup in nodegroups:
+            self.run([
+                "aws", "eks", "delete-nodegroup", "--region", region,
+                "--cluster-name", cluster_name, "--nodegroup-name", nodegroup,
+            ])
+        deadline = time.monotonic() + timeout_seconds
+        while nodegroups:
+            response = self.aws_json([
+                "eks", "list-nodegroups", "--region", region, "--cluster-name", cluster_name,
+            ]) or {}
+            remaining = set(response.get("nodegroups", []))
+            nodegroups = [nodegroup for nodegroup in nodegroups if nodegroup in remaining]
+            if not nodegroups:
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"EKS node groups were not deleted within {timeout_seconds}s: {nodegroups}")
+            time.sleep(10)
+
+        inventory = self.aws_json([
+            "ec2", "describe-network-interfaces", "--region", region, "--filters",
+            f"Name=tag:cluster.k8s.amazonaws.com/name,Values={cluster_name}",
+            "Name=status,Values=available",
+        ]) or {}
+        deleted: list[str] = []
+        for interface in inventory.get("NetworkInterfaces", []):
+            tags = {tag.get("Key"): tag.get("Value") for tag in interface.get("TagSet", [])}
+            interface_id = interface.get("NetworkInterfaceId")
+            if (
+                interface_id
+                and not interface.get("Attachment")
+                and tags.get("eks:eni:owner") == "amazon-vpc-cni"
+            ):
+                self.run([
+                    "aws", "ec2", "delete-network-interface", "--region", region,
+                    "--network-interface-id", interface_id,
+                ])
+                deleted.append(interface_id)
+        if deleted:
+            self.state["deleted_orphaned_cni_enis"] = sorted(deleted)
+            self.save()
+
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
         failures: list[str] = []
@@ -540,6 +600,10 @@ class SessionController:
             self.cleanup_remote_lab()
         except Exception as error:
             failures.append(f"remote lab cleanup: {error}")
+        try:
+            self.prepare_lab_destroy()
+        except Exception as error:
+            failures.append(f"EKS node-group pre-cleanup: {error}")
         for stack in ("lab", "runner", "artifacts"):
             try:
                 self.destroy_stack(stack)

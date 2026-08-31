@@ -25,6 +25,7 @@ if SHARED_RESULT_BUNDLE.is_dir():
 
 from result_bundle.dashboard import metric_names_from_dashboard as shared_metric_names_from_dashboard
 from result_bundle.dashboard import patch_dashboard as shared_patch_dashboard
+from result_bundle.presentation import experiment_panel_markdown as shared_experiment_panel_markdown
 
 LOKI_IMAGE = "grafana/loki:3.3.2"
 
@@ -319,206 +320,6 @@ def utc_iso(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def utc_minute(value: datetime | None) -> str:
-    if value is None:
-        return ""
-    rounded = value.astimezone(timezone.utc).replace(second=0, microsecond=0)
-    return rounded.strftime("%Y-%m-%dT%H:%MZ")
-
-
-def floor_minute(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.astimezone(timezone.utc).replace(second=0, microsecond=0)
-
-
-def ceil_minute(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    rounded = value.astimezone(timezone.utc).replace(second=0, microsecond=0)
-    if value.astimezone(timezone.utc) == rounded:
-        return rounded
-    return rounded + timedelta(minutes=1)
-
-
-def dashboard_time_params(start: datetime | None, end: datetime | None) -> str:
-    params: dict[str, str] = {"orgId": "1"}
-    range_start = floor_minute(start)
-    range_end = ceil_minute(end)
-    if range_start and range_end:
-        params["from"] = str(int(range_start.timestamp() * 1000))
-        params["to"] = str(int(range_end.timestamp() * 1000))
-        params["timezone"] = "utc"
-    return urllib.parse.urlencode(params)
-
-
-def logs_explore_params(start: datetime | None, end: datetime | None) -> str:
-    range_start = floor_minute(start)
-    range_end = ceil_minute(end)
-    left = [
-        millis_for_url(range_start),
-        millis_for_url(range_end),
-        "loki",
-        {"expr": '{namespace="ckc-perf", run_id=~".+"}'},
-    ]
-    return urllib.parse.urlencode({"orgId": "1", "left": json.dumps(left, separators=(",", ":"))})
-
-
-def millis_for_url(value: datetime | None) -> str:
-    if value is None:
-        return "now-1h"
-    return str(int(value.timestamp() * 1000))
-
-
-def experiment_summary(result_type: str, result_dir: Path) -> dict[str, Any]:
-    if result_type == "experiment" and (result_dir / "summary.json").is_file():
-        return load_json(result_dir / "summary.json")
-    return {}
-
-
-def md_cell(value: Any) -> str:
-    text = "" if value is None else str(value)
-    return text.replace("|", "\\|").replace("\n", "<br>")
-
-
-def compact_mode(value: Any) -> str:
-    text = "" if value is None else str(value)
-    return text.removeprefix("AT_LEAST_ONCE_").replace("FRESHNESS_FIRST_", "FF_").replace("HARDCODED_", "HC_")
-
-
-def topic_plan(run_plan: dict[str, Any], topic: str) -> dict[str, Any]:
-    for item in run_plan.get("topics", []):
-        if isinstance(item, dict) and item.get("name") == topic:
-            return item
-    return {}
-
-
-def target_table(summary: dict[str, Any], run_dirs: list[Path]) -> list[str]:
-    rows: list[list[Any]] = []
-    if not summary:
-        for run_dir in run_dirs:
-            metadata = load_json(run_dir / "run-metadata.json") if (run_dir / "run-metadata.json").is_file() else {}
-            status = load_json(run_dir / "run-status.json") if (run_dir / "run-status.json").is_file() else {}
-            rows.append(target_row(run_dir.name, metadata, status.get("status", "unknown"), status.get("exit_code", "")))
-    for experiment in summary.get("experiments", []):
-        if not isinstance(experiment, dict):
-            continue
-        for target in experiment.get("targets", []):
-            if not isinstance(target, dict):
-                continue
-            metadata = {}
-            run_dir = target.get("run_dir")
-            if run_dir and (Path(str(run_dir)) / "run-metadata.json").is_file():
-                metadata = load_json(Path(str(run_dir)) / "run-metadata.json")
-            rows.append(
-                target_row(
-                    target.get("name") or target.get("target") or "",
-                    metadata,
-                    (target.get("run_status") or {}).get("status", "unknown"),
-                    target.get("exit_code", ""),
-                )
-            )
-    if not rows:
-        return []
-    header = [
-        "Target",
-        "Status",
-        "Profile",
-        "Replicas",
-        "Dispatcher",
-        "Threads",
-        "Order mode",
-        "Order p/w/p",
-        "Batch mode",
-        "Batch p/w/p",
-        "Telemetry mode",
-        "Telemetry p/w/p",
-    ]
-    lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join("---" for _ in header) + " |",
-    ]
-    lines.extend("| " + " | ".join(md_cell(value) for value in row) + " |" for row in rows)
-    return lines
-
-
-def topic_parallelism_cell(run_plan: dict[str, Any], topic: str) -> str:
-    plan = topic_plan(run_plan, topic)
-    if not plan:
-        return ""
-    return f"{plan.get('partitions', '')}/{plan.get('worker_concurrency', '')}/{plan.get('poll_loop_concurrency', '')}"
-
-
-def target_row(target_name: Any, metadata: dict[str, Any], status: Any, exit_code: Any) -> list[Any]:
-    application = metadata.get("application") if isinstance(metadata.get("application"), dict) else {}
-    run_plan = metadata.get("run_plan") if isinstance(metadata.get("run_plan"), dict) else {}
-    processing_modes = application.get("processing_modes") if isinstance(application.get("processing_modes"), dict) else {}
-    return [
-        target_name,
-        status,
-        application.get("run_profile") or application.get("profile") or "",
-        application.get("replica_count"),
-        application.get("processing_dispatcher_type"),
-        application.get("worker_dispatcher_threads"),
-        compact_mode(processing_modes.get("order") or topic_plan(run_plan, "order").get("processing_mode")),
-        topic_parallelism_cell(run_plan, "order"),
-        compact_mode(processing_modes.get("batch") or topic_plan(run_plan, "batch").get("processing_mode")),
-        topic_parallelism_cell(run_plan, "batch"),
-        compact_mode(processing_modes.get("telemetry") or topic_plan(run_plan, "telemetry").get("processing_mode")),
-        topic_parallelism_cell(run_plan, "telemetry"),
-    ]
-
-
-def experiment_facts(summary: dict[str, Any], run_dirs: list[Path]) -> list[str]:
-    facts: list[str] = []
-    for experiment in summary.get("experiments", []):
-        if not isinstance(experiment, dict):
-            continue
-        test_definition = experiment.get("test_definition", "")
-        base_tps = experiment.get("base_tps", "")
-        if test_definition or base_tps:
-            facts.append(f"Test definition `{test_definition}`, base TPS `{base_tps}`")
-    if not facts and run_dirs:
-        metadata = load_json(run_dirs[0] / "run-metadata.json") if (run_dirs[0] / "run-metadata.json").is_file() else {}
-        load_test = metadata.get("load_test") if isinstance(metadata.get("load_test"), dict) else {}
-        facts.append(f"Test definition `{metadata.get('test_definition', '')}`, base TPS `{load_test.get('base_tps', '')}`")
-    return facts
-
-
-def experiment_panel_markdown(
-    *,
-    result_type: str,
-    result_dir: Path,
-    export_name: str,
-    export_id: str,
-    run_dirs: list[Path],
-    start: datetime | None,
-    end: datetime | None,
-) -> str:
-    summary = experiment_summary(result_type, result_dir)
-    original_range_link = f"/d/ckc-experiment/ckc-experiment?{dashboard_time_params(start, end)}"
-    logs_link = f"/explore?{logs_explore_params(start, end)}"
-    facts = experiment_facts(summary, run_dirs)
-    lines = [
-        f"[Reset time range]({original_range_link}) | [Open logs]({logs_link})",
-        "",
-    ]
-    if facts:
-        lines.extend([", ".join(facts), ""])
-    targets = target_table(summary, run_dirs)
-    if targets:
-        lines.extend(targets)
-    return "\n".join(lines)
-
-
-def experiment_panel_height(result_type: str, result_dir: Path, run_dirs: list[Path]) -> int:
-    summary = experiment_summary(result_type, result_dir)
-    target_count = len(target_table(summary, run_dirs)) - 2
-    target_count = max(target_count, 0)
-    line_count = 5 + target_count
-    return max(5, int(math.ceil((line_count * 24 + 36) / 30)))
-
-
 def patch_export_dashboard(
     dashboard_dir: Path,
     *,
@@ -537,11 +338,9 @@ def patch_export_dashboard(
         source,
         dashboard_dir / "ckc-experiment.json",
         title=f"CKC experiment: {export_name} ({export_id.removeprefix(export_name + '-')})",
-        markdown=experiment_panel_markdown(
+        markdown=shared_experiment_panel_markdown(
             result_type=result_type,
             result_dir=result_dir,
-            export_name=export_name,
-            export_id=export_id,
             run_dirs=run_dirs,
             start=start,
             end=end,
@@ -885,6 +684,12 @@ def main() -> int:
             end=end,
         )
         copy_tree(lab_root / "restore", restore_root / "helpers")
+        shared_annotation_importer = (
+            SHARED_RESULT_BUNDLE / "result_bundle/restore/import-grafana-annotations.py"
+            if (SHARED_RESULT_BUNDLE / "result_bundle/restore/import-grafana-annotations.py").is_file()
+            else Path(__file__).resolve().parent / "result_bundle/restore/import-grafana-annotations.py"
+        )
+        copy_tree(shared_annotation_importer, restore_root / "helpers/import-grafana-annotations.py")
         shutil.move(
             restore_root / "helpers" / "open-grafana-with-logs-and-metrics.sh",
             restore_root / "open-grafana-with-logs-and-metrics.sh",

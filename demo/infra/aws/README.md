@@ -97,7 +97,8 @@ directory:
 ```
 
 Cleanup never keeps AWS resources merely because the test or export failed. It
-first removes Kubernetes workloads, then destroys the lab, runner, and artifact
+first removes Kubernetes workloads and the managed EKS node group, deletes any
+detached ENI that is explicitly owned by the cluster's Amazon VPC CNI, then destroys the lab, runner, and artifact
 bucket, deletes the exact EKS CloudWatch log group, and finally queries AWS for
 resources still carrying the session tag as well as that untagged log group.
 The local `cleanup-report.json` records that independent check. After a clean
@@ -122,12 +123,25 @@ the small state files, command log, lifecycle metadata, and results are kept.
 The downloaded result contains run metadata, the resolved test, application and
 load-test logs, compact audit chunks, packet-capture diagnostics when selected,
 the environment-filtered shared dashboard, runner service logs, Loki-ready log records, and a stopped VictoriaMetrics data archive.
+The workload starts only after application, Kafka-exporter, thread, and cAdvisor
+telemetry are all visible. `telemetry-readiness.json` and
+`metrics-coverage.json` record that preflight and verify that the required metric
+families begin near the actual workload start; a failed telemetry check fails
+the run instead of silently producing a sparse dashboard.
+`consumer-drain.json` separately records whether consumer lag reached zero.
+Capacity/correctness definitions can keep drain mandatory, while intentional
+overload and observability smokes can set `consumer_drain_required: false` and
+retain the timeout as a reported result rather than a lifecycle failure.
 `artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
 bucket can be considered safely disposable. Audit analysis runs locally only
 after AWS teardown, and the final session directory contains a portable
 `<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
 Compose, anonymous read-only Grafana provisioning, and local Loki import, so viewing the metrics and logs does not require the
 original repository checkout.
+The restored dashboard uses the same shared experiment summary as internal-lab:
+its target names open their exact run ranges, the reset and Loki Explore links
+preserve the archived time window, and run-start events are replayed as Grafana
+annotations.
 
 Open the archived metrics with:
 

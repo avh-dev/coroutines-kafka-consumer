@@ -12,6 +12,10 @@ cd <run-id>
 ./restore/open-result.sh
 ```
 
+The experiment summary, exact target/reset time links, Loki Explore link, and
+run-start annotations are restored together with the dashboard. No Grafana
+login is needed to inspect them.
+
 Stop the containers with `./restore/close-result.sh`. The extracted metrics and
 Grafana state remain available for the next start.
 

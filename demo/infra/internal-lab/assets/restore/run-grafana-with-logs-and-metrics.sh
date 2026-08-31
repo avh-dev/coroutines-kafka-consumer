@@ -147,6 +147,8 @@ if [ "${GRAFANA_RUN_ANNOTATIONS_ENABLED}" = "true" ] || [ "${GRAFANA_EVENT_ANNOT
   annotation_args=(
     --root "${SCRIPT_DIR}/.."
     --grafana-url "http://127.0.0.1:${GRAFANA_PORT}"
+    --grafana-user "${GRAFANA_USER:-admin}"
+    --grafana-password "${GRAFANA_PASSWORD:-admin}"
   )
   if [ "${GRAFANA_EVENT_ANNOTATIONS_ENABLED}" = "true" ]; then
     annotation_args+=(--include-events)

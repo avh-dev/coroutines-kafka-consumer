@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -117,6 +119,157 @@ def as_bool(value: Any, default: bool) -> bool:
         if normalized in ("false", "0", "no", "n", "off"):
             return False
     raise ValueError(f"Unsupported boolean value {value!r}.")
+
+
+def utc_now_text() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def prometheus_query(metrics_url: str, expression: str) -> list[dict[str, Any]]:
+    url = f"{metrics_url.rstrip('/')}/api/v1/query?{urllib.parse.urlencode({'query': expression})}"
+    with urllib.request.urlopen(url, timeout=10) as response:
+        document = json.loads(response.read().decode("utf-8"))
+    if document.get("status") != "success":
+        raise RuntimeError(f"Metrics query failed: {expression}: {document}")
+    return document.get("data", {}).get("result", [])
+
+
+def prometheus_scalar(metrics_url: str, expression: str) -> float | None:
+    result = prometheus_query(metrics_url, expression)
+    if not result:
+        return None
+    value = result[0].get("value")
+    return float(value[1]) if isinstance(value, list) and len(value) == 2 else None
+
+
+def wait_for_telemetry_ready(metrics_url: str, report_path: Path, timeout_seconds: int = 300) -> str:
+    checks = {
+        "application": 'min(up{job="ckc-demo"})',
+        "application_metrics": 'count(demo_ckc_workers{job="ckc-demo"})',
+        "thread_stats": 'count(thread_stats_threads{job="ckc-demo"})',
+        "kafka_exporter": 'min(up{job="ckc-kafka-exporter"})',
+        "cadvisor": 'min(up{job="kubernetes-cadvisor"})',
+        "pod_cpu": 'count(container_cpu_usage_seconds_total{namespace="ckc-app",container="demo"})',
+        "pod_memory": 'count(container_memory_working_set_bytes{namespace="ckc-app",container="demo"})',
+    }
+    deadline = time.monotonic() + timeout_seconds
+    attempts: list[dict[str, Any]] = []
+    while True:
+        values: dict[str, float | None] = {}
+        errors: dict[str, str] = {}
+        for name, expression in checks.items():
+            try:
+                values[name] = prometheus_scalar(metrics_url, expression)
+            except (OSError, ValueError, RuntimeError) as error:
+                values[name] = None
+                errors[name] = str(error)
+        ready = all(value is not None and value >= 1 for value in values.values())
+        checked_at = utc_now_text()
+        attempts.append({"checked_at": checked_at, "values": values, "errors": errors})
+        if ready:
+            report_path.write_text(json_dump({
+                "status": "READY",
+                "ready_at": checked_at,
+                "metrics_url": metrics_url,
+                "checks": checks,
+                "attempts": attempts,
+            }) + "\n", encoding="utf-8")
+            return checked_at
+        if time.monotonic() >= deadline:
+            report_path.write_text(json_dump({
+                "status": "NOT_READY",
+                "checked_at": checked_at,
+                "metrics_url": metrics_url,
+                "checks": checks,
+                "attempts": attempts,
+            }) + "\n", encoding="utf-8")
+            raise TimeoutError(f"Required telemetry was not ready within {timeout_seconds}s; see {report_path}")
+        time.sleep(10)
+
+
+def victoria_export(metrics_url: str, selector: str, start: str, end: str) -> list[dict[str, Any]]:
+    query = urllib.parse.urlencode({"match[]": selector, "start": start, "end": end})
+    url = f"{metrics_url.rstrip('/')}/api/v1/export?{query}"
+    with urllib.request.urlopen(url, timeout=120) as response:
+        return [json.loads(line) for line in response.read().decode("utf-8").splitlines() if line]
+
+
+def validate_telemetry_coverage(
+    metrics_url: str,
+    report_path: Path,
+    start: str,
+    end: str,
+    maximum_first_sample_delay_seconds: int = 90,
+) -> None:
+    selectors = {
+        "application": "demo_ckc_record_process_duration_seconds_count",
+        "load_test": "ckc_load_test_producer_records_sent_total",
+        "kafka_lag": "kafka_consumergroup_lag",
+        "thread_stats": "thread_stats_cpu_seconds_total",
+        "redis_client": "lettuce_command_completion_seconds_count",
+        "pod_cpu": 'container_cpu_usage_seconds_total{namespace="ckc-app",container="demo"}',
+        "pod_memory": 'container_memory_working_set_bytes{namespace="ckc-app",container="demo"}',
+    }
+    start_epoch = datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp()
+    coverage: dict[str, Any] = {}
+    failures: list[str] = []
+    for name, selector in selectors.items():
+        rows = victoria_export(metrics_url, selector, start, end)
+        timestamps = [timestamp for row in rows for timestamp in row.get("timestamps", [])]
+        first_epoch = min(timestamps) / 1000 if timestamps else None
+        first_delay = first_epoch - start_epoch if first_epoch is not None else None
+        coverage[name] = {
+            "selector": selector,
+            "series": len(rows),
+            "samples": len(timestamps),
+            "first_sample_at": datetime.fromtimestamp(first_epoch, timezone.utc).isoformat().replace("+00:00", "Z") if first_epoch else None,
+            "first_sample_delay_seconds": round(first_delay, 3) if first_delay is not None else None,
+        }
+        if not timestamps:
+            failures.append(f"{name}: no samples")
+        elif first_delay is not None and first_delay > maximum_first_sample_delay_seconds:
+            failures.append(f"{name}: first sample delay {first_delay:.3f}s")
+    report_path.write_text(json_dump({
+        "status": "PASS" if not failures else "FAIL",
+        "start": start,
+        "end": end,
+        "maximum_first_sample_delay_seconds": maximum_first_sample_delay_seconds,
+        "coverage": coverage,
+        "failures": failures,
+    }) + "\n", encoding="utf-8")
+    if failures:
+        raise RuntimeError(f"Telemetry coverage validation failed: {', '.join(failures)}; see {report_path}")
+
+
+def wait_for_consumer_drain(
+    metrics_url: str,
+    report_path: Path,
+    timeout_seconds: int = 300,
+    required: bool = True,
+) -> bool:
+    expression = 'sum(kafka_consumergroup_lag{consumergroup="ckc-demo"})'
+    deadline = time.monotonic() + timeout_seconds
+    observations: list[dict[str, Any]] = []
+    zero_observations = 0
+    while True:
+        lag = prometheus_scalar(metrics_url, expression)
+        observations.append({"checked_at": utc_now_text(), "lag": lag})
+        zero_observations = zero_observations + 1 if lag is not None and lag <= 0 else 0
+        if zero_observations >= 2:
+            report_path.write_text(json_dump({"status": "DRAINED", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
+            return True
+        if time.monotonic() >= deadline:
+            report_path.write_text(json_dump({"status": "TIMEOUT", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
+            if required:
+                raise TimeoutError(f"Consumer lag did not drain within {timeout_seconds}s; see {report_path}")
+            print(f"Consumer lag did not drain within {timeout_seconds}s; continuing because consumer_drain_required=false.")
+            return False
+        time.sleep(15)
+
+
+def append_experiment_event(run_dir: Path, event: dict[str, Any]) -> None:
+    with (run_dir / "experiment-events.jsonl").open("a", encoding="utf-8") as output:
+        output.write(json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n")
 
 
 def parse_duration_token(token: str) -> int:
@@ -581,6 +734,63 @@ def require_profile_file(base_dir: Path, name: str) -> Path:
     return path
 
 
+def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
+    mappings = {
+        "replica_count": "replicaCount",
+        "processing_dispatcher_type": "env.processingDispatcherType",
+        "worker_dispatcher_threads": "env.workerDispatcherThreads",
+        "order_processing_mode": "env.orderProcessingMode",
+        "order_worker_concurrency": "env.orderWorkerConcurrency",
+        "order_poll_loop_concurrency": "env.orderPollLoopConcurrency",
+        "order_work_channel_capacity": "env.orderWorkChannelCapacity",
+        "batch_processing_mode": "env.batchProcessingMode",
+        "batch_worker_concurrency": "env.batchWorkerConcurrency",
+        "batch_poll_loop_concurrency": "env.batchPollLoopConcurrency",
+        "batch_work_channel_capacity": "env.batchWorkChannelCapacity",
+        "telemetry_processing_mode": "env.telemetryProcessingMode",
+        "telemetry_worker_concurrency": "env.telemetryWorkerConcurrency",
+        "telemetry_poll_loop_concurrency": "env.telemetryPollLoopConcurrency",
+        "telemetry_work_channel_capacity": "env.telemetryWorkChannelCapacity",
+    }
+    return {helm_name: deployment[name] for name, helm_name in mappings.items() if deployment.get(name) is not None}
+
+
+def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_profile": deployment.get("app_profile", ""),
+        "profile": deployment.get("app_profile", ""),
+        "replica_count": deployment.get("replica_count"),
+        "processing_dispatcher_type": deployment.get("processing_dispatcher_type", "AUTO"),
+        "worker_dispatcher_threads": deployment.get("worker_dispatcher_threads", 8),
+        "processing_modes": {
+            "order": deployment.get("order_processing_mode", ""),
+            "batch": deployment.get("batch_processing_mode", ""),
+            "telemetry": deployment.get("telemetry_processing_mode", ""),
+        },
+    }
+
+
+def normalized_run_plan(deployment: dict[str, Any]) -> dict[str, Any]:
+    topics: list[dict[str, Any]] = []
+    names = {"order": "order", "batch": "batch", "cauldron": "telemetry"}
+    for topic in deployment.get("kafka_topics", []):
+        if not isinstance(topic, dict):
+            continue
+        prefix = str(topic.get("name", "")).split(".", 1)[0]
+        logical_name = names.get(prefix)
+        if not logical_name:
+            continue
+        topics.append({
+            "name": logical_name,
+            "topic": topic.get("name"),
+            "partitions": topic.get("partitions"),
+            "worker_concurrency": deployment.get(f"{logical_name}_worker_concurrency"),
+            "poll_loop_concurrency": deployment.get(f"{logical_name}_poll_loop_concurrency", 1),
+            "processing_mode": deployment.get(f"{logical_name}_processing_mode", ""),
+        })
+    return {"topics": topics}
+
+
 def deploy_workloads(
     repo_dir: Path,
     definition: dict[str, Any],
@@ -617,26 +827,28 @@ def deploy_workloads(
         demo_chart / "values.yaml",
         require_profile_file(demo_chart / "profiles" / "aws", app_profile),
     ]
+    demo_overrides = {
+        "image.repository": f"{registry}/demo",
+        "image.tag": "latest",
+        "image.pullPolicy": image_pull_policy,
+        "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
+        "env.redisHost": as_str(lab_context.get("redis_host"), ""),
+        "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
+        "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
+        "env.auditRunId": run_id,
+        "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+        "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+        "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+        "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
+        "diagnostics.packetCapture.enabled": packet_capture_enabled,
+    }
+    demo_overrides.update(deployment_value_overrides(deployment))
     helm_upgrade_install(
         "ckc-demo",
         demo_chart,
         "ckc-app",
         demo_value_files,
-        {
-            "image.repository": f"{registry}/demo",
-            "image.tag": "latest",
-            "image.pullPolicy": image_pull_policy,
-            "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
-            "env.redisHost": as_str(lab_context.get("redis_host"), ""),
-            "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
-            "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
-            "env.auditRunId": run_id,
-            "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-            "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-            "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-            "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-            "diagnostics.packetCapture.enabled": packet_capture_enabled,
-        },
+        demo_overrides,
     )
 
 
@@ -697,17 +909,23 @@ def main() -> None:
     logs_dir = run_dir / "logs"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "resolved-test.json").write_text(json_dump(definition) + "\n", encoding="utf-8")
-    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    orchestration_started_at = utc_now_text()
+    started_at: str | None = None
+    deployment = require_section(definition, "deployment")
     metadata = {
         "run_id": run_id,
         "test_name": definition.get("name", "unnamed"),
+        "target_name": deployment.get("annotation_label") or deployment.get("app_profile") or definition.get("name", "unnamed"),
         "test_definition": str(definition_path),
         "region": args.region,
         "environment": args.environment,
-        "started_at": started_at,
+        "orchestration_started_at": orchestration_started_at,
+        "started_at": None,
         "load_profile": load_profile,
         "load_test": load_test,
-        "deployment": definition.get("deployment", {}),
+        "deployment": deployment,
+        "application": normalized_application_metadata(deployment),
+        "run_plan": normalized_run_plan(deployment),
         "expected_duration_seconds": load_profile_seconds,
         "kafka_mode": lab_context.get("kafka_mode"),
         "redis_mode": lab_context.get("redis_mode"),
@@ -720,6 +938,21 @@ def main() -> None:
         wait_for_demo_rollout()
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
+        metrics_url = as_str(lab_context.get("metrics_url"), "http://127.0.0.1:9090")
+        telemetry_ready_at = wait_for_telemetry_ready(metrics_url, run_dir / "telemetry-readiness.json")
+        started_at = utc_now_text()
+        metadata["started_at"] = started_at
+        metadata["telemetry_ready_at"] = telemetry_ready_at
+        (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
+        annotation_label = as_str(deployment.get("annotation_label"), as_str(deployment.get("app_profile"), run_id))
+        append_experiment_event(run_dir, {
+            "timestamp": started_at,
+            "type": "run_started",
+            "title": annotation_label,
+            "text": annotation_label,
+            "status": "started",
+            "details": {"runId": run_id, "annotationLabel": annotation_label},
+        })
         deploy_definition_config_map(definition)
         job_name = deploy_load_job(
             f"{registry}/load-test:latest",
@@ -754,6 +987,23 @@ def main() -> None:
                 text=True,
             )
         wait_for_job(job_name, wait_timeout_seconds)
+        wait_for_consumer_drain(
+            metrics_url,
+            run_dir / "consumer-drain.json",
+            as_int(load_test.get("consumer_drain_timeout_seconds"), 300),
+            as_bool(load_test.get("consumer_drain_required"), True),
+        )
+        telemetry_settle_seconds = as_int(load_test.get("telemetry_settle_seconds"), 65)
+        if telemetry_settle_seconds > 0:
+            time.sleep(telemetry_settle_seconds)
+        coverage_end = utc_now_text()
+        validate_telemetry_coverage(
+            metrics_url,
+            run_dir / "metrics-coverage.json",
+            started_at,
+            coverage_end,
+            as_int(load_test.get("maximum_first_sample_delay_seconds"), 90),
+        )
         if diagnostics_process is not None:
             diagnostics_exit_code = diagnostics_process.wait()
             diagnostics_process = None
@@ -779,6 +1029,14 @@ def main() -> None:
         collect_job_logs(job_name, logs_dir)
         collect_workload_logs(logs_dir)
         status = "COMPLETED"
+        append_experiment_event(run_dir, {
+            "timestamp": coverage_end,
+            "type": "run_completed",
+            "title": annotation_label,
+            "text": annotation_label,
+            "status": "completed",
+            "details": {"runId": run_id},
+        })
         print(f"Test definition '{definition.get('name', 'unnamed')}' completed.")
         print(f"  source={definition_path}")
         print(f"  run_id={run_id}")
@@ -798,8 +1056,23 @@ def main() -> None:
         collect_job_logs(job_name, logs_dir) if job_name else None
         collect_workload_logs(logs_dir)
         ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if started_at and status != "COMPLETED":
+            append_experiment_event(run_dir, {
+                "timestamp": ended_at,
+                "type": "run_failed",
+                "title": as_str(deployment.get("app_profile"), run_id),
+                "text": as_str(deployment.get("app_profile"), run_id),
+                "status": "failed",
+                "details": {"runId": run_id},
+            })
         (run_dir / "run-status.json").write_text(
-            json_dump({"run_id": run_id, "status": status, "started_at": started_at, "ended_at": ended_at}) + "\n",
+            json_dump({
+                "run_id": run_id,
+                "status": status,
+                "orchestration_started_at": orchestration_started_at,
+                "started_at": started_at or orchestration_started_at,
+                "ended_at": ended_at,
+            }) + "\n",
             encoding="utf-8",
         )
         if bool(lab_context.get("cleanup_workloads", True)):

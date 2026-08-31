@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -129,15 +130,23 @@ class AwsSessionTest(unittest.TestCase):
             manifest = json.loads((result / "artifact-manifest.json").read_text(encoding="utf-8"))
             paths = {item["path"] for item in manifest["files"]}
             compose = (result / "restore" / "docker-compose.yml").read_text(encoding="utf-8")
+            dashboard = json.loads((result / "config" / "ckc-experiment.json").read_text(encoding="utf-8"))
+            experiment_markdown = dashboard["panels"][0]["options"]["content"]
         self.assertIn("restore/open-result.sh", paths)
         self.assertIn("restore/close-result.sh", paths)
         self.assertIn("restore/docker-compose.yml", paths)
         self.assertIn("restore/finalize-result.py", paths)
+        self.assertIn("restore/import-grafana-annotations.py", paths)
         self.assertIn("restore/grafana/provisioning/dashboards/ckc.yml", paths)
         self.assertIn("restore/grafana/provisioning/datasources/prometheus.yml", paths)
         self.assertIn("config/ckc-experiment.json", paths)
         self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
+        self.assertIn('GF_USERS_VIEWERS_CAN_EDIT: "true"', compose)
         self.assertIn("CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS:-0.0.0.0", compose)
+        self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", experiment_markdown)
+        self.assertIn("[Open logs](/explore?", experiment_markdown)
+        self.assertNotIn("| Property | Value |", experiment_markdown)
+        self.assertNotIn("MSK CloudWatch Time Lag", json.dumps(dashboard))
 
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -167,13 +176,43 @@ class AwsSessionTest(unittest.TestCase):
             controller = self.controller(Path(directory))
             actions: list[str] = []
             controller.cleanup_remote_lab = lambda: actions.append("remote")
+            controller.prepare_lab_destroy = lambda: actions.append("prepare")
             controller.destroy_stack = lambda stack: actions.append(stack)
             controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
             controller.verify_cleanup = lambda: actions.append("verify")
             controller.prune_terraform_cache = lambda: actions.append("prune")
             failures = controller.cleanup()
         self.assertEqual([], failures)
-        self.assertEqual(["remote", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+        self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+
+    def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["terraform"] = {"lab": {"created": True}}
+            responses = [
+                {"nodegroups": ["default"]},
+                {"nodegroups": []},
+                {"NetworkInterfaces": [
+                    {
+                        "NetworkInterfaceId": "eni-orphan",
+                        "TagSet": [{"Key": "eks:eni:owner", "Value": "amazon-vpc-cni"}],
+                    },
+                    {
+                        "NetworkInterfaceId": "eni-other",
+                        "TagSet": [{"Key": "eks:eni:owner", "Value": "other"}],
+                    },
+                ]},
+            ]
+            with (
+                patch.object(controller, "aws_json", side_effect=responses),
+                patch.object(controller, "run") as run_command,
+            ):
+                controller.prepare_lab_destroy(timeout_seconds=1)
+        commands = [call.args[0] for call in run_command.call_args_list]
+        self.assertTrue(any(command[1:3] == ["eks", "delete-nodegroup"] for command in commands))
+        self.assertIn("eni-orphan", commands[-1])
+        self.assertNotIn("eni-other", commands[-1])
+        self.assertEqual(["eni-orphan"], controller.state["deleted_orphaned_cni_enis"])
 
     def test_aws_json_retries_transient_read_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -290,6 +329,51 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("10.52.0.10", manifests[0])
         self.assertIn("AUDIT_TCP_PORT", manifests[0])
         self.assertIn("containerPort: 9405", manifests[0])
+
+    def test_deployment_worker_overrides_are_passed_to_helm(self) -> None:
+        overrides = run_test_module.deployment_value_overrides({
+            "replica_count": 2,
+            "order_worker_concurrency": 100,
+            "batch_worker_concurrency": 100,
+            "telemetry_worker_concurrency": 100,
+        })
+        self.assertEqual(2, overrides["replicaCount"])
+        self.assertEqual(100, overrides["env.orderWorkerConcurrency"])
+        self.assertEqual(100, overrides["env.batchWorkerConcurrency"])
+        self.assertEqual(100, overrides["env.telemetryWorkerConcurrency"])
+
+    def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "coverage.json"
+            timestamp = int(datetime(2026, 8, 31, 10, 0, 30, tzinfo=timezone.utc).timestamp() * 1000)
+            with patch.object(
+                run_test_module,
+                "victoria_export",
+                return_value=[{"metric": {"pod": "demo-1"}, "timestamps": [timestamp], "values": [1]}],
+            ):
+                run_test_module.validate_telemetry_coverage(
+                    "http://metrics",
+                    report,
+                    "2026-08-31T10:00:00Z",
+                    "2026-08-31T10:10:00Z",
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual("PASS", document["status"])
+        self.assertEqual(30.0, document["coverage"]["pod_cpu"]["first_sample_delay_seconds"])
+
+    def test_optional_consumer_drain_records_timeout_without_failing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "drain.json"
+            with (
+                patch.object(run_test_module, "prometheus_scalar", return_value=42.0),
+                patch.object(run_test_module.time, "monotonic", side_effect=[0.0, 1.0]),
+            ):
+                drained = run_test_module.wait_for_consumer_drain(
+                    "http://metrics", report, timeout_seconds=0, required=False,
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+        self.assertFalse(drained)
+        self.assertEqual("TIMEOUT", document["status"])
 
 
 if __name__ == "__main__":

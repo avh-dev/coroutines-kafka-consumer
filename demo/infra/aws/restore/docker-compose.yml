@@ -26,6 +26,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
     volumes:
       - ${CKC_AWS_RESTORE_ROOT}/grafana:/var/lib/grafana
       - ${CKC_AWS_GRAFANA_PROVISIONING_DIR}:/etc/grafana/provisioning:ro

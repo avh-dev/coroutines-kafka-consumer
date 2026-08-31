@@ -52,4 +52,15 @@ if [ ! -f "${LOKI_MARKER}" ] && compgen -G "${RESULT_DIR}/logs/loki/*.jsonl" >/d
   touch "${LOKI_MARKER}"
 fi
 
+ANNOTATIONS_MARKER="${RESTORE_ROOT}/annotations-imported"
+if [ ! -f "${ANNOTATIONS_MARKER}" ] && [ -f "${RESULT_DIR}/experiment-events.jsonl" ]; then
+  python3 "${SCRIPT_DIR}/import-grafana-annotations.py" \
+    --root "${RESULT_DIR}" \
+    --grafana-url "http://127.0.0.1:${GRAFANA_PORT}" \
+    --dashboard-uid ckc-experiment \
+    --grafana-user admin \
+    --grafana-password admin
+  touch "${ANNOTATIONS_MARKER}"
+fi
+
 echo "AWS result metrics are available at http://${GRAFANA_BIND_ADDRESS}:${GRAFANA_PORT}/d/ckc-experiment/ckc-experiment"
