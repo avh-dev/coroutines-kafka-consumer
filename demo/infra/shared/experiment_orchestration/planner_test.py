@@ -23,7 +23,17 @@ class PlannerTest(unittest.TestCase):
                 target={
                     "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
                     "env": {"PROCESSING_DISPATCHER_TYPE": "FIXED", "WORKER_DISPATCHER_THREADS": 1},
-                    "helm": {"resources": {"requests": {"cpu": "500m", "memory": "768Mi"}}},
+                    "application": {
+                        "replicas": 2,
+                        "resources": {"requests": {"cpu": "500m", "memory": "768Mi"}},
+                        "hpa": {
+                            "enabled": True,
+                            "min_replicas": 2,
+                            "max_replicas": 6,
+                            "target_cpu_utilization_percentage": 70,
+                            "scale_down_stabilization_window_seconds": 600,
+                        },
+                    },
                 },
             )
 
@@ -33,6 +43,13 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual("ckc", values["env"]["springProfilesActive"])
         self.assertEqual(1, values["env"]["workerDispatcherThreads"])
         self.assertEqual("500m", values["resources"]["requests"]["cpu"])
+        self.assertEqual({
+            "enabled": True,
+            "minReplicas": 2,
+            "maxReplicas": 6,
+            "targetCPUUtilizationPercentage": 70,
+            "scaleDownStabilizationWindowSeconds": 600,
+        }, values["hpa"])
         self.assertEqual(
             ["order.events.v1", "batch.events.v1", "cauldron.events.v1"],
             [topic["name"] for topic in values["lab"]["kafkaTopics"]],

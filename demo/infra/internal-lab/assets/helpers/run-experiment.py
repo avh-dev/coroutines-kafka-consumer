@@ -288,6 +288,40 @@ def helm_override_args(helm: dict[str, Any]) -> list[str]:
     return args
 
 
+def application_override_args(application: dict[str, Any]) -> list[str]:
+    if not isinstance(application, dict):
+        raise ValueError("target.application must be an object")
+    args: list[str] = []
+    if "replicas" in application:
+        args.extend(["--replicas", env_value(application["replicas"])])
+    if "java_tool_options" in application:
+        args.extend(["--demo-java-tool-options", env_value(application["java_tool_options"])])
+    resources = application.get("resources") or {}
+    if not isinstance(resources, dict):
+        raise ValueError("target.application.resources must be an object")
+    for section, suffix in (("requests", "request"), ("limits", "limit")):
+        values = resources.get(section) or {}
+        if not isinstance(values, dict):
+            raise ValueError(f"target.application.resources.{section} must be an object")
+        for resource in ("cpu", "memory"):
+            if resource in values:
+                args.extend([f"--demo-{resource}-{suffix}", env_value(values[resource])])
+    hpa = application.get("hpa") or {}
+    if not isinstance(hpa, dict):
+        raise ValueError("target.application.hpa must be an object")
+    hpa_flags = {
+        "enabled": "--hpa-enabled",
+        "min_replicas": "--hpa-min-replicas",
+        "max_replicas": "--hpa-max-replicas",
+        "target_cpu_utilization_percentage": "--hpa-target-cpu-utilization-percentage",
+        "scale_down_stabilization_window_seconds": "--hpa-scale-down-stabilization-window-seconds",
+    }
+    for key, flag in hpa_flags.items():
+        if key in hpa:
+            args.extend([flag, env_value(hpa[key])])
+    return args
+
+
 def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
     targets = experiment.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -556,7 +590,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
             command.extend(["--parallelism", env_value(values)])
         if "base_tps" in test:
             command.extend(["--base-rate", env_value(test["base_tps"])])
-        if "replicas" in test:
+        if "replicas" in test and "replicas" not in (test.get("application") or {}):
             command.extend(["--replicas", env_value(test["replicas"])])
         for topic in ("order", "batch", "telemetry"):
             command.extend([f"--{topic}-planning-latency-ms", env_value(topic_planning_latency(test, topic))])
@@ -571,6 +605,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
             if queue_key in test:
                 command.extend([f"--{topic}-queue-capacity", env_value(test[queue_key])])
         command.extend(helm_override_args(test.get("helm") or {}))
+        command.extend(application_override_args(test.get("application") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])
     if "stub_replicas" in test:

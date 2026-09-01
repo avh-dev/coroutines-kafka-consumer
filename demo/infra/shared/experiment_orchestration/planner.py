@@ -124,6 +124,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--demo-memory-request", type=non_empty)
     parser.add_argument("--demo-cpu-limit", type=non_empty)
     parser.add_argument("--demo-memory-limit", type=non_empty)
+    parser.add_argument("--hpa-enabled", choices=["true", "false"])
+    parser.add_argument("--hpa-min-replicas", type=positive_int)
+    parser.add_argument("--hpa-max-replicas", type=positive_int)
+    parser.add_argument("--hpa-target-cpu-utilization-percentage", type=positive_int)
+    parser.add_argument("--hpa-scale-down-stabilization-window-seconds", type=positive_int)
     parser.add_argument("--order-processing-mode")
     parser.add_argument("--batch-processing-mode")
     parser.add_argument("--telemetry-processing-mode")
@@ -180,9 +185,15 @@ def target_namespace(
     if not isinstance(helm, dict):
         raise ValueError("target helm must be an object")
     helm_env = helm.get("env") or {}
-    resources = helm.get("resources") or {}
+    application = merged.get("application") or {}
+    if not isinstance(application, dict):
+        raise ValueError("target application must be an object")
+    resources = application.get("resources") or helm.get("resources") or {}
     requests = resources.get("requests") or {}
     limits = resources.get("limits") or {}
+    hpa = application.get("hpa") or helm.get("hpa") or {}
+    if not isinstance(hpa, dict):
+        raise ValueError("target application.hpa must be an object")
 
     values: dict[str, Any] = {
         "test_definition": str(definition_path),
@@ -192,17 +203,22 @@ def target_namespace(
         "repo_dir": str(repo_dir or Path.cwd()),
         "current_deployment_env": str(current_deployment_env) if current_deployment_env else None,
         "base_tps": None,
-        "replicas": merged.get("replicas"),
+        "replicas": application.get("replicas", merged.get("replicas")),
         "processing_enabled": str(env.get("PROCESSING_ENABLED", "true")).lower(),
         "processing_dispatcher_type": env.get("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env.get("WORKER_DISPATCHER_THREADS"),
         "jdk_http_client_executor": env.get("JDK_HTTP_CLIENT_EXECUTOR"),
         "parallelism": merged.get("parallelism"),
-        "demo_java_tool_options": helm_env.get("javaToolOptions"),
+        "demo_java_tool_options": application.get("java_tool_options", helm_env.get("javaToolOptions")),
         "demo_cpu_request": requests.get("cpu"),
         "demo_memory_request": requests.get("memory"),
         "demo_cpu_limit": limits.get("cpu"),
         "demo_memory_limit": limits.get("memory"),
+        "hpa_enabled": str(hpa["enabled"]).lower() if "enabled" in hpa else None,
+        "hpa_min_replicas": hpa.get("min_replicas"),
+        "hpa_max_replicas": hpa.get("max_replicas"),
+        "hpa_target_cpu_utilization_percentage": hpa.get("target_cpu_utilization_percentage"),
+        "hpa_scale_down_stabilization_window_seconds": hpa.get("scale_down_stabilization_window_seconds"),
         "list_profiles": False,
         "profile_dispatchers": False,
         "profile_planning_latencies": False,
@@ -678,6 +694,20 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         resources["limits"] = limits
     if resources:
         overlay["resources"] = resources
+    hpa_values = {
+        "enabled": args.hpa_enabled == "true" if args.hpa_enabled is not None else None,
+        "minReplicas": args.hpa_min_replicas,
+        "maxReplicas": args.hpa_max_replicas,
+        "targetCPUUtilizationPercentage": args.hpa_target_cpu_utilization_percentage,
+        "scaleDownStabilizationWindowSeconds": args.hpa_scale_down_stabilization_window_seconds,
+    }
+    hpa_values = {key: value for key, value in hpa_values.items() if value is not None}
+    if hpa_values:
+        minimum = int(hpa_values.get("minReplicas", replica_count))
+        maximum = int(hpa_values.get("maxReplicas", minimum))
+        if maximum < minimum:
+            raise ValueError(f"HPA max replicas must be at least min replicas: {maximum} < {minimum}")
+        overlay["hpa"] = hpa_values
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -695,6 +725,11 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         "worker_dispatcher_threads": env.get("workerDispatcherThreads"),
         "jdk_http_client_executor": str(env.get("jdkHttpClientExecutor", "DEFAULT")),
         "processing_enabled": args.processing_enabled == "true",
+        "application": {
+            "replicas": replica_count,
+            "resources": resources,
+            "hpa": hpa_values,
+        },
         "test_definition": definition_path.stem,
         "values_path": str(values_path),
         "topics": topic_plans,

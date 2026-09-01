@@ -50,7 +50,17 @@ base_tps: 2000
 sla_profile: consumer-baseline
 
 defaults:
-  replicas: 2
+  application:
+    replicas: 2
+    resources:
+      requests: {cpu: 500m, memory: 768Mi}
+      limits: {cpu: "2", memory: 2Gi}
+    hpa:
+      enabled: true
+      min_replicas: 2
+      max_replicas: 6
+      target_cpu_utilization_percentage: 70
+      scale_down_stabilization_window_seconds: 600
   env:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
@@ -96,6 +106,10 @@ targets:
         limits:
           memory: 3Gi
 ```
+
+`application` is environment-neutral: internal-lab and AWS feed it to the same
+planner and shared Helm chart. Top-level `replicas` and `helm.resources` remain
+accepted for existing experiment definitions.
 
 `test_definition` remains supported as the short legacy form. New experiments
 can use `test.extends` and override any nested test field. Objects merge

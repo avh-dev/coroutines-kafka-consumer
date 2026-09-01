@@ -21,6 +21,28 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
+        command = RUNNER.command_for_run(
+            Path("/opt/ckc-lab/bin/run-test.sh"),
+            {
+                "profile": "ckc",
+                "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
+                "application": {
+                    "replicas": 2,
+                    "resources": {"requests": {"cpu": "500m", "memory": "768Mi"}},
+                    "hpa": {"enabled": True, "min_replicas": 2, "max_replicas": 6},
+                },
+            },
+            "smoke.yaml",
+            {},
+        )
+
+        self.assertIn("--replicas", command)
+        self.assertIn("--demo-cpu-request", command)
+        self.assertIn("--hpa-enabled", command)
+        self.assertIn("--hpa-min-replicas", command)
+        self.assertIn("--hpa-max-replicas", command)
+
     def test_each_target_runs_with_its_own_resolved_test_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
