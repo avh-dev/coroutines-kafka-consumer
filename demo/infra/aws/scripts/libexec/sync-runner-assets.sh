@@ -44,6 +44,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/internal-lab/assets/helpers \
   demo/infra/internal-lab/assets/restore \
   demo/infra/shared/audit \
+  demo/infra/shared/experiment_orchestration \
   demo/infra/shared/pcap \
   demo/infra/shared/grafana \
   demo/infra/shared/result_bundle \
