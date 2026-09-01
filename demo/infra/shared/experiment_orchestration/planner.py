@@ -116,6 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replicas", type=positive_int)
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
+    parser.add_argument("--worker-dispatcher-threads", type=positive_int)
     parser.add_argument("--jdk-http-client-executor", choices=["DEFAULT", "VIRTUAL", "default", "virtual"])
     parser.add_argument("--parallelism", type=non_empty)
     parser.add_argument("--demo-java-tool-options", type=non_empty)
@@ -147,6 +148,101 @@ def value_at(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
             return default
         current = current.get(key, default)
     return current
+
+
+def target_planning_latency(target: dict[str, Any], topic: str) -> Any:
+    planning_latency = target.get("planning_latency") or {}
+    if not isinstance(planning_latency, dict):
+        raise ValueError("target planning_latency must be an object")
+    if f"{topic}_ms" in planning_latency:
+        return planning_latency[f"{topic}_ms"]
+    value = planning_latency.get(topic)
+    return value.get("processing_ms") if isinstance(value, dict) else value
+
+
+def target_namespace(
+    *,
+    definition_path: Path,
+    consumer_profiles_path: Path,
+    profile_name: str,
+    output_dir: Path,
+    target: dict[str, Any],
+    defaults: dict[str, Any] | None = None,
+    repo_dir: Path | None = None,
+    current_deployment_env: Path | None = None,
+) -> argparse.Namespace:
+    """Translate the shared experiment target contract into planner options."""
+    merged = merge_dicts(defaults or {}, target)
+    env = merged.get("env") or {}
+    helm = merged.get("helm") or {}
+    if not isinstance(env, dict):
+        raise ValueError("target env must be an object")
+    if not isinstance(helm, dict):
+        raise ValueError("target helm must be an object")
+    helm_env = helm.get("env") or {}
+    resources = helm.get("resources") or {}
+    requests = resources.get("requests") or {}
+    limits = resources.get("limits") or {}
+
+    values: dict[str, Any] = {
+        "test_definition": str(definition_path),
+        "consumer_profiles": str(consumer_profiles_path),
+        "profile": profile_name,
+        "output_dir": str(output_dir),
+        "repo_dir": str(repo_dir or Path.cwd()),
+        "current_deployment_env": str(current_deployment_env) if current_deployment_env else None,
+        "base_tps": None,
+        "replicas": merged.get("replicas"),
+        "processing_enabled": str(env.get("PROCESSING_ENABLED", "true")).lower(),
+        "processing_dispatcher_type": env.get("PROCESSING_DISPATCHER_TYPE"),
+        "worker_dispatcher_threads": env.get("WORKER_DISPATCHER_THREADS"),
+        "jdk_http_client_executor": env.get("JDK_HTTP_CLIENT_EXECUTOR"),
+        "parallelism": merged.get("parallelism"),
+        "demo_java_tool_options": helm_env.get("javaToolOptions"),
+        "demo_cpu_request": requests.get("cpu"),
+        "demo_memory_request": requests.get("memory"),
+        "demo_cpu_limit": limits.get("cpu"),
+        "demo_memory_limit": limits.get("memory"),
+        "list_profiles": False,
+        "profile_dispatchers": False,
+        "profile_planning_latencies": False,
+        "profile_processing_modes": False,
+        "print_plan": False,
+        "emit_shell_output": False,
+    }
+    for topic in TOPIC_ORDER:
+        values[f"{topic}_planning_latency_ms"] = target_planning_latency(merged, topic)
+        values[f"{topic}_processing_mode"] = merged.get(f"{topic}_processing_mode")
+        for knob in ("partitions", "workers", "pollers"):
+            values[f"{topic}_{knob}"] = merged.get(f"{topic}_{knob}")
+        values[f"{topic}_queue_capacity"] = merged.get(f"{topic}_queue_capacity")
+    return argparse.Namespace(**values)
+
+
+def plan_target(
+    *,
+    definition_path: Path,
+    consumer_profiles_path: Path,
+    profile_name: str,
+    output_dir: Path,
+    target: dict[str, Any],
+    defaults: dict[str, Any] | None = None,
+    repo_dir: Path | None = None,
+    current_deployment_env: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = execute(target_namespace(
+        definition_path=definition_path,
+        consumer_profiles_path=consumer_profiles_path,
+        profile_name=profile_name,
+        output_dir=output_dir,
+        target=target,
+        defaults=defaults,
+        repo_dir=repo_dir,
+        current_deployment_env=current_deployment_env,
+    ))
+    if result is None:
+        raise RuntimeError("Target planning did not produce a plan")
+    return result
 
 
 def parallelism_knobs(raw: Any, *, context: str) -> list[str]:
@@ -378,8 +474,7 @@ def profile_summary(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
-    args = parse_args()
+def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] | None:
     profiles_config = load_yaml(Path(args.consumer_profiles))
     if args.list_profiles:
         profile_list(profiles_config)
@@ -454,6 +549,8 @@ def main() -> None:
     env: dict[str, Any] = {"springProfilesActive": profile["spring_profile"]}
     if processing_dispatcher:
         env["processingDispatcherType"] = processing_dispatcher
+    if args.worker_dispatcher_threads:
+        env["workerDispatcherThreads"] = int(args.worker_dispatcher_threads)
     if args.jdk_http_client_executor:
         env["jdkHttpClientExecutor"] = str(args.jdk_http_client_executor).upper()
     if args.demo_java_tool_options:
@@ -595,6 +692,7 @@ def main() -> None:
         "base_tps": base_tps,
         "replica_count": replica_count,
         "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),
+        "worker_dispatcher_threads": env.get("workerDispatcherThreads"),
         "jdk_http_client_executor": str(env.get("jdkHttpClientExecutor", "DEFAULT")),
         "processing_enabled": args.processing_enabled == "true",
         "test_definition": definition_path.stem,
@@ -612,7 +710,7 @@ def main() -> None:
 
     if args.print_plan:
         print(profile_summary(plan))
-    else:
+    elif getattr(args, "emit_shell_output", True):
         assignments = {
             "RUN_PLAN_PATH": str(plan_path),
             "RUN_PLAN_VALUES": str(values_path),
@@ -622,6 +720,12 @@ def main() -> None:
         }
         for key, value in assignments.items():
             print(f"{key}={shell_quote(value)}")
+
+    return plan, overlay
+
+
+def main() -> None:
+    execute(parse_args())
 
 
 if __name__ == "__main__":
