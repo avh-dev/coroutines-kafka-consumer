@@ -268,7 +268,7 @@
 | [INFRA-124](#infra-124) | Interleave uncompressed and LZ4 linger targets for adjacent like-for-like comparison. | DONE |
 | [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
-| [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | IN_PROGRESS |
+| [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
