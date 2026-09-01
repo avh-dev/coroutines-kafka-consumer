@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
 
 AWS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = AWS_ROOT.parents[2]
@@ -123,6 +125,15 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("500m", helm_values["resources.requests.cpu"])
         self.assertNotIn("lab.kafkaTopics", helm_values)
 
+    def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
+        definition_path = REPO_ROOT / "demo/infra/internal-lab/workloads/test-definitions/smoke.yaml"
+        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+        settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
+
+        self.assertEqual(0, settings["errorRatePercent"])
+        self.assertEqual(20, settings["eta"]["delayP90Ms"])
+        self.assertEqual(80, settings["flavour"]["delayP99Ms"])
+
     def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(
@@ -140,6 +151,29 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("demo/infra/aws/test-definitions/smoke-test.yaml", state["config"]["test_definition"])
         self.assertEqual("eu-central-1", state["config"]["region"])
         self.assertRegex(state["config"]["aws_environment"], r"^s-[a-f0-9]{10}$")
+
+    def test_new_state_materializes_shared_aws_experiment_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(
+                experiment="demo/infra/aws/experiments/smoke.yaml",
+                test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
+                experiment_id=None,
+                max_session_hours=12,
+                region="eu-central-1",
+                owner="tester",
+                image_environment="dev",
+                lab_profile=None,
+                test_timeout_seconds=1800,
+            )
+            state = session_module.new_state(args, "s-20260829-120000-abcdef", Path(directory))
+            target = state["config"]["targets"][0]
+            definition = Path(target["local_definition"])
+            self.assertTrue(definition.is_file())
+
+        self.assertEqual("experiment", state["config"]["mode"])
+        self.assertEqual("default", state["config"]["lab_profile"])
+        self.assertEqual("ckc", target["profile"])
+        self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
 
     def test_new_state_rejects_unsafe_session_and_profile_names(self) -> None:
         base = SimpleNamespace(

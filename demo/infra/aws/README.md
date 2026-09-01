@@ -21,7 +21,10 @@
   Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
 
 - `test-definitions/`
-  AWS-owned test definitions.
+  Legacy single-run AWS definitions retained for compatibility.
+
+- `experiments/`
+  AWS entrypoints using the shared experiment, target, and test contracts.
 
 - `scripts/`
   Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
@@ -52,8 +55,9 @@
 - `helm/`
   AWS-owned Helm charts and deployment profiles for the app and stub workloads.
 
-- `test-definitions`
-  Test-run definitions that select deployment profiles and load configuration.
+- `../shared/experiment_orchestration`
+  Resolves tests and target overrides and calculates the same profile, topic,
+  concurrency, replica, and resource plan used by internal-lab.
 
 - `../shared/audit`
   Shared audit analysis code. AWS audit chunks can be downloaded from S3 and analyzed from any machine with Python and AWS CLI access.
@@ -72,15 +76,23 @@ Prerequisites:
 - Docker with Buildx when building the current checkout;
 - the normal Gradle/JDK prerequisites for the demo distributions.
 
-The default command builds linux/amd64 images, ensures the persistent ECR
-repositories exist, runs the short AWS smoke definition, downloads and verifies
-the result, and tears the session down:
+The preferred command builds linux/amd64 images, ensures the persistent ECR
+repositories exist, resolves and materializes the shared experiment, runs its
+targets sequentially in one immutable lab, downloads and verifies every target
+result, and tears the session down:
 
 ```bash
 ./demo/infra/aws/scripts/run-experiment.sh run \
   --region us-east-1 \
-  --test-definition demo/infra/aws/test-definitions/smoke-test.yaml
+  --experiment demo/infra/aws/experiments/smoke.yaml
 ```
+
+`--test-definition` remains available for old single-run AWS definitions.
+For an experiment, `lab.profile` is fixed before provisioning; `--lab-profile`
+can override it for the whole experiment, never for an individual target.
+Each target selects `profile`, may override its resolved test (load, stubs,
+diagnostics, and chaos), and receives a separate run ID, audit analysis, and
+verified artifact directory under `result/runs/`.
 
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
@@ -192,7 +204,11 @@ results for paired producer/consumer Kafka wire-breakdown bars.
 
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
-`create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/aws/test-definitions/ckc-baseline.yaml`.
+Before every experiment target, the runner recreates Kafka topics from the
+shared run plan, flushes Redis, deploys the planned application profile, and
+applies the same stub settings contract as internal-lab. `create-lab` also
+performs the initial reset; if its definition is omitted, it uses the legacy
+`demo/infra/aws/test-definitions/ckc-baseline.yaml`.
 
 ## Audit Analysis
 

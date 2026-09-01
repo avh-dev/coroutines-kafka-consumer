@@ -796,6 +796,7 @@ context = {
     "kubeconfig_path": "${KUBECONFIG_PATH}",
     "kafka_mode": "${KAFKA_MODE}",
     "kafka_bootstrap": "${KAFKA_BOOTSTRAP}",
+    "kafka_topic_replication_factor": ${KAFKA_TOPIC_REPLICATION_FACTOR},
     "redis_mode": "${REDIS_MODE}",
     "redis_host": "${REDIS_HOST}",
     "registry": "${REGISTRY}",

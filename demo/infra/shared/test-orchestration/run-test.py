@@ -34,6 +34,15 @@ def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], defi
     return module.normalize(definition, definition_path)
 
 
+def normalized_stub_settings(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> dict[str, Any] | None:
+    stubs = definition.get("stubs")
+    if not isinstance(stubs, dict) or not stubs:
+        return None
+    module_path = repo_dir / "demo/infra/internal-lab/assets/helpers/definition-env.py"
+    module = load_module(module_path, "ckc_definition_env")
+    return module.stub_settings_from_definition(stubs, definition_path)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Deploy CKC app workloads into an existing lab and run one test definition.")
     parser.add_argument("--environment", required=True)
@@ -444,6 +453,44 @@ def configure_prometheus_bridge(runner_home: Path, port_forward_pid_file: Path, 
     raise RuntimeError(f"Port-forward to ckc-demo did not become ready. See {port_forward_log_file}")
 
 
+def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 18081) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            [
+                "kubectl", "-n", "ckc-app", "port-forward", "service/ckc-demo-stubs",
+                f"{local_port}:8080", "--address", "127.0.0.1",
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            payload = json.dumps(settings).encode("utf-8")
+            for _ in range(30):
+                try:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{local_port}/settings",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=5):
+                        return
+                except OSError:
+                    if process.poll() is not None:
+                        break
+                    time.sleep(1)
+            raise RuntimeError(f"Demo stub settings endpoint did not become ready; see {log_path}")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+
 def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: list[Path], set_values: dict[str, Any]) -> None:
     command = [
         "helm",
@@ -838,6 +885,22 @@ def load_lab_context(path: Path) -> dict[str, Any]:
     return data
 
 
+def reset_target_data(repo_dir: Path, definition_path: Path, lab_context: dict[str, Any]) -> None:
+    run([
+        sys.executable,
+        str(repo_dir / "demo/infra/shared/test-orchestration/prepare-kafka-topics.py"),
+        "--bootstrap-server", as_str(lab_context.get("kafka_bootstrap"), ""),
+        "--replication-factor", str(as_int(lab_context.get("kafka_topic_replication_factor"), 1)),
+        "--test-definition-path", str(definition_path),
+        "--repo-dir", str(repo_dir),
+    ])
+    run([
+        sys.executable,
+        str(repo_dir / "demo/infra/shared/test-orchestration/flush-redis.py"),
+        "--host", as_str(lab_context.get("redis_host"), ""),
+    ])
+
+
 def require_section(root: dict[str, Any], name: str) -> dict[str, Any]:
     value = root.get(name)
     if not isinstance(value, dict):
@@ -1011,6 +1074,7 @@ def main() -> None:
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
+    stub_settings = normalized_stub_settings(repo_dir, definition, definition_path)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")
@@ -1023,6 +1087,7 @@ def main() -> None:
 
     configure_kube_access(args, lab_context, runner_home)
     prepare_namespaces()
+    reset_target_data(repo_dir, definition_path, lab_context)
 
     port_forward_pid_file = runner_home / "config" / "ckc-demo-port-forward.pid"
     port_forward_log_file = runner_home / "reports" / "ckc-demo-port-forward.log"
@@ -1078,6 +1143,8 @@ def main() -> None:
     try:
         deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id)
         wait_for_demo_rollout()
+        if stub_settings is not None:
+            configure_stubs(stub_settings, run_dir / "logs" / "configure-stubs.log")
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         metrics_url = as_str(lab_context.get("metrics_url"), "http://127.0.0.1:9090")
