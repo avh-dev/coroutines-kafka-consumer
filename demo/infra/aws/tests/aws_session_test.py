@@ -252,6 +252,108 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("| Property | Value |", experiment_markdown)
         self.assertNotIn("MSK CloudWatch Time Lag", json.dumps(dashboard))
 
+    def test_experiment_bundle_uses_shared_multi_target_grafana_panel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory) / "experiment"
+            run_dirs = []
+            for index, profile in enumerate(("spring-kafka", "ckc"), start=1):
+                run_dir = result / "runs" / f"run-{index}"
+                run_dir.mkdir(parents=True)
+                (run_dir / "run-metadata.json").write_text(json.dumps({
+                    "run_id": run_dir.name,
+                    "target_name": profile,
+                    "test_name": "smoke",
+                    "kafka_mode": "msk",
+                    "application": {"profile": profile, "run_profile": profile, "replica_count": index},
+                    "run_plan": {"topics": []},
+                    "started_at": f"2026-09-01T10:0{index}:00Z",
+                }), encoding="utf-8")
+                (run_dir / "run-status.json").write_text(json.dumps({
+                    "status": "COMPLETED",
+                    "started_at": f"2026-09-01T10:0{index}:00Z",
+                    "ended_at": f"2026-09-01T10:0{index + 1}:00Z",
+                }), encoding="utf-8")
+                run_dirs.append(run_dir)
+            (result / "summary.json").write_text(json.dumps({
+                "experiment_set_id": "set-a",
+                "experiments": [{
+                    "experiment": "comparison",
+                    "test_definition": "smoke",
+                    "base_tps": 5000,
+                    "targets": [
+                        {"name": profile, "run_dir": str(run_dir), "run_status": {"status": "COMPLETED"}, "exit_code": 0}
+                        for profile, run_dir in zip(("spring-kafka", "ckc"), run_dirs)
+                    ],
+                }],
+            }), encoding="utf-8")
+            subprocess.run([
+                sys.executable,
+                str(AWS_ROOT / "restore/finalize-result.py"),
+                str(result),
+                "--repo-root", str(REPO_ROOT),
+            ], check=True)
+            dashboard = json.loads((result / "config/ckc-experiment.json").read_text(encoding="utf-8"))
+            markdown = dashboard["panels"][0]["options"]["content"]
+
+        self.assertIn("Test definition `smoke`, base TPS `5000`", markdown)
+        self.assertIn("spring-kafka", markdown)
+        self.assertIn("ckc", markdown)
+        self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", markdown)
+        self.assertIn("[Open logs](/explore?", markdown)
+        self.assertIn("[spring-kafka](/d/ckc-experiment/ckc-experiment?", markdown)
+
+    def test_controller_builds_portable_experiment_root_from_target_results(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            experiment_path = "demo/infra/aws/experiments/smoke.yaml"
+            target_definition = session_dir / "materialized/ckc/resolved-test.yaml"
+            target_test = target_definition.with_name("resolved-test-source.yaml")
+            target_definition.parent.mkdir(parents=True)
+            target_definition.write_text("name: smoke\n", encoding="utf-8")
+            target_test.write_text("name: smoke\nload_test:\n  base_tps: 10\n", encoding="utf-8")
+            run_dir = session_dir / "result/runs/run-ckc"
+            (run_dir / "metrics").mkdir(parents=True)
+            (run_dir / "logs/loki").mkdir(parents=True)
+            (run_dir / "metrics/victoriametrics-data.tar.gz").write_bytes(b"metrics")
+            (run_dir / "logs/loki/kubernetes.jsonl").write_text("{}\n", encoding="utf-8")
+            (run_dir / "experiment-events.jsonl").write_text('{"type":"run_started"}\n', encoding="utf-8")
+            (run_dir / "run-metadata.json").write_text(json.dumps({
+                "run_id": "run-ckc", "started_at": "2026-09-01T10:00:00Z",
+            }), encoding="utf-8")
+            (run_dir / "run-status.json").write_text(json.dumps({
+                "status": "COMPLETED", "started_at": "2026-09-01T10:00:00Z", "ended_at": "2026-09-01T10:01:00Z",
+            }), encoding="utf-8")
+            state = {
+                "schema_version": 1,
+                "phase": "ANALYZING_AUDIT",
+                "config": {
+                    "session_id": "safe-session",
+                    "mode": "experiment",
+                    "experiment": experiment_path,
+                    "experiment_name": "aws-smoke",
+                    "experiment_description": "Smoke",
+                    "base_test_definition": "smoke",
+                    "base_tps": 10,
+                    "targets": [{
+                        "id": "ckc", "name": "ckc", "profile": "ckc", "run_id": "run-ckc",
+                        "local_definition": str(target_definition), "local_test_definition": str(target_test),
+                    }],
+                },
+                "terraform": {},
+                "target_results": [{"id": "ckc", "status": "Success"}],
+                "local_result_dirs": {"ckc": str(run_dir)},
+                "local_result_dir": str(run_dir),
+            }
+            controller = session_module.SessionController(session_dir, state)
+            controller.prepare_experiment_bundle()
+            summary = json.loads((session_dir / "result/summary.json").read_text(encoding="utf-8"))
+            self.assertTrue((session_dir / "result/metrics/victoriametrics-data.tar.gz").is_file())
+            self.assertTrue((session_dir / "result/logs/loki/ckc-kubernetes.jsonl").is_file())
+            self.assertTrue((session_dir / "result/COMPLETE").is_file())
+
+        self.assertEqual("aws-smoke", summary["experiments"][0]["experiment"])
+        self.assertEqual(str(run_dir), summary["experiments"][0]["targets"][0]["run_dir"])
+
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))

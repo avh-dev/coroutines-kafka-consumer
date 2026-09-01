@@ -10,10 +10,12 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +27,7 @@ if str(SHARED_INFRA) not in sys.path:
     sys.path.insert(0, str(SHARED_INFRA))
 
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
+from experiment_report import generate_experiment_reports
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
@@ -888,6 +891,133 @@ class SessionController:
         self.state["audit_summary"] = next(iter(summaries.values())) if len(summaries) == 1 else None
         self.save()
 
+    def prepare_experiment_bundle(self) -> None:
+        if self.config.get("mode") != "experiment":
+            return
+        result_root = self.session_dir / "result"
+        local_results = self.state.get("local_result_dirs") or {}
+        target_results = {item["id"]: item for item in self.state.get("target_results", [])}
+        targets: list[dict[str, Any]] = []
+        for target in self.config.get("targets", []):
+            run_dir = Path(local_results[target["id"]])
+            metadata_path = run_dir / "run-metadata.json"
+            status_path = run_dir / "run-status.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
+            status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+            invocation = target_results.get(target["id"], {})
+            targets.append({
+                "target": target["name"],
+                "name": target["name"],
+                "profile": target["profile"],
+                "run_dir": str(run_dir),
+                "resolved_test_path": target.get("local_test_definition") or target["local_definition"],
+                "test_definition": Path(target.get("local_test_definition") or target["local_definition"]).stem,
+                "started_at": status.get("started_at") or metadata.get("started_at"),
+                "ended_at": status.get("ended_at"),
+                "exit_code": 0 if invocation.get("status") == "Success" else 1,
+                "run_status": status,
+            })
+
+        base_test_path = Path(self.config["targets"][0].get("local_test_definition") or self.config["targets"][0]["local_definition"])
+        document = {
+            "experiment_set_id": self.config["session_id"],
+            "result_dir": str(result_root),
+            "experiments": [{
+                "experiment": self.config["experiment_name"],
+                "description": self.config.get("experiment_description", ""),
+                "test_definition": self.config.get("base_test_definition", base_test_path.stem),
+                "resolved_test_path": str(base_test_path),
+                "base_tps": self.config.get("base_tps"),
+                "experiment_file": str((self.repo / self.config["experiment"]).resolve()),
+                "result_dir": str(result_root),
+                "targets": targets,
+                "target_resolved_tests": {target["name"]: target["resolved_test_path"] for target in targets},
+                "analysis": [],
+                "exit_code": next((target["exit_code"] for target in targets if target["exit_code"]), 0),
+            }],
+            "exit_code": next((target["exit_code"] for target in targets if target["exit_code"]), 0),
+        }
+        json_write(result_root / "summary.json", document)
+
+        first_run = Path(next(iter(local_results.values())))
+        metrics_source = first_run / "metrics/victoriametrics-data.tar.gz"
+        if metrics_source.is_file():
+            metrics_target = result_root / "metrics/victoriametrics-data.tar.gz"
+            metrics_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(metrics_source, metrics_target)
+        loki_root = result_root / "logs/loki"
+        loki_root.mkdir(parents=True, exist_ok=True)
+        event_lines: list[str] = []
+        for target_id, value in local_results.items():
+            run_dir = Path(value)
+            for source in sorted((run_dir / "logs/loki").glob("*.jsonl")):
+                shutil.copy2(source, loki_root / f"{target_id}-{source.name}")
+            events = run_dir / "experiment-events.jsonl"
+            if events.is_file():
+                event_lines.extend(events.read_text(encoding="utf-8").splitlines())
+        if event_lines:
+            (result_root / "experiment-events.jsonl").write_text("\n".join(event_lines) + "\n", encoding="utf-8")
+        (result_root / "COMPLETE").write_text("complete\n", encoding="utf-8")
+        self.state["local_result_dir"] = str(result_root)
+        self.state["experiment_summary"] = str(result_root / "summary.json")
+        self.save()
+
+    @staticmethod
+    def free_local_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            return int(listener.getsockname()[1])
+
+    def generate_local_experiment_report(self) -> None:
+        if self.config.get("mode") != "experiment":
+            return
+        result_root = Path(self.state["local_result_dir"])
+        archive = result_root / "metrics/victoriametrics-data.tar.gz"
+        if not archive.is_file():
+            raise RuntimeError(f"Experiment metrics archive was not found: {archive}")
+        restore_root = self.session_dir / "report-metrics"
+        if restore_root.exists():
+            shutil.rmtree(restore_root)
+        restore_root.mkdir(parents=True)
+        with tarfile.open(archive, "r:gz") as source:
+            source.extractall(restore_root, filter="data")
+        metrics_dir = restore_root / "prometheus"
+        if not metrics_dir.is_dir():
+            raise RuntimeError(f"VictoriaMetrics data directory was not found in {archive}")
+
+        port = self.free_local_port()
+        container_name = slug(f"ckc-report-{self.config['session_id']}", 63)
+        self.run(["docker", "rm", "-f", container_name], check=False)
+        try:
+            self.run([
+                "docker", "run", "-d", "--name", container_name,
+                "-p", f"127.0.0.1:{port}:9090",
+                "-v", f"{metrics_dir.resolve()}:/victoria-metrics-data",
+                "victoriametrics/victoria-metrics:v1.102.1",
+                "-storageDataPath=/victoria-metrics-data",
+                "-httpListenAddr=:9090",
+            ])
+            health_url = f"http://127.0.0.1:{port}/health"
+            for _ in range(60):
+                try:
+                    with urllib.request.urlopen(health_url, timeout=2) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    time.sleep(1)
+            else:
+                raise RuntimeError(f"Restored VictoriaMetrics did not become ready at {health_url}")
+            reports = generate_experiment_reports(
+                Path(self.state["experiment_summary"]),
+                self.repo / "demo/infra/internal-lab",
+                f"http://127.0.0.1:{port}",
+            )
+            self.state["experiment_reports"] = [str(path) for path in reports]
+            self.save()
+        finally:
+            self.run(["docker", "rm", "-f", container_name], check=False)
+            shutil.rmtree(restore_root, ignore_errors=True)
+
     def finalize_bundle(self) -> None:
         cleanup_report = self.session_dir / "cleanup-report.json"
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
@@ -911,6 +1041,23 @@ class SessionController:
                 str(self.repo / "demo/infra/aws/runner-assets/bin/build-artifact-manifest.py"),
                 str(result_dir),
                 "--run-id", run_id,
+            ])
+        if self.config.get("mode") == "experiment":
+            result_root = Path(self.state["local_result_dir"])
+            self.run([
+                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                str(result_root),
+            ])
+            session_metadata = result_root / "session"
+            session_metadata.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.state_path, session_metadata / "session.json")
+            if cleanup_report.is_file():
+                shutil.copy2(cleanup_report, session_metadata / "cleanup-report.json")
+            self.run([
+                sys.executable,
+                str(self.repo / "demo/infra/aws/runner-assets/bin/build-artifact-manifest.py"),
+                str(result_root),
+                "--run-id", self.config["session_id"],
             ])
         bundle_root = Path(self.state["local_result_dir"])
         archive_path = self.session_dir / f"{self.config['session_id']}-result.tar.gz"
@@ -959,11 +1106,16 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
                 "profile": item.target.profile,
                 "run_id": slug(f"{session_id}-{item.target.id}", 50),
                 "local_definition": str(item.definition_path),
+                "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
                 "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
             }
             for item in materialized
         ]
         mode = "experiment"
+        experiment_name = resolved.name
+        experiment_description = resolved.description
+        base_test_definition = resolved.test.source_name
+        base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
     else:
         lab_profile = args.lab_profile or "default"
         targets = [{
@@ -975,6 +1127,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "remote_definition": definition.as_posix(),
         }]
         mode = "test-definition"
+        experiment_name = definition.stem
+        experiment_description = ""
+        base_test_definition = definition.stem
+        base_tps = None
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
         raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
@@ -988,6 +1144,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "aws_environment": aws_environment,
             "run_id": targets[0]["run_id"],
             "experiment_id": experiment_id,
+            "experiment_name": experiment_name,
+            "experiment_description": experiment_description,
+            "base_test_definition": base_test_definition,
+            "base_tps": base_tps,
             "mode": mode,
             "region": args.region,
             "owner": args.owner,
@@ -1092,6 +1252,8 @@ def main() -> None:
         try:
             controller.phase("ANALYZING_AUDIT")
             controller.analyze_local_audit()
+            controller.prepare_experiment_bundle()
+            controller.generate_local_experiment_report()
             controller.finalize_bundle()
         except Exception as error:
             primary_error = primary_error or error

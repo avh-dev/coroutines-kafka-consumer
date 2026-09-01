@@ -78,23 +78,40 @@ def main() -> None:
     result_dir = args.result_dir.resolve()
     repo_root = args.repo_root.resolve() if args.repo_root else Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(repo_root / "demo/infra/shared"))
-    from result_bundle.dashboard import parse_instant, patch_dashboard
+    from result_bundle.dashboard import parse_instant, patch_dashboard, result_window
     from result_bundle.presentation import experiment_panel_markdown
 
-    metadata = load_json(result_dir / "run-metadata.json")
-    status = load_json(result_dir / "run-status.json")
-    start = parse_instant(status.get("started_at") or metadata.get("started_at"))
-    end = parse_instant(status.get("ended_at"))
-    run_id = str(metadata.get("run_id") or result_dir.name)
-    log_entries = build_loki_jsonl(result_dir, run_id, start, end)
-    metadata["archived_log_lines"] = log_entries
+    result_type = "experiment" if (result_dir / "summary.json").is_file() else "run"
+    if result_type == "experiment":
+        run_dirs = sorted(path for path in (result_dir / "runs").iterdir() if path.is_dir())
+        if not run_dirs:
+            raise RuntimeError(f"Experiment result does not contain run directories: {result_dir}")
+        start, end = result_window(run_dirs)
+        summary = load_json(result_dir / "summary.json")
+        experiments = [item for item in summary.get("experiments", []) if isinstance(item, dict)]
+        label = str(experiments[0].get("experiment") if experiments else result_dir.name)
+        title = f"CKC experiment: {label} ({result_dir.name})"
+        loki_selector = '{run_id=~".+"}'
+        metadata_values = [load_json(run_dir / "run-metadata.json") for run_dir in run_dirs]
+    else:
+        run_dirs = [result_dir]
+        metadata = load_json(result_dir / "run-metadata.json")
+        status = load_json(result_dir / "run-status.json")
+        start = parse_instant(status.get("started_at") or metadata.get("started_at"))
+        end = parse_instant(status.get("ended_at"))
+        run_id = str(metadata.get("run_id") or result_dir.name)
+        metadata["archived_log_lines"] = build_loki_jsonl(result_dir, run_id, start, end)
+        label = str(metadata.get("test_name", run_id))
+        title = f"CKC experiment: {label} ({run_id})"
+        loki_selector = f'{{run_id="{run_id}"}}'
+        metadata_values = [metadata]
     markdown = experiment_panel_markdown(
-        result_type="run",
+        result_type=result_type,
         result_dir=result_dir,
-        run_dirs=[result_dir],
+        run_dirs=run_dirs,
         start=start,
         end=end,
-        loki_selector=f'{{run_id="{run_id}"}}',
+        loki_selector=loki_selector,
     )
     source = result_dir / "config/ckc-overview.json"
     target = result_dir / "config/ckc-experiment.json"
@@ -102,12 +119,12 @@ def main() -> None:
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text((repo_root / "demo/infra/shared/grafana/dashboards/ckc-overview.json").read_text(encoding="utf-8"), encoding="utf-8")
     excluded_panels = {"Demo Process Context Switches"}
-    if metadata.get("kafka_mode") != "msk":
+    if not any(metadata.get("kafka_mode") == "msk" for metadata in metadata_values):
         excluded_panels.update({"MSK CloudWatch Time Lag", "MSK CloudWatch Offset Lag (Uncommitted)"})
     result = patch_dashboard(
         source,
         target,
-        title=f"CKC experiment: {metadata.get('test_name', run_id)} ({run_id})",
+        title=title,
         markdown=markdown,
         start=start,
         end=end,
