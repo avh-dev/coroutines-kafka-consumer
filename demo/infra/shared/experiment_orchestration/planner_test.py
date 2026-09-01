@@ -14,7 +14,7 @@ class PlannerTest(unittest.TestCase):
     def test_plans_a_shared_target_without_environment_specific_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             plan, values = plan_target(
-                definition_path=REPO_ROOT / "demo/infra/internal-lab/workloads/test-definitions/smoke.yaml",
+                definition_path=REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml",
                 consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
                 profile_name="ckc",
                 output_dir=Path(directory),

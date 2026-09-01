@@ -43,7 +43,6 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/test-definitions \
   demo/infra/internal-lab/assets/helpers \
   demo/infra/internal-lab/assets/restore \
-  demo/infra/internal-lab/workloads/test-definitions \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/pcap \

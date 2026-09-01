@@ -126,7 +126,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("lab.kafkaTopics", helm_values)
 
     def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
-        definition_path = REPO_ROOT / "demo/infra/internal-lab/workloads/test-definitions/smoke.yaml"
+        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml"
         definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
         settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
 

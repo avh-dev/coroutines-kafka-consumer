@@ -942,7 +942,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     if experiment_value:
         resolved = resolve_experiment_definition(
             definition_path,
-            repo_root() / "demo/infra/internal-lab/workloads/test-definitions",
+            repo_root() / "demo/infra/shared/workloads/test-definitions",
             lab_profile=args.lab_profile,
         )
         lab_profile = resolved.lab_profile or "default"
