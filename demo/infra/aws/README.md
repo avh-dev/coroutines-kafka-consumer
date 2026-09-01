@@ -20,9 +20,6 @@
 - `../shared/`
   Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
 
-- `test-definitions/`
-  Legacy single-run AWS definitions retained for compatibility.
-
 - `experiments/`
   AWS entrypoints using the shared experiment, target, and test contracts.
 
@@ -88,7 +85,8 @@ result, and tears the session down:
   --experiment demo/infra/aws/experiments/smoke.yaml
 ```
 
-`--test-definition` remains available for old single-run AWS definitions.
+AWS controller runs always use `--experiment`. The materialized resolved test is
+an internal hand-off to the runner, not a second user-facing definition model.
 For an experiment, `lab.profile` is fixed before provisioning; `--lab-profile`
 can override it for the whole experiment, never for an individual target.
 Each target selects `profile`, may override its resolved test (load, stubs,
@@ -104,8 +102,7 @@ messages per second:
 ```bash
 ./demo/infra/aws/scripts/run-experiment.sh run \
   --region eu-central-1 \
-  --lab-profile msk-elasticache-20min \
-  --test-definition demo/infra/aws/test-definitions/msk-elasticache-20min-10k.yaml \
+  --experiment demo/infra/aws/experiments/msk-elasticache-20min-10k.yaml \
   --test-timeout-seconds 3600 \
   --max-session-hours 5 \
   --skip-build-images
@@ -203,13 +200,20 @@ machine-readable and human-readable results under the sibling
 `diagnostics/pcap-analysis` directory. Generated experiment reports use those
 results for paired producer/consumer Kafka wire-breakdown bars.
 
+AWS chaos execution is intentionally not enabled by this refactoring. A target
+that contains `chaos_steps` fails before deployment with an explicit capability
+error, so a requested fault can never be silently skipped. The shared schema and
+normalization are reused; provider-specific AWS chaos adapters remain separate
+follow-up work.
+
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
 Before every experiment target, the runner recreates Kafka topics from the
 shared run plan, flushes Redis, deploys the planned application profile, and
 applies the same stub settings contract as internal-lab. `create-lab` also
-performs the initial reset; if its definition is omitted, it uses the legacy
-`demo/infra/aws/test-definitions/ckc-baseline.yaml`.
+performs the initial reset; if its definition is omitted, it uses the shared
+smoke test as a safe bootstrap definition. The experiment target is then
+materialized and applied before workload deployment.
 
 ## Audit Analysis
 

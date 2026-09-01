@@ -1081,64 +1081,46 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             raise ValueError(f"{name} must be 1-32 lowercase letters, digits, or hyphens")
     if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", args.region):
         raise ValueError(f"invalid AWS region name: {args.region}")
-    experiment_value = getattr(args, "experiment", None)
-    definition = Path(experiment_value or args.test_definition)
+    definition = Path(args.experiment)
     if definition.is_absolute():
         try:
             definition = definition.relative_to(repo_root())
         except ValueError as error:
-            raise ValueError("experiment/test-definition must be inside the repository checkout") from error
+            raise ValueError("experiment must be inside the repository checkout") from error
     definition_path = repo_root() / definition
     if not definition_path.is_file():
-        raise FileNotFoundError(f"experiment/test-definition was not found: {definition_path}")
+        raise FileNotFoundError(f"experiment was not found: {definition_path}")
     experiment_id = args.experiment_id or slug(definition.stem)
-    if experiment_value:
-        resolved = resolve_experiment_definition(
-            definition_path,
-            repo_root() / "demo/infra/shared/workloads/test-definitions",
-            lab_profile=args.lab_profile,
-        )
-        lab_profile = resolved.lab_profile or "default"
-        materialized = materialize_experiment(
-            resolved,
-            output_dir=session_dir / "materialized",
-            consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
-            repo_dir=repo_root(),
-        )
-        targets = [
-            {
-                "id": item.target.id,
-                "name": item.target.name,
-                "profile": item.target.profile,
-                "run_id": slug(f"{session_id}-{item.target.id}", 50),
-                "local_definition": str(item.definition_path),
-                "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
-                "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
-            }
-            for item in materialized
-        ]
-        mode = "experiment"
-        experiment_name = resolved.name
-        experiment_description = resolved.description
-        base_test_definition = resolved.test.source_name
-        base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
-        sla_profile = str(resolved.definition.get("sla_profile") or "")
-    else:
-        lab_profile = args.lab_profile or "default"
-        targets = [{
-            "id": slug(definition.stem),
-            "name": definition.stem,
-            "profile": "legacy",
-            "run_id": session_id,
-            "local_definition": str(definition_path),
-            "remote_definition": definition.as_posix(),
-        }]
-        mode = "test-definition"
-        experiment_name = definition.stem
-        experiment_description = ""
-        base_test_definition = definition.stem
-        base_tps = None
-        sla_profile = ""
+    resolved = resolve_experiment_definition(
+        definition_path,
+        repo_root() / "demo/infra/shared/workloads/test-definitions",
+        lab_profile=args.lab_profile,
+    )
+    lab_profile = resolved.lab_profile or "default"
+    materialized = materialize_experiment(
+        resolved,
+        output_dir=session_dir / "materialized",
+        consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
+        repo_dir=repo_root(),
+    )
+    targets = [
+        {
+            "id": item.target.id,
+            "name": item.target.name,
+            "profile": item.target.profile,
+            "run_id": slug(f"{session_id}-{item.target.id}", 50),
+            "local_definition": str(item.definition_path),
+            "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
+            "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
+        }
+        for item in materialized
+    ]
+    mode = "experiment"
+    experiment_name = resolved.name
+    experiment_description = resolved.description
+    base_test_definition = resolved.test.source_name
+    base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
+    sla_profile = str(resolved.definition.get("sla_profile") or "")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
         raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
@@ -1163,7 +1145,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "expires_at": utc_text(expires_at),
             "image_environment": args.image_environment,
             "lab_profile": lab_profile,
-            "experiment": definition.as_posix() if experiment_value else None,
+            "experiment": definition.as_posix(),
             "test_definition": targets[0]["remote_definition"],
             "targets": targets,
             "test_timeout_seconds": args.test_timeout_seconds,
@@ -1185,9 +1167,7 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--owner", default=os.environ.get("USER", "local-user"))
     run_parser.add_argument("--image-environment", default="dev")
     run_parser.add_argument("--lab-profile", help="Override the experiment-wide lab profile.")
-    definition_group = run_parser.add_mutually_exclusive_group()
-    definition_group.add_argument("--experiment")
-    definition_group.add_argument("--test-definition", default="demo/infra/aws/test-definitions/smoke-test.yaml")
+    run_parser.add_argument("--experiment")
     run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
     run_parser.add_argument("--max-session-hours", type=int, default=12)
     image_group = run_parser.add_mutually_exclusive_group()
@@ -1212,6 +1192,8 @@ def load_controller(work_dir: Path, session_id: str) -> SessionController:
 
 def main() -> None:
     args = parse_args()
+    if args.command == "run" and not args.experiment:
+        args.experiment = "demo/infra/aws/experiments/smoke.yaml"
     work_dir = Path(args.work_dir).resolve()
     if args.command == "status":
         controller = load_controller(work_dir, args.session_id)

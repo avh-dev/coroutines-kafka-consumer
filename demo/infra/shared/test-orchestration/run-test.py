@@ -22,7 +22,7 @@ SHARED_INFRA = Path(__file__).resolve().parents[1]
 if str(SHARED_INFRA) not in sys.path:
     sys.path.insert(0, str(SHARED_INFRA))
 
-from experiment_orchestration.definition_environment import stub_settings_from_definition
+from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
 
 
@@ -37,6 +37,17 @@ def normalized_stub_settings(repo_dir: Path, definition: dict[str, Any], definit
         return None
     del repo_dir
     return stub_settings_from_definition(stubs, definition_path)
+
+
+def validate_aws_chaos_capabilities(definition: dict[str, Any], definition_path: Path) -> None:
+    if not definition.get("chaos_steps"):
+        return
+    steps = normalized_chaos_steps(definition, definition.get("stubs") or {}, definition_path)
+    step_types = ", ".join(sorted({str(step["type"]) for step in steps}))
+    raise ValueError(
+        "AWS chaos execution is not implemented yet; refusing to ignore configured "
+        f"chaos steps ({step_types})."
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -933,7 +944,7 @@ def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
 
 
 def deployment_profile(deployment: dict[str, Any]) -> str:
-    return as_str(deployment.get("profile") or deployment.get("app_profile"), "ckc")
+    return as_str(deployment.get("profile"), "ckc")
 
 
 def flatten_helm_values(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -1023,7 +1034,9 @@ def deploy_workloads(
     demo_chart = charts_dir / "demo"
     demo_value_files = [demo_chart / "values.yaml"]
     if not isinstance(deployment.get("values"), dict):
-        demo_value_files.append(require_profile_file(demo_chart / "profiles" / "aws", as_str(deployment.get("app_profile"), "ckc-single")))
+        raise ValueError(
+            "AWS deployment.values is missing; materialize the target from a shared experiment before running it."
+        )
     demo_overrides = {
         "image.repository": f"{registry}/demo",
         "image.tag": "latest",
@@ -1071,6 +1084,7 @@ def main() -> None:
     definition, definition_path = load_definition(args, repo_dir)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
     stub_settings = normalized_stub_settings(repo_dir, definition, definition_path)
+    validate_aws_chaos_capabilities(definition, definition_path)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")

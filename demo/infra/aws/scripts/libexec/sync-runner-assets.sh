@@ -40,7 +40,6 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/experiments \
   demo/infra/aws/runner-assets \
   demo/infra/aws/restore \
-  demo/infra/aws/test-definitions \
   demo/infra/internal-lab/assets/helpers \
   demo/infra/internal-lab/assets/restore \
   demo/infra/shared/audit \

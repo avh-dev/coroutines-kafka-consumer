@@ -1,0 +1,53 @@
+name: aws-smoke-5k
+description: Ten-minute 5k/s CKC validation in the in-cluster AWS lab.
+lab:
+  profile: smoke-5k
+test:
+  extends: smoke
+  load_test:
+    workers: 100
+    base_tps: 5000
+    load_profile: "0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down) -> 0"
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    stats_log_interval_seconds: 15
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+sla_profile: delivery-integrity
+
+defaults:
+  application:
+    replicas: 2
+    resources:
+      requests: {cpu: 500m, memory: 768Mi}
+      limits: {cpu: "2", memory: 2Gi}
+    hpa:
+      enabled: true
+      min_replicas: 2
+      max_replicas: 6
+      target_cpu_utilization_percentage: 70
+      scale_down_stabilization_window_seconds: 600
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+    WORKER_DISPATCHER_THREADS: 1
+
+targets:
+  - name: ckc
+    profile: ckc
+    parallelism: [partitions, workers]
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    order_partitions: 12
+    batch_partitions: 12
+    telemetry_partitions: 12
+    order_workers: 100
+    batch_workers: 100
+    telemetry_workers: 100
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    telemetry_queue_capacity: 4096
+    telemetry_processing_mode: FRESHNESS_FIRST_DROP_OLDEST

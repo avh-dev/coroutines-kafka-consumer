@@ -101,7 +101,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("ckc-demo-abc", labels["pod"])
         self.assertEqual("demo", labels["container"])
 
-    def test_aws_runner_consumes_shared_profile_plan_without_app_profile(self) -> None:
+    def test_aws_runner_consumes_shared_plan_without_compound_aws_profile(self) -> None:
         deployment = {
             "profile": "ckc",
             "values": {
@@ -134,29 +134,17 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(20, settings["eta"]["delayP90Ms"])
         self.assertEqual(80, settings["flavour"]["delayP99Ms"])
 
-    def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            args = SimpleNamespace(
-                test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
-                experiment_id=None,
-                max_session_hours=12,
-                region="eu-central-1",
-                owner="tester",
-                image_environment="dev",
-                lab_profile="default",
-                test_timeout_seconds=1800,
-            )
-            state = session_module.new_state(args, "s-20260829-120000-abcdef", Path(directory))
-        self.assertEqual("smoke-test", state["config"]["experiment_id"])
-        self.assertEqual("demo/infra/aws/test-definitions/smoke-test.yaml", state["config"]["test_definition"])
-        self.assertEqual("eu-central-1", state["config"]["region"])
-        self.assertRegex(state["config"]["aws_environment"], r"^s-[a-f0-9]{10}$")
+    def test_aws_runner_refuses_to_silently_skip_chaos_steps(self) -> None:
+        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/chaos-smoke.yaml"
+        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+
+        with self.assertRaisesRegex(ValueError, "AWS chaos execution is not implemented yet"):
+            run_test_module.validate_aws_chaos_capabilities(definition, definition_path)
 
     def test_new_state_materializes_shared_aws_experiment_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(
                 experiment="demo/infra/aws/experiments/smoke.yaml",
-                test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
                 experiment_id=None,
                 max_session_hours=12,
                 region="eu-central-1",
@@ -177,7 +165,7 @@ class AwsSessionTest(unittest.TestCase):
 
     def test_new_state_rejects_unsafe_session_and_profile_names(self) -> None:
         base = SimpleNamespace(
-            test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
+            experiment="demo/infra/aws/experiments/smoke.yaml",
             experiment_id=None,
             max_session_hours=12,
             region="eu-central-1",
