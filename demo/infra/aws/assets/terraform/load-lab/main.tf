@@ -294,6 +294,7 @@ module "eks" {
     coredns                = {}
     kube-proxy             = {}
     eks-pod-identity-agent = {}
+    metrics-server         = {}
   }
 
   access_entries = var.runner_role_arn == "" ? {} : {

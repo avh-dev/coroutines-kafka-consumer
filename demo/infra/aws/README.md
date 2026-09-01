@@ -82,6 +82,22 @@ the result, and tears the session down:
   --test-definition demo/infra/aws/test-definitions/smoke-test.yaml
 ```
 
+The managed-service capacity profile uses three non-burstable MSK brokers,
+a two-node ElastiCache replication group, and three fixed EKS workers. Its
+20-minute CKC definition deliberately runs the processing dispatcher on one
+thread while retaining 100 coroutines per workload type and publishing 10,000
+messages per second:
+
+```bash
+./demo/infra/aws/scripts/run-experiment.sh run \
+  --region eu-central-1 \
+  --lab-profile msk-elasticache-20min \
+  --test-definition demo/infra/aws/test-definitions/msk-elasticache-20min-10k.yaml \
+  --test-timeout-seconds 3600 \
+  --max-session-hours 5 \
+  --skip-build-images
+```
+
 Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/aws/sessions`; change the root with the global
 `--work-dir` option before the `run` subcommand.
@@ -132,6 +148,9 @@ the run instead of silently producing a sparse dashboard.
 Capacity/correctness definitions can keep drain mandatory, while intentional
 overload and observability smokes can set `consumer_drain_required: false` and
 retain the timeout as a reported result rather than a lifecycle failure.
+`cluster-diagnostics/pod-health.json`, pod descriptions, Kubernetes events, and
+previous-container logs make any workload restart a failed run with retained
+evidence instead of allowing a degraded test to be reported as completed.
 `artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
 bucket can be considered safely disposable. Audit analysis runs locally only
 after AWS teardown, and the final session directory contains a portable

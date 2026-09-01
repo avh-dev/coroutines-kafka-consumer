@@ -314,7 +314,14 @@ class AwsSessionTest(unittest.TestCase):
         with patch.object(run_test_module, "kubectl_apply", side_effect=manifests.append):
             run_test_module.deploy_load_job(
                 "example/load-test:latest",
-                {"shards": 1, "load_profile": "0 -> (10s, smoke) -> 0"},
+                {
+                    "shards": 1,
+                    "load_profile": "0 -> (10s, smoke) -> 0",
+                    "cpu_request": "1",
+                    "memory_request": "1Gi",
+                    "cpu_limit": "2",
+                    "memory_limit": "2Gi",
+                },
                 "kafka:9092",
                 "Always",
                 "2026-08-29T12:00:00Z",
@@ -329,6 +336,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("10.52.0.10", manifests[0])
         self.assertIn("AUDIT_TCP_PORT", manifests[0])
         self.assertIn("containerPort: 9405", manifests[0])
+        self.assertIn('cpu: "1"', manifests[0])
+        self.assertIn('memory: "2Gi"', manifests[0])
 
     def test_deployment_worker_overrides_are_passed_to_helm(self) -> None:
         overrides = run_test_module.deployment_value_overrides({
@@ -374,6 +383,24 @@ class AwsSessionTest(unittest.TestCase):
             document = json.loads(report.read_text(encoding="utf-8"))
         self.assertFalse(drained)
         self.assertEqual("TIMEOUT", document["status"])
+
+    def test_cluster_health_reports_container_restarts_and_last_termination(self) -> None:
+        report = run_test_module.summarize_cluster_pod_health([{
+            "metadata": {"namespace": "ckc-app", "name": "ckc-demo-1"},
+            "spec": {"nodeName": "node-1"},
+            "status": {
+                "phase": "Running",
+                "containerStatuses": [{
+                    "name": "demo",
+                    "ready": True,
+                    "restartCount": 1,
+                    "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137}},
+                }],
+            },
+        }])
+        self.assertEqual("FAIL", report["status"])
+        self.assertIn("ckc-app/ckc-demo-1/demo: 1 restart(s)", report["failures"])
+        self.assertEqual("OOMKilled", report["pods"][0]["containers"][0]["last_termination_reason"])
 
 
 if __name__ == "__main__":

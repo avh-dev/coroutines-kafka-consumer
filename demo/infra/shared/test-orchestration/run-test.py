@@ -531,6 +531,17 @@ def deploy_load_job(
 ) -> str:
     shards = as_int(load_test.get("shards"), 1)
     job_name = f"ckc-load-test-{run_id}"
+    resources = ""
+    resource_keys = ("cpu_request", "memory_request", "cpu_limit", "memory_limit")
+    if any(load_test.get(key) is not None for key in resource_keys):
+        resources = f"""
+          resources:
+            requests:
+              cpu: {yaml_string(as_str(load_test.get("cpu_request"), "500m"))}
+              memory: {yaml_string(as_str(load_test.get("memory_request"), "512Mi"))}
+            limits:
+              cpu: {yaml_string(as_str(load_test.get("cpu_limit"), "2"))}
+              memory: {yaml_string(as_str(load_test.get("memory_limit"), "1Gi"))}"""
     capture_container = """
           securityContext:
             allowPrivilegeEscalation: false
@@ -569,6 +580,7 @@ spec:
         - name: load-test
           image: {yaml_string(image)}
           imagePullPolicy: {yaml_string(image_pull_policy)}
+{resources}
           ports:
             - name: metrics
               containerPort: 9405
@@ -701,6 +713,112 @@ def collect_workload_logs(logs_dir: Path) -> None:
                 continue
             log_text = run(["kubectl", "-n", namespace, "logs", pod_name], capture_output=True, check=False)
             (logs_dir / f"{namespace}-{pod_name}.log").write_text(log_text, encoding="utf-8")
+
+
+def summarize_cluster_pod_health(items: list[dict[str, Any]]) -> dict[str, Any]:
+    pods: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for item in items:
+        metadata = item.get("metadata", {})
+        status = item.get("status", {})
+        namespace = str(metadata.get("namespace", ""))
+        name = str(metadata.get("name", ""))
+        phase = str(status.get("phase", "Unknown"))
+        container_rows: list[dict[str, Any]] = []
+        statuses = [
+            *(status.get("initContainerStatuses") or []),
+            *(status.get("containerStatuses") or []),
+        ]
+        for container_status in statuses:
+            last_terminated = (container_status.get("lastState") or {}).get("terminated") or {}
+            row = {
+                "name": container_status.get("name"),
+                "ready": bool(container_status.get("ready", False)),
+                "restart_count": int(container_status.get("restartCount", 0)),
+                "last_termination_reason": last_terminated.get("reason"),
+                "last_termination_exit_code": last_terminated.get("exitCode"),
+            }
+            container_rows.append(row)
+            if row["restart_count"] > 0:
+                failures.append(f"{namespace}/{name}/{row['name']}: {row['restart_count']} restart(s)")
+        if phase in ("Failed", "Pending", "Unknown"):
+            failures.append(f"{namespace}/{name}: phase={phase}")
+        if phase == "Running":
+            main_statuses = status.get("containerStatuses") or []
+            if not main_statuses or any(not bool(container.get("ready", False)) for container in main_statuses):
+                failures.append(f"{namespace}/{name}: one or more running containers are not ready")
+        pods.append({
+            "namespace": namespace,
+            "name": name,
+            "phase": phase,
+            "node": item.get("spec", {}).get("nodeName"),
+            "containers": container_rows,
+        })
+    return {"status": "PASS" if not failures else "FAIL", "pods": pods, "failures": failures}
+
+
+def collect_cluster_diagnostics(run_dir: Path, require_healthy: bool = False) -> None:
+    diagnostics_dir = run_dir / "cluster-diagnostics"
+    descriptions_dir = diagnostics_dir / "pod-descriptions"
+    previous_logs_dir = diagnostics_dir / "previous-logs"
+    descriptions_dir.mkdir(parents=True, exist_ok=True)
+    previous_logs_dir.mkdir(parents=True, exist_ok=True)
+    items: list[dict[str, Any]] = []
+    for namespace in ("ckc-app", "ckc-loadtest", "ckc-observability"):
+        pods_text = run(
+            ["kubectl", "-n", namespace, "get", "pods", "-o", "json"],
+            capture_output=True,
+            check=False,
+        )
+        if not pods_text.strip():
+            continue
+        try:
+            namespace_items = json.loads(pods_text).get("items", [])
+        except json.JSONDecodeError:
+            continue
+        items.extend(namespace_items)
+        for item in namespace_items:
+            pod_name = item.get("metadata", {}).get("name")
+            if not pod_name:
+                continue
+            safe_stem = re.sub(r"[^a-zA-Z0-9_.-]", "_", f"{namespace}-{pod_name}")
+            description = run(
+                ["kubectl", "-n", namespace, "describe", "pod", pod_name],
+                capture_output=True,
+                check=False,
+            )
+            (descriptions_dir / f"{safe_stem}.txt").write_text(description, encoding="utf-8")
+            statuses = [
+                *(item.get("status", {}).get("initContainerStatuses") or []),
+                *(item.get("status", {}).get("containerStatuses") or []),
+            ]
+            for container_status in statuses:
+                if int(container_status.get("restartCount", 0)) <= 0:
+                    continue
+                container_name = str(container_status.get("name", "unknown"))
+                previous_log = run(
+                    ["kubectl", "-n", namespace, "logs", pod_name, "-c", container_name, "--previous"],
+                    capture_output=True,
+                    check=False,
+                )
+                safe_container = re.sub(r"[^a-zA-Z0-9_.-]", "_", container_name)
+                (previous_logs_dir / f"{safe_stem}-{safe_container}.log").write_text(previous_log, encoding="utf-8")
+    events = run(
+        ["kubectl", "get", "events", "-A", "--sort-by=.metadata.creationTimestamp"],
+        capture_output=True,
+        check=False,
+    )
+    (diagnostics_dir / "events.txt").write_text(events, encoding="utf-8")
+    report = summarize_cluster_pod_health(items)
+    if not items:
+        report["status"] = "FAIL"
+        report["failures"].append("No workload or observability pods were returned by Kubernetes")
+    (diagnostics_dir / "pod-health.json").write_text(json_dump(report) + "\n", encoding="utf-8")
+    if require_healthy and report["failures"]:
+        raise RuntimeError(
+            f"Kubernetes workload health validation failed: {', '.join(report['failures'])}; "
+            f"see {diagnostics_dir / 'pod-health.json'}"
+        )
 
 
 def wait_for_job(job_name: str, timeout_seconds: int) -> None:
@@ -1004,6 +1122,7 @@ def main() -> None:
             coverage_end,
             as_int(load_test.get("maximum_first_sample_delay_seconds"), 90),
         )
+        collect_cluster_diagnostics(run_dir, require_healthy=True)
         if diagnostics_process is not None:
             diagnostics_exit_code = diagnostics_process.wait()
             diagnostics_process = None
@@ -1055,6 +1174,7 @@ def main() -> None:
         stop_prometheus_bridge(port_forward_pid_file)
         collect_job_logs(job_name, logs_dir) if job_name else None
         collect_workload_logs(logs_dir)
+        collect_cluster_diagnostics(run_dir)
         ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         if started_at and status != "COMPLETED":
             append_experiment_event(run_dir, {

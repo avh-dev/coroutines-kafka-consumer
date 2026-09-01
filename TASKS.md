@@ -268,6 +268,7 @@
 | [INFRA-124](#infra-124) | Interleave uncompressed and LZ4 linger targets for adjacent like-for-like comparison. | DONE |
 | [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
+| [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3010,3 +3011,14 @@ The shared presentation now renders the same experiment summary and target table
 The result contains 2,867,428 published records and 2,512,573 terminal outcomes. The deliberate overload left 354,855 non-terminal order/batch records and a 372,387-record lag at the optional one-minute drain deadline, which is recorded as `TIMEOUT` without misclassifying the telemetry smoke as failed.
 
 Portable verification restored 69 shared dashboard panels, 44,252 Loki records, one visible run-start annotation, working anonymous Explore/reset/profile links, and no irrelevant MSK panels. Teardown pre-deleted the managed node group, found no detached CNI ENIs, destroyed all Terraform stacks and the S3 bucket, and independently reported `CLEAN` with no active billable session resources.
+
+<a id="infra-127"></a>
+### INFRA-127 - Run a 20-minute MSK and ElastiCache capacity test
+
+_Date: 2026-09-01_
+
+Replace the undersized in-cluster Redis/Kafka smoke dependencies with an explicitly sized ElastiCache replication group and non-burstable MSK brokers.
+Run CKC with a fixed one-thread processing dispatcher at 10,000 messages/s for 20 minutes, including a ten-minute ramp for HPA and JVM stabilization, so dependency stability, backlog, and steady-state behavior are visible.
+Install the EKS metrics-server add-on so application and stub CPU-based HPAs receive the resource metrics required to scale.
+Use three `m7i.xlarge` workers, explicit load-generator and observability resources, stronger stub CPU limits, and topology spreading so shared-node contention does not masquerade as application saturation.
+Capture dependency health and restart evidence in the portable result, verify dashboard and audit artifacts, then destroy and independently audit every session-owned AWS resource.

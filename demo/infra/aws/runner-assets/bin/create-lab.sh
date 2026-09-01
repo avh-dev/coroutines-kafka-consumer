@@ -87,6 +87,16 @@ wait_for_cluster_readiness() {
   kubectl -n kube-system rollout status daemonset/aws-node --timeout=10m
   kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=10m
   kubectl -n kube-system rollout status deployment/coredns --timeout=10m
+  kubectl -n kube-system rollout status deployment/metrics-server --timeout=10m
+  local attempts=0
+  until kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    if [ "${attempts}" -ge 60 ]; then
+      echo "metrics-server API did not become ready within 5 minutes." >&2
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 get_runner_private_ip() {
@@ -385,6 +395,13 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
       volumes:
         - name: config
           configMap:
@@ -438,6 +455,13 @@ ${kafka_server_args}            - --web.listen-address=:9308
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
