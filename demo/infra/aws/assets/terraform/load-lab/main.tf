@@ -112,6 +112,17 @@ resource "aws_security_group_rule" "runner_remote_write_from_load_lab" {
   cidr_blocks       = [var.vpc_cidr]
 }
 
+resource "aws_security_group_rule" "runner_loki_from_load_lab" {
+  count             = var.enable_runner_observability_peering ? 1 : 0
+  type              = "ingress"
+  security_group_id = data.aws_security_group.runner[0].id
+  description       = "Loki log ingestion from CKC load-lab"
+  from_port         = var.runner_loki_port
+  to_port           = var.runner_loki_port
+  protocol          = "tcp"
+  cidr_blocks       = [var.vpc_cidr]
+}
+
 resource "aws_security_group_rule" "runner_audit_from_load_lab" {
   count             = var.enable_runner_observability_peering ? 1 : 0
   type              = "ingress"
@@ -294,6 +305,7 @@ module "eks" {
     coredns                = {}
     kube-proxy             = {}
     eks-pod-identity-agent = {}
+    metrics-server         = {}
   }
 
   access_entries = var.runner_role_arn == "" ? {} : {

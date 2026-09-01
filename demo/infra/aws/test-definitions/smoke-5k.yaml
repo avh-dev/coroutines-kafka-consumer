@@ -1,0 +1,47 @@
+name: smoke-5k
+
+deployment:
+  app_profile: ckc-hpa
+  annotation_label: ckc-hpa · 100 workers · 5k/s
+  replica_count: 2
+  processing_dispatcher_type: AUTO
+  worker_dispatcher_threads: 16
+  order_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+  order_worker_concurrency: 100
+  order_poll_loop_concurrency: 1
+  order_work_channel_capacity: 4096
+  batch_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+  batch_worker_concurrency: 100
+  batch_poll_loop_concurrency: 1
+  batch_work_channel_capacity: 4096
+  telemetry_processing_mode: FRESHNESS_FIRST_DROP_OLDEST
+  telemetry_worker_concurrency: 100
+  telemetry_poll_loop_concurrency: 1
+  telemetry_work_channel_capacity: 4096
+  kafka_topics:
+    - name: order.events.v1
+      partitions: 12
+    - name: batch.events.v1
+      partitions: 12
+    - name: cauldron.events.v1
+      partitions: 12
+
+load_test:
+  shards: 1
+  workers: 100
+  base_tps: 5000
+  order_event_percent: 35
+  batch_event_percent: 25
+  cauldron_telemetry_percent: 40
+  load_profile: "0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down) -> 0"
+  cauldron_count: 32
+  min_orders_per_batch: 3
+  max_orders_per_batch: 6
+  min_brewing_steps: 5
+  max_brewing_steps: 8
+  diagnostics_blob_size: 256
+  stats_log_interval_seconds: 15
+  consumer_drain_timeout_seconds: 60
+  consumer_drain_required: false
+  telemetry_settle_seconds: 65
+  maximum_first_sample_delay_seconds: 90

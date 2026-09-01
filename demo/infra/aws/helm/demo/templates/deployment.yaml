@@ -13,7 +13,16 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
+        ckc.dev/test-run-id: {{ .Values.env.auditRunId | quote }}
+        ckc.dev/profile: {{ .Values.runProfile | quote }}
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Release.Name }}
 {{- with .Values.hostAliases }}
       hostAliases:
 {{ toYaml . | indent 8 }}

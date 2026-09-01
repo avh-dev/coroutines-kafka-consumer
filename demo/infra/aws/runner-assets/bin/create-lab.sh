@@ -87,6 +87,16 @@ wait_for_cluster_readiness() {
   kubectl -n kube-system rollout status daemonset/aws-node --timeout=10m
   kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=10m
   kubectl -n kube-system rollout status deployment/coredns --timeout=10m
+  kubectl -n kube-system rollout status deployment/metrics-server --timeout=10m
+  local attempts=0
+  until kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    if [ "${attempts}" -ge 60 ]; then
+      echo "metrics-server API did not become ready within 5 minutes." >&2
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 get_runner_private_ip() {
@@ -100,6 +110,7 @@ get_runner_private_ip() {
 
 deploy_observability_agent() {
   local remote_write_url="$1"
+  local loki_write_url="$2"
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -113,7 +124,7 @@ metadata:
   name: ckc-alloy-discovery
 rules:
   - apiGroups: [""]
-    resources: ["pods", "nodes", "endpoints", "services"]
+    resources: ["pods", "pods/log", "nodes", "nodes/proxy", "endpoints", "services"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -178,12 +189,134 @@ data:
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-demo"
+      }
     }
 
     prometheus.scrape "ckc_demo" {
       targets      = discovery.relabel.ckc_demo.output
       metrics_path = "/actuator/prometheus"
+      scrape_interval = "15s"
       forward_to   = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "ckc_load_test_pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-loadtest"]
+      }
+    }
+
+    discovery.relabel "ckc_load_test" {
+      targets = discovery.kubernetes.ckc_load_test_pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        regex         = "ckc-load-test"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex         = "9405"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-load-test"
+      }
+    }
+
+    prometheus.scrape "ckc_load_test" {
+      targets      = discovery.relabel.ckc_load_test.output
+      metrics_path = "/metrics"
+      scrape_interval = "15s"
+      forward_to   = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "kubernetes_nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "kubernetes_cadvisor" {
+      targets = discovery.kubernetes.kubernetes_nodes.targets
+
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc:443"
+      }
+
+      rule {
+        target_label = "__scheme__"
+        replacement  = "https"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/\$1/proxy/metrics/cadvisor"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "kubernetes-cadvisor"
+      }
+    }
+
+    prometheus.scrape "kubernetes_cadvisor" {
+      targets           = discovery.relabel.kubernetes_cadvisor.output
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "15s"
+      forward_to        = [prometheus.remote_write.runner.receiver]
+
+      tls_config {
+        insecure_skip_verify = true
+      }
     }
 
     discovery.kubernetes "kafka_exporter_pods" {
@@ -228,11 +361,97 @@ data:
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
+
+      rule {
+        target_label = "job"
+        replacement  = "ckc-kafka-exporter"
+      }
     }
 
     prometheus.scrape "kafka_exporter" {
       targets    = discovery.relabel.kafka_exporter.output
+      scrape_interval = "15s"
       forward_to = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "workload_logs" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-app", "ckc-loadtest"]
+      }
+    }
+
+    discovery.relabel "workload_logs" {
+      targets = discovery.kubernetes.workload_logs.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "application"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "kubernetes-pods"
+      }
+    }
+
+    loki.source.kubernetes "workload_logs" {
+      targets    = discovery.relabel.workload_logs.output
+      forward_to = [loki.process.workload_logs.receiver]
+    }
+
+    loki.process "workload_logs" {
+      stage.cri {}
+
+      stage.static_labels {
+        values = {
+          lab = "aws",
+        }
+      }
+
+      forward_to = [loki.write.runner.receiver]
+    }
+
+    loki.write "runner" {
+      endpoint {
+        url = "${loki_write_url}"
+      }
     }
 
     prometheus.remote_write "runner" {
@@ -266,6 +485,13 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
       volumes:
         - name: config
           configMap:
@@ -319,6 +545,13 @@ ${kafka_server_args}            - --web.listen-address=:9308
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -535,10 +768,11 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${IMAGE_ENVIRONMENT}"
 RUNNER_PRIVATE_IP="$(get_runner_private_ip)"
 REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
+LOKI_WRITE_URL="http://${RUNNER_PRIVATE_IP}:3100/loki/api/v1/push"
 AUDIT_TCP_HOST="${RUNNER_PRIVATE_IP}"
 
 deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
-deploy_observability_agent "${REMOTE_WRITE_URL}"
+deploy_observability_agent "${REMOTE_WRITE_URL}" "${LOKI_WRITE_URL}"
 
 MSK_CLOUDWATCH_ENABLED=false
 MSK_CLOUDWATCH_CLUSTER_NAME=""

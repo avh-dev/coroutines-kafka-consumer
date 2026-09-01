@@ -1,4 +1,6 @@
 replicaCount: 1
+runId: local
+runProfile: stubs
 
 image:
   repository: ""
@@ -19,3 +21,4 @@ hpa:
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
+  scaleDownStabilizationWindowSeconds: 300

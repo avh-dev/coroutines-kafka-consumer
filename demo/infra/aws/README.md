@@ -82,6 +82,22 @@ the result, and tears the session down:
   --test-definition demo/infra/aws/test-definitions/smoke-test.yaml
 ```
 
+The managed-service capacity profile uses three non-burstable MSK brokers,
+a two-node ElastiCache replication group, and three fixed EKS workers. Its
+20-minute CKC definition deliberately runs the processing dispatcher on one
+thread while retaining 100 coroutines per workload type and publishing 10,000
+messages per second:
+
+```bash
+./demo/infra/aws/scripts/run-experiment.sh run \
+  --region eu-central-1 \
+  --lab-profile msk-elasticache-20min \
+  --test-definition demo/infra/aws/test-definitions/msk-elasticache-20min-10k.yaml \
+  --test-timeout-seconds 3600 \
+  --max-session-hours 5 \
+  --skip-build-images
+```
+
 Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/aws/sessions`; change the root with the global
 `--work-dir` option before the `run` subcommand.
@@ -97,7 +113,8 @@ directory:
 ```
 
 Cleanup never keeps AWS resources merely because the test or export failed. It
-first removes Kubernetes workloads, then destroys the lab, runner, and artifact
+first removes Kubernetes workloads and the managed EKS node group, deletes any
+detached ENI that is explicitly owned by the cluster's Amazon VPC CNI, then destroys the lab, runner, and artifact
 bucket, deletes the exact EKS CloudWatch log group, and finally queries AWS for
 resources still carrying the session tag as well as that untagged log group.
 The local `cleanup-report.json` records that independent check. After a clean
@@ -113,7 +130,7 @@ the small state files, command log, lifecycle metadata, and results are kept.
 - Grafana, VictoriaMetrics, and the compact audit receiver run on the runner.
 - Outbound internet access from the runner uses its public subnet and internet gateway; its security group still has no inbound rules.
 - The runner stores lab metrics outside the disposable EKS lab. Grafana keeps the datasource name/uid `Prometheus`, backed by a VictoriaMetrics-compatible remote-write receiver on the runner.
-- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers `ckc-demo` pods and `ckc-kafka-exporter` through the Kubernetes API, scrapes app and Kafka lag metrics, and remote-writes labelled metrics to the runner.
+- `create-lab` installs a Grafana Alloy agent inside EKS. Alloy discovers application and load-generator pods, Kafka exporter, and kubelet cAdvisor through the Kubernetes API; it normalizes stable job labels and remote-writes application, producer, lag, thread, and pod-resource metrics to the runner.
 - AWS labs expose Kafka consumer lag through `kafka_exporter` metrics for both in-cluster Kafka and MSK. MSK profiles also start a runner-side CloudWatch exporter for managed `AWS/Kafka` lag metrics such as `MaxOffsetLag`, `SumOffsetLag`, and `EstimatedMaxTimeLag`.
 - The disposable lab Terraform creates same-account VPC peering, routes, and runner security-group ingress for the remote-write path. `destroy-lab` removes that networking with the lab.
 
@@ -121,13 +138,29 @@ the small state files, command log, lifecycle metadata, and results are kept.
 
 The downloaded result contains run metadata, the resolved test, application and
 load-test logs, compact audit chunks, packet-capture diagnostics when selected,
-the dashboard, runner service logs, and a stopped VictoriaMetrics data archive.
+the environment-filtered shared dashboard, runner service logs, Loki-ready log records, and a stopped VictoriaMetrics data archive.
+The workload starts only after application, Kafka-exporter, thread, and cAdvisor
+telemetry are all visible. `telemetry-readiness.json` and
+`metrics-coverage.json` record that preflight and verify that the required metric
+families begin near the actual workload start; a failed telemetry check fails
+the run instead of silently producing a sparse dashboard.
+`consumer-drain.json` separately records whether consumer lag reached zero.
+Capacity/correctness definitions can keep drain mandatory, while intentional
+overload and observability smokes can set `consumer_drain_required: false` and
+retain the timeout as a reported result rather than a lifecycle failure.
+`cluster-diagnostics/pod-health.json`, pod descriptions, Kubernetes events, and
+previous-container logs make any workload restart a failed run with retained
+evidence instead of allowing a degraded test to be reported as completed.
 `artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
 bucket can be considered safely disposable. Audit analysis runs locally only
 after AWS teardown, and the final session directory contains a portable
 `<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
-Compose, and Grafana provisioning, so viewing the metrics does not require the
+Compose, anonymous read-only Grafana provisioning, and local Loki import, so viewing the metrics and logs does not require the
 original repository checkout.
+The restored dashboard uses the same shared experiment summary as internal-lab:
+its target names open their exact run ranges, the reset and Loki Explore links
+preserve the archived time window, and run-start events are replayed as Grafana
+annotations.
 
 Open the archived metrics with:
 

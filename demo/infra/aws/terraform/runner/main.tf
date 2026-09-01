@@ -210,6 +210,7 @@ resource "aws_instance" "runner" {
     })
     grafana_dashboard_provider_config    = file("${local.observability_root}/provisioning/dashboards/ckc.yml")
     grafana_prometheus_datasource_config = file("${local.observability_root}/provisioning/datasources/prometheus.yml")
+    grafana_loki_datasource_config       = file("${path.module}/../../../shared/result_bundle/restore/loki-datasource.yml")
     grafana_ckc_overview_dashboard       = file("${local.observability_root}/dashboards/ckc-overview.json")
     configure_observability_script_content = templatefile("${path.module}/templates/configure-observability.sh.tftpl", {
       prometheus_scrape_interval     = var.prometheus_scrape_interval

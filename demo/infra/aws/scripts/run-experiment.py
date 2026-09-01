@@ -122,7 +122,17 @@ class SessionController:
     def terraform(self, stack: str, module: Path, action: str, variables: dict[str, Any], extra: list[str] | None = None) -> None:
         state_path, data_path = self.terraform_paths(stack)
         environment = {"TF_DATA_DIR": str(data_path)}
-        self.run(["terraform", f"-chdir={module}", "init", "-input=false"], env=environment)
+        init_command = ["terraform", f"-chdir={module}", "init", "-input=false"]
+        for attempt in range(1, 5):
+            try:
+                self.run(init_command, env=environment)
+                break
+            except CommandError:
+                if attempt == 4:
+                    raise
+                delay = min(2 ** (attempt - 1), 8)
+                print(f"    Terraform init failed; retrying in {delay}s ({attempt}/4)", flush=True)
+                time.sleep(delay)
         command = [
             "terraform",
             f"-chdir={module}",
@@ -191,9 +201,22 @@ class SessionController:
 
     def wait_for_runner(self, instance_id: str, timeout_seconds: int = 900) -> None:
         region = self.config["region"]
-        self.run(["aws", "ec2", "wait", "instance-status-ok", "--region", region, "--instance-ids", instance_id])
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
+            statuses = self.aws_json([
+                "ec2", "describe-instance-status", "--region", region, "--instance-ids", instance_id,
+                "--include-all-instances",
+            ]) or {}
+            entries = statuses.get("InstanceStatuses", []) if isinstance(statuses, dict) else []
+            ec2_ready = bool(entries) and all(
+                entry.get("InstanceState", {}).get("Name") == "running"
+                and entry.get("InstanceStatus", {}).get("Status") == "ok"
+                and entry.get("SystemStatus", {}).get("Status") == "ok"
+                for entry in entries
+            )
+            if not ec2_ready:
+                time.sleep(10)
+                continue
             status = self.run(
                 [
                     "aws", "ssm", "describe-instance-information", "--region", region,
@@ -206,7 +229,7 @@ class SessionController:
             if status == "Online":
                 return
             time.sleep(10)
-        raise TimeoutError(f"Runner did not become SSM-online: {instance_id}")
+        raise TimeoutError(f"Runner did not become EC2/SSM-ready: {instance_id}")
 
     def ssm(self, command: str, comment: str, timeout_seconds: int = 7200, *, check: bool = True) -> dict[str, Any]:
         instance_id = self.state["runner_instance_id"]
@@ -510,6 +533,66 @@ class SessionController:
             check=False,
         )
 
+    def prepare_lab_destroy(self, timeout_seconds: int = 900) -> None:
+        """Delete managed node groups first, then remove detached VPC-CNI ENIs.
+
+        EKS occasionally leaves an available secondary ENI after deleting a
+        managed node group. Such an ENI is outside Terraform state but keeps
+        the node security group and subnet alive indefinitely.
+        """
+        stack = self.state.get("terraform", {}).get("lab", {})
+        if not stack.get("created"):
+            return
+        region = self.config["region"]
+        cluster_name = f"ckc-load-lab-{self.config['aws_environment']}"
+        try:
+            response = self.aws_json([
+                "eks", "list-nodegroups", "--region", region, "--cluster-name", cluster_name,
+            ]) or {}
+        except CommandError:
+            return
+        nodegroups = response.get("nodegroups", [])
+        for nodegroup in nodegroups:
+            self.run([
+                "aws", "eks", "delete-nodegroup", "--region", region,
+                "--cluster-name", cluster_name, "--nodegroup-name", nodegroup,
+            ])
+        deadline = time.monotonic() + timeout_seconds
+        while nodegroups:
+            response = self.aws_json([
+                "eks", "list-nodegroups", "--region", region, "--cluster-name", cluster_name,
+            ]) or {}
+            remaining = set(response.get("nodegroups", []))
+            nodegroups = [nodegroup for nodegroup in nodegroups if nodegroup in remaining]
+            if not nodegroups:
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"EKS node groups were not deleted within {timeout_seconds}s: {nodegroups}")
+            time.sleep(10)
+
+        inventory = self.aws_json([
+            "ec2", "describe-network-interfaces", "--region", region, "--filters",
+            f"Name=tag:cluster.k8s.amazonaws.com/name,Values={cluster_name}",
+            "Name=status,Values=available",
+        ]) or {}
+        deleted: list[str] = []
+        for interface in inventory.get("NetworkInterfaces", []):
+            tags = {tag.get("Key"): tag.get("Value") for tag in interface.get("TagSet", [])}
+            interface_id = interface.get("NetworkInterfaceId")
+            if (
+                interface_id
+                and not interface.get("Attachment")
+                and tags.get("eks:eni:owner") == "amazon-vpc-cni"
+            ):
+                self.run([
+                    "aws", "ec2", "delete-network-interface", "--region", region,
+                    "--network-interface-id", interface_id,
+                ])
+                deleted.append(interface_id)
+        if deleted:
+            self.state["deleted_orphaned_cni_enis"] = sorted(deleted)
+            self.save()
+
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
         failures: list[str] = []
@@ -517,6 +600,10 @@ class SessionController:
             self.cleanup_remote_lab()
         except Exception as error:
             failures.append(f"remote lab cleanup: {error}")
+        try:
+            self.prepare_lab_destroy()
+        except Exception as error:
+            failures.append(f"EKS node-group pre-cleanup: {error}")
         for stack in ("lab", "runner", "artifacts"):
             try:
                 self.destroy_stack(stack)
@@ -572,7 +659,7 @@ class SessionController:
         deadline = time.monotonic() + timeout_seconds
         resources: list[dict[str, Any]] = []
         remaining_resources: list[dict[str, Any]] = []
-        active_ec2: dict[str, list[str]] = {"instances": [], "volumes": []}
+        active_ec2: dict[str, list[str]] = {}
         bucket_exists = False
         log_group_exists = False
         while True:
@@ -596,17 +683,72 @@ class SessionController:
                 "--filters", f"Name=tag:SessionId,Values={config['session_id']}",
             ]) or {}
             active_ec2["volumes"] = sorted(volume["VolumeId"] for volume in volumes.get("Volumes", []))
+
+            ec2_inventories = {
+                "subnets": (
+                    ["ec2", "describe-subnets", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "Subnets", "SubnetId", None,
+                ),
+                "network-interfaces": (
+                    ["ec2", "describe-network-interfaces", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "NetworkInterfaces", "NetworkInterfaceId", None,
+                ),
+                "natgateways": (
+                    ["ec2", "describe-nat-gateways", "--region", config["region"], "--filter", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "NatGateways", "NatGatewayId", lambda item: item.get("State") != "deleted",
+                ),
+                "security-groups": (
+                    ["ec2", "describe-security-groups", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "SecurityGroups", "GroupId", None,
+                ),
+                "vpc-peering-connections": (
+                    ["ec2", "describe-vpc-peering-connections", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "VpcPeeringConnections", "VpcPeeringConnectionId",
+                    lambda item: item.get("Status", {}).get("Code") not in {"deleted", "rejected", "expired", "failed"},
+                ),
+                "vpcs": (
+                    ["ec2", "describe-vpcs", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "Vpcs", "VpcId", None,
+                ),
+                "vpc-endpoints": (
+                    ["ec2", "describe-vpc-endpoints", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "VpcEndpoints", "VpcEndpointId", lambda item: item.get("State") not in {"deleted", "failed", "rejected"},
+                ),
+                "elastic-ips": (
+                    ["ec2", "describe-addresses", "--region", config["region"], "--filters", f"Name=tag:SessionId,Values={config['session_id']}"],
+                    "Addresses", "AllocationId", None,
+                ),
+            }
+            for resource_type, (command, collection, id_key, predicate) in ec2_inventories.items():
+                inventory = self.aws_json(command) or {}
+                items = inventory.get(collection, [])
+                active_ec2[resource_type] = sorted(
+                    item[id_key] for item in items if id_key in item and (predicate is None or predicate(item))
+                )
             remaining_resources = []
+            known_ec2_markers = {
+                "instance": "instances",
+                "volume": "volumes",
+                "subnet": "subnets",
+                "network-interface": "network-interfaces",
+                "natgateway": "natgateways",
+                "security-group": "security-groups",
+                "vpc-peering-connection": "vpc-peering-connections",
+                "vpc": "vpcs",
+                "vpc-endpoint": "vpc-endpoints",
+                "elastic-ip": "elastic-ips",
+            }
             for resource in resources:
                 arn = resource.get("ResourceARN", "")
-                if ":instance/" in arn and arn.rsplit("/", 1)[-1] not in active_ec2["instances"]:
-                    continue
-                if ":volume/" in arn and arn.rsplit("/", 1)[-1] not in active_ec2["volumes"]:
-                    continue
+                if ":ec2:" in arn and "/" in arn:
+                    resource_type = arn.rsplit(":", 1)[-1].split("/", 1)[0]
+                    inventory_name = known_ec2_markers.get(resource_type)
+                    if inventory_name and arn.rsplit("/", 1)[-1] not in active_ec2[inventory_name]:
+                        continue
                 remaining_resources.append(resource)
             tagged_arns = {item.get("ResourceARN") for item in remaining_resources}
             for resource_type, ids in active_ec2.items():
-                singular = resource_type.removesuffix("s")
+                singular = next((key for key, value in known_ec2_markers.items() if value == resource_type), resource_type.removesuffix("s"))
                 for resource_id in ids:
                     marker = f":{singular}/{resource_id}"
                     if not any(marker in (arn or "") for arn in tagged_arns):

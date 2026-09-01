@@ -64,6 +64,12 @@ variable "runner_remote_write_port" {
   default     = 8428
 }
 
+variable "runner_loki_port" {
+  description = "Runner TCP port that accepts Loki log streams."
+  type        = number
+  default     = 3100
+}
+
 variable "runner_audit_port" {
   description = "Runner TCP port that receives compact audit records."
   type        = number

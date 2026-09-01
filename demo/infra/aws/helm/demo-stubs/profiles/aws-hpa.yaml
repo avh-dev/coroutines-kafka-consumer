@@ -2,10 +2,10 @@ replicaCount: 2
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 500m
     memory: 256Mi
   limits:
-    cpu: 500m
+    cpu: "2"
     memory: 512Mi
 
 hpa:
@@ -13,3 +13,4 @@ hpa:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+  scaleDownStabilizationWindowSeconds: 600

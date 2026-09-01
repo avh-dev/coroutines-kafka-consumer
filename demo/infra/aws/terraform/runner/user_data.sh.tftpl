@@ -8,6 +8,7 @@ systemctl enable --now docker
 usermod -aG docker ec2-user
 
 mkdir -p /opt/ckc-runner/prometheus
+mkdir -p /opt/ckc-runner/loki
 mkdir -p /opt/ckc-runner/grafana
 mkdir -p /opt/ckc-runner/audit
 mkdir -p /opt/ckc-runner/reports
@@ -87,6 +88,10 @@ cat > /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.
 ${grafana_prometheus_datasource_config}
 EOF
 
+cat > /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml <<'EOF'
+${grafana_loki_datasource_config}
+EOF
+
 cat > /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json <<'EOF'
 ${grafana_ckc_overview_dashboard}
 EOF
@@ -97,6 +102,7 @@ EOF
 
 chmod +x /opt/ckc-runner/bin/configure-observability.sh
 chown 65534:65534 /opt/ckc-runner/prometheus
+chown 10001:10001 /opt/ckc-runner/loki
 chown 472:472 /opt/ckc-runner/grafana
 chown -R 1000:1000 /opt/ckc-runner/audit
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -31,6 +33,14 @@ run_test_module = load_module(
     "ckc_aws_run_test",
     REPO_ROOT / "demo" / "infra" / "shared" / "test-orchestration" / "run-test.py",
 )
+export_loki_module = load_module(
+    "ckc_export_loki",
+    REPO_ROOT / "demo" / "infra" / "shared" / "result_bundle" / "export-loki.py",
+)
+finalize_result_module = load_module(
+    "ckc_finalize_aws_result",
+    AWS_ROOT / "restore" / "finalize-result.py",
+)
 
 
 class AwsSessionTest(unittest.TestCase):
@@ -51,6 +61,43 @@ class AwsSessionTest(unittest.TestCase):
         value = session_module.generated_session_id()
         self.assertRegex(value, r"^s-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
         self.assertLessEqual(len(value), 35)
+
+    def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertGreaterEqual(len(re.findall(r'scrape_interval\s*=\s*"15s"', script)), 4)
+        self.assertIn('loki.source.kubernetes "workload_logs"', script)
+        self.assertIn('target_label  = "application"', script)
+        self.assertIn('target_label  = "pod"', script)
+        self.assertIn('target_label  = "container"', script)
+        self.assertIn('target_label  = "profile"', script)
+
+    def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory)
+            (result / "run-status.json").write_text(json.dumps({
+                "run_id": "run-a",
+                "started_at": "2026-09-01T07:00:00Z",
+                "ended_at": "2026-09-01T07:01:00Z",
+            }), encoding="utf-8")
+            page = [{
+                "stream": {"application": "ckc-demo", "namespace": "ckc-app", "pod": "demo-abc"},
+                "values": [["1788246000000000000", "hello"]],
+            }]
+            with patch.object(export_loki_module, "query_range", return_value=page):
+                count = export_loki_module.export(result, "http://loki", '{namespace="ckc-app"}', 5000)
+            record = json.loads((result / "logs/loki/kubernetes.jsonl").read_text(encoding="utf-8"))
+        self.assertEqual(1, count)
+        self.assertEqual("run-a", record["labels"]["run_id"])
+        self.assertEqual("ckc-demo", record["labels"]["application"])
+        self.assertEqual("demo-abc", record["labels"]["pod"])
+
+    def test_archived_file_logs_have_filterable_loki_labels(self) -> None:
+        labels = finalize_result_module.log_labels(
+            Path("/tmp/logs/ckc-app-ckc-demo-abc.log"), Path("/tmp/logs"), "run-a"
+        )
+        self.assertEqual("ckc-demo", labels["application"])
+        self.assertEqual("ckc-demo-abc", labels["pod"])
+        self.assertEqual("demo", labels["container"])
 
     def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -129,12 +176,23 @@ class AwsSessionTest(unittest.TestCase):
             manifest = json.loads((result / "artifact-manifest.json").read_text(encoding="utf-8"))
             paths = {item["path"] for item in manifest["files"]}
             compose = (result / "restore" / "docker-compose.yml").read_text(encoding="utf-8")
+            dashboard = json.loads((result / "config" / "ckc-experiment.json").read_text(encoding="utf-8"))
+            experiment_markdown = dashboard["panels"][0]["options"]["content"]
         self.assertIn("restore/open-result.sh", paths)
         self.assertIn("restore/close-result.sh", paths)
         self.assertIn("restore/docker-compose.yml", paths)
+        self.assertIn("restore/finalize-result.py", paths)
+        self.assertIn("restore/import-grafana-annotations.py", paths)
         self.assertIn("restore/grafana/provisioning/dashboards/ckc.yml", paths)
         self.assertIn("restore/grafana/provisioning/datasources/prometheus.yml", paths)
+        self.assertIn("config/ckc-experiment.json", paths)
+        self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
+        self.assertIn('GF_USERS_VIEWERS_CAN_EDIT: "true"', compose)
         self.assertIn("CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS:-0.0.0.0", compose)
+        self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", experiment_markdown)
+        self.assertIn("[Open logs](/explore?", experiment_markdown)
+        self.assertNotIn("| Property | Value |", experiment_markdown)
+        self.assertNotIn("MSK CloudWatch Time Lag", json.dumps(dashboard))
 
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -164,13 +222,43 @@ class AwsSessionTest(unittest.TestCase):
             controller = self.controller(Path(directory))
             actions: list[str] = []
             controller.cleanup_remote_lab = lambda: actions.append("remote")
+            controller.prepare_lab_destroy = lambda: actions.append("prepare")
             controller.destroy_stack = lambda stack: actions.append(stack)
             controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
             controller.verify_cleanup = lambda: actions.append("verify")
             controller.prune_terraform_cache = lambda: actions.append("prune")
             failures = controller.cleanup()
         self.assertEqual([], failures)
-        self.assertEqual(["remote", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+        self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+
+    def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["terraform"] = {"lab": {"created": True}}
+            responses = [
+                {"nodegroups": ["default"]},
+                {"nodegroups": []},
+                {"NetworkInterfaces": [
+                    {
+                        "NetworkInterfaceId": "eni-orphan",
+                        "TagSet": [{"Key": "eks:eni:owner", "Value": "amazon-vpc-cni"}],
+                    },
+                    {
+                        "NetworkInterfaceId": "eni-other",
+                        "TagSet": [{"Key": "eks:eni:owner", "Value": "other"}],
+                    },
+                ]},
+            ]
+            with (
+                patch.object(controller, "aws_json", side_effect=responses),
+                patch.object(controller, "run") as run_command,
+            ):
+                controller.prepare_lab_destroy(timeout_seconds=1)
+        commands = [call.args[0] for call in run_command.call_args_list]
+        self.assertTrue(any(command[1:3] == ["eks", "delete-nodegroup"] for command in commands))
+        self.assertIn("eni-orphan", commands[-1])
+        self.assertNotIn("eni-other", commands[-1])
+        self.assertEqual(["eni-orphan"], controller.state["deleted_orphaned_cni_enis"])
 
     def test_aws_json_retries_transient_read_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -188,7 +276,25 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(2, run_command.call_count)
         sleep.assert_called_once_with(1)
 
-    def test_cleanup_verification_ignores_terminated_ec2_tagging_records(self) -> None:
+    def test_runner_wait_polls_ec2_status_then_waits_for_ssm(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            ready = {"InstanceStatuses": [{
+                "InstanceState": {"Name": "running"},
+                "InstanceStatus": {"Status": "ok"},
+                "SystemStatus": {"Status": "ok"},
+            }]}
+            with (
+                patch.object(controller, "aws_json", return_value=ready) as aws_json,
+                patch.object(controller, "run", return_value="Online") as run_command,
+            ):
+                controller.wait_for_runner("i-test", timeout_seconds=1)
+            self.assertEqual(1, aws_json.call_count)
+            self.assertEqual(1, run_command.call_count)
+            self.assertEqual("aws", run_command.call_args.args[0][0])
+            self.assertEqual("ssm", run_command.call_args.args[0][1])
+
+    def test_cleanup_verification_ignores_stale_ec2_tagging_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["artifact_bucket"] = "deleted-bucket"
@@ -196,18 +302,44 @@ class AwsSessionTest(unittest.TestCase):
                 "ResourceTagMappingList": [
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:instance/i-deleted", "Tags": []},
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:volume/vol-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:subnet/subnet-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:network-interface/eni-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:natgateway/nat-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:security-group/sg-deleted", "Tags": []},
+                    {"ResourceARN": "arn:aws:ec2:us-east-1:123:vpc-peering-connection/pcx-deleted", "Tags": []},
                 ]
             }
-            with patch.object(
-                controller,
-                "aws_json",
-                side_effect=[tagged, {"Reservations": []}, {"Volumes": []}, [], {"logGroups": []}],
-            ):
+
+            def aws_response(command: list[str]) -> object:
+                operation = command[1]
+                if operation == "get-resources":
+                    return tagged
+                if operation == "describe-instances":
+                    return {"Reservations": []}
+                if operation == "list-buckets":
+                    return []
+                if operation == "describe-log-groups":
+                    return {"logGroups": []}
+                collection = {
+                    "describe-volumes": "Volumes",
+                    "describe-subnets": "Subnets",
+                    "describe-network-interfaces": "NetworkInterfaces",
+                    "describe-nat-gateways": "NatGateways",
+                    "describe-security-groups": "SecurityGroups",
+                    "describe-vpc-peering-connections": "VpcPeeringConnections",
+                    "describe-vpcs": "Vpcs",
+                    "describe-vpc-endpoints": "VpcEndpoints",
+                    "describe-addresses": "Addresses",
+                }[operation]
+                return {collection: []}
+
+            with patch.object(controller, "aws_json", side_effect=aws_response):
                 controller.verify_cleanup(timeout_seconds=0)
             report = json.loads((Path(directory) / "cleanup-report.json").read_text(encoding="utf-8"))
         self.assertEqual("CLEAN", report["status"])
         self.assertEqual([], report["remaining_resources"])
-        self.assertEqual(2, len(report["tagged_resources"]))
+        self.assertEqual(7, len(report["tagged_resources"]))
+        self.assertTrue(all(not values for values in report["active_ec2"].values()))
 
     def test_cleanup_deletes_the_exact_eks_log_group(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -228,7 +360,14 @@ class AwsSessionTest(unittest.TestCase):
         with patch.object(run_test_module, "kubectl_apply", side_effect=manifests.append):
             run_test_module.deploy_load_job(
                 "example/load-test:latest",
-                {"shards": 1, "load_profile": "0 -> (10s, smoke) -> 0"},
+                {
+                    "shards": 1,
+                    "load_profile": "0 -> (10s, smoke) -> 0",
+                    "cpu_request": "1",
+                    "memory_request": "1Gi",
+                    "cpu_limit": "2",
+                    "memory_limit": "2Gi",
+                },
                 "kafka:9092",
                 "Always",
                 "2026-08-29T12:00:00Z",
@@ -242,6 +381,72 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("AUDIT_TCP_HOST", manifests[0])
         self.assertIn("10.52.0.10", manifests[0])
         self.assertIn("AUDIT_TCP_PORT", manifests[0])
+        self.assertIn("containerPort: 9405", manifests[0])
+        self.assertIn('cpu: "1"', manifests[0])
+        self.assertIn('memory: "2Gi"', manifests[0])
+
+    def test_deployment_worker_overrides_are_passed_to_helm(self) -> None:
+        overrides = run_test_module.deployment_value_overrides({
+            "replica_count": 2,
+            "order_worker_concurrency": 100,
+            "batch_worker_concurrency": 100,
+            "telemetry_worker_concurrency": 100,
+        })
+        self.assertEqual(2, overrides["replicaCount"])
+        self.assertEqual(100, overrides["env.orderWorkerConcurrency"])
+        self.assertEqual(100, overrides["env.batchWorkerConcurrency"])
+        self.assertEqual(100, overrides["env.telemetryWorkerConcurrency"])
+
+    def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "coverage.json"
+            timestamp = int(datetime(2026, 8, 31, 10, 0, 30, tzinfo=timezone.utc).timestamp() * 1000)
+            with patch.object(
+                run_test_module,
+                "victoria_export",
+                return_value=[{"metric": {"pod": "demo-1"}, "timestamps": [timestamp], "values": [1]}],
+            ):
+                run_test_module.validate_telemetry_coverage(
+                    "http://metrics",
+                    report,
+                    "2026-08-31T10:00:00Z",
+                    "2026-08-31T10:10:00Z",
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual("PASS", document["status"])
+        self.assertEqual(30.0, document["coverage"]["pod_cpu"]["first_sample_delay_seconds"])
+
+    def test_optional_consumer_drain_records_timeout_without_failing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "drain.json"
+            with (
+                patch.object(run_test_module, "prometheus_scalar", return_value=42.0),
+                patch.object(run_test_module.time, "monotonic", side_effect=[0.0, 1.0]),
+            ):
+                drained = run_test_module.wait_for_consumer_drain(
+                    "http://metrics", report, timeout_seconds=0, required=False,
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+        self.assertFalse(drained)
+        self.assertEqual("TIMEOUT", document["status"])
+
+    def test_cluster_health_reports_container_restarts_and_last_termination(self) -> None:
+        report = run_test_module.summarize_cluster_pod_health([{
+            "metadata": {"namespace": "ckc-app", "name": "ckc-demo-1"},
+            "spec": {"nodeName": "node-1"},
+            "status": {
+                "phase": "Running",
+                "containerStatuses": [{
+                    "name": "demo",
+                    "ready": True,
+                    "restartCount": 1,
+                    "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137}},
+                }],
+            },
+        }])
+        self.assertEqual("FAIL", report["status"])
+        self.assertIn("ckc-app/ckc-demo-1/demo: 1 restart(s)", report["failures"])
+        self.assertEqual("OOMKilled", report["pods"][0]["containers"][0]["last_termination_reason"])
 
 
 if __name__ == "__main__":
