@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -19,28 +18,25 @@ from pathlib import Path
 from typing import Any
 
 
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load helper module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+SHARED_INFRA = Path(__file__).resolve().parents[1]
+if str(SHARED_INFRA) not in sys.path:
+    sys.path.insert(0, str(SHARED_INFRA))
+
+from experiment_orchestration.definition_environment import stub_settings_from_definition
+from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
-    module_path = repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "diagnostic_steps.py"
-    module = load_module(module_path, "ckc_diagnostic_steps")
-    return module.normalize(definition, definition_path)
+    del repo_dir
+    return normalize_diagnostic_steps(definition, definition_path)
 
 
 def normalized_stub_settings(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> dict[str, Any] | None:
     stubs = definition.get("stubs")
     if not isinstance(stubs, dict) or not stubs:
         return None
-    module_path = repo_dir / "demo/infra/internal-lab/assets/helpers/definition-env.py"
-    module = load_module(module_path, "ckc_definition_env")
-    return module.stub_settings_from_definition(stubs, definition_path)
+    del repo_dir
+    return stub_settings_from_definition(stubs, definition_path)
 
 
 def parse_args() -> argparse.Namespace:
