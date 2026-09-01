@@ -99,6 +99,30 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("ckc-demo-abc", labels["pod"])
         self.assertEqual("demo", labels["container"])
 
+    def test_aws_runner_consumes_shared_profile_plan_without_app_profile(self) -> None:
+        deployment = {
+            "profile": "ckc",
+            "values": {
+                "replicaCount": 3,
+                "env": {"processingDispatcherType": "FIXED", "workerDispatcherThreads": 1},
+                "resources": {"requests": {"cpu": "500m"}},
+                "lab": {"kafkaTopics": [{"name": "order.events.v1", "partitions": 12}]},
+            },
+            "run_plan": {"profile": "ckc", "replica_count": 3, "topics": []},
+        }
+        metadata = run_test_module.normalized_application_metadata(deployment)
+        helm_values = run_test_module.flatten_helm_values({
+            key: value for key, value in deployment["values"].items() if key != "lab"
+        })
+
+        self.assertEqual("ckc", metadata["profile"])
+        self.assertEqual(3, metadata["replica_count"])
+        self.assertEqual(1, metadata["worker_dispatcher_threads"])
+        self.assertEqual(3, helm_values["replicaCount"])
+        self.assertEqual("FIXED", helm_values["env.processingDispatcherType"])
+        self.assertEqual("500m", helm_values["resources.requests.cpu"])
+        self.assertNotIn("lab.kafkaTopics", helm_values)
+
     def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(

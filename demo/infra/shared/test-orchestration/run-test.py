@@ -873,22 +873,42 @@ def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
     return {helm_name: deployment[name] for name, helm_name in mappings.items() if deployment.get(name) is not None}
 
 
+def deployment_profile(deployment: dict[str, Any]) -> str:
+    return as_str(deployment.get("profile") or deployment.get("app_profile"), "ckc")
+
+
+def flatten_helm_values(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in values.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            result.update(flatten_helm_values(value, path))
+        else:
+            result[path] = value
+    return result
+
+
 def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any]:
+    run_plan = deployment.get("run_plan") or {}
+    values = deployment.get("values") or {}
+    env = values.get("env") or {}
     return {
-        "run_profile": deployment.get("app_profile", ""),
-        "profile": deployment.get("app_profile", ""),
-        "replica_count": deployment.get("replica_count"),
-        "processing_dispatcher_type": deployment.get("processing_dispatcher_type", "AUTO"),
-        "worker_dispatcher_threads": deployment.get("worker_dispatcher_threads", 8),
+        "run_profile": deployment_profile(deployment),
+        "profile": deployment_profile(deployment),
+        "replica_count": run_plan.get("replica_count", deployment.get("replica_count")),
+        "processing_dispatcher_type": run_plan.get("processing_dispatcher_type", deployment.get("processing_dispatcher_type", "AUTO")),
+        "worker_dispatcher_threads": run_plan.get("worker_dispatcher_threads", env.get("workerDispatcherThreads", deployment.get("worker_dispatcher_threads", 8))),
         "processing_modes": {
-            "order": deployment.get("order_processing_mode", ""),
-            "batch": deployment.get("batch_processing_mode", ""),
-            "telemetry": deployment.get("telemetry_processing_mode", ""),
+            "order": env.get("orderProcessingMode", deployment.get("order_processing_mode", "")),
+            "batch": env.get("batchProcessingMode", deployment.get("batch_processing_mode", "")),
+            "telemetry": env.get("telemetryProcessingMode", deployment.get("telemetry_processing_mode", "")),
         },
     }
 
 
 def normalized_run_plan(deployment: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(deployment.get("run_plan"), dict):
+        return deployment["run_plan"]
     topics: list[dict[str, Any]] = []
     names = {"order": "order", "batch": "batch", "cauldron": "telemetry"}
     for topic in deployment.get("kafka_topics", []):
@@ -918,7 +938,7 @@ def deploy_workloads(
     run_id: str,
 ) -> None:
     deployment = require_section(definition, "deployment")
-    app_profile = as_str(deployment.get("app_profile"), "ckc-single")
+    profile = deployment_profile(deployment)
     charts_dir = repo_dir / "demo" / "infra" / "aws" / "helm"
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
@@ -942,10 +962,9 @@ def deploy_workloads(
     )
 
     demo_chart = charts_dir / "demo"
-    demo_value_files = [
-        demo_chart / "values.yaml",
-        require_profile_file(demo_chart / "profiles" / "aws", app_profile),
-    ]
+    demo_value_files = [demo_chart / "values.yaml"]
+    if not isinstance(deployment.get("values"), dict):
+        demo_value_files.append(require_profile_file(demo_chart / "profiles" / "aws", as_str(deployment.get("app_profile"), "ckc-single")))
     demo_overrides = {
         "image.repository": f"{registry}/demo",
         "image.tag": "latest",
@@ -955,13 +974,16 @@ def deploy_workloads(
         "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
         "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
         "env.auditRunId": run_id,
-        "runProfile": app_profile,
+        "runProfile": profile,
         "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "diagnostics.packetCapture.enabled": packet_capture_enabled,
     }
+    planned_values = deployment.get("values") or {}
+    if isinstance(planned_values, dict):
+        demo_overrides.update(flatten_helm_values({key: value for key, value in planned_values.items() if key != "lab"}))
     demo_overrides.update(deployment_value_overrides(deployment))
     helm_upgrade_install(
         "ckc-demo",
@@ -1035,7 +1057,7 @@ def main() -> None:
     metadata = {
         "run_id": run_id,
         "test_name": definition.get("name", "unnamed"),
-        "target_name": deployment.get("annotation_label") or deployment.get("app_profile") or definition.get("name", "unnamed"),
+        "target_name": deployment.get("annotation_label") or deployment_profile(deployment) or definition.get("name", "unnamed"),
         "test_definition": str(definition_path),
         "region": args.region,
         "environment": args.environment,
@@ -1064,7 +1086,7 @@ def main() -> None:
         metadata["started_at"] = started_at
         metadata["telemetry_ready_at"] = telemetry_ready_at
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
-        annotation_label = as_str(deployment.get("annotation_label"), as_str(deployment.get("app_profile"), run_id))
+        annotation_label = as_str(deployment.get("annotation_label"), deployment_profile(deployment) or run_id)
         append_experiment_event(run_dir, {
             "timestamp": started_at,
             "type": "run_started",
@@ -1182,8 +1204,8 @@ def main() -> None:
             append_experiment_event(run_dir, {
                 "timestamp": ended_at,
                 "type": "run_failed",
-                "title": as_str(deployment.get("app_profile"), run_id),
-                "text": as_str(deployment.get("app_profile"), run_id),
+                "title": deployment_profile(deployment) or run_id,
+                "text": deployment_profile(deployment) or run_id,
                 "status": "failed",
                 "details": {"runId": run_id},
             })
