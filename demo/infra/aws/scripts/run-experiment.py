@@ -881,6 +881,12 @@ class SessionController:
             metadata = result_dir / "run-metadata.json"
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
+            sla_profile = str(self.config.get("sla_profile") or "")
+            if sla_profile:
+                sla_path = self.repo / "demo/infra/shared/workloads/sla-profiles" / (
+                    sla_profile if sla_profile.endswith(".yaml") else f"{sla_profile}.yaml"
+                )
+                command.extend(["--sla-profile-file", str(sla_path)])
             completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
             summary.write_text(completed.stdout, encoding="utf-8")
             progress.write_text(completed.stderr, encoding="utf-8")
@@ -1009,7 +1015,7 @@ class SessionController:
                 raise RuntimeError(f"Restored VictoriaMetrics did not become ready at {health_url}")
             reports = generate_experiment_reports(
                 Path(self.state["experiment_summary"]),
-                self.repo / "demo/infra/internal-lab",
+                self.repo / "demo/infra/shared",
                 f"http://127.0.0.1:{port}",
             )
             self.state["experiment_reports"] = [str(path) for path in reports]
@@ -1116,6 +1122,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         experiment_description = resolved.description
         base_test_definition = resolved.test.source_name
         base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
+        sla_profile = str(resolved.definition.get("sla_profile") or "")
     else:
         lab_profile = args.lab_profile or "default"
         targets = [{
@@ -1131,6 +1138,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         experiment_description = ""
         base_test_definition = definition.stem
         base_tps = None
+        sla_profile = ""
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
         raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
@@ -1148,6 +1156,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "experiment_description": experiment_description,
             "base_test_definition": base_test_definition,
             "base_tps": base_tps,
+            "sla_profile": sla_profile,
             "mode": mode,
             "region": args.region,
             "owner": args.owner,

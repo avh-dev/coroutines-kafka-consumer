@@ -4,6 +4,7 @@ lab:
   profile: default
 test:
   extends: smoke
+sla_profile: delivery-integrity
 
 defaults:
   application:
