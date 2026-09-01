@@ -3026,3 +3026,5 @@ Capture dependency health and restart evidence in the portable result, verify da
 The completed run exposed one-minute default Alloy scrapes and a five-minute default HPA downscale window: the latter removed a healthy third application pod while the ten-minute ramp was still rising. Use explicit 15-second scrapes for in-cluster signals and a 600-second downscale stabilization window for the AWS HPA profiles; MSK CloudWatch panels remain one-minute by design.
 
 Continuously stream Kubernetes workload logs through the shared Alloy/Loki path so logs survive HPA pod deletion. Preserve `application`, `namespace`, `pod`, `container`, `node`, `profile`, `environment`, and `run_id` labels in the portable Loki export, while retaining labeled runner-file logs as a fallback.
+
+Separate the existing Thread Stats `audit` group from `Other` in the three shared category panels for CPU time, allocations, and CPU usage, making audit transport overhead directly visible in both internal-lab and AWS result dashboards.

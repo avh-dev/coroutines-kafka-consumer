@@ -11,6 +11,26 @@ from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
+    def test_thread_stats_category_panels_separate_audit_from_other(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        panels: list[dict] = []
+
+        def collect(items: list[dict]) -> None:
+            for panel in items:
+                if panel.get("id") in {102, 103, 104}:
+                    panels.append(panel)
+                collect(panel.get("panels", []))
+
+        collect(dashboard["panels"])
+        self.assertEqual(3, len(panels))
+        for panel in panels:
+            targets = {target["legendFormat"].split()[0]: target for target in panel["targets"]}
+            self.assertIn('group=~"^(audit)$"', targets["Audit"]["expr"])
+            self.assertIn("redis-client|audit", targets["Other"]["expr"])
+            self.assertEqual("E", targets["Audit"]["refId"])
+            self.assertEqual("F", targets["Other"]["refId"])
+
     def test_patches_time_summary_environment_and_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
