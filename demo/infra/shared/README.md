@@ -4,6 +4,7 @@
 
 - `test-orchestration/`: Kubernetes test runner used by AWS lab flows
 - `experiment_orchestration/`: shared experiment/test resolution, target planning, Kafka topic sizing, and environment-neutral orchestration
+- `experiment_report/`: shared comparative experiment analysis and Markdown/SVG report generation
 - `workloads/`: shared consumer profiles and reusable test definitions
 - `audit/`: shared audit analyzer used by local, internal-lab, and AWS flows
 - `grafana/`: shared dashboard and provisioning files
