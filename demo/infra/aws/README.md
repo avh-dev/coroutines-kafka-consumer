@@ -52,8 +52,9 @@
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `helm/`
-  AWS-owned Helm charts and deployment profiles for the app and stub workloads.
+- `../shared/helm/`
+  Shared app and stub workload charts. Environment profiles are values-only;
+  generated experiment targets do not select an AWS application profile.
 
 - `../shared/experiment_orchestration`
   Resolves tests and target overrides and calculates the same profile, topic,

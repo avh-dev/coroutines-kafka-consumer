@@ -165,7 +165,7 @@ sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers" "${LAB_ROOT}/helpers"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helm" "${LAB_ROOT}/helm"
+  sync_path "${REPO_ROOT}/demo/infra/shared/helm" "${LAB_ROOT}/helm"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/restore" "${LAB_ROOT}/restore"
@@ -291,7 +291,7 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   gradle/wrapper/gradle-wrapper.properties \
   demo/ckc-demo-contracts \
   demo/ckc-demo-load-test)"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets demo/infra/shared/helm)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
@@ -305,11 +305,11 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
   demo/infra/shared/grafana \
-  demo/infra/internal-lab/assets/helm/demo)"
+  demo/infra/shared/helm/demo)"
 STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
   demo/infra/internal-lab/assets/config/demo-stubs-values.yaml \
   demo/infra/internal-lab/assets/libexec/deploy-stubs.sh \
-  demo/infra/internal-lab/assets/helm/demo-stubs)"
+  demo/infra/shared/helm/demo-stubs)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0

@@ -15,6 +15,9 @@ spec:
         app.kubernetes.io/name: {{ .Release.Name }}
         ckc.dev/test-run-id: {{ .Values.env.auditRunId | quote }}
         ckc.dev/profile: {{ .Values.runProfile | quote }}
+{{- with .Values.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
     spec:
       topologySpreadConstraints:
         - maxSkew: 1
@@ -46,6 +49,8 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            - name: EXPERIMENT_TARGET_NAME
+              value: {{ .Values.env.experimentTargetName | quote }}
             - name: SPRING_PROFILES_ACTIVE
               value: {{ .Values.env.springProfilesActive | quote }}
             - name: KAFKA_ENABLED
@@ -53,6 +58,8 @@ spec:
             - name: DEMO_KAFKA_ENABLED
               value: {{ .Values.env.demoKafkaEnabled | quote }}
             - name: DEMO_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.env.bootstrapServers | quote }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.env.bootstrapServers | quote }}
             - name: GROUP_ID
               value: {{ .Values.env.groupId | quote }}
@@ -98,6 +105,8 @@ spec:
               value: {{ .Values.env.freshnessFirstMaxRecordAgeSeconds | quote }}
             - name: DEMO_CONSUMER_RETRY_MAX_ATTEMPTS
               value: {{ .Values.env.consumerRetryMaxAttempts | quote }}
+            - name: DEMO_CONSUMER_RETRY_MAX_RETRIES
+              value: {{ .Values.env.consumerRetryMaxRetries | quote }}
             - name: DEMO_CONSUMER_RETRY_BACKOFF_MS
               value: {{ .Values.env.consumerRetryBackoffMs | quote }}
             - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
@@ -106,6 +115,40 @@ spec:
               value: {{ .Values.env.kafkaConsumerFetchMaxWaitMs | quote }}
             - name: KAFKA_CONSUMER_MAX_POLL_RECORDS
               value: {{ .Values.env.kafkaConsumerMaxPollRecords | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.kafkaConsumerFetchMaxBytes | quote }}
+            - name: KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.kafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.orderKafkaConsumerFetchMinBytes | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.orderKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: ORDER_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.orderKafkaConsumerMaxPollRecords | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.orderKafkaConsumerFetchMaxBytes | quote }}
+            - name: ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.orderKafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.batchKafkaConsumerFetchMinBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.batchKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.batchKafkaConsumerMaxPollRecords | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.batchKafkaConsumerFetchMaxBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.batchKafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMinBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.telemetryKafkaConsumerMaxPollRecords | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMaxBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerMaxPartitionFetchBytes | quote }}
             - name: AUDIT_LOG_ENABLED
               value: {{ .Values.env.auditLogEnabled | quote }}
             - name: ORDER_PROCESSING_MODE

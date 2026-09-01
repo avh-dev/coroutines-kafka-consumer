@@ -998,7 +998,7 @@ def deploy_workloads(
 ) -> None:
     deployment = require_section(definition, "deployment")
     profile = deployment_profile(deployment)
-    charts_dir = repo_dir / "demo" / "infra" / "aws" / "helm"
+    charts_dir = repo_dir / "demo" / "infra" / "shared" / "helm"
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
     stubs_chart = charts_dir / "demo-stubs"

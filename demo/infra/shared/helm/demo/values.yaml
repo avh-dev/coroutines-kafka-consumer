@@ -1,4 +1,5 @@
 replicaCount: 1
+runProfile: local
 
 image:
   repository: ""
@@ -103,6 +104,7 @@ hpa:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+  scaleDownStabilizationWindowSeconds: 300
 
 hostAliases: []
 podLabels: {}

@@ -38,7 +38,6 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
   demo/infra/aws/audit \
   demo/infra/aws/experiments \
-  demo/infra/aws/helm \
   demo/infra/aws/runner-assets \
   demo/infra/aws/restore \
   demo/infra/aws/test-definitions \
@@ -49,6 +48,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/pcap \
   demo/infra/shared/grafana \
+  demo/infra/shared/helm \
   demo/infra/shared/result_bundle \
   demo/infra/shared/test-orchestration \
   demo/infra/shared/workloads
