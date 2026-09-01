@@ -20,12 +20,20 @@ from experiment_orchestration.test_definition import (  # noqa: E402,F401
     validate_resolved_test,
     write_resolved_test,
 )
+from experiment_orchestration.definition import (  # noqa: E402,F401
+    ResolvedExperiment,
+    ResolvedTarget,
+    resolve_experiment_definition,
+)
 
 __all__ = [
     "ResolvedExperimentTest",
+    "ResolvedExperiment",
+    "ResolvedTarget",
     "deep_merge",
     "load_yaml",
     "resolve_experiment_test",
+    "resolve_experiment_definition",
     "resolve_named_yaml",
     "resolve_target_test",
     "validate_resolved_test",

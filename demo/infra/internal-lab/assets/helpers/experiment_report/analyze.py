@@ -643,7 +643,6 @@ def analyze_experiment(
         test_definition.get("chaos_steps"),
         test_definition.get("stubs"),
     )
-    load_duration = float(sum(phase["duration_seconds"] for phase in phases))
     sla_profile = load_sla_profile(lab_root, experiment)
     prometheus = PrometheusClient(prometheus_url)
     targets: list[TargetReport] = []
@@ -652,6 +651,19 @@ def analyze_experiment(
 
     for target in experiment_summary.get("targets", []):
         run_dir = Path(str(target.get("run_dir") or ""))
+        target_test_path = Path(str(target.get("resolved_test_path") or test_definition_path))
+        target_test_definition = load_yaml(target_test_path)
+        target_load_test = (
+            target_test_definition.get("load_test")
+            if isinstance(target_test_definition.get("load_test"), dict)
+            else {}
+        )
+        target_phases = parse_load_profile(str(target_load_test.get("load_profile") or ""))
+        target_load_duration = float(sum(phase["duration_seconds"] for phase in target_phases))
+        if target_test_path != test_definition_path and target_test_definition != test_definition:
+            report_warnings.append(
+                f"Target {target.get('name') or target.get('target')} uses a target-specific resolved test"
+            )
         metadata_path = run_dir / "run-metadata.json"
         status_path = run_dir / "run-status.json"
         audit_path = run_dir / "audit" / "summary.yaml"
@@ -664,7 +676,7 @@ def analyze_experiment(
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
         if start is not None:
             try:
-                measurements = collect_standard_measurements(prometheus, start, load_duration)
+                measurements = collect_standard_measurements(prometheus, start, target_load_duration)
             except Exception as error:
                 warnings.append(f"Prometheus measurements are unavailable: {error}")
         else:
@@ -737,6 +749,15 @@ def analyze_experiment(
                 ended_at=ended.isoformat() if ended else "",
                 duration_seconds=(ended - started).total_seconds() if started and ended else None,
                 configuration=configuration(metadata),
+                test_definition={
+                    "name": str(target.get("test_definition") or test_definition_name),
+                    "resolved_path": str(target_test_path),
+                    "base_tps": target_load_test.get("base_tps"),
+                    "load_profile": target_load_test.get("load_profile"),
+                    "stubs": target_test_definition.get("stubs") or {},
+                    "chaos_steps": target_test_definition.get("chaos_steps") or [],
+                    "diagnostic_steps": target_test_definition.get("diagnostic_steps") or [],
+                },
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
                 measurements=measurements,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),

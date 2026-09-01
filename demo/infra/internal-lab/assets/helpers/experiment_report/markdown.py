@@ -144,14 +144,16 @@ def render_markdown(report: ExperimentReport) -> str:
             "",
             "## Configurations",
             "",
-            "| Configuration | Profile | Replicas | Dispatcher | Threads | HTTP executor | Topic plan |",
-            "| --- | --- | ---: | --- | ---: | --- | --- |",
+            "| Configuration | Profile | Test | Base TPS | Replicas | Dispatcher | Threads | HTTP executor | Topic plan |",
+            "| --- | --- | --- | ---: | ---: | --- | ---: | --- | --- |",
         ]
     )
     for target in report.targets:
         config = target.configuration
         lines.append(
-            f"| {cell(target.name)} | {cell(config.get('profile'))} | {cell(config.get('replicas'))} | "
+            f"| {cell(target.name)} | {cell(config.get('profile'))} | "
+            f"{cell(target.test_definition.get('name'))} | {cell(target.test_definition.get('base_tps'))} | "
+            f"{cell(config.get('replicas'))} | "
             f"{cell(config.get('dispatcher'))} | {cell(config.get('dispatcher_threads'))} | "
             f"{cell(config.get('jdk_http_client_executor'))} | {topic_summary(target)} |"
         )

@@ -48,6 +48,7 @@ class TargetReport:
     ended_at: str
     duration_seconds: float | None
     configuration: dict[str, Any]
+    test_definition: dict[str, Any]
     delivery: dict[str, Any]
     measurements: dict[str, float | None]
     thread_stats: dict[str, Any]

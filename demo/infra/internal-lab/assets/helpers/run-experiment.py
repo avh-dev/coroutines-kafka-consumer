@@ -19,7 +19,7 @@ from typing import Any
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, parse_load_profile
-from experiment_test import resolve_experiment_test, write_resolved_test
+from experiment_test import resolve_experiment_definition, write_resolved_test
 
 try:
     import yaml
@@ -786,10 +786,11 @@ def run_experiment(
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    resolved_test = resolve_experiment_test(
-        experiment,
+    resolved_experiment = resolve_experiment_definition(
+        experiment_path,
         lab_root / "workloads" / "test-definitions",
     )
+    resolved_test = resolved_experiment.test
     definition = resolved_test.definition
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict) or not load_test.get("load_profile"):
@@ -835,12 +836,25 @@ def run_experiment(
         if description:
             log_file.write(f"description: {description}\n")
         for index, target in enumerate(targets, start=1):
+            resolved_target = resolved_experiment.targets[index - 1]
+            target_definition = resolved_target.test.definition
+            target_load_test = target_definition.get("load_test")
+            if not isinstance(target_load_test, dict) or not target_load_test.get("load_profile"):
+                raise ValueError(f"Resolved target test must define load_test.load_profile: {resolved_target.name}")
+            parse_load_profile(str(target_load_test["load_profile"]))
+            target_base_tps = target_load_test.get("base_tps", base_tps)
+            if target_base_tps in (None, ""):
+                raise ValueError(f"Resolved target test must define load_test.base_tps: {resolved_target.name}")
+            target_resolved_test_path = log_dir / (
+                f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
+            )
+            write_resolved_test(target_resolved_test_path, target_definition)
             target_run = merge_target_defaults(defaults, target)
             target_run.update(
                 {
-                    "test_definition": test_definition,
-                    "resolved_test_path": str(resolved_test_path),
-                    "base_tps": base_tps,
+                    "test_definition": resolved_target.test.source_name,
+                    "resolved_test_path": str(target_resolved_test_path),
+                    "base_tps": int(target_base_tps),
                     "run_annotation_label": annotation_labels[index - 1],
                 }
             )
@@ -899,6 +913,10 @@ def run_experiment(
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,
+        "target_resolved_tests": {
+            str(target["target"]): str(target["resolved_test_path"])
+            for target in results
+        },
         "analysis": analysis_results,
         "exit_code": exit_code,
     }

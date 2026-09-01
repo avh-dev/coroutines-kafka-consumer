@@ -167,6 +167,11 @@ def copy_report_sources(
         for source, target in run_sources.items():
             if source.is_file():
                 shutil.copy2(source, target)
+    for target_result in experiment_summary.get("targets", []):
+        resolved = Path(str(target_result.get("resolved_test_path") or ""))
+        run_id = Path(str(target_result.get("run_dir") or "")).name
+        if resolved.is_file() and run_id:
+            shutil.copy2(resolved, raw_dir / f"{run_id}-test-definition.yaml")
 
 
 def audit_input_file(audit_dir: Path) -> Path | None:

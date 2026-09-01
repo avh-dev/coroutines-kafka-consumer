@@ -119,6 +119,34 @@ Omit `extends` to define the complete `stubs` and `load_test` sections directly
 inside `test`. Every run stores the fully resolved YAML beside the experiment
 summary, and report generation uses that snapshot.
 
+Targets may override any nested part of the resolved experiment test. Objects
+merge recursively, lists replace the inherited list, and `null` removes a
+field. Each target receives and archives its own resolved snapshot:
+
+```yaml
+test:
+  extends: production-like
+
+targets:
+  - name: baseline
+    profile: spring-kafka
+
+  - name: ckc-with-slower-registry
+    profile: ckc
+    test:
+      load_test:
+        workers: 200
+      stubs:
+        registry:
+          delay_p99_ms: 100
+      diagnostic_steps: null
+```
+
+Use `targets[].test.extends` to select another reusable test for one target, or
+`targets[].test.replace: true` for a complete target-local test. A target may
+not override `lab`/`lab_profile`: the environment stays immutable for the
+whole experiment, and a different lab configuration is a different experiment.
+
 The target `name` is automatically passed to the demo as
 `EXPERIMENT_TARGET_NAME`, so `ckc.demo.consumer.profile.info` uses the readable
 experiment name for its `profile` tag while retaining the Spring profile in
