@@ -937,6 +937,7 @@ def deploy_workloads(
             "image.tag": "latest",
             "image.pullPolicy": image_pull_policy,
             "env.redisHost": as_str(lab_context.get("redis_host"), ""),
+            "runId": run_id,
         },
     )
 
@@ -954,6 +955,7 @@ def deploy_workloads(
         "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
         "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
         "env.auditRunId": run_id,
+        "runProfile": app_profile,
         "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",

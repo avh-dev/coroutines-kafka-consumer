@@ -13,3 +13,4 @@ hpa:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+  scaleDownStabilizationWindowSeconds: 600

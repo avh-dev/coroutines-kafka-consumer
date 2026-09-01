@@ -4,6 +4,9 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .Release.Name }}
 spec:
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.hpa.scaleDownStabilizationWindowSeconds }}
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment

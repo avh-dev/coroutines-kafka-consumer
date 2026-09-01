@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,26 +15,58 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
+def log_labels(source: Path, logs_dir: Path, run_id: str) -> dict[str, str]:
+    relative = source.relative_to(logs_dir)
+    name = source.stem
+    if name.startswith("ckc-app-ckc-demo-stubs-"):
+        namespace, application, pod, container = "ckc-app", "ckc-demo-stubs", name.removeprefix("ckc-app-"), "stubs"
+    elif name.startswith("ckc-app-ckc-demo-"):
+        namespace, application, pod, container = "ckc-app", "ckc-demo", name.removeprefix("ckc-app-"), "demo"
+    elif name.startswith("ckc-load-test-"):
+        namespace, application, pod, container = "ckc-loadtest", "ckc-load-test", name, "load-test"
+    else:
+        namespace, application, pod, container = "runner", name, name, name
+    return {
+        "run_id": run_id,
+        "namespace": namespace,
+        "application": application,
+        "pod": pod,
+        "container": container,
+        "file": relative.as_posix(),
+        "job": "archived-files",
+    }
+
+
+def line_timestamp_ns(line: str) -> int | None:
+    match = re.match(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)", line)
+    if not match:
+        return None
+    return int(datetime.fromisoformat(match.group(1).replace("Z", "+00:00")).timestamp() * 1_000_000_000)
+
+
 def build_loki_jsonl(result_dir: Path, run_id: str, start: datetime | None, end: datetime | None) -> int:
+    logs_dir = result_dir / "logs"
+    live_output = logs_dir / "loki/kubernetes.jsonl"
+    live_count = sum(1 for _ in live_output.open(encoding="utf-8")) if live_output.is_file() else 0
     sources = sorted(path for path in (result_dir / "logs").rglob("*.log") if "loki" not in path.parts)
+    if live_count:
+        sources = [path for path in sources if "runner" in path.relative_to(logs_dir).parts]
     records: list[tuple[Path, str]] = []
     for source in sources:
         records.extend((source, line) for line in source.read_text(encoding="utf-8", errors="replace").splitlines())
-    output = result_dir / "logs/loki/aws-logs.jsonl"
+    output = result_dir / "logs/loki/files.jsonl"
     output.parent.mkdir(parents=True, exist_ok=True)
     first_ns = int((start or datetime.now(timezone.utc)).timestamp() * 1_000_000_000)
     last_ns = int((end or start or datetime.now(timezone.utc)).timestamp() * 1_000_000_000)
     step = max(1, (last_ns - first_ns) // max(1, len(records) - 1))
     with output.open("w", encoding="utf-8") as target:
         for index, (source, line) in enumerate(records):
-            relative = source.relative_to(result_dir / "logs")
-            namespace = "ckc-loadtest" if "load-test" in source.name else "ckc-app" if source.name.startswith("ckc-app-") else "runner"
             target.write(json.dumps({
-                "ts": str(first_ns + index * step),
-                "labels": {"run_id": run_id, "namespace": namespace, "file": relative.as_posix()},
+                "ts": str(line_timestamp_ns(line) or first_ns + index * step),
+                "labels": log_labels(source, logs_dir, run_id),
                 "line": line,
             }, ensure_ascii=False) + "\n")
-    return len(records)
+    return live_count + len(records)
 
 
 def main() -> None:

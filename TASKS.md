@@ -3022,3 +3022,7 @@ Run CKC with a fixed one-thread processing dispatcher at 10,000 messages/s for 2
 Install the EKS metrics-server add-on so application and stub CPU-based HPAs receive the resource metrics required to scale.
 Use three `m7i.xlarge` workers, explicit load-generator and observability resources, stronger stub CPU limits, and topology spreading so shared-node contention does not masquerade as application saturation.
 Capture dependency health and restart evidence in the portable result, verify dashboard and audit artifacts, then destroy and independently audit every session-owned AWS resource.
+
+The completed run exposed one-minute default Alloy scrapes and a five-minute default HPA downscale window: the latter removed a healthy third application pod while the ten-minute ramp was still rising. Use explicit 15-second scrapes for in-cluster signals and a 600-second downscale stabilization window for the AWS HPA profiles; MSK CloudWatch panels remain one-minute by design.
+
+Continuously stream Kubernetes workload logs through the shared Alloy/Loki path so logs survive HPA pod deletion. Preserve `application`, `namespace`, `pod`, `container`, `node`, `profile`, `environment`, and `run_id` labels in the portable Loki export, while retaining labeled runner-file logs as a fallback.

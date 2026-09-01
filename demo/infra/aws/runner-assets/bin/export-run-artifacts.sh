@@ -19,12 +19,15 @@ fi
 
 mkdir -p "${RUN_DIR}/audit/chunks" "${RUN_DIR}/metrics" "${RUN_DIR}/logs/runner" "${RUN_DIR}/config"
 
+python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
+  "${RUN_DIR}" --loki-url http://127.0.0.1:3100
+
 sleep 2
 if [ -f "${AUDIT_SOURCE}" ]; then
   gzip -c "${AUDIT_SOURCE}" > "${RUN_DIR}/audit/chunks/audit-000001.log.gz"
 fi
 
-for container in prometheus grafana audit ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent; do
+for container in prometheus loki grafana audit ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent; do
   docker logs "${container}" > "${RUN_DIR}/logs/runner/${container}.log" 2>&1 || true
 done
 

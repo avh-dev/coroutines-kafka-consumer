@@ -110,6 +110,7 @@ get_runner_private_ip() {
 
 deploy_observability_agent() {
   local remote_write_url="$1"
+  local loki_write_url="$2"
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -123,7 +124,7 @@ metadata:
   name: ckc-alloy-discovery
 rules:
   - apiGroups: [""]
-    resources: ["pods", "nodes", "nodes/proxy", "endpoints", "services"]
+    resources: ["pods", "pods/log", "nodes", "nodes/proxy", "endpoints", "services"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -198,6 +199,7 @@ data:
     prometheus.scrape "ckc_demo" {
       targets      = discovery.relabel.ckc_demo.output
       metrics_path = "/actuator/prometheus"
+      scrape_interval = "15s"
       forward_to   = [prometheus.remote_write.runner.receiver]
     }
 
@@ -245,6 +247,11 @@ data:
       }
 
       rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
@@ -258,6 +265,7 @@ data:
     prometheus.scrape "ckc_load_test" {
       targets      = discovery.relabel.ckc_load_test.output
       metrics_path = "/metrics"
+      scrape_interval = "15s"
       forward_to   = [prometheus.remote_write.runner.receiver]
     }
 
@@ -303,6 +311,7 @@ data:
     prometheus.scrape "kubernetes_cadvisor" {
       targets           = discovery.relabel.kubernetes_cadvisor.output
       bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "15s"
       forward_to        = [prometheus.remote_write.runner.receiver]
 
       tls_config {
@@ -361,7 +370,88 @@ data:
 
     prometheus.scrape "kafka_exporter" {
       targets    = discovery.relabel.kafka_exporter.output
+      scrape_interval = "15s"
       forward_to = [prometheus.remote_write.runner.receiver]
+    }
+
+    discovery.kubernetes "workload_logs" {
+      role = "pod"
+
+      namespaces {
+        names = ["ckc-app", "ckc-loadtest"]
+      }
+    }
+
+    discovery.relabel "workload_logs" {
+      targets = discovery.kubernetes.workload_logs.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "application"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
+        target_label = "environment"
+        replacement  = "${ENVIRONMENT}"
+      }
+
+      rule {
+        target_label = "job"
+        replacement  = "kubernetes-pods"
+      }
+    }
+
+    loki.source.kubernetes "workload_logs" {
+      targets    = discovery.relabel.workload_logs.output
+      forward_to = [loki.process.workload_logs.receiver]
+    }
+
+    loki.process "workload_logs" {
+      stage.cri {}
+
+      stage.static_labels {
+        values = {
+          lab = "aws",
+        }
+      }
+
+      forward_to = [loki.write.runner.receiver]
+    }
+
+    loki.write "runner" {
+      endpoint {
+        url = "${loki_write_url}"
+      }
     }
 
     prometheus.remote_write "runner" {
@@ -678,10 +768,11 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ckc-load-lab-${IMAGE_ENVIRONMENT}"
 RUNNER_PRIVATE_IP="$(get_runner_private_ip)"
 REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
+LOKI_WRITE_URL="http://${RUNNER_PRIVATE_IP}:3100/loki/api/v1/push"
 AUDIT_TCP_HOST="${RUNNER_PRIVATE_IP}"
 
 deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
-deploy_observability_agent "${REMOTE_WRITE_URL}"
+deploy_observability_agent "${REMOTE_WRITE_URL}" "${LOKI_WRITE_URL}"
 
 MSK_CLOUDWATCH_ENABLED=false
 MSK_CLOUDWATCH_CLUSTER_NAME=""

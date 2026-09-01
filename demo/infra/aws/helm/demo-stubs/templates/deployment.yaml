@@ -13,6 +13,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
+        ckc.dev/test-run-id: {{ .Values.runId | quote }}
+        ckc.dev/profile: {{ .Values.runProfile | quote }}
     spec:
       topologySpreadConstraints:
         - maxSkew: 1

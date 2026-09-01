@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,14 @@ run_test_module = load_module(
     "ckc_aws_run_test",
     REPO_ROOT / "demo" / "infra" / "shared" / "test-orchestration" / "run-test.py",
 )
+export_loki_module = load_module(
+    "ckc_export_loki",
+    REPO_ROOT / "demo" / "infra" / "shared" / "result_bundle" / "export-loki.py",
+)
+finalize_result_module = load_module(
+    "ckc_finalize_aws_result",
+    AWS_ROOT / "restore" / "finalize-result.py",
+)
 
 
 class AwsSessionTest(unittest.TestCase):
@@ -52,6 +61,43 @@ class AwsSessionTest(unittest.TestCase):
         value = session_module.generated_session_id()
         self.assertRegex(value, r"^s-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
         self.assertLessEqual(len(value), 35)
+
+    def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertGreaterEqual(len(re.findall(r'scrape_interval\s*=\s*"15s"', script)), 4)
+        self.assertIn('loki.source.kubernetes "workload_logs"', script)
+        self.assertIn('target_label  = "application"', script)
+        self.assertIn('target_label  = "pod"', script)
+        self.assertIn('target_label  = "container"', script)
+        self.assertIn('target_label  = "profile"', script)
+
+    def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory)
+            (result / "run-status.json").write_text(json.dumps({
+                "run_id": "run-a",
+                "started_at": "2026-09-01T07:00:00Z",
+                "ended_at": "2026-09-01T07:01:00Z",
+            }), encoding="utf-8")
+            page = [{
+                "stream": {"application": "ckc-demo", "namespace": "ckc-app", "pod": "demo-abc"},
+                "values": [["1788246000000000000", "hello"]],
+            }]
+            with patch.object(export_loki_module, "query_range", return_value=page):
+                count = export_loki_module.export(result, "http://loki", '{namespace="ckc-app"}', 5000)
+            record = json.loads((result / "logs/loki/kubernetes.jsonl").read_text(encoding="utf-8"))
+        self.assertEqual(1, count)
+        self.assertEqual("run-a", record["labels"]["run_id"])
+        self.assertEqual("ckc-demo", record["labels"]["application"])
+        self.assertEqual("demo-abc", record["labels"]["pod"])
+
+    def test_archived_file_logs_have_filterable_loki_labels(self) -> None:
+        labels = finalize_result_module.log_labels(
+            Path("/tmp/logs/ckc-app-ckc-demo-abc.log"), Path("/tmp/logs"), "run-a"
+        )
+        self.assertEqual("ckc-demo", labels["application"])
+        self.assertEqual("ckc-demo-abc", labels["pod"])
+        self.assertEqual("demo", labels["container"])
 
     def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

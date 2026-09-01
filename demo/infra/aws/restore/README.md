@@ -16,6 +16,18 @@ The experiment summary, exact target/reset time links, Loki Explore link, and
 run-start annotations are restored together with the dashboard. No Grafana
 login is needed to inspect them.
 
+Kubernetes logs collected during AWS runs keep Loki labels for `application`,
+`namespace`, `pod`, `container`, `node`, `profile`, `environment`, and `run_id`.
+Grafana Explore can therefore narrow logs with selectors such as:
+
+```logql
+{run_id="<run-id>", application="ckc-demo"}
+{run_id="<run-id>", pod="ckc-demo-..."}
+```
+
+Collection is continuous, so logs from pods removed by an HPA scale-down remain
+in the result bundle.
+
 Stop the containers with `./restore/close-result.sh`. The extracted metrics and
 Grafana state remain available for the next start.
 

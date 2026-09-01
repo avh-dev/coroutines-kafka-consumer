@@ -24,6 +24,16 @@ services:
     volumes:
       - /opt/ckc-runner/prometheus:/victoria-metrics-data
 
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - /opt/ckc-runner/loki:/tmp/loki
+
   grafana:
     image: grafana/grafana:11.6.0
     container_name: grafana
@@ -39,3 +49,4 @@ services:
       - /opt/ckc-runner/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - loki
