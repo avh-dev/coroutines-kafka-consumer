@@ -269,7 +269,7 @@
 | [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
 | [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
-| [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | IN_PROGRESS |
+| [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3039,3 +3039,4 @@ Move the experiment, resolved-test, target, consumer-profile, planning, lifecycl
 Keep one immutable lab profile for an experiment, allow each target to select its consumer profile and override deployment or any nested test setting, and persist the fully resolved test and lab configuration for every target.
 Use environment adapters for installed internal-lab services versus disposable AWS provisioning, artifact transport, CloudWatch/cost data, provider-specific chaos, and verified cloud teardown.
 Replace the AWS-only `app_profile` presets with explicit target consumer profiles plus deployment/resources/scaling policy, migrate existing definitions, and prove the shared path with internal tests followed by a small disposable AWS smoke.
+Validate the shared path with AWS session `s-20260902-091243-ff0dd2`: the target, metrics coverage, audit SLA, result report, and portable bundle completed successfully, followed by independently verified clean teardown.
