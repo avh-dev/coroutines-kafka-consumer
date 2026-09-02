@@ -50,7 +50,17 @@ base_tps: 2000
 sla_profile: consumer-baseline
 
 defaults:
-  replicas: 2
+  application:
+    replicas: 2
+    resources:
+      requests: {cpu: 500m, memory: 768Mi}
+      limits: {cpu: "2", memory: 2Gi}
+    hpa:
+      enabled: true
+      min_replicas: 2
+      max_replicas: 6
+      target_cpu_utilization_percentage: 70
+      scale_down_stabilization_window_seconds: 600
   env:
     PROCESSING_ENABLED: true
     AUDIT_LOG_ENABLED: true
@@ -97,6 +107,10 @@ targets:
           memory: 3Gi
 ```
 
+`application` is environment-neutral: internal-lab and AWS feed it to the same
+planner and shared Helm chart. Top-level `replicas` and `helm.resources` remain
+accepted for existing experiment definitions.
+
 `test_definition` remains supported as the short legacy form. New experiments
 can use `test.extends` and override any nested test field. Objects merge
 recursively, while lists (including chaos and diagnostics) replace the
@@ -118,6 +132,34 @@ test:
 Omit `extends` to define the complete `stubs` and `load_test` sections directly
 inside `test`. Every run stores the fully resolved YAML beside the experiment
 summary, and report generation uses that snapshot.
+
+Targets may override any nested part of the resolved experiment test. Objects
+merge recursively, lists replace the inherited list, and `null` removes a
+field. Each target receives and archives its own resolved snapshot:
+
+```yaml
+test:
+  extends: production-like
+
+targets:
+  - name: baseline
+    profile: spring-kafka
+
+  - name: ckc-with-slower-registry
+    profile: ckc
+    test:
+      load_test:
+        workers: 200
+      stubs:
+        registry:
+          delay_p99_ms: 100
+      diagnostic_steps: null
+```
+
+Use `targets[].test.extends` to select another reusable test for one target, or
+`targets[].test.replace: true` for a complete target-local test. A target may
+not override `lab`/`lab_profile`: the environment stays immutable for the
+whole experiment, and a different lab configuration is a different experiment.
 
 The target `name` is automatically passed to the demo as
 `EXPERIMENT_TARGET_NAME`, so `ckc.demo.consumer.profile.info` uses the readable

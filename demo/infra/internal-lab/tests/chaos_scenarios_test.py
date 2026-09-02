@@ -155,7 +155,7 @@ class ChaosScenariosTest(unittest.TestCase):
         )
 
     def test_all_current_chaos_definitions_use_new_contract(self) -> None:
-        definitions = Path(__file__).resolve().parents[1] / "workloads" / "test-definitions"
+        definitions = Path(__file__).resolve().parents[2] / "shared" / "workloads" / "test-definitions"
         for path in sorted(definitions.glob("*.yaml")):
             definition = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             if not definition.get("chaos_steps"):

@@ -69,6 +69,9 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--demo-java-tool-options options]
           [--demo-cpu-request value] [--demo-memory-request value]
           [--demo-cpu-limit value] [--demo-memory-limit value]
+          [--hpa-enabled true|false] [--hpa-min-replicas count]
+          [--hpa-max-replicas count] [--hpa-target-cpu-utilization-percentage percent]
+          [--hpa-scale-down-stabilization-window-seconds seconds]
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
@@ -121,6 +124,7 @@ Options:
                    Override generated demo pod resource requests.
   --demo-cpu-limit, --demo-memory-limit
                    Override generated demo pod resource limits.
+  --hpa-*          Override generated application autoscaling values.
   --kafka-implementation
                     Select the host Kafka API broker implementation.
   --processing-dispatcher-type
@@ -209,7 +213,7 @@ while [ "$#" -gt 0 ]; do
       PLAN_MANUAL_ARGS+=("$1" "${2:?$1 requires a positive integer}")
       shift 2
       ;;
-    --demo-java-tool-options|--demo-cpu-request|--demo-memory-request|--demo-cpu-limit|--demo-memory-limit)
+    --demo-java-tool-options|--demo-cpu-request|--demo-memory-request|--demo-cpu-limit|--demo-memory-limit|--hpa-enabled|--hpa-min-replicas|--hpa-max-replicas|--hpa-target-cpu-utilization-percentage|--hpa-scale-down-stabilization-window-seconds)
       PLAN_HELM_ARGS+=("$1" "${2:?$1 requires a value}")
       shift 2
       ;;

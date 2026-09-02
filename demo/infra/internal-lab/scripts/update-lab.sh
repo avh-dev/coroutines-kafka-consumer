@@ -165,7 +165,7 @@ sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers" "${LAB_ROOT}/helpers"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helm" "${LAB_ROOT}/helm"
+  sync_path "${REPO_ROOT}/demo/infra/shared/helm" "${LAB_ROOT}/helm"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/restore" "${LAB_ROOT}/restore"
@@ -181,6 +181,8 @@ sync_internal_lab_assets() {
 sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
+  sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
+  sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads"
   sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
@@ -290,9 +292,11 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   gradle/wrapper/gradle-wrapper.properties \
   demo/ckc-demo-contracts \
   demo/ckc-demo-load-test)"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets demo/infra/shared/helm)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
+  demo/infra/shared/experiment_orchestration \
+  demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
   demo/infra/shared/workloads \
   demo/infra/shared/grafana \
@@ -303,11 +307,11 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
   demo/infra/shared/grafana \
-  demo/infra/internal-lab/assets/helm/demo)"
+  demo/infra/shared/helm/demo)"
 STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
   demo/infra/internal-lab/assets/config/demo-stubs-values.yaml \
   demo/infra/internal-lab/assets/libexec/deploy-stubs.sh \
-  demo/infra/internal-lab/assets/helm/demo-stubs)"
+  demo/infra/shared/helm/demo-stubs)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0

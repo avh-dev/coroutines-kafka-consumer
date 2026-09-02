@@ -10,14 +10,25 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+
+SHARED_INFRA = Path(__file__).resolve().parents[2] / "shared"
+if str(SHARED_INFRA) not in sys.path:
+    sys.path.insert(0, str(SHARED_INFRA))
+
+from experiment_orchestration import materialize_experiment, resolve_experiment_definition
+from experiment_report import generate_experiment_reports
+from experiment_report.analyze import load_sla_profile, load_yaml
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
@@ -422,6 +433,23 @@ class SessionController:
             region, runner_outputs["instance_id"], artifact_outputs["bucket_name"],
             f"sessions/{session_id}/runner-assets.tar.gz",
         ])
+        if config.get("mode") == "experiment":
+            materialized_prefix = f"sessions/{session_id}/materialized"
+            self.run([
+                "aws", "s3", "sync", str(self.session_dir / "materialized"),
+                f"s3://{artifact_outputs['bucket_name']}/{materialized_prefix}/",
+                "--region", region, "--only-show-errors",
+            ])
+            self.ssm(
+                " && ".join([
+                    f"mkdir -p /opt/ckc-runner/materialized/{shlex.quote(session_id)}",
+                    f"aws s3 sync s3://{artifact_outputs['bucket_name']}/{materialized_prefix}/ "
+                    f"/opt/ckc-runner/materialized/{shlex.quote(session_id)}/ "
+                    f"--region {shlex.quote(region)} --only-show-errors",
+                ]),
+                "sync materialized experiment targets",
+                600,
+            )
 
         lab_module = self.repo / "demo/infra/aws/assets/terraform/load-lab"
         lab_variables = {
@@ -465,41 +493,75 @@ class SessionController:
 
     def execute_test(self) -> None:
         config = self.config
-        run_id = config["run_id"]
-        remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
-        command = (
-            "set -euo pipefail; "
-            "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
-            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
-            f"{shlex.quote(config['test_definition'])} {shlex.quote(run_id)} "
-            f"2>&1 | tee {shlex.quote(remote_log)}"
-        )
-        self.phase("RUNNING_TEST")
-        invocation = self.ssm(command, "run AWS smoke test", config["test_timeout_seconds"], check=False)
-        self.state["test_status"] = invocation.get("Status")
-        self.save()
-        if invocation.get("Status") != "Success":
-            raise CommandError("AWS smoke test failed; artifacts will still be collected before cleanup.")
+        results: list[dict[str, Any]] = []
+        targets = config.get("targets") or [{
+            "id": "legacy",
+            "name": "legacy",
+            "run_id": config["run_id"],
+            "remote_definition": config["test_definition"],
+        }]
+        for index, target in enumerate(targets, start=1):
+            run_id = target["run_id"]
+            remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
+            audit_chunk = f"/opt/ckc-runner/reports/{run_id}/audit/chunks/audit-000001.log.gz"
+            command = (
+                "set -uo pipefail; "
+                "truncate -s 0 /opt/ckc-runner/audit/audit.log; "
+                "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
+                f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
+                f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
+                f"2>&1 | tee {shlex.quote(remote_log)}; status=${{PIPESTATUS[0]}}; "
+                f"mkdir -p {shlex.quote(str(Path(audit_chunk).parent))}; "
+                f"gzip -c /opt/ckc-runner/audit/audit.log > {shlex.quote(audit_chunk)}; "
+                "exit ${status}"
+            )
+            self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
+            invocation = self.ssm(
+                command,
+                f"run AWS experiment target {index}/{len(targets)}: {target['name']}",
+                config["test_timeout_seconds"],
+                check=False,
+            )
+            result = {**target, "status": invocation.get("Status")}
+            results.append(result)
+            self.state["target_results"] = results
+            self.state["test_status"] = invocation.get("Status")
+            self.save()
+            if invocation.get("Status") != "Success":
+                raise CommandError(
+                    f"AWS experiment target {target['name']!r} failed; artifacts will still be collected before cleanup."
+                )
+        self.phase("TARGETS_COMPLETED", target_results=results)
 
     def collect(self) -> None:
         config = self.config
-        prefix = f"sessions/{config['session_id']}/result"
-        self.phase("EXPORTING_ARTIFACTS")
-        self.ssm(
-            "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/export-run-artifacts.sh "
-            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} {shlex.quote(config['run_id'])} "
-            f"{shlex.quote(self.state['artifact_bucket'])} {shlex.quote(prefix)}",
-            "export AWS smoke artifacts",
-            3600,
-        )
-        result_dir = self.session_dir / "result"
-        result_dir.mkdir(parents=True, exist_ok=True)
-        self.run([
-            "aws", "s3", "sync", f"s3://{self.state['artifact_bucket']}/{prefix}/", str(result_dir),
-            "--region", config["region"], "--only-show-errors",
-        ])
-        self.verify_manifest(result_dir)
-        self.state["local_result_dir"] = str(result_dir)
+        targets = self.state.get("target_results") or config.get("targets") or []
+        if not targets:
+            raise RuntimeError("No AWS experiment targets are available for artifact collection")
+        result_root = self.session_dir / "result"
+        result_root.mkdir(parents=True, exist_ok=True)
+        local_results: dict[str, str] = {}
+        for index, target in enumerate(targets, start=1):
+            run_id = target["run_id"]
+            prefix = f"sessions/{config['session_id']}/result/runs/{run_id}"
+            self.phase("EXPORTING_TARGET_ARTIFACTS", target_index=index, target_total=len(targets), target_id=target["id"])
+            self.ssm(
+                "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/export-run-artifacts.sh "
+                f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} {shlex.quote(run_id)} "
+                f"{shlex.quote(self.state['artifact_bucket'])} {shlex.quote(prefix)}",
+                f"export AWS target artifacts {index}/{len(targets)}",
+                3600,
+            )
+            result_dir = result_root / "runs" / run_id
+            result_dir.mkdir(parents=True, exist_ok=True)
+            self.run([
+                "aws", "s3", "sync", f"s3://{self.state['artifact_bucket']}/{prefix}/", str(result_dir),
+                "--region", config["region"], "--only-show-errors",
+            ])
+            self.verify_manifest(result_dir)
+            local_results[target["id"]] = str(result_dir)
+        self.state["local_result_dirs"] = local_results
+        self.state["local_result_dir"] = next(iter(local_results.values())) if len(local_results) == 1 else str(result_root)
         self.state["artifacts_verified"] = True
         self.save()
 
@@ -801,51 +863,215 @@ class SessionController:
             )
 
     def analyze_local_audit(self) -> None:
-        result_dir = Path(self.state["local_result_dir"])
-        chunks = result_dir / "audit" / "chunks"
-        if not chunks.is_dir() or not any(chunks.glob("*.log.gz")):
-            raise RuntimeError("No downloaded audit chunks were found.")
-        audit_dir = result_dir / "audit"
-        summary = audit_dir / "summary.yaml"
-        progress = audit_dir / "analyzer-progress.log"
-        command = [
-            sys.executable,
-            str(self.repo / "demo/infra/shared/audit/analyze-audit.py"),
-            "--input-dir", str(chunks),
-            "--require-records",
-        ]
-        metadata = result_dir / "run-metadata.json"
-        if metadata.is_file():
-            command.extend(["--metadata-file", str(metadata)])
-        completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        summary.write_text(completed.stdout, encoding="utf-8")
-        progress.write_text(completed.stderr, encoding="utf-8")
-        if completed.returncode != 0:
-            raise CommandError(f"Local audit analysis failed; see {progress}")
-        self.state["audit_summary"] = str(summary)
+        result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
+        sla_profile = None
+        if self.config.get("sla_profile"):
+            experiment_path = self.repo / self.config["experiment"]
+            sla_profile = load_sla_profile(SHARED_INFRA, load_yaml(experiment_path))
+        summaries: dict[str, str] = {}
+        for target_id, value in result_dirs.items():
+            result_dir = Path(value)
+            chunks = result_dir / "audit" / "chunks"
+            if not chunks.is_dir() or not any(chunks.glob("*.log.gz")):
+                raise RuntimeError(f"No downloaded audit chunks were found for target {target_id!r}.")
+            audit_dir = result_dir / "audit"
+            summary = audit_dir / "summary.yaml"
+            progress = audit_dir / "analyzer-progress.log"
+            command = [
+                sys.executable,
+                str(self.repo / "demo/infra/shared/audit/analyze-audit.py"),
+                "--input-dir", str(chunks),
+                "--require-records",
+            ]
+            metadata = result_dir / "run-metadata.json"
+            if metadata.is_file():
+                command.extend(["--metadata-file", str(metadata)])
+            if sla_profile:
+                sla_path = audit_dir / "sla-profile.json"
+                json_write(sla_path, sla_profile)
+                command.extend(["--sla-profile-file", str(sla_path)])
+            completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            summary.write_text(completed.stdout, encoding="utf-8")
+            progress.write_text(completed.stderr, encoding="utf-8")
+            if completed.returncode != 0:
+                raise CommandError(f"Local audit analysis failed; see {progress}")
+            summaries[target_id] = str(summary)
+        self.state["audit_summaries"] = summaries
+        self.state["audit_summary"] = next(iter(summaries.values())) if len(summaries) == 1 else None
         self.save()
 
+    def prepare_experiment_bundle(self) -> None:
+        if self.config.get("mode") != "experiment":
+            return
+        result_root = self.session_dir / "result"
+        local_results = self.state.get("local_result_dirs") or {}
+        target_results = {item["id"]: item for item in self.state.get("target_results", [])}
+        targets: list[dict[str, Any]] = []
+        for target in self.config.get("targets", []):
+            run_dir = Path(local_results[target["id"]])
+            metadata_path = run_dir / "run-metadata.json"
+            status_path = run_dir / "run-status.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
+            status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+            invocation = target_results.get(target["id"], {})
+            targets.append({
+                "target": target["name"],
+                "name": target["name"],
+                "profile": target["profile"],
+                "run_dir": str(run_dir),
+                "resolved_test_path": target.get("local_test_definition") or target["local_definition"],
+                "test_definition": Path(target.get("local_test_definition") or target["local_definition"]).stem,
+                "started_at": status.get("started_at") or metadata.get("started_at"),
+                "ended_at": status.get("ended_at"),
+                "exit_code": 0 if invocation.get("status") == "Success" else 1,
+                "run_status": status,
+            })
+
+        base_test_path = Path(self.config["targets"][0].get("local_test_definition") or self.config["targets"][0]["local_definition"])
+        document = {
+            "experiment_set_id": self.config["session_id"],
+            "result_dir": str(result_root),
+            "experiments": [{
+                "experiment": self.config["experiment_name"],
+                "description": self.config.get("experiment_description", ""),
+                "test_definition": self.config.get("base_test_definition", base_test_path.stem),
+                "resolved_test_path": str(base_test_path),
+                "base_tps": self.config.get("base_tps"),
+                "experiment_file": str((self.repo / self.config["experiment"]).resolve()),
+                "result_dir": str(result_root),
+                "targets": targets,
+                "target_resolved_tests": {target["name"]: target["resolved_test_path"] for target in targets},
+                "analysis": [],
+                "exit_code": next((target["exit_code"] for target in targets if target["exit_code"]), 0),
+            }],
+            "exit_code": next((target["exit_code"] for target in targets if target["exit_code"]), 0),
+        }
+        json_write(result_root / "summary.json", document)
+
+        first_run = Path(next(iter(local_results.values())))
+        metrics_source = first_run / "metrics/victoriametrics-data.tar.gz"
+        if metrics_source.is_file():
+            metrics_target = result_root / "metrics/victoriametrics-data.tar.gz"
+            metrics_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(metrics_source, metrics_target)
+        loki_root = result_root / "logs/loki"
+        loki_root.mkdir(parents=True, exist_ok=True)
+        event_lines: list[str] = []
+        for target_id, value in local_results.items():
+            run_dir = Path(value)
+            for source in sorted((run_dir / "logs/loki").glob("*.jsonl")):
+                shutil.copy2(source, loki_root / f"{target_id}-{source.name}")
+            events = run_dir / "experiment-events.jsonl"
+            if events.is_file():
+                event_lines.extend(events.read_text(encoding="utf-8").splitlines())
+        if event_lines:
+            (result_root / "experiment-events.jsonl").write_text("\n".join(event_lines) + "\n", encoding="utf-8")
+        (result_root / "COMPLETE").write_text("complete\n", encoding="utf-8")
+        self.state["local_result_dir"] = str(result_root)
+        self.state["experiment_summary"] = str(result_root / "summary.json")
+        self.save()
+
+    @staticmethod
+    def free_local_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            return int(listener.getsockname()[1])
+
+    def generate_local_experiment_report(self) -> None:
+        if self.config.get("mode") != "experiment":
+            return
+        result_root = Path(self.state["local_result_dir"])
+        archive = result_root / "metrics/victoriametrics-data.tar.gz"
+        if not archive.is_file():
+            raise RuntimeError(f"Experiment metrics archive was not found: {archive}")
+        restore_root = self.session_dir / "report-metrics"
+        if restore_root.exists():
+            shutil.rmtree(restore_root)
+        restore_root.mkdir(parents=True)
+        with tarfile.open(archive, "r:gz") as source:
+            source.extractall(restore_root, filter="data")
+        metrics_dir = restore_root / "prometheus"
+        if not metrics_dir.is_dir():
+            raise RuntimeError(f"VictoriaMetrics data directory was not found in {archive}")
+
+        port = self.free_local_port()
+        container_name = slug(f"ckc-report-{self.config['session_id']}", 63)
+        self.run(["docker", "rm", "-f", container_name], check=False)
+        try:
+            self.run([
+                "docker", "run", "-d", "--name", container_name,
+                "-p", f"127.0.0.1:{port}:9090",
+                "-v", f"{metrics_dir.resolve()}:/victoria-metrics-data",
+                "victoriametrics/victoria-metrics:v1.102.1",
+                "-storageDataPath=/victoria-metrics-data",
+                "-httpListenAddr=:9090",
+            ])
+            health_url = f"http://127.0.0.1:{port}/health"
+            for _ in range(60):
+                try:
+                    with urllib.request.urlopen(health_url, timeout=2) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    time.sleep(1)
+            else:
+                raise RuntimeError(f"Restored VictoriaMetrics did not become ready at {health_url}")
+            reports = generate_experiment_reports(
+                Path(self.state["experiment_summary"]),
+                self.repo / "demo/infra/shared",
+                f"http://127.0.0.1:{port}",
+            )
+            self.state["experiment_reports"] = [str(path) for path in reports]
+            self.save()
+        finally:
+            self.run(["docker", "rm", "-f", container_name], check=False)
+            shutil.rmtree(restore_root, ignore_errors=True)
+
     def finalize_bundle(self) -> None:
-        result_dir = Path(self.state["local_result_dir"])
-        self.run([
-            str(self.repo / "demo/infra/aws/restore/package-result.sh"),
-            str(result_dir),
-        ])
-        session_metadata = result_dir / "session"
-        session_metadata.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(self.state_path, session_metadata / "session.json")
         cleanup_report = self.session_dir / "cleanup-report.json"
-        if cleanup_report.is_file():
-            shutil.copy2(cleanup_report, session_metadata / "cleanup-report.json")
-        self.run([
-            sys.executable,
-            str(self.repo / "demo/infra/aws/runner-assets/bin/build-artifact-manifest.py"),
-            str(result_dir),
-            "--run-id", self.config["run_id"],
-        ])
-        archive_path = self.session_dir / f"{self.config['run_id']}-result.tar.gz"
+        result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
+        for target_id, value in result_dirs.items():
+            result_dir = Path(value)
+            self.run([
+                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                str(result_dir),
+            ])
+            session_metadata = result_dir / "session"
+            session_metadata.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.state_path, session_metadata / "session.json")
+            if cleanup_report.is_file():
+                shutil.copy2(cleanup_report, session_metadata / "cleanup-report.json")
+            run_id = next(
+                (target["run_id"] for target in self.config.get("targets", []) if target["id"] == target_id),
+                self.config["run_id"],
+            )
+            self.run([
+                sys.executable,
+                str(self.repo / "demo/infra/aws/runner-assets/bin/build-artifact-manifest.py"),
+                str(result_dir),
+                "--run-id", run_id,
+            ])
+        if self.config.get("mode") == "experiment":
+            result_root = Path(self.state["local_result_dir"])
+            self.run([
+                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                str(result_root),
+            ])
+            session_metadata = result_root / "session"
+            session_metadata.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.state_path, session_metadata / "session.json")
+            if cleanup_report.is_file():
+                shutil.copy2(cleanup_report, session_metadata / "cleanup-report.json")
+            self.run([
+                sys.executable,
+                str(self.repo / "demo/infra/aws/runner-assets/bin/build-artifact-manifest.py"),
+                str(result_root),
+                "--run-id", self.config["session_id"],
+            ])
+        bundle_root = Path(self.state["local_result_dir"])
+        archive_path = self.session_dir / f"{self.config['session_id']}-result.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
-            archive.add(result_dir, arcname=self.config["run_id"])
+            archive.add(bundle_root, arcname=self.config["session_id"])
         self.state["result_bundle"] = str(archive_path)
         self.save()
 
@@ -853,21 +1079,53 @@ class SessionController:
 def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> dict[str, Any]:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,34}", session_id):
         raise ValueError("session-id must be 3-35 lowercase letters, digits, or hyphens")
-    for name, value in (("image-environment", args.image_environment), ("lab-profile", args.lab_profile)):
+    for name, value in (("image-environment", args.image_environment),):
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", value):
             raise ValueError(f"{name} must be 1-32 lowercase letters, digits, or hyphens")
     if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", args.region):
         raise ValueError(f"invalid AWS region name: {args.region}")
-    definition = Path(args.test_definition)
+    definition = Path(args.experiment)
     if definition.is_absolute():
         try:
             definition = definition.relative_to(repo_root())
         except ValueError as error:
-            raise ValueError("test-definition must be inside the repository checkout") from error
+            raise ValueError("experiment must be inside the repository checkout") from error
     definition_path = repo_root() / definition
     if not definition_path.is_file():
-        raise FileNotFoundError(f"test-definition was not found: {definition_path}")
+        raise FileNotFoundError(f"experiment was not found: {definition_path}")
     experiment_id = args.experiment_id or slug(definition.stem)
+    resolved = resolve_experiment_definition(
+        definition_path,
+        repo_root() / "demo/infra/shared/workloads/test-definitions",
+        lab_profile=args.lab_profile,
+    )
+    lab_profile = resolved.lab_profile or "default"
+    materialized = materialize_experiment(
+        resolved,
+        output_dir=session_dir / "materialized",
+        consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
+        repo_dir=repo_root(),
+    )
+    targets = [
+        {
+            "id": item.target.id,
+            "name": item.target.name,
+            "profile": item.target.profile,
+            "run_id": slug(f"{session_id}-{item.target.id}", 50),
+            "local_definition": str(item.definition_path),
+            "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
+            "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
+        }
+        for item in materialized
+    ]
+    mode = "experiment"
+    experiment_name = resolved.name
+    experiment_description = resolved.description
+    base_test_definition = resolved.test.source_name
+    base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
+    sla_profile = str(resolved.definition.get("sla_profile") or "")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
+        raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
     aws_environment = f"s-{hashlib.sha256(session_id.encode('utf-8')).hexdigest()[:10]}"
     return {
@@ -877,14 +1135,22 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         "config": {
             "session_id": session_id,
             "aws_environment": aws_environment,
-            "run_id": session_id,
+            "run_id": targets[0]["run_id"],
             "experiment_id": experiment_id,
+            "experiment_name": experiment_name,
+            "experiment_description": experiment_description,
+            "base_test_definition": base_test_definition,
+            "base_tps": base_tps,
+            "sla_profile": sla_profile,
+            "mode": mode,
             "region": args.region,
             "owner": args.owner,
             "expires_at": utc_text(expires_at),
             "image_environment": args.image_environment,
-            "lab_profile": args.lab_profile,
-            "test_definition": definition.as_posix(),
+            "lab_profile": lab_profile,
+            "experiment": definition.as_posix(),
+            "test_definition": targets[0]["remote_definition"],
+            "targets": targets,
             "test_timeout_seconds": args.test_timeout_seconds,
         },
         "session_dir": str(session_dir),
@@ -903,8 +1169,8 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--experiment-id")
     run_parser.add_argument("--owner", default=os.environ.get("USER", "local-user"))
     run_parser.add_argument("--image-environment", default="dev")
-    run_parser.add_argument("--lab-profile", default="default")
-    run_parser.add_argument("--test-definition", default="demo/infra/aws/test-definitions/smoke-test.yaml")
+    run_parser.add_argument("--lab-profile", help="Override the experiment-wide lab profile.")
+    run_parser.add_argument("--experiment")
     run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
     run_parser.add_argument("--max-session-hours", type=int, default=12)
     image_group = run_parser.add_mutually_exclusive_group()
@@ -929,6 +1195,8 @@ def load_controller(work_dir: Path, session_id: str) -> SessionController:
 
 def main() -> None:
     args = parse_args()
+    if args.command == "run" and not args.experiment:
+        args.experiment = "demo/infra/aws/experiments/smoke.yaml"
     work_dir = Path(args.work_dir).resolve()
     if args.command == "status":
         controller = load_controller(work_dir, args.session_id)
@@ -974,16 +1242,25 @@ def main() -> None:
         controller.state["failure"] = {"at": utc_text(), "message": str(error)}
         controller.save()
     cleanup_failures = controller.cleanup()
+    post_processing_error: Exception | None = None
     if controller.state.get("artifacts_verified"):
         try:
             controller.phase("ANALYZING_AUDIT")
             controller.analyze_local_audit()
+            controller.prepare_experiment_bundle()
+            controller.generate_local_experiment_report()
             controller.finalize_bundle()
         except Exception as error:
+            post_processing_error = error
+            controller.state["post_processing_failure"] = {"at": utc_text(), "message": str(error)}
+            controller.save()
             primary_error = primary_error or error
     if primary_error or cleanup_failures:
         messages = [str(primary_error)] if primary_error else []
+        if post_processing_error is not None and post_processing_error is not primary_error:
+            messages.append(str(post_processing_error))
         messages.extend(cleanup_failures)
+        controller.phase("FAILED" if not cleanup_failures else "FAILED_CLEANUP_INCOMPLETE")
         raise SystemExit("AWS smoke session failed:\n- " + "\n- ".join(messages))
     controller.phase("COMPLETED")
     print(f"AWS smoke session completed: {session_id}")

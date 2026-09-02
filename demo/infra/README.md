@@ -60,7 +60,7 @@ Start long-running AWS lab work from the runner, preferably inside `tmux`:
 tmux new -s ckc
 cd /opt/ckc-runner/assets/repo
 ./demo/infra/aws/runner-assets/bin/create-lab.sh us-east-1 dev default
-./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev demo/infra/aws/test-definitions/ckc-baseline.yaml
+./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev /path/to/materialized/resolved-test.yaml
 ```
 
 Update images and runner assets from your local machine when the code changes:

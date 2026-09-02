@@ -35,7 +35,7 @@ class PlanRunTest(unittest.TestCase):
                     "FIXED",
                     "--telemetry-processing-mode",
                     "AT_LEAST_ONCE_NO_ORDERING",
-                    str(INTERNAL_LAB / "workloads" / "test-definitions" / "large-poll-batches.yaml"),
+                    str(REPO_ROOT / "demo" / "infra" / "shared" / "workloads" / "test-definitions" / "large-poll-batches.yaml"),
                 ],
                 check=True,
                 capture_output=True,

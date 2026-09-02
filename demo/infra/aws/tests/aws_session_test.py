@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import yaml
 
 
 AWS_ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +74,18 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
 
+    def test_demo_chart_renders_large_kafka_byte_limits_as_decimal_integers(self) -> None:
+        if shutil.which("helm") is None:
+            self.skipTest("helm is not installed")
+        rendered = subprocess.run(
+            ["helm", "template", "ckc-demo", str(REPO_ROOT / "demo/infra/shared/helm/demo")],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        self.assertIn('value: "52428800"', rendered)
+        self.assertIn('value: "1048576"', rendered)
+
     def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = Path(directory)
@@ -99,27 +114,71 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("ckc-demo-abc", labels["pod"])
         self.assertEqual("demo", labels["container"])
 
-    def test_new_state_keeps_the_test_definition_checkout_relative(self) -> None:
+    def test_aws_runner_consumes_shared_plan_without_compound_aws_profile(self) -> None:
+        deployment = {
+            "profile": "ckc",
+            "values": {
+                "replicaCount": 3,
+                "env": {"processingDispatcherType": "FIXED", "workerDispatcherThreads": 1},
+                "resources": {"requests": {"cpu": "500m"}},
+                "lab": {"kafkaTopics": [{"name": "order.events.v1", "partitions": 12}]},
+            },
+            "run_plan": {"profile": "ckc", "replica_count": 3, "topics": []},
+        }
+        metadata = run_test_module.normalized_application_metadata(deployment)
+        helm_values = run_test_module.flatten_helm_values({
+            key: value for key, value in deployment["values"].items() if key != "lab"
+        })
+
+        self.assertEqual("ckc", metadata["profile"])
+        self.assertEqual(3, metadata["replica_count"])
+        self.assertEqual(1, metadata["worker_dispatcher_threads"])
+        self.assertEqual(3, helm_values["replicaCount"])
+        self.assertEqual("FIXED", helm_values["env.processingDispatcherType"])
+        self.assertEqual("500m", helm_values["resources.requests.cpu"])
+        self.assertNotIn("lab.kafkaTopics", helm_values)
+
+    def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
+        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml"
+        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+        settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
+
+        self.assertEqual(0, settings["errorRatePercent"])
+        self.assertEqual(20, settings["eta"]["delayP90Ms"])
+        self.assertEqual(80, settings["flavour"]["delayP99Ms"])
+
+    def test_aws_runner_refuses_to_silently_skip_chaos_steps(self) -> None:
+        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/chaos-smoke.yaml"
+        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+
+        with self.assertRaisesRegex(ValueError, "AWS chaos execution is not implemented yet"):
+            run_test_module.validate_aws_chaos_capabilities(definition, definition_path)
+
+    def test_new_state_materializes_shared_aws_experiment_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(
-                test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
+                experiment="demo/infra/aws/experiments/smoke.yaml",
                 experiment_id=None,
                 max_session_hours=12,
                 region="eu-central-1",
                 owner="tester",
                 image_environment="dev",
-                lab_profile="default",
+                lab_profile=None,
                 test_timeout_seconds=1800,
             )
             state = session_module.new_state(args, "s-20260829-120000-abcdef", Path(directory))
-        self.assertEqual("smoke-test", state["config"]["experiment_id"])
-        self.assertEqual("demo/infra/aws/test-definitions/smoke-test.yaml", state["config"]["test_definition"])
-        self.assertEqual("eu-central-1", state["config"]["region"])
-        self.assertRegex(state["config"]["aws_environment"], r"^s-[a-f0-9]{10}$")
+            target = state["config"]["targets"][0]
+            definition = Path(target["local_definition"])
+            self.assertTrue(definition.is_file())
+
+        self.assertEqual("experiment", state["config"]["mode"])
+        self.assertEqual("default", state["config"]["lab_profile"])
+        self.assertEqual("ckc", target["profile"])
+        self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
 
     def test_new_state_rejects_unsafe_session_and_profile_names(self) -> None:
         base = SimpleNamespace(
-            test_definition="demo/infra/aws/test-definitions/smoke-test.yaml",
+            experiment="demo/infra/aws/experiments/smoke.yaml",
             experiment_id=None,
             max_session_hours=12,
             region="eu-central-1",
@@ -134,6 +193,39 @@ class AwsSessionTest(unittest.TestCase):
             base.lab_profile = "default'; touch /tmp/nope"
             with self.assertRaisesRegex(ValueError, "lab-profile"):
                 session_module.new_state(base, "safe-session", Path(directory))
+
+    def test_local_audit_analysis_materializes_shared_sla_as_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            run_dir = session_dir / "result/runs/run-ckc"
+            chunks = run_dir / "audit/chunks"
+            chunks.mkdir(parents=True)
+            (chunks / "audit-000001.log.gz").write_bytes(b"placeholder")
+            state = {
+                "schema_version": 1,
+                "phase": "ANALYZING_AUDIT",
+                "config": {
+                    "session_id": "safe-session",
+                    "region": "eu-central-1",
+                    "experiment": "demo/infra/aws/experiments/smoke.yaml",
+                    "sla_profile": "delivery-integrity",
+                },
+                "terraform": {},
+                "local_result_dirs": {"ckc": str(run_dir)},
+                "local_result_dir": str(run_dir),
+            }
+            controller = session_module.SessionController(session_dir, state)
+            completed = subprocess.CompletedProcess([], 0, stdout="totals: {}\n", stderr="")
+            with patch.object(session_module.subprocess, "run", return_value=completed) as run_command:
+                controller.analyze_local_audit()
+
+            sla_path = run_dir / "audit/sla-profile.json"
+            sla = json.loads(sla_path.read_text(encoding="utf-8"))
+            command = run_command.call_args.args[0]
+
+        self.assertEqual("delivery-integrity", sla["name"])
+        self.assertTrue(sla["criteria"])
+        self.assertEqual(str(sla_path), command[command.index("--sla-profile-file") + 1])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -193,6 +285,108 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("[Open logs](/explore?", experiment_markdown)
         self.assertNotIn("| Property | Value |", experiment_markdown)
         self.assertNotIn("MSK CloudWatch Time Lag", json.dumps(dashboard))
+
+    def test_experiment_bundle_uses_shared_multi_target_grafana_panel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory) / "experiment"
+            run_dirs = []
+            for index, profile in enumerate(("spring-kafka", "ckc"), start=1):
+                run_dir = result / "runs" / f"run-{index}"
+                run_dir.mkdir(parents=True)
+                (run_dir / "run-metadata.json").write_text(json.dumps({
+                    "run_id": run_dir.name,
+                    "target_name": profile,
+                    "test_name": "smoke",
+                    "kafka_mode": "msk",
+                    "application": {"profile": profile, "run_profile": profile, "replica_count": index},
+                    "run_plan": {"topics": []},
+                    "started_at": f"2026-09-01T10:0{index}:00Z",
+                }), encoding="utf-8")
+                (run_dir / "run-status.json").write_text(json.dumps({
+                    "status": "COMPLETED",
+                    "started_at": f"2026-09-01T10:0{index}:00Z",
+                    "ended_at": f"2026-09-01T10:0{index + 1}:00Z",
+                }), encoding="utf-8")
+                run_dirs.append(run_dir)
+            (result / "summary.json").write_text(json.dumps({
+                "experiment_set_id": "set-a",
+                "experiments": [{
+                    "experiment": "comparison",
+                    "test_definition": "smoke",
+                    "base_tps": 5000,
+                    "targets": [
+                        {"name": profile, "run_dir": str(run_dir), "run_status": {"status": "COMPLETED"}, "exit_code": 0}
+                        for profile, run_dir in zip(("spring-kafka", "ckc"), run_dirs)
+                    ],
+                }],
+            }), encoding="utf-8")
+            subprocess.run([
+                sys.executable,
+                str(AWS_ROOT / "restore/finalize-result.py"),
+                str(result),
+                "--repo-root", str(REPO_ROOT),
+            ], check=True)
+            dashboard = json.loads((result / "config/ckc-experiment.json").read_text(encoding="utf-8"))
+            markdown = dashboard["panels"][0]["options"]["content"]
+
+        self.assertIn("Test definition `smoke`, base TPS `5000`", markdown)
+        self.assertIn("spring-kafka", markdown)
+        self.assertIn("ckc", markdown)
+        self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", markdown)
+        self.assertIn("[Open logs](/explore?", markdown)
+        self.assertIn("[spring-kafka](/d/ckc-experiment/ckc-experiment?", markdown)
+
+    def test_controller_builds_portable_experiment_root_from_target_results(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            experiment_path = "demo/infra/aws/experiments/smoke.yaml"
+            target_definition = session_dir / "materialized/ckc/resolved-test.yaml"
+            target_test = target_definition.with_name("resolved-test-source.yaml")
+            target_definition.parent.mkdir(parents=True)
+            target_definition.write_text("name: smoke\n", encoding="utf-8")
+            target_test.write_text("name: smoke\nload_test:\n  base_tps: 10\n", encoding="utf-8")
+            run_dir = session_dir / "result/runs/run-ckc"
+            (run_dir / "metrics").mkdir(parents=True)
+            (run_dir / "logs/loki").mkdir(parents=True)
+            (run_dir / "metrics/victoriametrics-data.tar.gz").write_bytes(b"metrics")
+            (run_dir / "logs/loki/kubernetes.jsonl").write_text("{}\n", encoding="utf-8")
+            (run_dir / "experiment-events.jsonl").write_text('{"type":"run_started"}\n', encoding="utf-8")
+            (run_dir / "run-metadata.json").write_text(json.dumps({
+                "run_id": "run-ckc", "started_at": "2026-09-01T10:00:00Z",
+            }), encoding="utf-8")
+            (run_dir / "run-status.json").write_text(json.dumps({
+                "status": "COMPLETED", "started_at": "2026-09-01T10:00:00Z", "ended_at": "2026-09-01T10:01:00Z",
+            }), encoding="utf-8")
+            state = {
+                "schema_version": 1,
+                "phase": "ANALYZING_AUDIT",
+                "config": {
+                    "session_id": "safe-session",
+                    "mode": "experiment",
+                    "experiment": experiment_path,
+                    "experiment_name": "aws-smoke",
+                    "experiment_description": "Smoke",
+                    "base_test_definition": "smoke",
+                    "base_tps": 10,
+                    "targets": [{
+                        "id": "ckc", "name": "ckc", "profile": "ckc", "run_id": "run-ckc",
+                        "local_definition": str(target_definition), "local_test_definition": str(target_test),
+                    }],
+                },
+                "terraform": {},
+                "target_results": [{"id": "ckc", "status": "Success"}],
+                "local_result_dirs": {"ckc": str(run_dir)},
+                "local_result_dir": str(run_dir),
+            }
+            controller = session_module.SessionController(session_dir, state)
+            controller.prepare_experiment_bundle()
+            summary = json.loads((session_dir / "result/summary.json").read_text(encoding="utf-8"))
+            self.assertTrue((session_dir / "result/metrics/victoriametrics-data.tar.gz").is_file())
+            self.assertTrue((session_dir / "result/logs/loki/ckc-kubernetes.jsonl").is_file())
+            self.assertTrue((session_dir / "result/COMPLETE").is_file())
+
+        self.assertEqual("aws-smoke", summary["experiments"][0]["experiment"])
+        self.assertEqual(str(run_dir), summary["experiments"][0]["targets"][0]["run_dir"])
 
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

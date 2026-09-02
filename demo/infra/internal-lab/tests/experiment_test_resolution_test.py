@@ -81,6 +81,46 @@ class ExperimentTestResolutionTest(unittest.TestCase):
                 self.definitions,
             )
 
+    def test_target_deep_merges_any_nested_test_section(self) -> None:
+        experiment = experiment_test.resolve_experiment_test(
+            {"test_definition": "baseline"}, self.definitions
+        )
+        resolved = experiment_test.resolve_target_test(
+            experiment,
+            {
+                "profile": "ckc",
+                "test": {
+                    "stubs": {"eta": {"delay_p90_ms": 40}},
+                    "load_test": {"workers": 16},
+                    "diagnostic_steps": None,
+                },
+            },
+            self.definitions,
+        )
+        self.assertEqual(40, resolved.definition["stubs"]["eta"]["delay_p90_ms"])
+        self.assertEqual(16, resolved.definition["load_test"]["workers"])
+        self.assertNotIn("diagnostic_steps", resolved.definition)
+        self.assertEqual("baseline", resolved.source_name)
+
+    def test_target_can_select_another_reusable_test(self) -> None:
+        (self.definitions / "alternate.yaml").write_text(
+            yaml.safe_dump({
+                "stubs": {"error_rate_percent": 5},
+                "load_test": {"load_profile": "0 -> (5s, alternate) -> 1"},
+            }),
+            encoding="utf-8",
+        )
+        experiment = experiment_test.resolve_experiment_test(
+            {"test_definition": "baseline"}, self.definitions
+        )
+        resolved = experiment_test.resolve_target_test(
+            experiment,
+            {"profile": "ckc", "test": {"extends": "alternate"}},
+            self.definitions,
+        )
+        self.assertEqual("alternate", resolved.source_name)
+        self.assertEqual(5, resolved.definition["stubs"]["error_rate_percent"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,8 +20,8 @@
 - `../shared/`
   Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
 
-- `test-definitions/`
-  AWS-owned test definitions.
+- `experiments/`
+  AWS entrypoints using the shared experiment, target, and test contracts.
 
 - `scripts/`
   Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
@@ -49,11 +49,13 @@
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `helm/`
-  AWS-owned Helm charts and deployment profiles for the app and stub workloads.
+- `../shared/helm/`
+  Shared app and stub workload charts. Environment profiles are values-only;
+  generated experiment targets do not select an AWS application profile.
 
-- `test-definitions`
-  Test-run definitions that select deployment profiles and load configuration.
+- `../shared/experiment_orchestration`
+  Resolves tests and target overrides and calculates the same profile, topic,
+  concurrency, replica, and resource plan used by internal-lab.
 
 - `../shared/audit`
   Shared audit analysis code. AWS audit chunks can be downloaded from S3 and analyzed from any machine with Python and AWS CLI access.
@@ -72,15 +74,24 @@ Prerequisites:
 - Docker with Buildx when building the current checkout;
 - the normal Gradle/JDK prerequisites for the demo distributions.
 
-The default command builds linux/amd64 images, ensures the persistent ECR
-repositories exist, runs the short AWS smoke definition, downloads and verifies
-the result, and tears the session down:
+The preferred command builds linux/amd64 images, ensures the persistent ECR
+repositories exist, resolves and materializes the shared experiment, runs its
+targets sequentially in one immutable lab, downloads and verifies every target
+result, and tears the session down:
 
 ```bash
 ./demo/infra/aws/scripts/run-experiment.sh run \
   --region us-east-1 \
-  --test-definition demo/infra/aws/test-definitions/smoke-test.yaml
+  --experiment demo/infra/aws/experiments/smoke.yaml
 ```
+
+AWS controller runs always use `--experiment`. The materialized resolved test is
+an internal hand-off to the runner, not a second user-facing definition model.
+For an experiment, `lab.profile` is fixed before provisioning; `--lab-profile`
+can override it for the whole experiment, never for an individual target.
+Each target selects `profile`, may override its resolved test (load, stubs,
+diagnostics, and chaos), and receives a separate run ID, audit analysis, and
+verified artifact directory under `result/runs/`.
 
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
@@ -91,8 +102,7 @@ messages per second:
 ```bash
 ./demo/infra/aws/scripts/run-experiment.sh run \
   --region eu-central-1 \
-  --lab-profile msk-elasticache-20min \
-  --test-definition demo/infra/aws/test-definitions/msk-elasticache-20min-10k.yaml \
+  --experiment demo/infra/aws/experiments/msk-elasticache-20min-10k.yaml \
   --test-timeout-seconds 3600 \
   --max-session-hours 5 \
   --skip-build-images
@@ -190,9 +200,20 @@ machine-readable and human-readable results under the sibling
 `diagnostics/pcap-analysis` directory. Generated experiment reports use those
 results for paired producer/consumer Kafka wire-breakdown bars.
 
+AWS chaos execution is intentionally not enabled by this refactoring. A target
+that contains `chaos_steps` fails before deployment with an explicit capability
+error, so a requested fault can never be silently skipped. The shared schema and
+normalization are reused; provider-specific AWS chaos adapters remain separate
+follow-up work.
+
 See [terraform/README.md](terraform/README.md) and [assets/README.md](assets/README.md).
 
-`create-lab` flushes Redis and accepts a test definition path to recreate Kafka topics from `deployment.kafka_topics` during lab setup. If omitted, AWS uses `demo/infra/aws/test-definitions/ckc-baseline.yaml`.
+Before every experiment target, the runner recreates Kafka topics from the
+shared run plan, flushes Redis, deploys the planned application profile, and
+applies the same stub settings contract as internal-lab. `create-lab` also
+performs the initial reset; if its definition is omitted, it uses the shared
+smoke test as a safe bootstrap definition. The experiment target is then
+materialized and applied before workload deployment.
 
 ## Audit Analysis
 

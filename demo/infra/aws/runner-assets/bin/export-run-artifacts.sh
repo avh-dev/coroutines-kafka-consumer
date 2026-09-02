@@ -23,7 +23,7 @@ python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
   "${RUN_DIR}" --loki-url http://127.0.0.1:3100
 
 sleep 2
-if [ -f "${AUDIT_SOURCE}" ]; then
+if [ -f "${AUDIT_SOURCE}" ] && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -type f -name '*.log.gz' | grep -q .; then
   gzip -c "${AUDIT_SOURCE}" > "${RUN_DIR}/audit/chunks/audit-000001.log.gz"
 fi
 

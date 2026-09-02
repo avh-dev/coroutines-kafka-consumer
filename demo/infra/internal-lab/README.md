@@ -349,7 +349,7 @@ application's `/actuator/prometheus` Thread Stats metrics.
 Any generated test environment value can also be overridden with repeated
 `--env KEY=VALUE` flags. These overrides are applied after the consumer profile and
 test definition are rendered. Static Helm profiles are no longer used for normal
-test runs; `demo/infra/internal-lab/assets/helm/demo/profiles/demo.yaml`
+test runs; `demo/infra/shared/helm/demo/profiles/demo.yaml`
 is kept only as a manual Helm/debug overlay.
 
 ```sh
@@ -851,11 +851,11 @@ Apply the generic manual/debug Helm overlay without changing the generated run
 profile model:
 
 ```sh
-helm upgrade --install ckc-demo demo/infra/internal-lab/assets/helm/demo \
+helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
   --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
   --namespace ckc-perf \
   -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/internal-lab/assets/helm/demo/profiles/demo.yaml
+  -f demo/infra/shared/helm/demo/profiles/demo.yaml
 ```
 
 Useful Prometheus queries:

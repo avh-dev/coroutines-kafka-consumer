@@ -19,7 +19,7 @@ from typing import Any
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, parse_load_profile
-from experiment_test import resolve_experiment_test, write_resolved_test
+from experiment_test import resolve_experiment_definition, write_resolved_test
 
 try:
     import yaml
@@ -285,6 +285,40 @@ def helm_override_args(helm: dict[str, Any]) -> list[str]:
         args.extend(["--demo-cpu-limit", env_value(limits["cpu"])])
     if "memory" in limits:
         args.extend(["--demo-memory-limit", env_value(limits["memory"])])
+    return args
+
+
+def application_override_args(application: dict[str, Any]) -> list[str]:
+    if not isinstance(application, dict):
+        raise ValueError("target.application must be an object")
+    args: list[str] = []
+    if "replicas" in application:
+        args.extend(["--replicas", env_value(application["replicas"])])
+    if "java_tool_options" in application:
+        args.extend(["--demo-java-tool-options", env_value(application["java_tool_options"])])
+    resources = application.get("resources") or {}
+    if not isinstance(resources, dict):
+        raise ValueError("target.application.resources must be an object")
+    for section, suffix in (("requests", "request"), ("limits", "limit")):
+        values = resources.get(section) or {}
+        if not isinstance(values, dict):
+            raise ValueError(f"target.application.resources.{section} must be an object")
+        for resource in ("cpu", "memory"):
+            if resource in values:
+                args.extend([f"--demo-{resource}-{suffix}", env_value(values[resource])])
+    hpa = application.get("hpa") or {}
+    if not isinstance(hpa, dict):
+        raise ValueError("target.application.hpa must be an object")
+    hpa_flags = {
+        "enabled": "--hpa-enabled",
+        "min_replicas": "--hpa-min-replicas",
+        "max_replicas": "--hpa-max-replicas",
+        "target_cpu_utilization_percentage": "--hpa-target-cpu-utilization-percentage",
+        "scale_down_stabilization_window_seconds": "--hpa-scale-down-stabilization-window-seconds",
+    }
+    for key, flag in hpa_flags.items():
+        if key in hpa:
+            args.extend([flag, env_value(hpa[key])])
     return args
 
 
@@ -556,7 +590,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
             command.extend(["--parallelism", env_value(values)])
         if "base_tps" in test:
             command.extend(["--base-rate", env_value(test["base_tps"])])
-        if "replicas" in test:
+        if "replicas" in test and "replicas" not in (test.get("application") or {}):
             command.extend(["--replicas", env_value(test["replicas"])])
         for topic in ("order", "batch", "telemetry"):
             command.extend([f"--{topic}-planning-latency-ms", env_value(topic_planning_latency(test, topic))])
@@ -571,6 +605,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
             if queue_key in test:
                 command.extend([f"--{topic}-queue-capacity", env_value(test[queue_key])])
         command.extend(helm_override_args(test.get("helm") or {}))
+        command.extend(application_override_args(test.get("application") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])
     if "stub_replicas" in test:
@@ -786,10 +821,11 @@ def run_experiment(
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    resolved_test = resolve_experiment_test(
-        experiment,
+    resolved_experiment = resolve_experiment_definition(
+        experiment_path,
         lab_root / "workloads" / "test-definitions",
     )
+    resolved_test = resolved_experiment.test
     definition = resolved_test.definition
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict) or not load_test.get("load_profile"):
@@ -835,12 +871,25 @@ def run_experiment(
         if description:
             log_file.write(f"description: {description}\n")
         for index, target in enumerate(targets, start=1):
+            resolved_target = resolved_experiment.targets[index - 1]
+            target_definition = resolved_target.test.definition
+            target_load_test = target_definition.get("load_test")
+            if not isinstance(target_load_test, dict) or not target_load_test.get("load_profile"):
+                raise ValueError(f"Resolved target test must define load_test.load_profile: {resolved_target.name}")
+            parse_load_profile(str(target_load_test["load_profile"]))
+            target_base_tps = target_load_test.get("base_tps", base_tps)
+            if target_base_tps in (None, ""):
+                raise ValueError(f"Resolved target test must define load_test.base_tps: {resolved_target.name}")
+            target_resolved_test_path = log_dir / (
+                f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
+            )
+            write_resolved_test(target_resolved_test_path, target_definition)
             target_run = merge_target_defaults(defaults, target)
             target_run.update(
                 {
-                    "test_definition": test_definition,
-                    "resolved_test_path": str(resolved_test_path),
-                    "base_tps": base_tps,
+                    "test_definition": resolved_target.test.source_name,
+                    "resolved_test_path": str(target_resolved_test_path),
+                    "base_tps": int(target_base_tps),
                     "run_annotation_label": annotation_labels[index - 1],
                 }
             )
@@ -899,6 +948,10 @@ def run_experiment(
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,
+        "target_resolved_tests": {
+            str(target["target"]): str(target["resolved_test_path"])
+            for target in results
+        },
         "analysis": analysis_results,
         "exit_code": exit_code,
     }

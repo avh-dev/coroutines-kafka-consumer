@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -19,19 +18,36 @@ from pathlib import Path
 from typing import Any
 
 
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load helper module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+SHARED_INFRA = Path(__file__).resolve().parents[1]
+if str(SHARED_INFRA) not in sys.path:
+    sys.path.insert(0, str(SHARED_INFRA))
+
+from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
+from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
-    module_path = repo_dir / "demo" / "infra" / "internal-lab" / "assets" / "helpers" / "diagnostic_steps.py"
-    module = load_module(module_path, "ckc_diagnostic_steps")
-    return module.normalize(definition, definition_path)
+    del repo_dir
+    return normalize_diagnostic_steps(definition, definition_path)
+
+
+def normalized_stub_settings(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> dict[str, Any] | None:
+    stubs = definition.get("stubs")
+    if not isinstance(stubs, dict) or not stubs:
+        return None
+    del repo_dir
+    return stub_settings_from_definition(stubs, definition_path)
+
+
+def validate_aws_chaos_capabilities(definition: dict[str, Any], definition_path: Path) -> None:
+    if not definition.get("chaos_steps"):
+        return
+    steps = normalized_chaos_steps(definition, definition.get("stubs") or {}, definition_path)
+    step_types = ", ".join(sorted({str(step["type"]) for step in steps}))
+    raise ValueError(
+        "AWS chaos execution is not implemented yet; refusing to ignore configured "
+        f"chaos steps ({step_types})."
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -444,6 +460,44 @@ def configure_prometheus_bridge(runner_home: Path, port_forward_pid_file: Path, 
     raise RuntimeError(f"Port-forward to ckc-demo did not become ready. See {port_forward_log_file}")
 
 
+def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 18081) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            [
+                "kubectl", "-n", "ckc-app", "port-forward", "service/ckc-demo-stubs",
+                f"{local_port}:8080", "--address", "127.0.0.1",
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            payload = json.dumps(settings).encode("utf-8")
+            for _ in range(30):
+                try:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{local_port}/settings",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=5):
+                        return
+                except OSError:
+                    if process.poll() is not None:
+                        break
+                    time.sleep(1)
+            raise RuntimeError(f"Demo stub settings endpoint did not become ready; see {log_path}")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+
 def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: list[Path], set_values: dict[str, Any]) -> None:
     command = [
         "helm",
@@ -838,6 +892,22 @@ def load_lab_context(path: Path) -> dict[str, Any]:
     return data
 
 
+def reset_target_data(repo_dir: Path, definition_path: Path, lab_context: dict[str, Any]) -> None:
+    run([
+        sys.executable,
+        str(repo_dir / "demo/infra/shared/test-orchestration/prepare-kafka-topics.py"),
+        "--bootstrap-server", as_str(lab_context.get("kafka_bootstrap"), ""),
+        "--replication-factor", str(as_int(lab_context.get("kafka_topic_replication_factor"), 1)),
+        "--test-definition-path", str(definition_path),
+        "--repo-dir", str(repo_dir),
+    ])
+    run([
+        sys.executable,
+        str(repo_dir / "demo/infra/shared/test-orchestration/flush-redis.py"),
+        "--host", as_str(lab_context.get("redis_host"), ""),
+    ])
+
+
 def require_section(root: dict[str, Any], name: str) -> dict[str, Any]:
     value = root.get(name)
     if not isinstance(value, dict):
@@ -873,22 +943,42 @@ def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
     return {helm_name: deployment[name] for name, helm_name in mappings.items() if deployment.get(name) is not None}
 
 
+def deployment_profile(deployment: dict[str, Any]) -> str:
+    return as_str(deployment.get("profile"), "ckc")
+
+
+def flatten_helm_values(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in values.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            result.update(flatten_helm_values(value, path))
+        else:
+            result[path] = value
+    return result
+
+
 def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any]:
+    run_plan = deployment.get("run_plan") or {}
+    values = deployment.get("values") or {}
+    env = values.get("env") or {}
     return {
-        "run_profile": deployment.get("app_profile", ""),
-        "profile": deployment.get("app_profile", ""),
-        "replica_count": deployment.get("replica_count"),
-        "processing_dispatcher_type": deployment.get("processing_dispatcher_type", "AUTO"),
-        "worker_dispatcher_threads": deployment.get("worker_dispatcher_threads", 8),
+        "run_profile": deployment_profile(deployment),
+        "profile": deployment_profile(deployment),
+        "replica_count": run_plan.get("replica_count", deployment.get("replica_count")),
+        "processing_dispatcher_type": run_plan.get("processing_dispatcher_type", deployment.get("processing_dispatcher_type", "AUTO")),
+        "worker_dispatcher_threads": run_plan.get("worker_dispatcher_threads", env.get("workerDispatcherThreads", deployment.get("worker_dispatcher_threads", 8))),
         "processing_modes": {
-            "order": deployment.get("order_processing_mode", ""),
-            "batch": deployment.get("batch_processing_mode", ""),
-            "telemetry": deployment.get("telemetry_processing_mode", ""),
+            "order": env.get("orderProcessingMode", deployment.get("order_processing_mode", "")),
+            "batch": env.get("batchProcessingMode", deployment.get("batch_processing_mode", "")),
+            "telemetry": env.get("telemetryProcessingMode", deployment.get("telemetry_processing_mode", "")),
         },
     }
 
 
 def normalized_run_plan(deployment: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(deployment.get("run_plan"), dict):
+        return deployment["run_plan"]
     topics: list[dict[str, Any]] = []
     names = {"order": "order", "batch": "batch", "cauldron": "telemetry"}
     for topic in deployment.get("kafka_topics", []):
@@ -918,8 +1008,8 @@ def deploy_workloads(
     run_id: str,
 ) -> None:
     deployment = require_section(definition, "deployment")
-    app_profile = as_str(deployment.get("app_profile"), "ckc-single")
-    charts_dir = repo_dir / "demo" / "infra" / "aws" / "helm"
+    profile = deployment_profile(deployment)
+    charts_dir = repo_dir / "demo" / "infra" / "shared" / "helm"
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
 
     stubs_chart = charts_dir / "demo-stubs"
@@ -942,10 +1032,11 @@ def deploy_workloads(
     )
 
     demo_chart = charts_dir / "demo"
-    demo_value_files = [
-        demo_chart / "values.yaml",
-        require_profile_file(demo_chart / "profiles" / "aws", app_profile),
-    ]
+    demo_value_files = [demo_chart / "values.yaml"]
+    if not isinstance(deployment.get("values"), dict):
+        raise ValueError(
+            "AWS deployment.values is missing; materialize the target from a shared experiment before running it."
+        )
     demo_overrides = {
         "image.repository": f"{registry}/demo",
         "image.tag": "latest",
@@ -955,13 +1046,16 @@ def deploy_workloads(
         "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
         "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
         "env.auditRunId": run_id,
-        "runProfile": app_profile,
+        "runProfile": profile,
         "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
         "diagnostics.packetCapture.enabled": packet_capture_enabled,
     }
+    planned_values = deployment.get("values") or {}
+    if isinstance(planned_values, dict):
+        demo_overrides.update(flatten_helm_values({key: value for key, value in planned_values.items() if key != "lab"}))
     demo_overrides.update(deployment_value_overrides(deployment))
     helm_upgrade_install(
         "ckc-demo",
@@ -989,6 +1083,8 @@ def main() -> None:
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
+    stub_settings = normalized_stub_settings(repo_dir, definition, definition_path)
+    validate_aws_chaos_capabilities(definition, definition_path)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
     registry = as_str(lab_context.get("registry"), "")
@@ -1001,6 +1097,7 @@ def main() -> None:
 
     configure_kube_access(args, lab_context, runner_home)
     prepare_namespaces()
+    reset_target_data(repo_dir, definition_path, lab_context)
 
     port_forward_pid_file = runner_home / "config" / "ckc-demo-port-forward.pid"
     port_forward_log_file = runner_home / "reports" / "ckc-demo-port-forward.log"
@@ -1035,7 +1132,7 @@ def main() -> None:
     metadata = {
         "run_id": run_id,
         "test_name": definition.get("name", "unnamed"),
-        "target_name": deployment.get("annotation_label") or deployment.get("app_profile") or definition.get("name", "unnamed"),
+        "target_name": deployment.get("annotation_label") or deployment_profile(deployment) or definition.get("name", "unnamed"),
         "test_definition": str(definition_path),
         "region": args.region,
         "environment": args.environment,
@@ -1056,6 +1153,8 @@ def main() -> None:
     try:
         deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id)
         wait_for_demo_rollout()
+        if stub_settings is not None:
+            configure_stubs(stub_settings, run_dir / "logs" / "configure-stubs.log")
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         metrics_url = as_str(lab_context.get("metrics_url"), "http://127.0.0.1:9090")
@@ -1064,7 +1163,7 @@ def main() -> None:
         metadata["started_at"] = started_at
         metadata["telemetry_ready_at"] = telemetry_ready_at
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
-        annotation_label = as_str(deployment.get("annotation_label"), as_str(deployment.get("app_profile"), run_id))
+        annotation_label = as_str(deployment.get("annotation_label"), deployment_profile(deployment) or run_id)
         append_experiment_event(run_dir, {
             "timestamp": started_at,
             "type": "run_started",
@@ -1182,8 +1281,8 @@ def main() -> None:
             append_experiment_event(run_dir, {
                 "timestamp": ended_at,
                 "type": "run_failed",
-                "title": as_str(deployment.get("app_profile"), run_id),
-                "text": as_str(deployment.get("app_profile"), run_id),
+                "title": deployment_profile(deployment) or run_id,
+                "text": deployment_profile(deployment) or run_id,
                 "status": "failed",
                 "details": {"runId": run_id},
             })

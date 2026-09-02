@@ -269,6 +269,7 @@
 | [INFRA-125](#infra-125) | Add a checkout-local, ephemeral AWS experiment smoke workflow with portable artifacts and verified cleanup. | DONE |
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
 | [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
+| [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3028,3 +3029,14 @@ The completed run exposed one-minute default Alloy scrapes and a five-minute def
 Continuously stream Kubernetes workload logs through the shared Alloy/Loki path so logs survive HPA pod deletion. Preserve `application`, `namespace`, `pod`, `container`, `node`, `profile`, `environment`, and `run_id` labels in the portable Loki export, while retaining labeled runner-file logs as a fallback.
 
 Separate the existing Thread Stats `audit` group from `Other` in the three shared category panels for CPU time, allocations, and CPU usage, making audit transport overhead directly visible in both internal-lab and AWS result dashboards.
+
+<a id="infra-128"></a>
+### INFRA-128 - Unify experiment orchestration across internal-lab and AWS
+
+_Date: 2026-09-01_
+
+Move the experiment, resolved-test, target, consumer-profile, planning, lifecycle-event, and comparative-report model into `demo/infra/shared`, retaining compatibility entrypoints while the two environments migrate.
+Keep one immutable lab profile for an experiment, allow each target to select its consumer profile and override deployment or any nested test setting, and persist the fully resolved test and lab configuration for every target.
+Use environment adapters for installed internal-lab services versus disposable AWS provisioning, artifact transport, CloudWatch/cost data, provider-specific chaos, and verified cloud teardown.
+Replace the AWS-only `app_profile` presets with explicit target consumer profiles plus deployment/resources/scaling policy, migrate existing definitions, and prove the shared path with internal tests followed by a small disposable AWS smoke.
+Validate the shared path with AWS session `s-20260902-091243-ff0dd2`: the target, metrics coverage, audit SLA, result report, and portable bundle completed successfully, followed by independently verified clean teardown.

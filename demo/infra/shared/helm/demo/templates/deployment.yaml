@@ -1,0 +1,213 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+        ckc.dev/test-run-id: {{ .Values.env.auditRunId | quote }}
+        ckc.dev/profile: {{ .Values.runProfile | quote }}
+{{- with .Values.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Release.Name }}
+{{- with .Values.hostAliases }}
+      hostAliases:
+{{ toYaml . | indent 8 }}
+{{- end }}
+      containers:
+        - name: demo
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+{{- if .Values.diagnostics.packetCapture.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - NET_RAW
+              drop:
+                - ALL
+          volumeMounts:
+            - name: packet-captures
+              mountPath: /captures
+{{- end }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: EXPERIMENT_TARGET_NAME
+              value: {{ .Values.env.experimentTargetName | quote }}
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.env.springProfilesActive | quote }}
+            - name: KAFKA_ENABLED
+              value: {{ .Values.env.kafkaEnabled | quote }}
+            - name: DEMO_KAFKA_ENABLED
+              value: {{ .Values.env.demoKafkaEnabled | quote }}
+            - name: DEMO_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.env.bootstrapServers | quote }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.env.bootstrapServers | quote }}
+            - name: GROUP_ID
+              value: {{ .Values.env.groupId | quote }}
+            - name: SPRING_DATA_REDIS_HOST
+              value: {{ .Values.env.redisHost | quote }}
+            - name: SPRING_DATA_REDIS_PORT
+              value: {{ .Values.env.redisPort | quote }}
+            - name: AUDIT_TCP_HOST
+              value: {{ .Values.env.auditTcpHost | quote }}
+            - name: AUDIT_TCP_PORT
+              value: {{ .Values.env.auditTcpPort | quote }}
+            - name: AUDIT_RUN_ID
+              value: {{ .Values.env.auditRunId | quote }}
+{{- if .Values.env.javaToolOptions }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.env.javaToolOptions | quote }}
+{{- end }}
+            - name: MODEL_BASE_URL
+              value: {{ .Values.env.modelBaseUrl | quote }}
+            - name: ETA_MODEL_BASE_URL
+              value: {{ .Values.env.etaModelBaseUrl | quote }}
+            - name: FLAVOUR_MODEL_BASE_URL
+              value: {{ .Values.env.flavourModelBaseUrl | quote }}
+            - name: REGISTRY_BASE_URL
+              value: {{ .Values.env.registryBaseUrl | quote }}
+            - name: JDK_HTTP_CLIENT_EXECUTOR
+              value: {{ .Values.env.jdkHttpClientExecutor | quote }}
+            - name: JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX
+              value: {{ .Values.env.jdkHttpClientVirtualThreadNamePrefix | quote }}
+            - name: DEMO_CONSUMER_PROCESSING_ENABLED
+              value: {{ .Values.env.processingEnabled | quote }}
+            - name: METRICS_IMPLEMENTATION
+              value: {{ .Values.env.metricsImplementation | quote }}
+            - name: LETTUCE_METRICS_ENABLED
+              value: {{ .Values.env.lettuceMetricsEnabled | quote }}
+            - name: PROCESSING_DISPATCHER_TYPE
+              value: {{ .Values.env.processingDispatcherType | quote }}
+            - name: WORKER_DISPATCHER_THREADS
+              value: {{ .Values.env.workerDispatcherThreads | quote }}
+            - name: PROCESSING_DISPATCHER_VIRTUAL_THREAD_NAME_PREFIX
+              value: {{ .Values.env.processingDispatcherVirtualThreadNamePrefix | quote }}
+            - name: FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS
+              value: {{ .Values.env.freshnessFirstMaxRecordAgeSeconds | quote }}
+            - name: DEMO_CONSUMER_RETRY_MAX_ATTEMPTS
+              value: {{ .Values.env.consumerRetryMaxAttempts | quote }}
+            - name: DEMO_CONSUMER_RETRY_MAX_RETRIES
+              value: {{ .Values.env.consumerRetryMaxRetries | quote }}
+            - name: DEMO_CONSUMER_RETRY_BACKOFF_MS
+              value: {{ .Values.env.consumerRetryBackoffMs | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.kafkaConsumerFetchMinBytes | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.kafkaConsumerFetchMaxWaitMs | quote }}
+            - name: KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.kafkaConsumerMaxPollRecords | quote }}
+            - name: KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.kafkaConsumerFetchMaxBytes | int64 | quote }}
+            - name: KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.kafkaConsumerMaxPartitionFetchBytes | int64 | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.orderKafkaConsumerFetchMinBytes | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.orderKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: ORDER_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.orderKafkaConsumerMaxPollRecords | quote }}
+            - name: ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.orderKafkaConsumerFetchMaxBytes | quote }}
+            - name: ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.orderKafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.batchKafkaConsumerFetchMinBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.batchKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.batchKafkaConsumerMaxPollRecords | quote }}
+            - name: BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.batchKafkaConsumerFetchMaxBytes | quote }}
+            - name: BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.batchKafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMinBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMaxWaitMs | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: {{ .Values.env.telemetryKafkaConsumerMaxPollRecords | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerFetchMaxBytes | quote }}
+            - name: TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
+              value: {{ .Values.env.telemetryKafkaConsumerMaxPartitionFetchBytes | quote }}
+            - name: AUDIT_LOG_ENABLED
+              value: {{ .Values.env.auditLogEnabled | quote }}
+            - name: ORDER_PROCESSING_MODE
+              value: {{ .Values.env.orderProcessingMode | quote }}
+            - name: ORDER_WORKER_CONCURRENCY
+              value: {{ .Values.env.orderWorkerConcurrency | quote }}
+            - name: ORDER_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.orderPollLoopConcurrency | quote }}
+            - name: ORDER_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.orderWorkChannelCapacity | quote }}
+            - name: BATCH_PROCESSING_MODE
+              value: {{ .Values.env.batchProcessingMode | quote }}
+            - name: BATCH_WORKER_CONCURRENCY
+              value: {{ .Values.env.batchWorkerConcurrency | quote }}
+            - name: BATCH_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.batchPollLoopConcurrency | quote }}
+            - name: BATCH_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.batchWorkChannelCapacity | quote }}
+            - name: TELEMETRY_PROCESSING_MODE
+              value: {{ .Values.env.telemetryProcessingMode | quote }}
+            - name: TELEMETRY_WORKER_CONCURRENCY
+              value: {{ .Values.env.telemetryWorkerConcurrency | quote }}
+            - name: TELEMETRY_POLL_LOOP_CONCURRENCY
+              value: {{ .Values.env.telemetryPollLoopConcurrency | quote }}
+            - name: TELEMETRY_WORK_CHANNEL_CAPACITY
+              value: {{ .Values.env.telemetryWorkChannelCapacity | quote }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+{{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+{{- end }}
+{{- with .Values.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
+{{- if .Values.diagnostics.packetCapture.enabled }}
+      volumes:
+        - name: packet-captures
+          emptyDir:
+            sizeLimit: {{ .Values.diagnostics.packetCapture.storageSizeLimit | quote }}
+{{- end }}

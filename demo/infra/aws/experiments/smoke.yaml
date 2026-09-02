@@ -1,0 +1,32 @@
+name: aws-smoke
+description: Minimal end-to-end AWS experiment using the shared experiment and target contracts.
+lab:
+  profile: default
+test:
+  extends: smoke
+sla_profile: delivery-integrity
+
+defaults:
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    hpa:
+      enabled: false
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+
+targets:
+  - name: ckc
+    profile: ckc
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
