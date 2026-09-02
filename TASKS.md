@@ -271,7 +271,7 @@
 | [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
 | [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
 | [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | DONE |
-| [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | IN_PROGRESS |
+| [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3060,3 +3060,4 @@ _Date: 2026-09-02_
 
 Preserve the environment-specific experiment directory while syncing shared test definitions, SLA profiles, and consumer profiles into the installed internal lab.
 Add regression coverage for the installed workload layout and validate the shared experiment path with the local `smoke-repeat` experiment.
+Validate experiment set `20260902T145139Z`: both targets completed with passing delivery and latency SLAs, complete application log labels, and healthy Kafka exporter metrics.
