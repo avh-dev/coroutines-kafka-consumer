@@ -184,7 +184,9 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads" "${LAB_ROOT}/workloads"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads/experiments" "${LAB_ROOT}/workloads/experiments"
+  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/test-definitions" "${LAB_ROOT}/workloads/test-definitions"
+  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/sla-profiles" "${LAB_ROOT}/workloads/sla-profiles"
   sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
@@ -347,6 +349,7 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
     "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" \
     "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    "${LAB_ROOT}/workloads/sla-profiles/consumer-baseline.yaml" \
     "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
     "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
     "${LAB_ROOT}/workloads/experiments/spring-kafka-thread-stats-progression.yaml" \
