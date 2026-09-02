@@ -270,7 +270,7 @@
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
 | [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
 | [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
-| [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | IN_PROGRESS |
+| [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3050,3 +3050,4 @@ _Date: 2026-09-02_
 Export Kubernetes logs from the start of target orchestration so application startup and deployment diagnostics are retained even when the workload starts later.
 Keep the metrics dashboard focused on the measured workload while allowing log links to open the wider orchestration interval.
 Validate expected application, stub, and load-test Loki streams during AWS smoke runs so incomplete log bundles cannot silently pass.
+Validate session `s-20260902-131428-73b049` with 730 application, 8 stub, and 18 load-test log records, a widened `Open logs` interval, successful audit and metrics coverage, and independently verified clean AWS teardown.
