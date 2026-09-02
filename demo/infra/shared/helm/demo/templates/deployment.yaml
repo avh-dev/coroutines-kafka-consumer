@@ -116,9 +116,9 @@ spec:
             - name: KAFKA_CONSUMER_MAX_POLL_RECORDS
               value: {{ .Values.env.kafkaConsumerMaxPollRecords | quote }}
             - name: KAFKA_CONSUMER_FETCH_MAX_BYTES
-              value: {{ .Values.env.kafkaConsumerFetchMaxBytes | quote }}
+              value: {{ .Values.env.kafkaConsumerFetchMaxBytes | int64 | quote }}
             - name: KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
-              value: {{ .Values.env.kafkaConsumerMaxPartitionFetchBytes | quote }}
+              value: {{ .Values.env.kafkaConsumerMaxPartitionFetchBytes | int64 | quote }}
             - name: ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES
               value: {{ .Values.env.orderKafkaConsumerFetchMinBytes | quote }}
             - name: ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS

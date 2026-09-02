@@ -28,6 +28,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
 from experiment_report import generate_experiment_reports
+from experiment_report.analyze import load_sla_profile, load_yaml
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
@@ -863,6 +864,10 @@ class SessionController:
 
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
+        sla_profile = None
+        if self.config.get("sla_profile"):
+            experiment_path = self.repo / self.config["experiment"]
+            sla_profile = load_sla_profile(SHARED_INFRA, load_yaml(experiment_path))
         summaries: dict[str, str] = {}
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
@@ -881,11 +886,9 @@ class SessionController:
             metadata = result_dir / "run-metadata.json"
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
-            sla_profile = str(self.config.get("sla_profile") or "")
             if sla_profile:
-                sla_path = self.repo / "demo/infra/shared/workloads/sla-profiles" / (
-                    sla_profile if sla_profile.endswith(".yaml") else f"{sla_profile}.yaml"
-                )
+                sla_path = audit_dir / "sla-profile.json"
+                json_write(sla_path, sla_profile)
                 command.extend(["--sla-profile-file", str(sla_path)])
             completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
             summary.write_text(completed.stdout, encoding="utf-8")
@@ -1239,6 +1242,7 @@ def main() -> None:
         controller.state["failure"] = {"at": utc_text(), "message": str(error)}
         controller.save()
     cleanup_failures = controller.cleanup()
+    post_processing_error: Exception | None = None
     if controller.state.get("artifacts_verified"):
         try:
             controller.phase("ANALYZING_AUDIT")
@@ -1247,10 +1251,16 @@ def main() -> None:
             controller.generate_local_experiment_report()
             controller.finalize_bundle()
         except Exception as error:
+            post_processing_error = error
+            controller.state["post_processing_failure"] = {"at": utc_text(), "message": str(error)}
+            controller.save()
             primary_error = primary_error or error
     if primary_error or cleanup_failures:
         messages = [str(primary_error)] if primary_error else []
+        if post_processing_error is not None and post_processing_error is not primary_error:
+            messages.append(str(post_processing_error))
         messages.extend(cleanup_failures)
+        controller.phase("FAILED" if not cleanup_failures else "FAILED_CLEANUP_INCOMPLETE")
         raise SystemExit("AWS smoke session failed:\n- " + "\n- ".join(messages))
     controller.phase("COMPLETED")
     print(f"AWS smoke session completed: {session_id}")

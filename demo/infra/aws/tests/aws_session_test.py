@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,18 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "pod"', script)
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
+
+    def test_demo_chart_renders_large_kafka_byte_limits_as_decimal_integers(self) -> None:
+        if shutil.which("helm") is None:
+            self.skipTest("helm is not installed")
+        rendered = subprocess.run(
+            ["helm", "template", "ckc-demo", str(REPO_ROOT / "demo/infra/shared/helm/demo")],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        self.assertIn('value: "52428800"', rendered)
+        self.assertIn('value: "1048576"', rendered)
 
     def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -180,6 +193,39 @@ class AwsSessionTest(unittest.TestCase):
             base.lab_profile = "default'; touch /tmp/nope"
             with self.assertRaisesRegex(ValueError, "lab-profile"):
                 session_module.new_state(base, "safe-session", Path(directory))
+
+    def test_local_audit_analysis_materializes_shared_sla_as_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            run_dir = session_dir / "result/runs/run-ckc"
+            chunks = run_dir / "audit/chunks"
+            chunks.mkdir(parents=True)
+            (chunks / "audit-000001.log.gz").write_bytes(b"placeholder")
+            state = {
+                "schema_version": 1,
+                "phase": "ANALYZING_AUDIT",
+                "config": {
+                    "session_id": "safe-session",
+                    "region": "eu-central-1",
+                    "experiment": "demo/infra/aws/experiments/smoke.yaml",
+                    "sla_profile": "delivery-integrity",
+                },
+                "terraform": {},
+                "local_result_dirs": {"ckc": str(run_dir)},
+                "local_result_dir": str(run_dir),
+            }
+            controller = session_module.SessionController(session_dir, state)
+            completed = subprocess.CompletedProcess([], 0, stdout="totals: {}\n", stderr="")
+            with patch.object(session_module.subprocess, "run", return_value=completed) as run_command:
+                controller.analyze_local_audit()
+
+            sla_path = run_dir / "audit/sla-profile.json"
+            sla = json.loads(sla_path.read_text(encoding="utf-8"))
+            command = run_command.call_args.args[0]
+
+        self.assertEqual("delivery-integrity", sla["name"])
+        self.assertTrue(sla["criteria"])
+        self.assertEqual(str(sla_path), command[command.index("--sla-profile-file") + 1])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
