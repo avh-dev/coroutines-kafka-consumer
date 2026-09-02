@@ -33,6 +33,29 @@ def result_window(run_dirs: list[Path], padding: timedelta = timedelta(minutes=2
     return (min(starts) if starts else None, max(ends) if ends else None)
 
 
+def result_log_window(
+    run_dirs: list[Path],
+    padding: timedelta = timedelta(minutes=2),
+) -> tuple[datetime | None, datetime | None]:
+    starts: list[datetime] = []
+    ends: list[datetime] = []
+    for run_dir in run_dirs:
+        metadata = load_json(run_dir / "run-metadata.json") if (run_dir / "run-metadata.json").is_file() else {}
+        status = load_json(run_dir / "run-status.json") if (run_dir / "run-status.json").is_file() else {}
+        start = parse_instant(
+            status.get("orchestration_started_at")
+            or metadata.get("orchestration_started_at")
+            or status.get("started_at")
+            or metadata.get("started_at")
+        )
+        end = parse_instant(status.get("ended_at"))
+        if start:
+            starts.append(start - padding)
+        if end:
+            ends.append(end + padding)
+    return (min(starts) if starts else None, max(ends) if ends else None)
+
+
 def _utc_minute(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%MZ")
 

@@ -202,11 +202,14 @@ def experiment_panel_markdown(
     run_dirs: list[Path],
     start: datetime | None,
     end: datetime | None,
+    logs_start: datetime | None = None,
+    logs_end: datetime | None = None,
     loki_selector: str = '{namespace="ckc-perf", run_id=~".+"}',
 ) -> str:
     summary = experiment_summary(result_type, result_dir)
     lines = [
-        f"[Reset time range]({dashboard_url(start, end)}) | [Open logs]({logs_url(start, end, loki_selector)})",
+        f"[Reset time range]({dashboard_url(start, end)}) | "
+        f"[Open logs]({logs_url(logs_start or start, logs_end or end, loki_selector)})",
         "",
     ]
     facts = experiment_facts(summary, run_dirs)

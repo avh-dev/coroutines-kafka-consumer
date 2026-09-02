@@ -67,12 +67,15 @@ class AwsSessionTest(unittest.TestCase):
 
     def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
         self.assertGreaterEqual(len(re.findall(r'scrape_interval\s*=\s*"15s"', script)), 4)
         self.assertIn('loki.source.kubernetes "workload_logs"', script)
         self.assertIn('target_label  = "application"', script)
         self.assertIn('target_label  = "pod"', script)
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
+        for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
+            self.assertIn(f"--require-application {application}", export_script)
 
     def test_demo_chart_renders_large_kafka_byte_limits_as_decimal_integers(self) -> None:
         if shutil.which("helm") is None:
@@ -91,6 +94,7 @@ class AwsSessionTest(unittest.TestCase):
             result = Path(directory)
             (result / "run-status.json").write_text(json.dumps({
                 "run_id": "run-a",
+                "orchestration_started_at": "2026-09-01T06:58:00Z",
                 "started_at": "2026-09-01T07:00:00Z",
                 "ended_at": "2026-09-01T07:01:00Z",
             }), encoding="utf-8")
@@ -98,13 +102,32 @@ class AwsSessionTest(unittest.TestCase):
                 "stream": {"application": "ckc-demo", "namespace": "ckc-app", "pod": "demo-abc"},
                 "values": [["1788246000000000000", "hello"]],
             }]
-            with patch.object(export_loki_module, "query_range", return_value=page):
+            with patch.object(export_loki_module, "query_range", return_value=page) as query:
                 count = export_loki_module.export(result, "http://loki", '{namespace="ckc-app"}', 5000)
             record = json.loads((result / "logs/loki/kubernetes.jsonl").read_text(encoding="utf-8"))
         self.assertEqual(1, count)
+        self.assertEqual(export_loki_module.instant_ns("2026-09-01T06:58:00Z"), query.call_args.args[2])
         self.assertEqual("run-a", record["labels"]["run_id"])
         self.assertEqual("ckc-demo", record["labels"]["application"])
         self.assertEqual("demo-abc", record["labels"]["pod"])
+
+    def test_loki_export_reports_missing_required_application_streams(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory)
+            source = result / "logs/loki/kubernetes.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_text(json.dumps({
+                "ts": "1", "labels": {"application": "ckc-load-test"}, "line": "started",
+            }) + "\n", encoding="utf-8")
+            coverage = export_loki_module.validate_applications(
+                result, ["ckc-demo", "ckc-demo-stubs", "ckc-load-test"]
+            )
+
+            persisted = json.loads((result / "logs/loki/coverage.json").read_text(encoding="utf-8"))
+
+        self.assertEqual("FAIL", coverage["status"])
+        self.assertEqual(["ckc-demo", "ckc-demo-stubs"], coverage["missing_applications"])
+        self.assertEqual({"ckc-load-test": 1}, persisted["records_by_application"])
 
     def test_archived_file_logs_have_filterable_loki_labels(self) -> None:
         labels = finalize_result_module.log_labels(

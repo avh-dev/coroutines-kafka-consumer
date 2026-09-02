@@ -78,7 +78,7 @@ def main() -> None:
     result_dir = args.result_dir.resolve()
     repo_root = args.repo_root.resolve() if args.repo_root else Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(repo_root / "demo/infra/shared"))
-    from result_bundle.dashboard import parse_instant, patch_dashboard, result_window
+    from result_bundle.dashboard import parse_instant, patch_dashboard, result_log_window, result_window
     from result_bundle.presentation import experiment_panel_markdown
 
     result_type = "experiment" if (result_dir / "summary.json").is_file() else "run"
@@ -87,6 +87,7 @@ def main() -> None:
         if not run_dirs:
             raise RuntimeError(f"Experiment result does not contain run directories: {result_dir}")
         start, end = result_window(run_dirs)
+        logs_start, logs_end = result_log_window(run_dirs)
         summary = load_json(result_dir / "summary.json")
         experiments = [item for item in summary.get("experiments", []) if isinstance(item, dict)]
         label = str(experiments[0].get("experiment") if experiments else result_dir.name)
@@ -99,8 +100,15 @@ def main() -> None:
         status = load_json(result_dir / "run-status.json")
         start = parse_instant(status.get("started_at") or metadata.get("started_at"))
         end = parse_instant(status.get("ended_at"))
+        logs_start = parse_instant(
+            status.get("orchestration_started_at")
+            or metadata.get("orchestration_started_at")
+            or status.get("started_at")
+            or metadata.get("started_at")
+        )
+        logs_end = end
         run_id = str(metadata.get("run_id") or result_dir.name)
-        metadata["archived_log_lines"] = build_loki_jsonl(result_dir, run_id, start, end)
+        metadata["archived_log_lines"] = build_loki_jsonl(result_dir, run_id, logs_start, logs_end)
         label = str(metadata.get("test_name", run_id))
         title = f"CKC experiment: {label} ({run_id})"
         loki_selector = f'{{run_id="{run_id}"}}'
@@ -111,6 +119,8 @@ def main() -> None:
         run_dirs=run_dirs,
         start=start,
         end=end,
+        logs_start=logs_start,
+        logs_end=logs_end,
         loki_selector=loki_selector,
     )
     source = result_dir / "config/ckc-overview.json"
