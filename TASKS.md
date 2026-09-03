@@ -270,6 +270,8 @@
 | [INFRA-126](#infra-126) | Share the mature result-bundle pipeline across internal-lab and AWS with environment-aware dashboards and complete cloud telemetry. | DONE |
 | [INFRA-127](#infra-127) | Run a 20-minute, 10k/s CKC AWS capacity test on MSK and ElastiCache with a single-thread processing dispatcher. | DONE |
 | [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
+| [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | DONE |
+| [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3040,3 +3042,22 @@ Keep one immutable lab profile for an experiment, allow each target to select it
 Use environment adapters for installed internal-lab services versus disposable AWS provisioning, artifact transport, CloudWatch/cost data, provider-specific chaos, and verified cloud teardown.
 Replace the AWS-only `app_profile` presets with explicit target consumer profiles plus deployment/resources/scaling policy, migrate existing definitions, and prove the shared path with internal tests followed by a small disposable AWS smoke.
 Validate the shared path with AWS session `s-20260902-091243-ff0dd2`: the target, metrics coverage, audit SLA, result report, and portable bundle completed successfully, followed by independently verified clean teardown.
+
+<a id="infra-129"></a>
+### INFRA-129 - Preserve AWS workload logs
+
+_Date: 2026-09-02_
+
+Export Kubernetes logs from the start of target orchestration so application startup and deployment diagnostics are retained even when the workload starts later.
+Keep the metrics dashboard focused on the measured workload while allowing log links to open the wider orchestration interval.
+Validate expected application, stub, and load-test Loki streams during AWS smoke runs so incomplete log bundles cannot silently pass.
+Validate session `s-20260902-131428-73b049` with 730 application, 8 stub, and 18 load-test log records, a widened `Open logs` interval, successful audit and metrics coverage, and independently verified clean AWS teardown.
+
+<a id="infra-130"></a>
+### INFRA-130 - Sync shared internal-lab workloads
+
+_Date: 2026-09-02_
+
+Preserve the environment-specific experiment directory while syncing shared test definitions, SLA profiles, and consumer profiles into the installed internal lab.
+Add regression coverage for the installed workload layout and validate the shared experiment path with the local `smoke-repeat` experiment.
+Validate experiment set `20260902T145139Z`: both targets completed with passing delivery and latency SLAs, complete application log labels, and healthy Kafka exporter metrics.

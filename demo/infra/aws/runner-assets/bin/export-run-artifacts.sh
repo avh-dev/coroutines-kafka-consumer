@@ -20,7 +20,10 @@ fi
 mkdir -p "${RUN_DIR}/audit/chunks" "${RUN_DIR}/metrics" "${RUN_DIR}/logs/runner" "${RUN_DIR}/config"
 
 python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
-  "${RUN_DIR}" --loki-url http://127.0.0.1:3100
+  "${RUN_DIR}" --loki-url http://127.0.0.1:3100 \
+  --require-application ckc-demo \
+  --require-application ckc-demo-stubs \
+  --require-application ckc-load-test
 
 sleep 2
 if [ -f "${AUDIT_SOURCE}" ] && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -type f -name '*.log.gz' | grep -q .; then

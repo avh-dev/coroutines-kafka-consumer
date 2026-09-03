@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dashboard import metric_names_from_dashboard, patch_dashboard
+from dashboard import metric_names_from_dashboard, patch_dashboard, result_log_window
 from presentation import experiment_panel_markdown
 
 
@@ -76,6 +76,19 @@ class DashboardTest(unittest.TestCase):
             (root / "dashboard.json").write_text(json.dumps({"targets": [{"expr": "rate(demo_requests_total[5m])"}]}))
             self.assertEqual(["demo_requests_total"], metric_names_from_dashboard(root))
 
+    def test_log_window_includes_orchestration_before_workload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            (run_dir / "run-status.json").write_text(json.dumps({
+                "orchestration_started_at": "2026-08-31T09:58:20Z",
+                "started_at": "2026-08-31T10:01:20Z",
+                "ended_at": "2026-08-31T10:07:40Z",
+            }))
+            start, end = result_log_window(run_dirs=[run_dir])
+
+        self.assertEqual(datetime(2026, 8, 31, 9, 56, 20, tzinfo=timezone.utc), start)
+        self.assertEqual(datetime(2026, 8, 31, 10, 9, 40, tzinfo=timezone.utc), end)
+
     def test_shared_experiment_panel_links_run_and_logs_to_exact_ranges(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
@@ -90,6 +103,7 @@ class DashboardTest(unittest.TestCase):
             }))
             (run_dir / "run-status.json").write_text(json.dumps({
                 "status": "COMPLETED",
+                "orchestration_started_at": "2026-08-31T09:58:20Z",
                 "started_at": "2026-08-31T10:01:20Z",
                 "ended_at": "2026-08-31T10:07:40Z",
             }))
@@ -99,12 +113,15 @@ class DashboardTest(unittest.TestCase):
                 run_dirs=[run_dir],
                 start=datetime(2026, 8, 31, 10, 1, 20, tzinfo=timezone.utc),
                 end=datetime(2026, 8, 31, 10, 7, 40, tzinfo=timezone.utc),
+                logs_start=datetime(2026, 8, 31, 9, 58, 20, tzinfo=timezone.utc),
+                logs_end=datetime(2026, 8, 31, 10, 7, 40, tzinfo=timezone.utc),
                 loki_selector='{run_id="run-a"}',
             )
             self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", markdown)
             self.assertIn("from=1788170460000", markdown)
             self.assertIn("to=1788170880000", markdown)
             self.assertIn("[Open logs](/explore?", markdown)
+            self.assertIn("1788170280000", markdown)
             self.assertIn("run_id", markdown)
             self.assertIn("[ckc.fixed.2](/d/ckc-experiment/ckc-experiment?", markdown)
             self.assertIn("2/105/1", markdown)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -32,8 +33,15 @@ def query_range(url: str, selector: str, start: int, end: int, limit: int) -> li
 
 def export(result_dir: Path, loki_url: str, selector: str, limit: int) -> int:
     status = json.loads((result_dir / "run-status.json").read_text(encoding="utf-8"))
+    metadata_path = result_dir / "run-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
     run_id = str(status["run_id"])
-    cursor = instant_ns(status["started_at"])
+    export_started_at = (
+        status.get("orchestration_started_at")
+        or metadata.get("orchestration_started_at")
+        or status["started_at"]
+    )
+    cursor = instant_ns(export_started_at)
     end = instant_ns(status["ended_at"])
     records: dict[tuple[str, str, str], dict[str, Any]] = {}
     while cursor <= end:
@@ -63,14 +71,48 @@ def export(result_dir: Path, loki_url: str, selector: str, limit: int) -> int:
     return len(ordered)
 
 
+def validate_applications(result_dir: Path, required: list[str]) -> dict[str, Any]:
+    source = result_dir / "logs/loki/kubernetes.jsonl"
+    counts: dict[str, int] = {}
+    if source.is_file():
+        for line in source.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            application = str(record.get("labels", {}).get("application", ""))
+            if application:
+                counts[application] = counts.get(application, 0) + 1
+    missing = sorted(set(required) - set(counts))
+    coverage = {
+        "status": "PASS" if not missing else "FAIL",
+        "required_applications": sorted(set(required)),
+        "missing_applications": missing,
+        "records_by_application": dict(sorted(counts.items())),
+    }
+    output = result_dir / "logs/loki/coverage.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(coverage, indent=2) + "\n", encoding="utf-8")
+    return coverage
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export a run's continuously collected Kubernetes logs from Loki.")
     parser.add_argument("result_dir", type=Path)
     parser.add_argument("--loki-url", default="http://127.0.0.1:3100")
     parser.add_argument("--selector", default='{namespace=~"ckc-app|ckc-loadtest"}')
     parser.add_argument("--limit", type=int, default=5000)
+    parser.add_argument("--require-application", action="append", default=[])
     args = parser.parse_args()
     count = export(args.result_dir.resolve(), args.loki_url, args.selector, args.limit)
+    coverage = validate_applications(args.result_dir.resolve(), args.require_application)
+    if coverage["missing_applications"]:
+        message = "Loki export is missing required application streams: " + ", ".join(
+            coverage["missing_applications"]
+        )
+        status = json.loads((args.result_dir / "run-status.json").read_text(encoding="utf-8"))
+        if status.get("status") == "COMPLETED":
+            raise RuntimeError(message)
+        print(f"WARNING: {message}", file=sys.stderr)
     print(f"Exported {count} Kubernetes log records.")
 
 
