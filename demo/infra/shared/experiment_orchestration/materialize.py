@@ -9,6 +9,12 @@ import yaml
 
 from .contract import write_resolved_experiment
 from .definition import ResolvedExperiment, ResolvedTarget
+from .deployment_plan import (
+    aws_terraform_variables,
+    build_deployment_plan,
+    write_deployment_plan,
+    write_terraform_variables,
+)
 from .planner import plan_target
 from .test_definition import write_resolved_test
 
@@ -21,6 +27,7 @@ class MaterializedTarget:
     values_path: Path
     plan: dict[str, Any]
     values: dict[str, Any]
+    deployment_plan_path: Path | None = None
 
 
 def materialize_target(
@@ -66,6 +73,13 @@ def materialize_target(
     }
     definition_path = target_dir / "resolved-test.yaml"
     definition_path.write_text(yaml.safe_dump(definition, sort_keys=False), encoding="utf-8")
+    deployment_plan_path = None
+    if experiment.snapshot is not None:
+        deployment_plan_path = target_dir / "deployment-plan.yaml"
+        write_deployment_plan(
+            deployment_plan_path,
+            build_deployment_plan(experiment, target, plan, values),
+        )
     return MaterializedTarget(
         target=target,
         definition_path=definition_path,
@@ -73,6 +87,7 @@ def materialize_target(
         values_path=target_dir / "run-plan-values.yaml",
         plan=plan,
         values=values,
+        deployment_plan_path=deployment_plan_path,
     )
 
 
@@ -86,6 +101,14 @@ def materialize_experiment(
     output_dir.mkdir(parents=True, exist_ok=True)
     if experiment.snapshot is not None:
         write_resolved_experiment(output_dir / "resolved-experiment.yaml", experiment.snapshot)
+        if experiment.environment == "aws":
+            write_terraform_variables(
+                output_dir / "environment" / "terraform-lab-inputs.json",
+                aws_terraform_variables(
+                    experiment.environment_definition or {},
+                    experiment_id=experiment.name,
+                ),
+            )
     return tuple(
         materialize_target(
             experiment,
