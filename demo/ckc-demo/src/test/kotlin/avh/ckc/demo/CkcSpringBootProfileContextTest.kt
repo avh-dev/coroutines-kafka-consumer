@@ -31,6 +31,7 @@ import kotlin.test.assertTrue
         "demo.kafka.enabled=false",
         "SERVER_PORT=0",
         "KAFKA_ENABLED=false",
+        "thread-stats.metrics.category-order-prefix-enabled=true",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
     ]
@@ -120,6 +121,7 @@ class CkcSpringBootProfileContextTest(
         assertIs<ThreadStatsMonitor>(applicationContext.getBean(ThreadStatsMonitor::class.java))
         assertTrue(properties.isEnabled)
         assertTrue(properties.metrics.isEnabled)
+        assertTrue(properties.metrics.isCategoryOrderPrefixEnabled)
         assertEquals("other", properties.fallbackCategory)
         assertEquals("other", properties.fallbackGroup)
     }

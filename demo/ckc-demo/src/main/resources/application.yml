@@ -27,6 +27,7 @@ thread-stats:
   fallback-group: other
   metrics:
     enabled: ${THREAD_STATS_METRICS_ENABLED:true}
+    category-order-prefix-enabled: true
   categories:
     - name: business
       groups:
@@ -74,6 +75,11 @@ thread-stats:
             - { type: prefix, value: pc-pool- }
             - { type: prefix, value: micrometer-kafka-metrics }
             - { type: prefix, value: kafka- }
+    - name: redis-client
+      groups:
+        - name: redis-client
+          rules:
+            - { type: prefix, value: lettuce- }
     - name: http-client
       groups:
         - name: armeria-client
@@ -82,11 +88,6 @@ thread-stats:
         - name: jdk-http-client
           rules:
             - { type: prefix, value: HttpClient- }
-    - name: redis-client
-      groups:
-        - name: redis-client
-          rules:
-            - { type: prefix, value: lettuce- }
     - name: audit
       groups:
         - name: audit

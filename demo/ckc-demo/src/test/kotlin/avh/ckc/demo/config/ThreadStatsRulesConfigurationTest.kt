@@ -3,6 +3,7 @@ package avh.ckc.demo.config
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean
 import org.springframework.core.io.FileSystemResource
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ThreadStatsRulesConfigurationTest {
@@ -29,12 +30,27 @@ class ThreadStatsRulesConfigurationTest {
         assertTrue(rules.contains(ThreadStatsRule("http-client", "jdk-http-client", "HttpClient-")))
         assertTrue(rules.contains(ThreadStatsRule("other", "spring-lifecycle", "startstop-support-")))
         assertTrue(rules.contains(ThreadStatsRule("other", "jvm-system", "DestroyJavaVM")))
+        assertEquals(
+            listOf("business", "kafka", "redis-client", "http-client", "audit", "other"),
+            loadConfiguredCategoryNames(),
+        )
+        assertEquals(
+            "true",
+            loadProperties().getProperty("thread-stats.metrics.category-order-prefix-enabled"),
+        )
+    }
+
+    private fun loadConfiguredCategoryNames(): List<String> {
+        val properties = loadProperties()
+        return properties.stringPropertyNames()
+            .mapNotNull { name -> Regex("""thread-stats\.categories\[(\d+)]\.name""").matchEntire(name)?.groupValues?.get(1) }
+            .map(String::toInt)
+            .sorted()
+            .map { categoryIndex -> properties.getProperty("thread-stats.categories[$categoryIndex].name") }
     }
 
     private fun loadConfiguredRules(): Set<ThreadStatsRule> {
-        val properties = YamlPropertiesFactoryBean().apply {
-            setResources(FileSystemResource("src/main/resources/application.yml"))
-        }.`object` ?: error("Failed to load demo application.yml")
+        val properties = loadProperties()
 
         val ruleCoordinates = properties.stringPropertyNames()
             .mapNotNull { name ->
@@ -58,6 +74,11 @@ class ThreadStatsRulesConfigurationTest {
             }
         }.toSet()
     }
+
+    private fun loadProperties() =
+        YamlPropertiesFactoryBean().apply {
+            setResources(FileSystemResource("src/main/resources/application.yml"))
+        }.`object` ?: error("Failed to load demo application.yml")
 
     private data class ThreadStatsRule(
         val category: String,

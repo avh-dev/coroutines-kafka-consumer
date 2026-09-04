@@ -274,6 +274,7 @@
 | [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | DONE |
 | [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
 | [INFRA-131](#infra-131) | Add a 20-minute AWS 10k/s comparison of single-pod Spring Kafka with JDK HTTP and CKC, using 30% parallelism headroom. | DONE |
+| [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3086,3 +3087,16 @@ Preserve the existing bounded thread classification while making each dashboard-
 Update focused configuration and actuator coverage for the new category and group contract.
 
 Verification: the sibling Thread Stats Maven reactor installed the updated snapshot after 63 unit tests and the Java-agent integration test passed. All 96 `ckc-demo` tests passed against that snapshot, including the Actuator endpoint and category-aware configuration assertions.
+
+<a id="infra-132"></a>
+### INFRA-132 - Use explicit Thread Stats categories
+
+_Date: 2026-09-04_
+
+Migrate the internal-lab Kafka Java agent to the two-level category and group configuration.
+Replace Grafana and experiment-report group regular expressions that synthesize categories with direct category-label aggregation or selection.
+Collapse each category-level Grafana panel to one query grouped by the explicit `category` label.
+Preserve configuration order in stacked category panels through an optional, count-width metric `category` prefix, and strip that prefix generically from group-level panels.
+Update the installed optilab runtime and validate the shared dashboard and telemetry contract with the `smoke-repeat` experiment.
+
+Verification: all 96 demo tests, 6 dashboard bundle tests, and 53 internal-lab tests passed. The optilab `smoke-repeat` experiment set `20260904T102937Z` completed both targets with passing SLA; the final installed endpoints expose count-width ordered categories (`1` through `7` for the demo), and non-stacked panels remove the prefix generically.
