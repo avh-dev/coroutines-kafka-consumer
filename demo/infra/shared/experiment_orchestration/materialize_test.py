@@ -45,10 +45,17 @@ class MaterializeTest(unittest.TestCase):
                 }],
             }), encoding="utf-8")
             experiment = resolve_experiment_definition(experiment_path, tests)
+            canonical = yaml.safe_load(
+                (REPO_ROOT / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
+            )
+            profiles_path = root / "implementation-profiles.yaml"
+            profiles_path.write_text(
+                yaml.safe_dump(canonical["implementations"], sort_keys=False), encoding="utf-8"
+            )
             materialized = materialize_experiment(
                 experiment,
                 output_dir=root / "out",
-                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                consumer_profiles_path=profiles_path,
                 repo_dir=REPO_ROOT,
             )
             definition = yaml.safe_load(materialized[0].definition_path.read_text(encoding="utf-8"))
@@ -70,13 +77,15 @@ class MaterializeTest(unittest.TestCase):
             materialized = materialize_experiment(
                 experiment,
                 output_dir=output,
-                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                consumer_profiles_path=output / "not-used.yaml",
                 repo_dir=REPO_ROOT,
             )
             snapshot = yaml.safe_load((output / "resolved-experiment.yaml").read_text(encoding="utf-8"))
             definition = yaml.safe_load(materialized[0].definition_path.read_text(encoding="utf-8"))
+            implementation_profiles_exist = (output / "implementation-profiles.yaml").is_file()
 
         self.assertEqual("internal-lab", snapshot["environment"]["name"])
+        self.assertTrue(implementation_profiles_exist)
         self.assertEqual("ckc", snapshot["targets"][0]["implementation"])
         self.assertEqual(20, definition["deployment"]["run_plan"]["topics"][2]["worker_concurrency"])
 

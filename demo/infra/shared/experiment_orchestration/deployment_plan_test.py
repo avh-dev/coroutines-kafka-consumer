@@ -14,7 +14,6 @@ from .materialize import materialize_experiment
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
-PROFILES = REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml"
 
 
 class DeploymentPlanTest(unittest.TestCase):
@@ -24,7 +23,7 @@ class DeploymentPlanTest(unittest.TestCase):
         targets = materialize_experiment(
             resolved,
             output_dir=root,
-            consumer_profiles_path=PROFILES,
+            consumer_profiles_path=root / "not-used.yaml",
             repo_dir=REPO_ROOT,
         )
         plan = yaml.safe_load(targets[0].deployment_plan_path.read_text(encoding="utf-8"))

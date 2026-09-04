@@ -162,8 +162,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("lab.kafkaTopics", helm_values)
 
     def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
-        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml"
-        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+        definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
+        experiment = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+        definition = {"stubs": experiment["workload"]["stubs"]}
         settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
 
         self.assertEqual(0, settings["errorRatePercent"])
@@ -171,8 +172,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(80, settings["flavour"]["delayP99Ms"])
 
     def test_aws_runner_refuses_to_silently_skip_chaos_steps(self) -> None:
-        definition_path = REPO_ROOT / "demo/infra/shared/workloads/test-definitions/chaos-smoke.yaml"
-        definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+        definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
+        definition = {"chaos_steps": [{"at": "1s", "type": "pod_delete"}]}
 
         with self.assertRaisesRegex(ValueError, "AWS chaos execution is not implemented yet"):
             run_test_module.validate_aws_chaos_capabilities(definition, definition_path)
@@ -180,7 +181,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_new_state_materializes_shared_aws_experiment_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(
-                experiment="demo/infra/aws/experiments/smoke.yaml",
+                experiment="demo/infra/experiments/smoke.yaml",
                 experiment_id=None,
                 max_session_hours=12,
                 region="eu-central-1",
@@ -199,9 +200,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("ckc", target["profile"])
         self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
 
-    def test_new_state_rejects_unsafe_session_and_profile_names(self) -> None:
+    def test_new_state_rejects_unsafe_session_and_canonical_profile_override(self) -> None:
         base = SimpleNamespace(
-            experiment="demo/infra/aws/experiments/smoke.yaml",
+            experiment="demo/infra/experiments/smoke.yaml",
             experiment_id=None,
             max_session_hours=12,
             region="eu-central-1",
@@ -214,7 +215,7 @@ class AwsSessionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "session-id"):
                 session_module.new_state(base, "x", Path(directory))
             base.lab_profile = "default'; touch /tmp/nope"
-            with self.assertRaisesRegex(ValueError, "lab-profile"):
+            with self.assertRaisesRegex(ValueError, "immutable"):
                 session_module.new_state(base, "safe-session", Path(directory))
 
     def test_new_state_uses_canonical_environment_and_inline_acceptance(self) -> None:
@@ -249,7 +250,7 @@ class AwsSessionTest(unittest.TestCase):
                 "config": {
                     "session_id": "safe-session",
                     "region": "eu-central-1",
-                    "experiment": "demo/infra/aws/experiments/smoke.yaml",
+                    "experiment": "demo/infra/experiments/smoke.yaml",
                     "sla_profile": "delivery-integrity",
                 },
                 "terraform": {},
@@ -265,7 +266,6 @@ class AwsSessionTest(unittest.TestCase):
             sla = json.loads(sla_path.read_text(encoding="utf-8"))
             command = run_command.call_args.args[0]
 
-        self.assertEqual("delivery-integrity", sla["name"])
         self.assertTrue(sla["criteria"])
         self.assertEqual(str(sla_path), command[command.index("--sla-profile-file") + 1])
 
@@ -381,7 +381,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_controller_builds_portable_experiment_root_from_target_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
-            experiment_path = "demo/infra/aws/experiments/smoke.yaml"
+            experiment_path = "demo/infra/experiments/smoke.yaml"
             target_definition = session_dir / "materialized/ckc/resolved-test.yaml"
             target_test = target_definition.with_name("resolved-test-source.yaml")
             target_definition.parent.mkdir(parents=True)

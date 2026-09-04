@@ -37,7 +37,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/assets/terraform/load-lab/profiles \
   demo/infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
   demo/infra/aws/audit \
-  demo/infra/aws/experiments \
+  demo/infra/experiments \
   demo/infra/aws/runner-assets \
   demo/infra/aws/restore \
   demo/infra/internal-lab/assets/helpers \
@@ -49,8 +49,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/shared/grafana \
   demo/infra/shared/helm \
   demo/infra/shared/result_bundle \
-  demo/infra/shared/test-orchestration \
-  demo/infra/shared/workloads
+  demo/infra/shared/test-orchestration
 
 if [ -n "${ARTIFACT_BUCKET}" ]; then
   aws s3 cp "${BUNDLE_FILE}" "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" --region "${REGION}" --only-show-errors

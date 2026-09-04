@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from experiment_report import generate_experiment_reports
-from experiment_report.analyze import load_sla_profile, parse_load_profile
+from experiment_report.analyze import parse_load_profile
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
 from result_bundle import finalize as finalize_artifacts
 
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Global env override for all experiment targets.")
     parser.add_argument("--lab-root", default=lab_root)
     parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
-    parser.add_argument("--experiment-dir", default=f"{lab_root}/workloads/experiments")
+    parser.add_argument("--experiment-dir", default=f"{lab_root}/experiments")
     parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
@@ -820,12 +820,11 @@ def run_experiment(
     source_experiment = load_yaml(experiment_path)
     resolved_experiment = resolve_experiment_definition(
         experiment_path,
-        lab_root / "workloads" / "test-definitions",
-        environment="internal-lab" if "schema_version" in source_experiment else None,
-        sla_profile_dir=lab_root / "workloads" / "sla-profiles",
+        None,
+        environment="internal-lab",
     )
     experiment = resolved_experiment.definition
-    sla_profile = resolved_experiment.acceptance or load_sla_profile(lab_root, source_experiment)
+    sla_profile = resolved_experiment.acceptance or None
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}

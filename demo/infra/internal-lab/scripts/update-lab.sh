@@ -184,10 +184,7 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads/experiments" "${LAB_ROOT}/workloads/experiments"
-  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/test-definitions" "${LAB_ROOT}/workloads/test-definitions"
-  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/sla-profiles" "${LAB_ROOT}/workloads/sla-profiles"
-  sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
+  sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
   ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/experiments' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
@@ -300,9 +297,8 @@ RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
-  demo/infra/shared/workloads \
   demo/infra/shared/grafana \
-  demo/infra/internal-lab/workloads)"
+  demo/infra/experiments)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \
@@ -348,11 +344,8 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   ! remote_paths_exist \
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
     "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" \
-    "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
-    "${LAB_ROOT}/workloads/sla-profiles/consumer-baseline.yaml" \
-    "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
-    "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
-    "${LAB_ROOT}/workloads/experiments/spring-kafka-thread-stats-progression.yaml" \
+    "${LAB_ROOT}/experiments/telemetry-fairness-profile-comparison.yaml" \
+    "${LAB_ROOT}/experiments/spring-kafka-thread-stats-progression.yaml" \
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi

@@ -4,18 +4,36 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from .planner import plan_target
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
+def canonical_inputs(directory: Path) -> tuple[Path, Path]:
+    experiment = yaml.safe_load(
+        (REPO_ROOT / "demo/infra/experiments/consumer-capacity-comparison.yaml").read_text(encoding="utf-8")
+    )
+    definition = {
+        "stubs": experiment["workload"]["stubs"],
+        "load_test": experiment["workload"]["load"],
+    }
+    definition_path = directory / "resolved-test.yaml"
+    profiles_path = directory / "implementation-profiles.yaml"
+    definition_path.write_text(yaml.safe_dump(definition, sort_keys=False), encoding="utf-8")
+    profiles_path.write_text(yaml.safe_dump(experiment["implementations"], sort_keys=False), encoding="utf-8")
+    return definition_path, profiles_path
+
+
 class PlannerTest(unittest.TestCase):
     def test_plans_a_shared_target_without_environment_specific_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            definition_path, profiles_path = canonical_inputs(Path(directory))
             plan, values = plan_target(
-                definition_path=REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml",
-                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                definition_path=definition_path,
+                consumer_profiles_path=profiles_path,
                 profile_name="ckc",
                 output_dir=Path(directory),
                 repo_dir=REPO_ROOT,
@@ -57,9 +75,10 @@ class PlannerTest(unittest.TestCase):
 
     def test_maps_model_http_client_target_environment_to_helm_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            definition_path, profiles_path = canonical_inputs(Path(directory))
             plan, values = plan_target(
-                definition_path=REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml",
-                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                definition_path=definition_path,
+                consumer_profiles_path=profiles_path,
                 profile_name="spring-kafka",
                 output_dir=Path(directory),
                 repo_dir=REPO_ROOT,

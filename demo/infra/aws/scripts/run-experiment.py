@@ -1123,16 +1123,15 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     experiment_id = args.experiment_id or slug(definition.stem)
     resolved = resolve_experiment_definition(
         definition_path,
-        repo_root() / "demo/infra/shared/workloads/test-definitions",
+        None,
         lab_profile=args.lab_profile,
-        environment="aws" if "schema_version" in load_yaml(definition_path) else None,
-        sla_profile_dir=repo_root() / "demo/infra/shared/workloads/sla-profiles",
+        environment="aws",
     )
     lab_profile = resolved.lab_profile or "default"
     materialized = materialize_experiment(
         resolved,
         output_dir=session_dir / "materialized",
-        consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
+        consumer_profiles_path=session_dir / "materialized/implementation-profiles.yaml",
         repo_dir=repo_root(),
     )
     terraform_inputs_path = session_dir / "materialized/environment/terraform-lab-inputs.json"
@@ -1237,7 +1236,7 @@ def load_controller(work_dir: Path, session_id: str) -> SessionController:
 def main() -> None:
     args = parse_args()
     if args.command == "run" and not args.experiment:
-        args.experiment = "demo/infra/aws/experiments/smoke.yaml"
+        args.experiment = "demo/infra/experiments/smoke.yaml"
     work_dir = Path(args.work_dir).resolve()
     if args.command == "status":
         controller = load_controller(work_dir, args.session_id)

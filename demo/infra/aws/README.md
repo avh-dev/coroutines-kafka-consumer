@@ -20,8 +20,8 @@
 - `../shared/`
   Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
 
-- `experiments/`
-  AWS entrypoints using the shared experiment, target, and test contracts.
+- `../experiments/`
+  Self-contained experiment entrypoints shared by every environment they define.
 
 - `scripts/`
   Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
@@ -49,12 +49,8 @@
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `../shared/helm/`
-  Shared app and stub workload charts. Environment profiles are values-only;
-  generated experiment targets do not select an AWS application profile.
-
 - `../shared/experiment_orchestration`
-  Resolves tests and target overrides and calculates the same profile, topic,
+  Resolves inline workloads and target overrides and calculates the same profile, topic,
   concurrency, replica, and resource plan used by internal-lab.
 
 - `../shared/audit`
@@ -80,18 +76,13 @@ targets sequentially in one immutable lab, downloads and verifies every target
 result, and tears the session down:
 
 ```bash
-./demo/infra/aws/scripts/run-experiment.sh run \
-  --region us-east-1 \
-  --experiment demo/infra/aws/experiments/smoke.yaml
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment aws
 ```
 
-AWS controller runs always use `--experiment`. The materialized resolved test is
-an internal hand-off to the runner, not a second user-facing definition model.
-For an experiment, `lab.profile` is fixed before provisioning; `--lab-profile`
-can override it for the whole experiment, never for an individual target.
-Each target selects `profile`, may override its resolved test (load, stubs,
-diagnostics, and chaos), and receives a separate run ID, audit analysis, and
-verified artifact directory under `result/runs/`.
+The materialized resolved workload, implementation catalog, Terraform variables,
+and deployment plan are generated internal hand-offs and retained as evidence.
+Each target receives a separate run ID, audit analysis, and verified artifact
+directory under `result/runs/`.
 
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
@@ -100,11 +91,8 @@ thread while retaining 100 coroutines per workload type and publishing 10,000
 messages per second:
 
 ```bash
-./demo/infra/aws/scripts/run-experiment.sh run \
-  --region eu-central-1 \
-  --experiment demo/infra/aws/experiments/msk-elasticache-20min-10k.yaml \
-  --test-timeout-seconds 3600 \
-  --max-session-hours 5 \
+demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.yaml \
+  --environment aws \
   --skip-build-images
 ```
 
