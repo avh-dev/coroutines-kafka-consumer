@@ -151,9 +151,9 @@ previous-container logs make any workload restart a failed run with retained
 evidence instead of allowing a degraded test to be reported as completed.
 `artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
 bucket can be considered safely disposable. Audit analysis runs locally only
-after AWS teardown, and the final session directory contains a portable
-`<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
-Compose, anonymous read-only Grafana provisioning, and local Loki import, so viewing the metrics and logs does not require the
+after AWS teardown. The final session directory contains the canonical
+`report.md`, `evidence.tar.gz`, and `audit.tar.gz`; the evidence archive embeds
+the shared offline restore kit, so viewing metrics and logs does not require the
 original repository checkout.
 The restored dashboard uses the same shared experiment summary as internal-lab:
 its target names open their exact run ranges, the reset and Loki Explore links
@@ -163,14 +163,13 @@ annotations.
 Open the archived metrics with:
 
 ```bash
-tar -xzf <run-id>-result.tar.gz
-cd <run-id>
-./restore/open-result.sh
+tar -xzf evidence.tar.gz
+cd evidence
+./restore/open-result.sh ./result
 ```
 
-Stop the local containers with `./restore/close-result.sh` from the same
-extracted result directory. Grafana binds to `0.0.0.0:3002` by default; pass
-`./restore/open-result.sh . 3002 127.0.0.1` to restrict it to the local host.
+Stop the local containers with `./restore/close-result.sh ./result` from the
+same extracted evidence directory. Grafana binds to `127.0.0.1:3002` by default.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are

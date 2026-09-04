@@ -281,7 +281,7 @@
 | [INFRA-136](#infra-136) | Finalize every experiment into one report, one canonical evidence bundle, and one independent audit archive. | DONE |
 | [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
 | [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
-| [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | IN_PROGRESS |
+| [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3202,3 +3202,9 @@ _Date: 2026-09-04_
 Move metrics, workload-log, dashboard, and offline-restore preparation into one shared evidence pipeline.
 Make environment adapters provide only source endpoints and transport details, then feed the same canonical finalizer layout.
 Remove the duplicated AWS and internal-lab restore implementations after compatibility coverage proves the shared path.
+
+The shared collector now exports canonical Loki JSONL and Prometheus query-range TSDB blocks from adapter-supplied endpoints and records source failures in an evidence collection manifest.
+One shared preparation step builds archived log streams, environment-aware dashboards, capability metadata, and the fully provisioned offline restore kit for both environments.
+Internal-lab automatic and manual exports now produce the canonical three-artifact contract; AWS no longer emits the legacy result archive, and both environment-specific restore trees were removed.
+
+Verification: 24 shared orchestration/result tests, 6 shared dashboard tests, 53 internal-lab tests, and 27 AWS tests passed; modified Python and Bash files passed syntax checks and the diff passed whitespace validation.

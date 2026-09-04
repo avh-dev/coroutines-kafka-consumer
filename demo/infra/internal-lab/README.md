@@ -555,49 +555,26 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh 20260717T170000Z
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --latest-experiment
 ```
 
-Result directories are written under `/opt/ckc-lab/results/exports/<experiment-name>-<date>`.
-Each export contains `summary.md`, `metrics-logs-<experiment-name>-<date>.tar.gz`,
-and `audit-<experiment-name>-<date>.tar.gz`. The metrics/logs archive contains
-the local Grafana helper scripts, dashboard JSON, prebuilt Loki data, Prometheus
-query-range TSDB blocks for dashboard metrics in the selected run or experiment
-time window, run metadata, the actual `experiment-events.jsonl` timelines, and
-`manifest.json`. The audit archive contains
-`audit/<run-id>` artifacts for each run. Use `--skip-loki` or
-`--skip-prometheus` when those services are unavailable or their data is not
-needed. The exported dashboard is renamed to
-`CKC experiment: <experiment-name>`, defaults to the experiment time range, and
-includes an experiment summary panel with `Reset time range` and `Open logs`
-links for the original range.
-Loki logs are ingested into a temporary Loki container during export and stored
-as a ready-to-mount data directory, so export can take longer while local restore
-does not need to replay log pushes.
+Result directories are written under `/opt/ckc-lab/results/exports/<result-id>`.
+Each export contains the same canonical `report.md`, `evidence.tar.gz`, and
+`audit.tar.gz` as an automatically finalized experiment. Evidence contains the
+dashboard, Prometheus query-range TSDB blocks, Loki JSONL, metadata, timelines,
+generated inputs, and the shared offline restore kit. Use `--skip-loki` or
+`--skip-prometheus` only when exporting an older result after a source service
+is no longer available.
 
 Restore exported metrics and Loki logs locally with:
 
 ```sh
-cd smoke-repeat-20260717T170000Z
-tar -xzf metrics-logs-smoke-repeat-20260717T170000Z.tar.gz
-cd smoke-repeat-20260717T170000Z
-./open-grafana-with-logs-and-metrics.sh
+cd /opt/ckc-lab/results/exports/<result-id>
+tar -xzf evidence.tar.gz
+cd evidence
+./restore/open-result.sh ./result
 ```
 
-Grafana is available at `http://localhost:3000` with `admin` / `admin` by
-default. If local ports are already in use, set `GRAFANA_PORT`, `LOKI_PORT`, or
-`PROMETHEUS_PORT` before starting the script. `open-grafana-with-logs-and-metrics.sh` prepares exported Prometheus and Loki data,
-starts Docker Compose, prints dashboard, Prometheus, and Loki links, then waits
-until `q` is pressed.
-Chaos and diagnostic timestamps always remain available on the generated
-experiment load-profile diagram and in its event table. Compact variant-only
-run-start annotations are replayed into Grafana by default. Detailed chaos and diagnostic
-annotations remain optional; start the bundle with
-`GRAFANA_EVENT_ANNOTATIONS_ENABLED=true ./open-grafana-with-logs-and-metrics.sh`
-to include them, or set `GRAFANA_RUN_ANNOTATIONS_ENABLED=false` to suppress the
-run markers too.
-The restored Prometheus uses a short query lookback so exported timeline/info
-series do not extend across target boundaries after staleness markers are lost
-while rebuilding TSDB blocks from raw samples.
-When `q` is pressed, the script reports shutdown progress, stops the restore
-stack, and removes its Docker volumes.
+Grafana is available at `http://127.0.0.1:3002`; pass another port as the second
+argument to `open-result.sh`. Stop it with
+`./restore/close-result.sh ./result`.
 
 Experiment-wide environment overrides can also be passed non-interactively:
 

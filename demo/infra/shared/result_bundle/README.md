@@ -28,3 +28,15 @@ must not contain credentials at collection time.
 The finalizer accepts `complete`, `failed`, or `interrupted` status. When report
 generation did not run, it emits a small failure report that points to the
 collected diagnostics instead of omitting the artifact contract.
+
+`collect.py` is the shared live-source collector. Environment adapters supply
+only Prometheus and Loki endpoints plus the run directories; the collector
+writes canonical Loki JSONL, Prometheus TSDB blocks, and a collection manifest.
+Source failures are recorded in that manifest so diagnostics can still be
+finalized. `prepare.py` then builds the same environment-aware dashboard and
+archived-file log stream for either environment.
+
+The only restore implementation is `result_bundle/restore`. Its Compose file,
+pinned images, Grafana provisioning, and import helpers are copied unchanged
+into every evidence archive. Environment adapters do not package their own
+restore scripts.
