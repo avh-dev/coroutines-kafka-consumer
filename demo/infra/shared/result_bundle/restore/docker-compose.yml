@@ -1,0 +1,31 @@
+services:
+  loki:
+    image: grafana/loki:3.3.2
+    user: "0:0"
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "127.0.0.1:${CKC_RESTORE_LOKI_PORT:-3102}:3100"
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - ${CKC_RESTORE_WORK_DIR}/loki:/loki
+
+  prometheus:
+    image: victoriametrics/victoria-metrics:v1.102.1
+    command: ["-storageDataPath=/victoria-metrics-data", "-httpListenAddr=:9090"]
+    volumes:
+      - ${CKC_RESTORE_WORK_DIR}/prometheus:/victoria-metrics-data
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports:
+      - "${CKC_RESTORE_BIND_ADDRESS:-127.0.0.1}:${CKC_RESTORE_GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ${CKC_RESTORE_WORK_DIR}/grafana:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ${CKC_RESTORE_DASHBOARD}:/var/lib/grafana/dashboards/ckc-experiment.json:ro
+    depends_on: [loki, prometheus]

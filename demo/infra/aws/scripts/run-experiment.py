@@ -29,6 +29,7 @@ if str(SHARED_INFRA) not in sys.path:
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, load_yaml
+from result_bundle import finalize as finalize_artifacts
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
@@ -1081,6 +1082,24 @@ class SessionController:
         with tarfile.open(archive_path, "w:gz") as archive:
             archive.add(bundle_root, arcname=self.config["session_id"])
         self.state["result_bundle"] = str(archive_path)
+        self.finalize_canonical_artifacts("complete" if not self.state.get("failure") else "failed")
+        self.save()
+
+    def finalize_canonical_artifacts(self, status: str) -> None:
+        reports = [Path(value) for value in self.state.get("experiment_reports", [])]
+        configured_result = self.state.get("local_result_dir")
+        result_root = Path(configured_result) if configured_result and Path(configured_result).is_dir() else self.session_dir
+        report_dir = reports[0].parent if reports else self.session_dir / "missing-report"
+        canonical = finalize_artifacts(
+            result_root=result_root,
+            report_dir=report_dir,
+            output_dir=self.session_dir / "final",
+            experiment=self.config["experiment_name"],
+            environment="aws",
+            status=status,
+            restore_sources=[self.repo / "demo/infra/shared/result_bundle/restore"],
+        )
+        self.state["canonical_artifacts"] = {key: str(value) for key, value in canonical.items()}
         self.save()
 
 
@@ -1275,6 +1294,14 @@ def main() -> None:
         except Exception as error:
             post_processing_error = error
             controller.state["post_processing_failure"] = {"at": utc_text(), "message": str(error)}
+            controller.save()
+            primary_error = primary_error or error
+    if "canonical_artifacts" not in controller.state:
+        try:
+            status = "interrupted" if isinstance(primary_error, InterruptedError) else "failed" if primary_error else "complete"
+            controller.finalize_canonical_artifacts(status)
+        except Exception as error:
+            controller.state["canonical_finalization_failure"] = {"at": utc_text(), "message": str(error)}
             controller.save()
             primary_error = primary_error or error
     if primary_error or cleanup_failures:

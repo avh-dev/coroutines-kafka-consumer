@@ -20,6 +20,7 @@ from typing import Any
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, parse_load_profile
 from experiment_test import resolve_experiment_definition, write_resolved_test
+from result_bundle import finalize as finalize_artifacts
 
 try:
     import yaml
@@ -1012,6 +1013,18 @@ def main() -> int:
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     for report in reports:
         print(f"Experiment report: {report}")
+    if reports:
+        artifacts = finalize_artifacts(
+            result_root=log_dir,
+            report_dir=reports[0].parent,
+            output_dir=log_dir / "final",
+            experiment=str(summaries[0].get("experiment") if summaries else experiment_set_id),
+            environment="internal-lab",
+            status="complete" if document["exit_code"] == 0 else "failed",
+            restore_sources=[lab_root / "helpers/result_bundle/restore"],
+        )
+        document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
+        summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     return int(document["exit_code"])
 
 
