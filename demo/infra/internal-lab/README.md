@@ -347,10 +347,9 @@ metrics use the Prometheus job `ckc-kafka-thread-stats`, separate from the demo
 application's `/actuator/prometheus` Thread Stats metrics.
 
 Any generated test environment value can also be overridden with repeated
-`--env KEY=VALUE` flags. These overrides are applied after the consumer profile and
-test definition are rendered. Static Helm profiles are no longer used for normal
-test runs; `demo/infra/shared/helm/demo/profiles/demo.yaml`
-is kept only as a manual Helm/debug overlay.
+`--env KEY=VALUE` flags. These overrides are applied after the experiment's
+inline implementation and workload are materialized. Project-owned Kubernetes
+resources are generated from that deployment plan and preserved with the result.
 
 ```sh
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh \
@@ -841,17 +840,6 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-test.sh
 ```
 
 While topics are being deleted and recreated, running app pods can briefly log `UNKNOWN_TOPIC_OR_PARTITION`. That should stop after `prepare-test` finishes and the topics exist again.
-
-Apply the generic manual/debug Helm overlay without changing the generated run
-profile model:
-
-```sh
-helm upgrade --install ckc-demo demo/infra/shared/helm/demo \
-  --kubeconfig .demo-infra/internal-lab/kubeconfig.yaml \
-  --namespace ckc-perf \
-  -f demo/infra/internal-lab/assets/config/demo-values.yaml \
-  -f demo/infra/shared/helm/demo/profiles/demo.yaml
-```
 
 Useful Prometheus queries:
 

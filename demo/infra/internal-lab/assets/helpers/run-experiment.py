@@ -584,6 +584,8 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
     command = [str(run_test), "--skip-analysis"]
     if test.get("consumer_profiles_path"):
         command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
+    if test.get("deployment_plan_path"):
+        command.extend(["--deployment-plan", str(test["deployment_plan_path"])])
     if "profile" in test:
         command.extend(["--profile", str(test["profile"])])
         if "parallelism" in test:
@@ -914,6 +916,7 @@ def run_experiment(
                         "consumer_profiles_path": str(
                             materialized_target.definition_path.parents[1] / "implementation-profiles.yaml"
                         ),
+                        "deployment_plan_path": str(materialized_target.deployment_plan_path),
                     } if materialized_target else {}),
                 }
             )

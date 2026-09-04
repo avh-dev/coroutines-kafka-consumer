@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 SHARED_INFRA = Path(__file__).resolve().parents[1]
 if str(SHARED_INFRA) not in sys.path:
@@ -24,6 +26,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
+from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
@@ -92,16 +95,6 @@ def json_dump(value: Any) -> str:
 
 
 def yaml_string(value: Any) -> str:
-    return json.dumps(str(value))
-
-
-def yaml_scalar(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return str(value)
-    if value is None:
-        return "null"
     return json.dumps(str(value))
 
 
@@ -498,56 +491,6 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
                     process.wait()
 
 
-def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: list[Path], set_values: dict[str, Any]) -> None:
-    command = [
-        "helm",
-        "upgrade",
-        "--install",
-        name,
-        str(chart),
-        "--namespace",
-        namespace,
-        "--create-namespace",
-    ]
-    for value_file in value_files:
-        command.extend(["-f", str(value_file)])
-    overlay_path: Path | None = None
-    try:
-        if set_values:
-            nested_values: dict[str, Any] = {}
-            for key, value in set_values.items():
-                cursor = nested_values
-                parts = key.split(".")
-                for part in parts[:-1]:
-                    cursor = cursor.setdefault(part, {})
-                cursor[parts[-1]] = value
-
-            def write_yaml(data: dict[str, Any], indent: int = 0) -> str:
-                lines: list[str] = []
-                prefix = " " * indent
-                for child_key, child_value in data.items():
-                    if isinstance(child_value, dict):
-                        lines.append(f"{prefix}{child_key}:")
-                        lines.append(write_yaml(child_value, indent + 2))
-                    else:
-                        lines.append(f"{prefix}{child_key}: {yaml_scalar(child_value)}")
-                return "\n".join(lines)
-
-            fd, overlay_name = tempfile.mkstemp(suffix=".yaml")
-            overlay_path = Path(overlay_name)
-            with os.fdopen(fd, "w", encoding="utf-8") as overlay_file:
-                overlay_file.write(write_yaml(nested_values) + "\n")
-            command.extend(["-f", str(overlay_path)])
-        run(command)
-    finally:
-        if overlay_path:
-            overlay_path.unlink(missing_ok=True)
-
-
-def helm_uninstall(name: str, namespace: str) -> None:
-    run(["helm", "uninstall", name, "--namespace", namespace], check=False)
-
-
 def indent_block(value: str, spaces: int) -> str:
     prefix = " " * spaces
     return "\n".join(f"{prefix}{line}" if line else prefix for line in value.splitlines())
@@ -915,47 +858,8 @@ def require_section(root: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-def require_profile_file(base_dir: Path, name: str) -> Path:
-    path = base_dir / f"{name}.yaml"
-    if not path.is_file():
-        raise FileNotFoundError(f"Profile file was not found: {path}")
-    return path
-
-
-def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
-    mappings = {
-        "replica_count": "replicaCount",
-        "processing_dispatcher_type": "env.processingDispatcherType",
-        "worker_dispatcher_threads": "env.workerDispatcherThreads",
-        "order_processing_mode": "env.orderProcessingMode",
-        "order_worker_concurrency": "env.orderWorkerConcurrency",
-        "order_poll_loop_concurrency": "env.orderPollLoopConcurrency",
-        "order_work_channel_capacity": "env.orderWorkChannelCapacity",
-        "batch_processing_mode": "env.batchProcessingMode",
-        "batch_worker_concurrency": "env.batchWorkerConcurrency",
-        "batch_poll_loop_concurrency": "env.batchPollLoopConcurrency",
-        "batch_work_channel_capacity": "env.batchWorkChannelCapacity",
-        "telemetry_processing_mode": "env.telemetryProcessingMode",
-        "telemetry_worker_concurrency": "env.telemetryWorkerConcurrency",
-        "telemetry_poll_loop_concurrency": "env.telemetryPollLoopConcurrency",
-        "telemetry_work_channel_capacity": "env.telemetryWorkChannelCapacity",
-    }
-    return {helm_name: deployment[name] for name, helm_name in mappings.items() if deployment.get(name) is not None}
-
-
 def deployment_profile(deployment: dict[str, Any]) -> str:
     return as_str(deployment.get("profile"), "ckc")
-
-
-def flatten_helm_values(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in values.items():
-        path = f"{prefix}.{key}" if prefix else str(key)
-        if isinstance(value, dict):
-            result.update(flatten_helm_values(value, path))
-        else:
-            result[path] = value
-    return result
 
 
 def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any]:
@@ -1006,72 +910,42 @@ def deploy_workloads(
     registry: str,
     packet_capture_enabled: bool,
     run_id: str,
-) -> None:
-    deployment = require_section(definition, "deployment")
-    profile = deployment_profile(deployment)
-    charts_dir = repo_dir / "demo" / "infra" / "shared" / "helm"
+    definition_path: Path,
+    generated_dir: Path,
+) -> Path:
+    require_section(definition, "deployment")
+    del repo_dir
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
-
-    stubs_chart = charts_dir / "demo-stubs"
-    stubs_value_files = [
-        stubs_chart / "values.yaml",
-        require_profile_file(stubs_chart / "profiles", "aws-hpa"),
-    ]
-    helm_upgrade_install(
-        "ckc-demo-stubs",
-        stubs_chart,
-        "ckc-app",
-        stubs_value_files,
-        {
-            "image.repository": f"{registry}/demo-stubs",
-            "image.tag": "latest",
-            "image.pullPolicy": image_pull_policy,
-            "env.redisHost": as_str(lab_context.get("redis_host"), ""),
-            "runId": run_id,
-        },
-    )
-
-    demo_chart = charts_dir / "demo"
-    demo_value_files = [demo_chart / "values.yaml"]
-    if not isinstance(deployment.get("values"), dict):
-        raise ValueError(
-            "AWS deployment.values is missing; materialize the target from a shared experiment before running it."
-        )
-    demo_overrides = {
-        "image.repository": f"{registry}/demo",
-        "image.tag": "latest",
-        "image.pullPolicy": image_pull_policy,
-        "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
-        "env.redisHost": as_str(lab_context.get("redis_host"), ""),
-        "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
-        "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
-        "env.auditRunId": run_id,
-        "runProfile": profile,
-        "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "diagnostics.packetCapture.enabled": packet_capture_enabled,
-    }
-    planned_values = deployment.get("values") or {}
-    if isinstance(planned_values, dict):
-        demo_overrides.update(flatten_helm_values({key: value for key, value in planned_values.items() if key != "lab"}))
-    demo_overrides.update(deployment_value_overrides(deployment))
-    helm_upgrade_install(
-        "ckc-demo",
-        demo_chart,
-        "ckc-app",
-        demo_value_files,
-        demo_overrides,
-    )
+    plan_path = definition_path.parent / "deployment-plan.yaml"
+    if not plan_path.is_file():
+        raise FileNotFoundError(f"Generated deployment plan was not found: {plan_path}")
+    plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    manifests = render_project_manifests(plan, DeploymentBindings(
+        run_id=run_id,
+        application_image=f"{registry}/demo:latest",
+        stubs_image=f"{registry}/demo-stubs:latest",
+        load_test_image=f"{registry}/load-test:latest",
+        kafka_bootstrap=as_str(lab_context.get("kafka_bootstrap"), ""),
+        redis_host=as_str(lab_context.get("redis_host"), ""),
+        audit_host=as_str(lab_context.get("audit_tcp_host"), ""),
+        audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
+        image_pull_policy=image_pull_policy,
+        packet_capture_enabled=packet_capture_enabled,
+    ))
+    application_manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = generated_dir / "project-deployment.yaml"
+    manifest_path.write_text(yaml.safe_dump_all(application_manifests, sort_keys=False), encoding="utf-8")
+    run(["kubectl", "apply", "-f", str(manifest_path)])
+    return manifest_path
 
 
-def cleanup_workloads(job_name: str | None) -> None:
+def cleanup_workloads(job_name: str | None, project_manifest: Path | None) -> None:
     if job_name:
         delete_job(job_name)
     run(["kubectl", "-n", "ckc-loadtest", "delete", "configmap", "ckc-test-definition", "--ignore-not-found=true"], check=False)
-    helm_uninstall("ckc-demo", "ckc-app")
-    helm_uninstall("ckc-demo-stubs", "ckc-app")
+    if project_manifest:
+        run(["kubectl", "delete", "-f", str(project_manifest), "--ignore-not-found=true"], check=False)
 
 
 def main() -> None:
@@ -1119,6 +993,7 @@ def main() -> None:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
         raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
     job_name: str | None = None
+    project_manifest: Path | None = None
     diagnostics_process: subprocess.Popen[str] | None = None
     diagnostics_log = None
 
@@ -1151,7 +1026,10 @@ def main() -> None:
     status = "FAILED"
 
     try:
-        deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id)
+        project_manifest = deploy_workloads(
+            repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id,
+            definition_path, run_dir / "generated",
+        )
         wait_for_demo_rollout()
         if stub_settings is not None:
             configure_stubs(stub_settings, run_dir / "logs" / "configure-stubs.log")
@@ -1297,7 +1175,7 @@ def main() -> None:
             encoding="utf-8",
         )
         if bool(lab_context.get("cleanup_workloads", True)):
-            cleanup_workloads(job_name)
+            cleanup_workloads(job_name, project_manifest)
 
 
 if __name__ == "__main__":

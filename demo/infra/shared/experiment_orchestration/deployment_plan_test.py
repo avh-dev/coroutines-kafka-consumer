@@ -63,12 +63,22 @@ class DeploymentPlanTest(unittest.TestCase):
             redis_host="redis.internal",
             audit_host="audit.internal",
             packet_capture_enabled=True,
+            application_service_type="NodePort",
+            application_node_port=30080,
+            test_definition="smoke",
         ))
 
         identities = {(item["kind"], item["metadata"]["name"]) for item in manifests}
         self.assertIn(("Deployment", "ckc-demo"), identities)
         self.assertIn(("Deployment", "ckc-demo-stubs"), identities)
         self.assertIn(("Job", "ckc-load-test-run-1"), identities)
+        application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+        service = next(item for item in manifests if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo")
+        labels = application["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual("run-1", labels["ckc_run_id"])
+        self.assertEqual("smoke", labels["ckc_test_definition"])
+        self.assertEqual("NodePort", service["spec"]["type"])
+        self.assertEqual(30080, service["spec"]["ports"][0]["nodePort"])
         self.assertIn(("ConfigMap", "ckc-experiment-workload"), identities)
         application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
         container = application["spec"]["template"]["spec"]["containers"][0]

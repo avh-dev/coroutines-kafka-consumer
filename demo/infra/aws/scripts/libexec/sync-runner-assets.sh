@@ -46,7 +46,6 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
   demo/infra/shared/grafana \
-  demo/infra/shared/helm \
   demo/infra/shared/result_bundle \
   demo/infra/shared/test-orchestration
 

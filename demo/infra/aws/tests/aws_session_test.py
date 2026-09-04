@@ -4,7 +4,6 @@ import hashlib
 import importlib.util
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -77,18 +76,6 @@ class AwsSessionTest(unittest.TestCase):
         for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
             self.assertIn(f"--require-application {application}", export_script)
 
-    def test_demo_chart_renders_large_kafka_byte_limits_as_decimal_integers(self) -> None:
-        if shutil.which("helm") is None:
-            self.skipTest("helm is not installed")
-        rendered = subprocess.run(
-            ["helm", "template", "ckc-demo", str(REPO_ROOT / "demo/infra/shared/helm/demo")],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout
-        self.assertIn('value: "52428800"', rendered)
-        self.assertIn('value: "1048576"', rendered)
-
     def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = Path(directory)
@@ -149,17 +136,9 @@ class AwsSessionTest(unittest.TestCase):
             "run_plan": {"profile": "ckc", "replica_count": 3, "topics": []},
         }
         metadata = run_test_module.normalized_application_metadata(deployment)
-        helm_values = run_test_module.flatten_helm_values({
-            key: value for key, value in deployment["values"].items() if key != "lab"
-        })
-
         self.assertEqual("ckc", metadata["profile"])
         self.assertEqual(3, metadata["replica_count"])
         self.assertEqual(1, metadata["worker_dispatcher_threads"])
-        self.assertEqual(3, helm_values["replicaCount"])
-        self.assertEqual("FIXED", helm_values["env.processingDispatcherType"])
-        self.assertEqual("500m", helm_values["resources.requests.cpu"])
-        self.assertNotIn("lab.kafkaTopics", helm_values)
 
     def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
         definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
@@ -617,18 +596,6 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("containerPort: 9405", manifests[0])
         self.assertIn('cpu: "1"', manifests[0])
         self.assertIn('memory: "2Gi"', manifests[0])
-
-    def test_deployment_worker_overrides_are_passed_to_helm(self) -> None:
-        overrides = run_test_module.deployment_value_overrides({
-            "replica_count": 2,
-            "order_worker_concurrency": 100,
-            "batch_worker_concurrency": 100,
-            "telemetry_worker_concurrency": 100,
-        })
-        self.assertEqual(2, overrides["replicaCount"])
-        self.assertEqual(100, overrides["env.orderWorkerConcurrency"])
-        self.assertEqual(100, overrides["env.batchWorkerConcurrency"])
-        self.assertEqual(100, overrides["env.telemetryWorkerConcurrency"])
 
     def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

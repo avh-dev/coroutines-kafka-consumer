@@ -4,7 +4,7 @@ set -euo pipefail
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/state/materialized"
 TEST_DIR="${LAB_ROOT}/state/materialized"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 
@@ -28,6 +28,7 @@ METRICS_IMPLEMENTATION="MICROMETER"
 LETTUCE_METRICS_ENABLED="true"
 WORKER_DISPATCHER_THREADS=""
 STUB_REPLICA_COUNT=""
+DEPLOYMENT_PLAN_PATH=""
 AUDIT_RUN_ID="${AUDIT_RUN_ID:-local}"
 ENV_OVERRIDES=()
 POSITIONAL_ARGS=()
@@ -48,6 +49,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --stub-replicas)
       STUB_REPLICA_COUNT="${2:?--stub-replicas requires a positive integer}"
+      shift 2
+      ;;
+    --deployment-plan)
+      DEPLOYMENT_PLAN_PATH="${2:?--deployment-plan requires a path}"
       shift 2
       ;;
     -h|--help)
@@ -233,48 +238,40 @@ TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="ckc-demo" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
 
-DEPLOY_STUBS_ARGS=()
+if [[ -z "${DEPLOYMENT_PLAN_PATH}" || ! -f "${DEPLOYMENT_PLAN_PATH}" ]]; then
+  echo "A generated deployment plan is required: ${DEPLOYMENT_PLAN_PATH}" >&2
+  exit 1
+fi
 if [[ -n "${STUB_REPLICA_COUNT}" ]]; then
-  DEPLOY_STUBS_ARGS+=(--replicas "${STUB_REPLICA_COUNT}")
+  echo "stub replicas must be declared in the canonical experiment" >&2
+  exit 1
 fi
-"${LAB_ROOT}/libexec/deploy-stubs.sh" "${DEPLOY_STUBS_ARGS[@]}"
-
-HELM_ARGS=(
-  upgrade --install ckc-demo "${LAB_ROOT}/helm/demo"
-  --namespace ckc-perf \
-  -f "${LAB_ROOT}/config/defaults/demo-values.yaml" \
-  -f "${DEPLOYMENT_PROFILE}" \
-  --set "env.processingEnabled=${PROCESSING_ENABLED}" \
-  --set "env.auditLogEnabled=${AUDIT_LOG_ENABLED}" \
-  --set "env.auditRunId=${AUDIT_RUN_ID}" \
-  --set "env.metricsImplementation=${METRICS_IMPLEMENTATION}" \
-  --set "env.lettuceMetricsEnabled=${LETTUCE_METRICS_ENABLED}" \
-  --set "env.jdkHttpClientExecutor=${JDK_HTTP_CLIENT_EXECUTOR:-DEFAULT}" \
-  --set-string "env.experimentTargetName=${EXPERIMENT_TARGET_NAME:-}" \
-  --set "env.kafkaConsumerFetchMinBytes=${KAFKA_CONSUMER_FETCH_MIN_BYTES:-8192}" \
-  --set "env.kafkaConsumerFetchMaxWaitMs=${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:-250}" \
-  --set "env.kafkaConsumerMaxPollRecords=${KAFKA_CONSUMER_MAX_POLL_RECORDS:-500}" \
-  --set "env.kafkaConsumerFetchMaxBytes=${KAFKA_CONSUMER_FETCH_MAX_BYTES:-52428800}" \
-  --set "env.kafkaConsumerMaxPartitionFetchBytes=${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:-1048576}" \
-  --set "diagnostics.packetCapture.enabled=${PACKET_CAPTURE_ENABLED:-false}" \
-  --set-string "podLabels.ckc_run_id=${AUDIT_RUN_ID}" \
-  --set-string "podLabels.ckc_profile=${APP_PROFILE}" \
-  --set-string "podLabels.ckc_test_definition=$(basename "${TEST_DEFINITION}" .yaml)"
+PROJECT_MANIFEST="$(dirname "${DEPLOYMENT_PLAN_PATH}")/project-deployment.yaml"
+RENDER_ARGS=(
+  "${DEPLOYMENT_PLAN_PATH}"
+  --output "${PROJECT_MANIFEST}"
+  --run-id "${AUDIT_RUN_ID}"
+  --application-image docker.io/ckc-perf/demo:latest
+  --stubs-image docker.io/ckc-perf/demo-stubs:latest
+  --load-test-image docker.io/ckc-perf/load-test:latest
+  --kafka-bootstrap ckc-external-kafka.ckc-perf.svc.cluster.local:9092
+  --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
+  --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
+  --namespace ckc-perf
+  --load-test-namespace ckc-perf
+  --pull-policy IfNotPresent
+  --application-node-port 30080
+  --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
+  --applications-only
 )
-TOPIC_CONSUMER_HELM_MAPPINGS=(
-  ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES:orderKafkaConsumerFetchMinBytes ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:orderKafkaConsumerFetchMaxWaitMs ORDER_KAFKA_CONSUMER_MAX_POLL_RECORDS:orderKafkaConsumerMaxPollRecords ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES:orderKafkaConsumerFetchMaxBytes ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:orderKafkaConsumerMaxPartitionFetchBytes
-  BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES:batchKafkaConsumerFetchMinBytes BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:batchKafkaConsumerFetchMaxWaitMs BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS:batchKafkaConsumerMaxPollRecords BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES:batchKafkaConsumerFetchMaxBytes BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:batchKafkaConsumerMaxPartitionFetchBytes
-  TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES:telemetryKafkaConsumerFetchMinBytes TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:telemetryKafkaConsumerFetchMaxWaitMs TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS:telemetryKafkaConsumerMaxPollRecords TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES:telemetryKafkaConsumerFetchMaxBytes TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:telemetryKafkaConsumerMaxPartitionFetchBytes
-)
-for mapping in "${TOPIC_CONSUMER_HELM_MAPPINGS[@]}"; do
-  env_name="${mapping%%:*}"
-  helm_name="${mapping#*:}"
-  HELM_ARGS+=(--set-string "env.${helm_name}=${!env_name:-}")
+if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
+  RENDER_ARGS+=(--packet-capture)
+fi
+for override in "${ENV_OVERRIDES[@]}"; do
+  RENDER_ARGS+=(--env "${override}")
 done
-if [[ -n "${WORKER_DISPATCHER_THREADS}" ]]; then
-  HELM_ARGS+=(--set "env.workerDispatcherThreads=${WORKER_DISPATCHER_THREADS}")
-fi
-helm "${HELM_ARGS[@]}"
+python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
+kubectl apply -f "${PROJECT_MANIFEST}"
 
 kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
 "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"

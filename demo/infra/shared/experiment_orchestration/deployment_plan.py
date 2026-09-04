@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -12,7 +13,7 @@ from .definition import ResolvedExperiment, ResolvedTarget
 
 
 DEPLOYMENT_PLAN_VERSION = 1
-HELM_ENV_NAMES = {
+GENERATED_ENV_NAMES = {
     "experimentTargetName": "EXPERIMENT_TARGET_NAME",
     "springProfilesActive": "SPRING_PROFILES_ACTIVE",
     "processingEnabled": "DEMO_CONSUMER_PROCESSING_ENABLED",
@@ -21,6 +22,17 @@ HELM_ENV_NAMES = {
     "modelHttpClient": "MODEL_HTTP_CLIENT",
     "modelSyncHttpClient": "MODEL_SYNC_HTTP_CLIENT",
     "jdkHttpClientExecutor": "JDK_HTTP_CLIENT_EXECUTOR",
+    "jdkHttpClientVirtualThreadNamePrefix": "JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX",
+    "processingDispatcherVirtualThreadNamePrefix": "PROCESSING_DISPATCHER_VIRTUAL_THREAD_NAME_PREFIX",
+    "freshnessFirstMaxRecordAgeSeconds": "FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS",
+    "consumerRetryMaxAttempts": "DEMO_CONSUMER_RETRY_MAX_ATTEMPTS",
+    "consumerRetryMaxRetries": "DEMO_CONSUMER_RETRY_MAX_RETRIES",
+    "consumerRetryBackoffMs": "DEMO_CONSUMER_RETRY_BACKOFF_MS",
+    "kafkaConsumerFetchMinBytes": "KAFKA_CONSUMER_FETCH_MIN_BYTES",
+    "kafkaConsumerFetchMaxWaitMs": "KAFKA_CONSUMER_FETCH_MAX_WAIT_MS",
+    "kafkaConsumerMaxPollRecords": "KAFKA_CONSUMER_MAX_POLL_RECORDS",
+    "kafkaConsumerFetchMaxBytes": "KAFKA_CONSUMER_FETCH_MAX_BYTES",
+    "kafkaConsumerMaxPartitionFetchBytes": "KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES",
     "javaToolOptions": "JAVA_TOOL_OPTIONS",
     "orderProcessingMode": "ORDER_PROCESSING_MODE",
     "orderWorkerConcurrency": "ORDER_WORKER_CONCURRENCY",
@@ -35,6 +47,9 @@ HELM_ENV_NAMES = {
     "telemetryPollLoopConcurrency": "TELEMETRY_POLL_LOOP_CONCURRENCY",
     "telemetryWorkChannelCapacity": "TELEMETRY_WORK_CHANNEL_CAPACITY",
 }
+for _topic in ("Order", "Batch", "Telemetry"):
+    for _setting in ("FetchMinBytes", "FetchMaxWaitMs", "MaxPollRecords", "FetchMaxBytes", "MaxPartitionFetchBytes"):
+        GENERATED_ENV_NAMES[f"{_topic.lower()}{_setting}"] = f"{_topic.upper()}_KAFKA_CONSUMER_{re.sub(r'(?<!^)(?=[A-Z])', '_', _setting).upper()}"
 LOAD_ENV_NAMES = {
     "base_tps": "BASE_TPS",
     "order_event_percent": "ORDER_EVENT_PERCENT",
@@ -90,6 +105,9 @@ class DeploymentBindings:
     load_test_namespace: str = "ckc-loadtest"
     packet_capture_enabled: bool = False
     active_deadline_seconds: int = 3600
+    application_service_type: str = "ClusterIP"
+    application_node_port: int | None = None
+    test_definition: str = "canonical"
 
 
 def build_deployment_plan(
@@ -285,9 +303,17 @@ def _deployment(
     resources: Mapping[str, Any] | None = None,
     packet_capture: bool = False,
     probes: Mapping[str, Any] | None = None,
+    test_definition: str = "canonical",
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name}
-    pod_labels = {**labels, "ckc.dev/test-run-id": run_id, "ckc.dev/profile": profile}
+    pod_labels = {
+        **labels,
+        "ckc.dev/test-run-id": run_id,
+        "ckc.dev/profile": profile,
+        "ckc_run_id": run_id,
+        "ckc_profile": profile,
+        "ckc_test_definition": test_definition,
+    }
     container: dict[str, Any] = {
         "name": container_name,
         "image": image,
@@ -350,9 +376,9 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
     runtime = application.get("runtime") or {}
     profile = str(plan["target"]["implementation"])
     computed_env = {
-        HELM_ENV_NAMES[key]: value
+        GENERATED_ENV_NAMES[key]: value
         for key, value in (values.get("env") or {}).items()
-        if key in HELM_ENV_NAMES and value not in (None, "")
+        if key in GENERATED_ENV_NAMES and value not in (None, "")
     }
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
     computed_env.update({
@@ -387,6 +413,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             run_id=bindings.run_id,
             profile="stubs",
             environment={"PORT": 8080, "REDIS_HOST": bindings.redis_host, "REDIS_PORT": 6379},
+            test_definition=bindings.test_definition,
         ),
         {
             "apiVersion": "v1", "kind": "Service",
@@ -409,11 +436,19 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 "readiness": {"initialDelaySeconds": 15, "periodSeconds": 10, "timeoutSeconds": 1, "failureThreshold": 3},
                 "liveness": {"initialDelaySeconds": 30, "periodSeconds": 15, "timeoutSeconds": 1, "failureThreshold": 3},
             },
+            test_definition=bindings.test_definition,
         ),
         {
             "apiVersion": "v1", "kind": "Service",
             "metadata": _metadata("ckc-demo", bindings.application_namespace),
-            "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo"}, "ports": [{"name": "http", "port": 8080, "targetPort": 8080}]},
+            "spec": {
+                "selector": {"app.kubernetes.io/name": "ckc-demo"},
+                "type": bindings.application_service_type,
+                "ports": [{
+                    "name": "http", "port": 8080, "targetPort": 8080,
+                    **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {}),
+                }],
+            },
         },
     ]
     application_hpa = _hpa("ckc-demo", bindings.application_namespace, values.get("hpa") or configuration.get("hpa") or {})

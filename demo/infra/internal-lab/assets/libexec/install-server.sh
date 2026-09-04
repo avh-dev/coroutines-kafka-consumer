@@ -32,10 +32,6 @@ fi
 
 systemctl enable --now docker
 
-if ! command -v helm >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-fi
-
 if ! command -v k3s >/dev/null 2>&1; then
   curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --disable local-storage --disable metrics-server --write-kubeconfig-mode 644 --node-ip ${LAB_NODE_IP} --advertise-address ${LAB_NODE_IP}" sh -
 else

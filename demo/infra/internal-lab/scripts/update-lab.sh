@@ -165,7 +165,6 @@ sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers" "${LAB_ROOT}/helpers"
-  sync_path "${REPO_ROOT}/demo/infra/shared/helm" "${LAB_ROOT}/helm"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/restore" "${LAB_ROOT}/restore"
@@ -291,7 +290,7 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   gradle/wrapper/gradle-wrapper.properties \
   demo/ckc-demo-contracts \
   demo/ckc-demo-load-test)"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets demo/infra/shared/helm)"
+ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
@@ -304,12 +303,7 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/grafana \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/shared/grafana \
-  demo/infra/shared/helm/demo)"
-STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
-  demo/infra/internal-lab/assets/config/demo-stubs-values.yaml \
-  demo/infra/internal-lab/assets/libexec/deploy-stubs.sh \
-  demo/infra/shared/helm/demo-stubs)"
+  demo/infra/shared/grafana)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
@@ -318,7 +312,6 @@ LOAD_TEST_RUNTIME_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
-STUBS_DEPLOY_CHANGED=0
 DEMO_DEPLOY_RESTARTED=0
 
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}"; then
@@ -357,9 +350,6 @@ if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
-fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "stubs-deploy" "${STUBS_DEPLOY_FINGERPRINT}"; then
-  STUBS_DEPLOY_CHANGED=1
 fi
 
 cd "${REPO_ROOT}"
@@ -434,13 +424,8 @@ if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
     DEMO_DEPLOY_RESTARTED=1
   fi
 fi
-if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] || [[ "${STUBS_DEPLOY_CHANGED}" -eq 1 ]]; then
-  if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
-    ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-stubs.sh' --restart"
-  else
-    ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-stubs.sh'"
-  fi
-  record_remote_fingerprint "stubs-deploy" "${STUBS_DEPLOY_FINGERPRINT}"
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] && ssh "root@${LAB_HOST}" "kubectl -n ckc-perf get deploy ckc-demo-stubs >/dev/null 2>&1"; then
+  ssh "root@${LAB_HOST}" "kubectl -n ckc-perf rollout restart deploy/ckc-demo-stubs && kubectl -n ckc-perf rollout status deploy/ckc-demo-stubs --timeout=240s"
 fi
 
 echo "Internal lab is updated."
@@ -452,6 +437,6 @@ echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"
 echo "  demo redeployed=${DEMO_DEPLOY_RESTARTED}"
-echo "  demo-stubs redeployed=$(( DEMO_STUBS_IMAGE_CHANGED || STUBS_DEPLOY_CHANGED ))"
+echo "  demo-stubs restarted=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  load-test runtime=${LAB_ROOT}/load-test-runtime"
 echo "  lab entrypoints=${LAB_ROOT}/bin"
