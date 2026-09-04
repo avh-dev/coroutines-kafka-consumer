@@ -144,6 +144,7 @@
 | [DEMO-88](#demo-88) | Pass experiment target names into demo profile metrics and support topic-specific Kafka producer and consumer settings. | DONE |
 | [DEMO-89](#demo-89) | Reconfigure load-test Kafka producer pools during a run and emit timestamped experiment events for each change. | DONE |
 | [DEMO-90](#demo-90) | Remove runtime Kafka producer reconfiguration and return load-test producers to fixed per-run configuration. | DONE |
+| [DEMO-91](#demo-91) | Adopt the two-level Thread Stats category and group configuration in the demo application. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -3074,3 +3075,14 @@ Provision topic and consumer parallelism with thirty percent headroom over the p
 Keep audit collection enabled while explicitly disabling chaos and packet-capture diagnostics; prepare and validate the definition without starting AWS resources.
 
 Verification: both targets materialized with the expected topology and Spring Kafka JDK client selection; the Helm chart rendered and linted successfully, 6 shared orchestration tests, 28 AWS tests, and 53 internal-lab tests passed. No AWS session was started.
+
+<a id="demo-91"></a>
+### DEMO-91 - Adopt two-level Thread Stats grouping
+
+_Date: 2026-09-04_
+
+Install the updated sibling Thread Stats snapshot and migrate the demo application from a flat rule list to explicit categories containing named groups.
+Preserve the existing bounded thread classification while making each dashboard-level category part of the emitted metric schema.
+Update focused configuration and actuator coverage for the new category and group contract.
+
+Verification: the sibling Thread Stats Maven reactor installed the updated snapshot after 63 unit tests and the Java-agent integration test passed. All 96 `ckc-demo` tests passed against that snapshot, including the Actuator endpoint and category-aware configuration assertions.

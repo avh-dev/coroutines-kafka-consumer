@@ -23,130 +23,111 @@ ckc:
 thread-stats:
   enabled: ${THREAD_STATS_ENABLED:true}
   sampling-interval: ${THREAD_STATS_SAMPLING_INTERVAL:1s}
+  fallback-category: other
   fallback-group: other
   metrics:
     enabled: ${THREAD_STATS_METRICS_ENABLED:true}
-  rules:
-    - group: main
-      type: exact
-      value: main
-    - group: thread-stats
-      type: prefix
-      value: thread-stats-
-    - group: ckc-poll
-      type: prefix
-      value: kafka-poll-
-    - group: ckc-worker
-      type: prefix
-      value: ckc-worker-
-    - group: ckc-worker
-      type: prefix
-      value: ckc-sync-worker-
-    - group: ckc-worker
-      type: prefix
-      value: ckc-spring-boot-worker-
-    - group: demo-virtual-worker
-      type: prefix
-      value: demo-processing-virtual-
-    - group: virtual-thread-runtime
-      type: prefix
-      value: ForkJoinPool-
-    - group: virtual-thread-runtime
-      type: exact
-      value: VirtualThread-unparker
-    - group: jvm-fork-join
-      type: prefix
-      value: ForkJoinPool.commonPool-
-    - group: spring-kafka-worker
-      type: prefix
-      value: spring-kafka-coroutines-naive-worker-
-    - group: spring-kafka-thread-pool-worker
-      type: prefix
-      value: spring-kafka-thread-pool-
-    - group: spring-kafka-virtual-worker
-      type: prefix
-      value: spring-kafka-virtual-thread-pool-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-consumer-order-lifecycle-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-consumer-batch-lifecycle-
-    - group: spring-kafka-consumer
-      type: prefix
-      value: spring-kafka-consumer-cauldron-telemetry-
-    - group: spring-task-scheduler
-      type: prefix
-      value: ThreadPoolTaskScheduler-
-    - group: confluent-parallel
-      type: prefix
-      value: confluent-parallel-
-    - group: confluent-parallel-worker
-      type: prefix
-      value: pc-reactor-worker-
-    - group: kafka-client
-      type: prefix
-      value: pc-broker-poll
-    - group: kafka-client
-      type: prefix
-      value: pc-control
-    - group: kafka-client
-      type: prefix
-      value: pc-pool-
-    - group: kafka-client
-      type: prefix
-      value: micrometer-kafka-metrics
-    - group: kafka-client
-      type: prefix
-      value: kafka-
-    - group: armeria-client
-      type: prefix
-      value: armeria-common-worker-
-    - group: armeria-server
-      type: prefix
-      value: armeria-boss-
-    - group: armeria-server
-      type: prefix
-      value: armeria-eventloop-
-    - group: armeria-server
-      type: prefix
-      value: armeria-blocking-tasks-
-    - group: armeria-other
-      type: prefix
-      value: armeria-
-    - group: redis-client
-      type: prefix
-      value: lettuce-
-    - group: audit
-      type: prefix
-      value: logback-appender-AUDIT_TCP-
-    - group: jdk-http-client
-      type: prefix
-      value: HttpClient-
-    - group: spring-lifecycle
-      type: prefix
-      value: startstop-support-
-    - group: coroutine-runtime
-      type: prefix
-      value: DefaultDispatcher-
-    - group: jvm-system
-      type: exact
-      value: Reference Handler
-    - group: jvm-system
-      type: exact
-      value: Finalizer
-    - group: jvm-system
-      type: exact
-      value: Signal Dispatcher
-    - group: jvm-system
-      type: exact
-      value: Notification Thread
-    - group: jvm-system
-      type: exact
-      value: Common-Cleaner
-    - group: jvm-system
-      type: exact
-      value: DestroyJavaVM
+  categories:
+    - name: business
+      groups:
+        - name: ckc-worker
+          rules:
+            - { type: prefix, value: ckc-worker- }
+            - { type: prefix, value: ckc-sync-worker- }
+            - { type: prefix, value: ckc-spring-boot-worker- }
+        - name: demo-virtual-worker
+          rules:
+            - { type: prefix, value: demo-processing-virtual- }
+        - name: virtual-thread-runtime
+          rules:
+            - { type: prefix, value: ForkJoinPool- }
+            - { type: exact, value: VirtualThread-unparker }
+        - name: spring-kafka-worker
+          rules:
+            - { type: prefix, value: spring-kafka-coroutines-naive-worker- }
+        - name: spring-kafka-thread-pool-worker
+          rules:
+            - { type: prefix, value: spring-kafka-thread-pool- }
+        - name: spring-kafka-virtual-worker
+          rules:
+            - { type: prefix, value: spring-kafka-virtual-thread-pool- }
+        - name: confluent-parallel
+          rules:
+            - { type: prefix, value: confluent-parallel- }
+        - name: confluent-parallel-worker
+          rules:
+            - { type: prefix, value: pc-reactor-worker- }
+    - name: kafka
+      groups:
+        - name: ckc-poll
+          rules:
+            - { type: prefix, value: kafka-poll- }
+        - name: spring-kafka-consumer
+          rules:
+            - { type: prefix, value: spring-kafka-consumer-order-lifecycle- }
+            - { type: prefix, value: spring-kafka-consumer-batch-lifecycle- }
+            - { type: prefix, value: spring-kafka-consumer-cauldron-telemetry- }
+        - name: kafka-client
+          rules:
+            - { type: prefix, value: pc-broker-poll }
+            - { type: prefix, value: pc-control }
+            - { type: prefix, value: pc-pool- }
+            - { type: prefix, value: micrometer-kafka-metrics }
+            - { type: prefix, value: kafka- }
+    - name: http-client
+      groups:
+        - name: armeria-client
+          rules:
+            - { type: prefix, value: armeria-common-worker- }
+        - name: jdk-http-client
+          rules:
+            - { type: prefix, value: HttpClient- }
+    - name: redis-client
+      groups:
+        - name: redis-client
+          rules:
+            - { type: prefix, value: lettuce- }
+    - name: audit
+      groups:
+        - name: audit
+          rules:
+            - { type: prefix, value: logback-appender-AUDIT_TCP- }
+    - name: other
+      groups:
+        - name: main
+          rules:
+            - { type: exact, value: main }
+        - name: thread-stats
+          rules:
+            - { type: prefix, value: thread-stats- }
+        - name: jvm-fork-join
+          rules:
+            - { type: prefix, value: ForkJoinPool.commonPool- }
+        - name: spring-task-scheduler
+          rules:
+            - { type: prefix, value: ThreadPoolTaskScheduler- }
+        - name: armeria-server
+          rules:
+            - { type: prefix, value: armeria-boss- }
+            - { type: prefix, value: armeria-eventloop- }
+            - { type: prefix, value: armeria-blocking-tasks- }
+        - name: armeria-other
+          rules:
+            - { type: prefix, value: armeria- }
+        - name: spring-lifecycle
+          rules:
+            - { type: prefix, value: startstop-support- }
+        - name: coroutine-runtime
+          rules:
+            - { type: prefix, value: DefaultDispatcher- }
+        - name: jvm-system
+          rules:
+            - { type: exact, value: Reference Handler }
+            - { type: exact, value: Finalizer }
+            - { type: exact, value: Signal Dispatcher }
+            - { type: exact, value: Notification Thread }
+            - { type: exact, value: Common-Cleaner }
+            - { type: exact, value: DestroyJavaVM }
 
 armeria:
   graceful-shutdown-quiet-period-millis: 1000
