@@ -4,26 +4,16 @@ set -euo pipefail
 
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
-PROFILE_NAME="${3:-default}"
-TEST_DEFINITION_PATH="${4:?create-lab requires a materialized experiment target}"
+TEST_DEFINITION_PATH="${3:?create-lab requires a materialized experiment target}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 PROVISIONED_CONTEXT_PATH="${CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH:-}"
 IMAGE_ENVIRONMENT="${CKC_AWS_IMAGE_ENVIRONMENT:-dev}"
 TERRAFORM_DIR="${REPO_DIR}/demo/infra/aws/assets/terraform/load-lab"
-PROFILE_PATH="${TERRAFORM_DIR}/profiles/${PROFILE_NAME}.tfvars"
 CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
 TEMP_DIR="${RUNNER_HOME}/tmp"
-
-PROFILE_ARGS=()
-if [ -f "${PROFILE_PATH}" ]; then
-  PROFILE_ARGS=(-var-file="${PROFILE_PATH}")
-elif [ "${PROFILE_NAME}" != "default" ]; then
-  echo "Lab profile not found: ${PROFILE_PATH}" >&2
-  exit 1
-fi
 
 mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}"
 
@@ -649,8 +639,7 @@ if [ -z "${PROVISIONED_CONTEXT_PATH}" ]; then
   terraform -chdir="${TERRAFORM_DIR}" init
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
     -var="aws_region=${REGION}" \
-    -var="environment=${ENVIRONMENT}" \
-    "${PROFILE_ARGS[@]}"
+    -var="environment=${ENVIRONMENT}"
 else
   CLUSTER_NAME="$(infra_output cluster_name)"
   if [ -z "${CLUSTER_NAME}" ]; then
@@ -791,7 +780,7 @@ from pathlib import Path
 context = {
     "environment": "${ENVIRONMENT}",
     "region": "${REGION}",
-    "profile_name": "${PROFILE_NAME}",
+    "configuration_source": "experiment",
     "cluster_name": "${CLUSTER_NAME}",
     "kubeconfig_path": "${KUBECONFIG_PATH}",
     "kafka_mode": "${KAFKA_MODE}",
@@ -812,7 +801,7 @@ Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", enc
 PY
 
 echo "Lab is ready."
-echo "  profile=${PROFILE_NAME}"
+echo "  configuration=experiment"
 echo "  test_definition=${TEST_DEFINITION_PATH}"
 echo "  cluster_name=${CLUSTER_NAME}"
 echo "  kafka_mode=${KAFKA_MODE}"

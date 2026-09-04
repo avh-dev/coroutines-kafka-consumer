@@ -196,11 +196,11 @@ class AwsSessionTest(unittest.TestCase):
             self.assertTrue(definition.is_file())
 
         self.assertEqual("experiment", state["config"]["mode"])
-        self.assertEqual("default", state["config"]["lab_profile"])
+        self.assertNotIn("lab_profile", state["config"])
         self.assertEqual("ckc", target["profile"])
         self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
 
-    def test_new_state_rejects_unsafe_session_and_canonical_profile_override(self) -> None:
+    def test_new_state_rejects_unsafe_session_name(self) -> None:
         base = SimpleNamespace(
             experiment="demo/infra/experiments/smoke.yaml",
             experiment_id=None,
@@ -214,9 +214,6 @@ class AwsSessionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "session-id"):
                 session_module.new_state(base, "x", Path(directory))
-            base.lab_profile = "default'; touch /tmp/nope"
-            with self.assertRaisesRegex(ValueError, "immutable"):
-                session_module.new_state(base, "safe-session", Path(directory))
 
     def test_new_state_uses_canonical_environment_and_inline_acceptance(self) -> None:
         args = SimpleNamespace(

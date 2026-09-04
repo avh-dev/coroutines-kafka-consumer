@@ -467,11 +467,9 @@ class SessionController:
             "runner_role_arn": runner_outputs["role_arn"],
             "availability_zones": config["availability_zones"],
         }
-        profile = config["lab_profile"]
-        lab_extra = [] if profile == "default" else [f"-var-file={lab_module / 'profiles' / (profile + '.tfvars')}"]
         self.phase("CREATING_LAB")
-        self.record_stack("lab", lab_module, lab_variables, lab_extra)
-        self.terraform("lab", lab_module, "apply", lab_variables, lab_extra)
+        self.record_stack("lab", lab_module, lab_variables, [])
+        self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
         context_path = self.session_dir / "provisioned-lab.json"
         json_write(context_path, lab_outputs)
@@ -492,7 +490,7 @@ class SessionController:
                 f"CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH={shlex.quote(remote_context)} "
                 f"CKC_AWS_IMAGE_ENVIRONMENT={shlex.quote(config['image_environment'])} "
                 "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/create-lab.sh "
-                f"{shlex.quote(region)} {shlex.quote(config['aws_environment'])} {shlex.quote(profile)} "
+                f"{shlex.quote(region)} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(config['test_definition'])}",
             ]),
             "configure disposable lab",
@@ -598,7 +596,7 @@ class SessionController:
         self.ssm(
             "CKC_LOAD_LAB_SKIP_TERRAFORM=true "
             "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/destroy-lab.sh "
-            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} {shlex.quote(config['lab_profile'])}",
+            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])}",
             "remove Kubernetes lab workloads",
             1800,
             check=False,
@@ -1124,10 +1122,8 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     resolved = resolve_experiment_definition(
         definition_path,
         None,
-        lab_profile=args.lab_profile,
         environment="aws",
     )
-    lab_profile = resolved.lab_profile or "default"
     materialized = materialize_experiment(
         resolved,
         output_dir=session_dir / "materialized",
@@ -1158,8 +1154,6 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     base_test_definition = resolved.test.source_name
     base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
     sla_profile = str(resolved.definition.get("sla_profile") or "")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
-        raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
     aws_environment = f"s-{hashlib.sha256(session_id.encode('utf-8')).hexdigest()[:10]}"
     canonical_region = str((resolved.environment_definition or {}).get("region") or "").strip()
@@ -1186,7 +1180,6 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "owner": args.owner,
             "expires_at": utc_text(expires_at),
             "image_environment": args.image_environment,
-            "lab_profile": lab_profile,
             "terraform_lab_inputs": terraform_lab_inputs,
             "experiment": definition.as_posix(),
             "test_definition": targets[0]["remote_definition"],
@@ -1209,7 +1202,6 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--experiment-id")
     run_parser.add_argument("--owner", default=os.environ.get("USER", "local-user"))
     run_parser.add_argument("--image-environment", default="dev")
-    run_parser.add_argument("--lab-profile", help="Override the experiment-wide lab profile.")
     run_parser.add_argument("--experiment")
     run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
     run_parser.add_argument("--max-session-hours", type=int, default=12)

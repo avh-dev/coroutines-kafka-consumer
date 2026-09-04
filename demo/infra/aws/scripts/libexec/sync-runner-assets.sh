@@ -34,7 +34,6 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/assets/terraform/load-lab/variables.tf \
   demo/infra/aws/assets/terraform/load-lab/versions.tf \
   demo/infra/aws/assets/terraform/load-lab/outputs.tf \
-  demo/infra/aws/assets/terraform/load-lab/profiles \
   demo/infra/aws/assets/terraform/load-lab/terraform.tfvars.example \
   demo/infra/aws/audit \
   demo/infra/experiments \
