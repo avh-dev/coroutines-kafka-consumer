@@ -5,11 +5,30 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from .collect import collect
 from .finalize import digest, finalize
 
 
 class CanonicalFinalizerTest(unittest.TestCase):
+    def test_collection_preserves_a_manifest_when_a_source_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "run-a"
+            run.mkdir()
+            with patch("demo.infra.shared.result_bundle.collect.export_loki_run", side_effect=OSError("offline")):
+                manifest = collect(
+                    result_root=root,
+                    run_dirs=[run],
+                    dashboard_dir=root,
+                    prometheus_url=None,
+                    loki_url="http://loki",
+                )
+            persisted = json.loads((root / "config/collection-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual("loki", manifest["errors"][0]["source"])
+        self.assertEqual(manifest, persisted)
+
     def test_writes_report_evidence_and_independent_audit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -41,6 +60,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 experiment="smoke",
                 environment="internal-lab",
                 status="complete",
+                restore_sources=[Path(__file__).resolve().parent / "restore"],
             )
 
             self.assertEqual({"report.md", "report-assets", "evidence.tar.gz", "audit.tar.gz"}, {p.name for p in output.iterdir()})
@@ -59,6 +79,10 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn("evidence/result/runs/run-a/run-metadata.json", evidence_names)
             self.assertIn("evidence/result/metrics/victoriametrics-data.tar.gz", evidence_names)
             self.assertIn("evidence/result/runs/run-a/audit/summary.yaml", evidence_names)
+            self.assertIn("evidence/restore/open-result.sh", evidence_names)
+            self.assertIn("evidence/restore/provisioning/dashboards/ckc.yml", evidence_names)
+            self.assertIn("evidence/restore/provisioning/datasources/prometheus.yml", evidence_names)
+            self.assertIn("evidence/restore/provisioning/datasources/loki.yml", evidence_names)
             self.assertNotIn("evidence/result/runs/run-a/audit/chunks/audit-0001.log.gz", evidence_names)
             self.assertNotIn("evidence/result/terraform.tfstate", evidence_names)
             self.assertEqual("<redacted>", redacted["api_token"])

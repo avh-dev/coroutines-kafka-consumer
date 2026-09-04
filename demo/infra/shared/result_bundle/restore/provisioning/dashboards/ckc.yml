@@ -1,7 +1,11 @@
 apiVersion: 1
+
 providers:
-  - name: CKC experiment
+  - name: ckc
+    orgId: 1
     folder: CKC
     type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
     options:
       path: /var/lib/grafana/dashboards

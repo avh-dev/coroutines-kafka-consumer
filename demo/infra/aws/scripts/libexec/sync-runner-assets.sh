@@ -38,9 +38,7 @@ tar -czf "${BUNDLE_FILE}" \
   demo/infra/aws/audit \
   demo/infra/experiments \
   demo/infra/aws/runner-assets \
-  demo/infra/aws/restore \
   demo/infra/internal-lab/assets/helpers \
-  demo/infra/internal-lab/assets/restore \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_report \
@@ -61,12 +59,11 @@ if [ -n "${ARTIFACT_BUCKET}" ]; then
     "mkdir -p \"${REPO_TARGET}\"",
     "tar -xzf \"${BUNDLE_TARGET}\" -C \"${REPO_TARGET}\"",
     "find \"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\" -type f -name '*.sh' -exec chmod +x {} +",
-    "find \"${REPO_TARGET}/demo/infra/aws/restore\" -type f -name '*.sh' -exec chmod +x {} +",
     "find \"${REPO_TARGET}/demo/infra/aws/audit\" -type f -name '*.sh' -exec chmod +x {} +",
     "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
     "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",
-    "cp \"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/loki-datasource.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
+    "cp \"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/provisioning/datasources/loki.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
     "cp \"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json",
     "echo synced=true",
     "echo repo_dir=${REPO_TARGET}"
@@ -89,12 +86,11 @@ else
     "mkdir -p \\"${REPO_TARGET}\\"",
     "tar -xzf \\"${BUNDLE_TARGET}\\" -C \\"${REPO_TARGET}\\"",
     "find \\"${REPO_TARGET}/demo/infra/aws/runner-assets/bin\\" -type f -name '*.sh' -exec chmod +x {} +",
-    "find \\"${REPO_TARGET}/demo/infra/aws/restore\\" -type f -name '*.sh' -exec chmod +x {} +",
     "find \\"${REPO_TARGET}/demo/infra/aws/audit\\" -type f -name '*.sh' -exec chmod +x {} +",
     "mkdir -p /opt/ckc-runner/observability/grafana/provisioning/dashboards /opt/ckc-runner/observability/grafana/provisioning/datasources /opt/ckc-runner/observability/grafana/dashboards",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",
-    "cp \\"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/loki-datasource.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
+    "cp \\"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/provisioning/datasources/loki.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json",
     "echo synced=true",
     "echo repo_dir=${REPO_TARGET}"

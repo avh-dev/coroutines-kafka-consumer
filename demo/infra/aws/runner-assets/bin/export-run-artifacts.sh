@@ -43,7 +43,8 @@ if docker inspect prometheus >/dev/null 2>&1; then
   tar -C "${RUNNER_HOME}" -czf "${RUN_DIR}/metrics/victoriametrics-data.tar.gz" prometheus
 fi
 
-"${REPO_DIR}/demo/infra/aws/restore/package-result.sh" "${RUN_DIR}"
+python3 "${REPO_DIR}/demo/infra/shared/result_bundle/prepare.py" \
+  "${RUN_DIR}" --repo-root "${REPO_DIR}" --environment aws
 python3 "${REPO_DIR}/demo/infra/aws/runner-assets/bin/build-artifact-manifest.py" \
   "${RUN_DIR}" --run-id "${RUN_ID}"
 

@@ -1040,8 +1040,11 @@ class SessionController:
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
             self.run([
-                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                sys.executable,
+                str(self.repo / "demo/infra/shared/result_bundle/prepare.py"),
                 str(result_dir),
+                "--repo-root", str(self.repo),
+                "--environment", "aws",
             ])
             session_metadata = result_dir / "session"
             session_metadata.mkdir(parents=True, exist_ok=True)
@@ -1061,8 +1064,11 @@ class SessionController:
         if self.config.get("mode") == "experiment":
             result_root = Path(self.state["local_result_dir"])
             self.run([
-                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                sys.executable,
+                str(self.repo / "demo/infra/shared/result_bundle/prepare.py"),
                 str(result_root),
+                "--repo-root", str(self.repo),
+                "--environment", "aws",
             ])
             session_metadata = result_root / "session"
             session_metadata.mkdir(parents=True, exist_ok=True)
@@ -1075,11 +1081,6 @@ class SessionController:
                 str(result_root),
                 "--run-id", self.config["session_id"],
             ])
-        bundle_root = Path(self.state["local_result_dir"])
-        archive_path = self.session_dir / f"{self.config['session_id']}-result.tar.gz"
-        with tarfile.open(archive_path, "w:gz") as archive:
-            archive.add(bundle_root, arcname=self.config["session_id"])
-        self.state["result_bundle"] = str(archive_path)
         self.finalize_canonical_artifacts("complete" if not self.state.get("failure") else "failed")
         self.save()
 
@@ -1306,7 +1307,8 @@ def main() -> None:
     print(f"AWS smoke session completed: {session_id}")
     print(f"  result={controller.state['local_result_dir']}")
     print(f"  audit_summary={controller.state['audit_summary']}")
-    print(f"  bundle={controller.state['result_bundle']}")
+    for name, path in controller.state["canonical_artifacts"].items():
+        print(f"  {name}={path}")
     print(f"  cleanup_report={controller.session_dir / 'cleanup-report.json'}")
 
 

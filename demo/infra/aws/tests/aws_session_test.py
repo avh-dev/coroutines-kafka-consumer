@@ -40,8 +40,8 @@ export_loki_module = load_module(
     REPO_ROOT / "demo" / "infra" / "shared" / "result_bundle" / "export-loki.py",
 )
 finalize_result_module = load_module(
-    "ckc_finalize_aws_result",
-    AWS_ROOT / "restore" / "finalize-result.py",
+    "ckc_prepare_result",
+    REPO_ROOT / "demo/infra/shared/result_bundle/prepare.py",
 )
 
 
@@ -262,14 +262,25 @@ class AwsSessionTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "verification failed"):
                 session_module.SessionController.verify_manifest(root)
 
-    def test_restore_kit_and_final_manifest_are_self_contained(self) -> None:
+    def test_shared_prepare_and_final_manifest_are_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = Path(directory) / "run-1"
             (result / "metrics").mkdir(parents=True)
             (result / "metrics" / "victoriametrics-data.tar.gz").write_bytes(b"metrics")
             (result / "COMPLETE").write_text("complete\n", encoding="utf-8")
+            (result / "run-metadata.json").write_text(json.dumps({
+                "run_id": "run-1", "test_name": "smoke", "started_at": "2026-09-01T10:00:00Z",
+            }), encoding="utf-8")
+            (result / "run-status.json").write_text(json.dumps({
+                "run_id": "run-1", "status": "COMPLETED",
+                "started_at": "2026-09-01T10:00:00Z", "ended_at": "2026-09-01T10:01:00Z",
+            }), encoding="utf-8")
             subprocess.run(
-                [str(AWS_ROOT / "restore" / "package-result.sh"), str(result)],
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "demo/infra/shared/result_bundle/prepare.py"),
+                    str(result), "--repo-root", str(REPO_ROOT), "--environment", "aws",
+                ],
                 check=True,
                 stdout=subprocess.DEVNULL,
             )
@@ -285,20 +296,10 @@ class AwsSessionTest(unittest.TestCase):
             session_module.SessionController.verify_manifest(result)
             manifest = json.loads((result / "artifact-manifest.json").read_text(encoding="utf-8"))
             paths = {item["path"] for item in manifest["files"]}
-            compose = (result / "restore" / "docker-compose.yml").read_text(encoding="utf-8")
             dashboard = json.loads((result / "config" / "ckc-experiment.json").read_text(encoding="utf-8"))
             experiment_markdown = dashboard["panels"][0]["options"]["content"]
-        self.assertIn("restore/open-result.sh", paths)
-        self.assertIn("restore/close-result.sh", paths)
-        self.assertIn("restore/docker-compose.yml", paths)
-        self.assertIn("restore/finalize-result.py", paths)
-        self.assertIn("restore/import-grafana-annotations.py", paths)
-        self.assertIn("restore/grafana/provisioning/dashboards/ckc.yml", paths)
-        self.assertIn("restore/grafana/provisioning/datasources/prometheus.yml", paths)
         self.assertIn("config/ckc-experiment.json", paths)
-        self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
-        self.assertIn('GF_USERS_VIEWERS_CAN_EDIT: "true"', compose)
-        self.assertIn("CKC_AWS_RESTORE_GRAFANA_BIND_ADDRESS:-0.0.0.0", compose)
+        self.assertIn("config/result-capabilities.json", paths)
         self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", experiment_markdown)
         self.assertIn("[Open logs](/explore?", experiment_markdown)
         self.assertNotIn("| Property | Value |", experiment_markdown)
@@ -340,9 +341,10 @@ class AwsSessionTest(unittest.TestCase):
             }), encoding="utf-8")
             subprocess.run([
                 sys.executable,
-                str(AWS_ROOT / "restore/finalize-result.py"),
+                str(REPO_ROOT / "demo/infra/shared/result_bundle/prepare.py"),
                 str(result),
                 "--repo-root", str(REPO_ROOT),
+                "--environment", "aws",
             ], check=True)
             dashboard = json.loads((result / "config/ckc-experiment.json").read_text(encoding="utf-8"))
             markdown = dashboard["panels"][0]["options"]["content"]

@@ -20,7 +20,9 @@ from typing import Any
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import parse_load_profile
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
+from result_bundle import collect as collect_evidence
 from result_bundle import finalize as finalize_artifacts
+from result_bundle import prepare as prepare_evidence
 
 try:
     import yaml
@@ -1031,23 +1033,52 @@ def main() -> int:
     }
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nExperiment summary: {summary_path}")
-    reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
+    reports = []
+    try:
+        reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
+    except Exception as error:
+        document["report_generation_error"] = str(error)
     document["reports"] = [str(path) for path in reports]
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     for report in reports:
         print(f"Experiment report: {report}")
-    if reports:
-        artifacts = finalize_artifacts(
-            result_root=log_dir,
-            report_dir=reports[0].parent,
-            output_dir=log_dir / "final",
-            experiment=str(summaries[0].get("experiment") if summaries else experiment_set_id),
-            environment="internal-lab",
-            status="complete" if document["exit_code"] == 0 else "failed",
-            restore_sources=[lab_root / "helpers/result_bundle/restore"],
-        )
-        document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
-        summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    evidence_runs = [
+        Path(str(target["run_dir"]))
+        for summary in summaries
+        for target in summary.get("targets", [])
+        if target.get("run_dir") and Path(str(target["run_dir"])).is_dir()
+    ]
+    dashboard_source = lab_root / "grafana/dashboards/ckc-overview.json"
+    collection = collect_evidence(
+        result_root=log_dir,
+        run_dirs=evidence_runs,
+        dashboard_dir=lab_root / "grafana/dashboards",
+        prometheus_url=args.prometheus_url,
+        loki_url="http://127.0.0.1:3100",
+    )
+    document["collection"] = collection
+    if (collection["errors"] or document.get("report_generation_error")) and document["exit_code"] == 0:
+        document["exit_code"] = 1
+    if dashboard_source.is_file():
+        dashboard_target = log_dir / "config/ckc-overview.json"
+        dashboard_target.parent.mkdir(parents=True, exist_ok=True)
+        dashboard_target.write_text(dashboard_source.read_text(encoding="utf-8"), encoding="utf-8")
+    if evidence_runs:
+        try:
+            prepare_evidence(log_dir, lab_root, "internal-lab")
+        except Exception as error:
+            document["evidence_preparation_error"] = str(error)
+    artifacts = finalize_artifacts(
+        result_root=log_dir,
+        report_dir=reports[0].parent if reports else log_dir / "missing-report",
+        output_dir=log_dir / "final",
+        experiment=str(summaries[0].get("experiment") if summaries else experiment_set_id),
+        environment="internal-lab",
+        status="complete" if document["exit_code"] == 0 and not collection["errors"] else "failed",
+        restore_sources=[lab_root / "helpers/result_bundle/restore"],
+    )
+    document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
+    summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     return int(document["exit_code"])
 
 

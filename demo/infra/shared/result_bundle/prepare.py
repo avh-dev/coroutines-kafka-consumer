@@ -69,26 +69,31 @@ def build_loki_jsonl(result_dir: Path, run_id: str, start: datetime | None, end:
     return live_count + len(records)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Finalize the shared dashboard for an AWS result bundle.")
-    parser.add_argument("result_dir", type=Path)
-    parser.add_argument("--repo-root", type=Path)
-    args = parser.parse_args()
-
-    result_dir = args.result_dir.resolve()
-    repo_root = args.repo_root.resolve() if args.repo_root else Path(__file__).resolve().parents[4]
+def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
+    result_dir = result_dir.resolve()
+    repo_root = repo_root.resolve()
+    if environment not in {"aws", "internal-lab"}:
+        raise ValueError(f"Unsupported evidence environment: {environment}")
     sys.path.insert(0, str(repo_root / "demo/infra/shared"))
     from result_bundle.dashboard import parse_instant, patch_dashboard, result_log_window, result_window
     from result_bundle.presentation import experiment_panel_markdown
 
     result_type = "experiment" if (result_dir / "summary.json").is_file() else "run"
     if result_type == "experiment":
-        run_dirs = sorted(path for path in (result_dir / "runs").iterdir() if path.is_dir())
+        summary = load_json(result_dir / "summary.json")
+        configured_runs = [
+            Path(str(target.get("run_dir")))
+            for experiment in summary.get("experiments", [])
+            for target in experiment.get("targets", [])
+            if target.get("run_dir")
+        ]
+        run_dirs = [path for path in configured_runs if path.is_dir()]
+        if not run_dirs:
+            run_dirs = sorted(path for path in (result_dir / "runs").iterdir() if path.is_dir()) if (result_dir / "runs").is_dir() else []
         if not run_dirs:
             raise RuntimeError(f"Experiment result does not contain run directories: {result_dir}")
         start, end = result_window(run_dirs)
         logs_start, logs_end = result_log_window(run_dirs)
-        summary = load_json(result_dir / "summary.json")
         experiments = [item for item in summary.get("experiments", []) if isinstance(item, dict)]
         label = str(experiments[0].get("experiment") if experiments else result_dir.name)
         title = f"CKC experiment: {label} ({result_dir.name})"
@@ -131,6 +136,13 @@ def main() -> None:
     excluded_panels = {"Demo Process Context Switches"}
     if not any(metadata.get("kafka_mode") == "msk" for metadata in metadata_values):
         excluded_panels.update({"MSK CloudWatch Time Lag", "MSK CloudWatch Offset Lag (Uncommitted)"})
+    environment_options = {
+        "aws": {
+            "excluded_row_titles": {"Host Services: Kafka Broker", "Host Services: Kafka Thread Stats", "Host Services: Redis"},
+            "substitutions": {'namespace="ckc-perf"': 'namespace="ckc-app"'},
+        },
+        "internal-lab": {"excluded_row_titles": set(), "substitutions": {}},
+    }[environment]
     result = patch_dashboard(
         source,
         target,
@@ -138,22 +150,29 @@ def main() -> None:
         markdown=markdown,
         start=start,
         end=end,
-        excluded_row_titles={
-            "Host Services: Kafka Broker",
-            "Host Services: Kafka Thread Stats",
-            "Host Services: Redis",
-        },
+        excluded_row_titles=environment_options["excluded_row_titles"],
         excluded_panel_titles=excluded_panels,
-        substitutions={'namespace="ckc-perf"': 'namespace="ckc-app"'},
+        substitutions=environment_options["substitutions"],
     )
     (result_dir / "config/result-capabilities.json").write_text(json.dumps({
-        "environment": "aws",
+        "environment": environment,
         "available": ["application", "kafka-lag", "load-test", "pod-resources", "redis-client", "thread-stats"],
         "excluded_dashboard_rows": result["excluded_rows"],
         "excluded_dashboard_panels": result["excluded_panels"],
         "dashboard_time": {"from": result["from"], "to": result["to"]},
     }, indent=2) + "\n", encoding="utf-8")
     source.unlink(missing_ok=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Prepare canonical logs and dashboard evidence.")
+    parser.add_argument("result_dir", type=Path)
+    parser.add_argument("--repo-root", type=Path)
+    parser.add_argument("--environment", choices=("aws", "internal-lab"), required=True)
+    args = parser.parse_args()
+
+    repo_root = args.repo_root.resolve() if args.repo_root else Path(__file__).resolve().parents[4]
+    prepare(args.result_dir, repo_root, args.environment)
 
 
 if __name__ == "__main__":
