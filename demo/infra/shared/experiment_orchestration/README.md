@@ -49,3 +49,21 @@ after provisioning supplies image digests and Kafka, Redis, and audit endpoints.
 The resulting YAML is deterministic and can be archived as desired-state
 evidence. Helm is represented only by explicitly versioned third-party releases;
 custom application and load-test resources do not require a chart in this plan.
+
+Run the same canonical source through the repository entrypoint:
+
+```bash
+demo/infra/run-experiment.sh \
+  demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml \
+  --environment internal-lab
+
+demo/infra/run-experiment.sh \
+  demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml \
+  --environment aws
+```
+
+The shared command validates the selected environment before invoking an
+adapter. Internal-lab runs use one bounded non-interactive root SSH command when
+the caller is not root; AWS runs retain their disposable provisioning and
+verified-cleanup lifecycle. `SIGINT` and `SIGTERM` are forwarded to the adapter
+so its existing interruption and cleanup paths remain active during migration.

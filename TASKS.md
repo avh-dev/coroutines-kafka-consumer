@@ -277,7 +277,7 @@
 | [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
 | [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | DONE |
 | [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | DONE |
-| [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | IN_PROGRESS |
+| [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3139,3 +3139,8 @@ _Date: 2026-09-04_
 Provide one repository entrypoint that validates an experiment, selects an explicitly configured environment, and delegates environment operations through a shared lifecycle-adapter contract.
 Keep installed internal-lab execution and disposable AWS provisioning as bounded adapters while sharing resolution, command semantics, status handling, and interruption behavior.
 Retain compatibility wrappers during migration so the following artifact task can replace environment-specific finalization without changing how experiments are started.
+
+The repository-level command now validates the selected canonical environment before dispatch, forwards termination signals, uses bounded root SSH for installed internal-lab execution, and invokes the existing disposable AWS lifecycle with experiment-owned region and Terraform inputs.
+Both adapters consume inline acceptance rules; environment-specific legacy entrypoints remain available while the shared artifact finalizer is introduced next.
+
+Verification: 20 shared orchestration tests, 53 internal-lab tests, and 29 AWS tests passed; canonical AWS session state was materialized without provisioning resources, modified Python modules compiled, Bash entrypoints passed syntax checks, and the shared CLI help/argument contract was exercised.
