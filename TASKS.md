@@ -279,7 +279,7 @@
 | [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | DONE |
 | [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | DONE |
 | [INFRA-136](#infra-136) | Finalize every experiment into one report, one canonical evidence bundle, and one independent audit archive. | DONE |
-| [INFRA-137](#infra-137) | Migrate maintained experiments to the canonical contract and remove obsolete definition, Helm, export, and restore paths. | IN_PROGRESS |
+| [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3163,10 +3163,16 @@ The evidence bundle contains one pinned Grafana/Loki/VictoriaMetrics restore kit
 Verification: 42 shared tests, 53 internal-lab tests, and 29 AWS tests passed; modified Python modules compiled, restore Bash entrypoints passed syntax checks, and the archive test verified layout, report links, checksums, audit separation, metric preservation, redaction, fallback reports, and absence of partial outputs.
 
 <a id="infra-137"></a>
-### INFRA-137 - Migrate canonical experiments and remove legacy paths
+### INFRA-137 - Migrate canonical experiments and remove profile catalogs
 
 _Date: 2026-09-04_
 
 Convert maintained internal-lab and AWS experiments into self-contained canonical files and make the shared repository entrypoint the documented way to run them.
-Remove legacy test-definition, SLA-profile, consumer-profile, custom Helm, duplicate export/finalization, and environment-specific restore paths once no maintained experiment references them.
+Remove legacy test-definition, SLA-profile, consumer-profile, and Terraform profile paths once no maintained experiment references them.
 Keep generic static Terraform modules, but drive them only with generated experiment inputs and preserve those generated files in canonical evidence.
+
+All 15 maintained experiments now live in `demo/infra/experiments` as schema-versioned, self-contained documents with inline workload, acceptance, implementation, target, and environment configuration.
+Canonical materialization writes an implementation profile file from that snapshot and no longer reads a repository catalog; internal-lab passes it through to the low-level compatibility runner.
+The duplicated environment experiment directories, shared workload catalogs, installed workload paths, and AWS Terraform `.tfvars` profiles were removed; AWS Terraform now receives only generated JSON plus runtime session bindings.
+
+Verification: all 15 experiments passed both canonical resolution and Draft 2020-12 schema validation and materialized without an external profile path; 21 shared orchestration tests, 53 internal-lab tests, and 29 AWS tests passed, and modified Python and Bash entrypoints passed syntax checks.
