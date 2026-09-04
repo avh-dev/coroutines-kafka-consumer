@@ -36,3 +36,16 @@ Environment configuration contains reproducibility inputs such as region,
 service topology, and capacity. Credentials, account tokens, kubeconfigs, and
 other operator secrets remain external runtime inputs and must not be committed
 to an experiment.
+
+Canonical target materialization also writes `deployment-plan.yaml`. The plan
+contains the resolved project workload configuration, the shared planner result,
+and any pinned third-party chart releases without temporary checkout paths. For
+AWS, `environment/terraform-lab-inputs.json` contains the experiment-owned
+Terraform variables; session ids, credentials, expiry, and provisioned endpoints
+remain runtime bindings.
+
+Project-owned Kubernetes resources are rendered by `render_project_manifests`
+after provisioning supplies image digests and Kafka, Redis, and audit endpoints.
+The resulting YAML is deterministic and can be archived as desired-state
+evidence. Helm is represented only by explicitly versioned third-party releases;
+custom application and load-test resources do not require a chart in this plan.

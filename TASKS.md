@@ -276,7 +276,7 @@
 | [INFRA-131](#infra-131) | Add a 20-minute AWS 10k/s comparison of single-pod Spring Kafka with JDK HTTP and CKC, using 30% parallelism headroom. | DONE |
 | [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
 | [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | DONE |
-| [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | IN_PROGRESS |
+| [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3124,3 +3124,8 @@ _Date: 2026-09-04_
 Generate one typed deployment plan from each resolved target instead of treating Helm values or Terraform profiles as user-authored workload configuration.
 Materialize deterministic Kubernetes resources for project-owned workloads and JSON Terraform variables for the selected AWS lab while retaining pinned third-party Helm releases as adapter details.
 Preserve the generated desired-state inputs as inspectable run artifacts for later inclusion in the canonical evidence bundle.
+
+Canonical materialization now emits path-independent target deployment plans and structured AWS Terraform inputs, while a shared renderer produces project-owned application, stubs, workload, and load-generator Kubernetes resources after runtime endpoints and image digests are bound.
+The portable example defines the complete AWS lab topology directly and pins the currently validated Kafka and Redis third-party chart versions instead of selecting external Terraform profiles or floating Helm releases.
+
+Verification: 17 shared orchestration tests, 53 internal-lab tests, and 28 AWS tests passed; six generated Kubernetes documents round-tripped through YAML, the AWS Terraform input mapping was checked field-by-field, all modified Python modules compiled, and the canonical example continued to pass its Draft 2020-12 schema.

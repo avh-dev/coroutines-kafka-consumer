@@ -67,4 +67,35 @@ environments:
   aws:
     region: eu-central-1
     lab:
-      profile: smoke
+      kubernetes_version: "1.33"
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones: [eu-central-1a, eu-central-1b, eu-central-1c]
+        private_subnets: [10.42.0.0/20, 10.42.16.0/20, 10.42.32.0/20]
+        public_subnets: [10.42.128.0/20, 10.42.144.0/20, 10.42.160.0/20]
+      nodes:
+        instance_types: [m7i.large]
+        desired_size: 2
+        min_size: 2
+        max_size: 2
+        disk_size_gib: 100
+      kafka:
+        mode: kubernetes
+        kubernetes_brokers: 3
+      redis:
+        mode: kubernetes
+        kubernetes_architecture: standalone
+        kubernetes_replicas: 1
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170
+    third_party:
+      - name: ckc-kafka
+        chart: bitnami/kafka
+        version: 32.4.3
+      - name: ckc-redis
+        chart: bitnami/redis
+        version: 28.0.12
