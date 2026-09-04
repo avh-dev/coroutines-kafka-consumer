@@ -28,6 +28,8 @@ env:
   etaModelBaseUrl: ""
   flavourModelBaseUrl: ""
   registryBaseUrl: ""
+  modelHttpClient: ARMERIA
+  modelSyncHttpClient: ARMERIA
   jdkHttpClientExecutor: DEFAULT
   jdkHttpClientVirtualThreadNamePrefix: HttpClient-virtual-
   processingEnabled: true

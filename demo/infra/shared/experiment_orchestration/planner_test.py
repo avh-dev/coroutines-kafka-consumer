@@ -55,6 +55,26 @@ class PlannerTest(unittest.TestCase):
             [topic["name"] for topic in values["lab"]["kafkaTopics"]],
         )
 
+    def test_maps_model_http_client_target_environment_to_helm_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plan, values = plan_target(
+                definition_path=REPO_ROOT / "demo/infra/shared/workloads/test-definitions/smoke.yaml",
+                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                profile_name="spring-kafka",
+                output_dir=Path(directory),
+                repo_dir=REPO_ROOT,
+                target={
+                    "env": {
+                        "MODEL_SYNC_HTTP_CLIENT": "JDK",
+                        "JDK_HTTP_CLIENT_EXECUTOR": "DEFAULT",
+                    },
+                },
+            )
+
+        self.assertEqual("JDK", plan["model_sync_http_client"])
+        self.assertEqual("JDK", values["env"]["modelSyncHttpClient"])
+        self.assertEqual("DEFAULT", values["env"]["jdkHttpClientExecutor"])
+
 
 if __name__ == "__main__":
     unittest.main()
