@@ -99,8 +99,11 @@ def materialize_experiment(
     repo_dir: Path,
 ) -> tuple[MaterializedTarget, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    selected_profiles_path = consumer_profiles_path
     if experiment.snapshot is not None:
         write_resolved_experiment(output_dir / "resolved-experiment.yaml", experiment.snapshot)
+        selected_profiles_path = output_dir / "implementation-profiles.yaml"
+        write_resolved_experiment(selected_profiles_path, experiment.snapshot["implementations"])
         if experiment.environment == "aws":
             write_terraform_variables(
                 output_dir / "environment" / "terraform-lab-inputs.json",
@@ -114,7 +117,7 @@ def materialize_experiment(
             experiment,
             target,
             output_dir=output_dir,
-            consumer_profiles_path=consumer_profiles_path,
+            consumer_profiles_path=selected_profiles_path,
             repo_dir=repo_dir,
         )
         for target in experiment.targets

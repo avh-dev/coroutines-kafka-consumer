@@ -12,6 +12,7 @@ AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
 TEST_DIR="${LAB_ROOT}/workloads/test-definitions"
+CONSUMER_PROFILES_PATH="${LAB_ROOT}/workloads/consumer-profiles.yaml"
 AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
 AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
@@ -82,6 +83,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--jdk-http-client-executor DEFAULT|VIRTUAL]
           [--env KEY=VALUE]
+          [--consumer-profiles path]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
 Selects an internal-lab consumer profile and test definition, prepares the lab when
@@ -142,6 +144,8 @@ Options:
   --worker-dispatcher-threads
                     Set the fixed worker dispatcher thread count.
   --env             Override any generated test environment value. Can be repeated.
+  --consumer-profiles
+                    Use the generated implementation catalog from a canonical experiment.
   -h, --help       Show this help.
 EOF
 }
@@ -256,6 +260,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --env)
       ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
+      shift 2
+      ;;
+    --consumer-profiles)
+      CONSUMER_PROFILES_PATH="${2:?--consumer-profiles requires a path}"
       shift 2
       ;;
     -h|--help)
@@ -450,7 +458,7 @@ resolve_yaml() {
 
 list_run_profiles() {
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --list-profiles
 }
 
@@ -462,7 +470,7 @@ run_profile_exists() {
 profile_dispatcher_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --profile-dispatchers
 }
@@ -470,7 +478,7 @@ profile_dispatcher_info() {
 profile_planning_latency_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --profile-planning-latencies
 }
@@ -478,7 +486,7 @@ profile_planning_latency_info() {
 profile_processing_mode_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}" \
     --profile-processing-modes
@@ -891,7 +899,7 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   PLAN_ARGS=(
     "${TEST_DEFINITION}"
     --profile "${RUN_PROFILE}"
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml"
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}"
     --output-dir "${PLAN_OUTPUT_DIR}"
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}"
     --processing-enabled "${PROCESSING_ENABLED}"

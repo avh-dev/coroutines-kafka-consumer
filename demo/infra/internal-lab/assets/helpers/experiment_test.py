@@ -25,6 +25,7 @@ from experiment_orchestration.definition import (  # noqa: E402,F401
     ResolvedTarget,
     resolve_experiment_definition,
 )
+from experiment_orchestration.materialize import materialize_experiment  # noqa: E402,F401
 
 __all__ = [
     "ResolvedExperimentTest",
@@ -32,6 +33,7 @@ __all__ = [
     "ResolvedTarget",
     "deep_merge",
     "load_yaml",
+    "materialize_experiment",
     "resolve_experiment_test",
     "resolve_experiment_definition",
     "resolve_named_yaml",

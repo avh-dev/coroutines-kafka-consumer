@@ -273,6 +273,21 @@ def canonical_targets(experiment: Mapping[str, Any]) -> tuple[dict[str, Any], li
     return copy.deepcopy(defaults), targets
 
 
+def validate_implementations(value: Any, targets: list[dict[str, Any]]) -> dict[str, Any]:
+    implementations = require_mapping(value, "Experiment implementations", non_empty=True)
+    topics = require_mapping(implementations.get("topics"), "Experiment implementations.topics", non_empty=True)
+    profiles = require_mapping(implementations.get("profiles"), "Experiment implementations.profiles", non_empty=True)
+    unknown = sorted(set(implementations) - {"topics", "profiles"})
+    if unknown:
+        raise ValueError(f"Experiment implementations contains unknown fields: {', '.join(unknown)}")
+    missing = sorted({str(target["implementation"]) for target in targets} - set(map(str, profiles)))
+    if missing:
+        raise ValueError(f"Experiment implementation profiles are missing: {', '.join(missing)}")
+    for name, profile in profiles.items():
+        require_mapping(profile, f"Experiment implementations.profiles.{name}", non_empty=True)
+    return {"topics": copy.deepcopy(topics), "profiles": copy.deepcopy(profiles)}
+
+
 def required_capabilities(workload: Mapping[str, Any]) -> frozenset[str]:
     result: set[str] = set()
     for index, step in enumerate(workload.get("chaos") or [], start=1):
@@ -336,7 +351,7 @@ def validate_canonical_experiment(
         raise ValueError(f"Experiment schema_version must be {SCHEMA_VERSION}, got {version!r}")
     allowed = {
         "schema_version", "name", "description", "workload", "acceptance",
-        "defaults", "targets", "environments",
+        "implementations", "defaults", "targets", "environments",
     }
     unknown = sorted(set(experiment) - allowed)
     if unknown:
@@ -347,6 +362,7 @@ def validate_canonical_experiment(
     workload = canonical_workload(experiment, source)
     acceptance = validate_acceptance(experiment.get("acceptance"))
     defaults, targets = canonical_targets(experiment)
+    implementations = validate_implementations(experiment.get("implementations"), targets)
     resolved_targets = [
         {
             **deep_merge(defaults, {key: value for key, value in target.items() if key != "workload"}),
@@ -396,6 +412,7 @@ def validate_canonical_experiment(
             **({"diagnostics": copy.deepcopy(workload["diagnostic_steps"])} if "diagnostic_steps" in workload else {}),
         },
         "acceptance": acceptance,
+        "implementations": implementations,
         "defaults": defaults,
         "targets": resolved_targets,
     }

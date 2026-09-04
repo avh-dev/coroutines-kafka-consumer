@@ -19,7 +19,7 @@ from typing import Any
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import load_sla_profile, parse_load_profile
-from experiment_test import resolve_experiment_definition, write_resolved_test
+from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
 from result_bundle import finalize as finalize_artifacts
 
 try:
@@ -582,6 +582,8 @@ def notify(hook: Path | None, event: str, payload: dict[str, Any], log_dir: Path
 
 def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
     command = [str(run_test), "--skip-analysis"]
+    if test.get("consumer_profiles_path"):
+        command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
     if "profile" in test:
         command.extend(["--profile", str(test["profile"])])
         if "parallelism" in test:
@@ -841,6 +843,16 @@ def run_experiment(
     base_tps = int(base_tps)
     definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
+    materialized_targets = (
+        materialize_experiment(
+            resolved_experiment,
+            output_dir=log_dir / f"{experiment_path.stem}-materialized",
+            consumer_profiles_path=lab_root / "workloads" / "consumer-profiles.yaml",
+            repo_dir=lab_root,
+        )
+        if not resolved_experiment.legacy
+        else None
+    )
     annotation_labels = target_annotation_labels(targets)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
@@ -876,6 +888,7 @@ def run_experiment(
             log_file.write(f"description: {description}\n")
         for index, target in enumerate(targets, start=1):
             resolved_target = resolved_experiment.targets[index - 1]
+            materialized_target = materialized_targets[index - 1] if materialized_targets else None
             target_definition = resolved_target.test.definition
             target_load_test = target_definition.get("load_test")
             if not isinstance(target_load_test, dict) or not target_load_test.get("load_profile"):
@@ -884,10 +897,13 @@ def run_experiment(
             target_base_tps = target_load_test.get("base_tps", base_tps)
             if target_base_tps in (None, ""):
                 raise ValueError(f"Resolved target test must define load_test.base_tps: {resolved_target.name}")
-            target_resolved_test_path = log_dir / (
-                f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
+            target_resolved_test_path = (
+                materialized_target.definition_path
+                if materialized_target
+                else log_dir / f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
             )
-            write_resolved_test(target_resolved_test_path, target_definition)
+            if materialized_target is None:
+                write_resolved_test(target_resolved_test_path, target_definition)
             target_run = merge_target_defaults(defaults, target)
             target_run.update(
                 {
@@ -895,6 +911,11 @@ def run_experiment(
                     "resolved_test_path": str(target_resolved_test_path),
                     "base_tps": int(target_base_tps),
                     "run_annotation_label": annotation_labels[index - 1],
+                    **({
+                        "consumer_profiles_path": str(
+                            materialized_target.definition_path.parents[1] / "implementation-profiles.yaml"
+                        ),
+                    } if materialized_target else {}),
                 }
             )
             result = run_one(

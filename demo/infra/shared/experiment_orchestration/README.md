@@ -1,9 +1,10 @@
 # Canonical experiment contract
 
 An experiment is the only author-maintained workload document. Schema version 1
-keeps the workload, acceptance rules, target configurations, and every supported
-environment together. It does not permit `test_definition`, `test.extends`,
-`sla_profile`, or environment overrides outside the document.
+keeps the workload, acceptance rules, inline implementation catalog, target
+configurations, and every supported environment together. It does not permit
+`test_definition`, `test.extends`, `sla_profile`, consumer-profile files, or
+environment overrides outside the document.
 
 See [`experiment.schema.json`](experiment.schema.json) for the structural schema
 and [`examples/portable-smoke.yaml`](examples/portable-smoke.yaml) for a complete
@@ -28,9 +29,9 @@ before provisioning when the selected adapter does not support them. The built-i
 contract currently records internal-lab chaos and packet capture support, while
 AWS supports packet capture but not chaos.
 
-Existing experiments continue through the legacy resolver during migration. Its
-external test definitions and optional SLA profiles are resolved into the same
-in-memory model, but new canonical documents cannot reference either catalog.
+The maintained catalog lives under `demo/infra/experiments`. Legacy resolution
+is retained temporarily only for reading historical results; new canonical
+documents cannot reference an external definition or profile catalog.
 
 Environment configuration contains reproducibility inputs such as region,
 service topology, and capacity. Credentials, account tokens, kubeconfigs, and

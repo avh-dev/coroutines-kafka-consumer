@@ -4,13 +4,26 @@
   "title": "CKC experiment",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "name", "workload", "acceptance", "targets", "environments"],
+  "required": ["schema_version", "name", "workload", "acceptance", "implementations", "targets", "environments"],
   "properties": {
     "schema_version": {"const": 1},
     "name": {"type": "string", "minLength": 1},
     "description": {"type": "string"},
     "workload": {"$ref": "#/$defs/workload"},
     "acceptance": {"$ref": "#/$defs/acceptance"},
+    "implementations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topics", "profiles"],
+      "properties": {
+        "topics": {"type": "object", "minProperties": 1},
+        "profiles": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "object", "minProperties": 1}
+        }
+      }
+    },
     "defaults": {"$ref": "#/$defs/defaults"},
     "targets": {
       "type": "array",

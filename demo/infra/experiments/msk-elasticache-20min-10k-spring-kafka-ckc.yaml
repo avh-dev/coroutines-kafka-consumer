@@ -1,0 +1,308 @@
+schema_version: 1
+name: msk-elasticache-20min-10k-spring-kafka-ckc
+description: Compare single-pod Spring Kafka with JDK HTTP and CKC at 10k/s for twenty minutes.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      delay_p90_ms: 20
+      delay_p95_ms: 40
+      delay_p99_ms: 80
+      delay_p100_ms: 120
+    flavour:
+      delay_p90_ms: 20
+      delay_p95_ms: 40
+      delay_p99_ms: 80
+      delay_p100_ms: 120
+    registry:
+      delay_p90_ms: 2
+      delay_p95_ms: 3
+      delay_p99_ms: 4
+      delay_p100_ms: 5
+  load:
+    shards: 1
+    base_tps: 10000
+    order_event_percent: 35
+    batch_event_percent: 25
+    cauldron_telemetry_percent: 40
+    producer_capacity_tps:
+      order: 1000
+      batch: 1000
+      telemetry: 1000
+    load_profile: 0 -> (600s, warmup) -> 100 -> (540s, steady) -> 100 -> (60s, cool-down) -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    workers: 100
+    stats_log_interval_seconds: 15
+    consumer_drain_timeout_seconds: 300
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+acceptance:
+  criteria:
+  - id: no-missing-terminal
+    title: Every published record has a terminal outcome
+    source: audit
+    path:
+    - totals
+    - missing_terminal
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-duplicate-processing
+    title: Records are not processed more than once
+    source: audit
+    path:
+    - totals
+    - duplicates
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-terminal-failures
+    title: Records do not end in terminal processing failure
+    source: audit
+    path:
+    - totals
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-processed-without-publish
+    title: Processed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-failed-without-publish
+    title: Failed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-dropped-without-publish
+    title: Dropped records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - dropped
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-conflicting-terminal-outcomes
+    title: Records have only one terminal outcome
+    source: audit
+    path:
+    - totals
+    - conflicting_terminal_outcomes
+    operator: eq
+    threshold: 0
+    unit: records
+implementations:
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent_key: order_event_percent
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent_key: batch_event_percent
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent_key: cauldron_telemetry_percent
+  profiles:
+    spring-kafka:
+      spring_profile: spring-kafka
+      topics:
+        order:
+          default_planning_latency_ms: 25
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+        batch:
+          default_planning_latency_ms: 25
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+        telemetry:
+          default_planning_latency_ms: 70
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+          allowed_processing_modes:
+          - HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    ckc:
+      spring_profile: ckc
+      default_processing_dispatcher: FIXED
+      allowed_processing_dispatchers:
+      - DEFAULT
+      - FIXED
+      - IO
+      - VIRTUAL
+      topics:
+        order:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        batch:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        telemetry:
+          default_planning_latency_ms: 150
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          allowed_processing_modes:
+          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          - FRESHNESS_FIRST_DROP_OLDEST
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+defaults:
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+targets:
+- runtime:
+    env:
+      MODEL_SYNC_HTTP_CLIENT: JDK
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 115
+        pollers: 115
+      batch:
+        partitions: 82
+        pollers: 82
+      telemetry:
+        partitions: 364
+        pollers: 364
+  name: spring-kafka.jdk-http
+  implementation: spring-kafka
+- runtime:
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    parallelism:
+    - partitions
+    - workers
+    topics:
+      order:
+        partitions: 228
+        workers: 228
+        queue_capacity: 4096
+      batch:
+        partitions: 163
+        workers: 163
+        queue_capacity: 4096
+      telemetry:
+        partitions: 780
+        workers: 780
+        queue_capacity: 4096
+  name: ckc
+  implementation: ckc
+environments:
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.33'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones:
+        - eu-central-1a
+        - eu-central-1b
+        - eu-central-1c
+        private_subnets:
+        - 10.42.0.0/20
+        - 10.42.16.0/20
+        - 10.42.32.0/20
+        public_subnets:
+        - 10.42.128.0/20
+        - 10.42.144.0/20
+        - 10.42.160.0/20
+      nodes:
+        instance_types:
+        - m7i.xlarge
+        desired_size: 3
+        min_size: 3
+        max_size: 3
+        disk_size_gib: 100
+      kafka:
+        mode: msk
+        msk_version: 3.7.x
+        msk_brokers: 3
+        msk_instance_type: kafka.m5.large
+        msk_volume_size_gib: 50
+      redis:
+        mode: elasticache
+        elasticache_node_type: cache.r7g.large
+        elasticache_engine_version: '7.1'
+        elasticache_nodes: 2
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170

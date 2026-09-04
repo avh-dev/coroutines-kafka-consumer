@@ -34,6 +34,10 @@ def canonical_experiment() -> dict:
                 "threshold": 0,
             }],
         },
+        "implementations": {
+            "topics": {"order": {"kafka_topic": "order.events.v1"}},
+            "profiles": {"ckc": {"spring_profile": "ckc"}},
+        },
         "defaults": {
             "application": {"replicas": 2},
             "runtime": {
@@ -142,6 +146,12 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment["test_definition"] = "smoke"
         with self.assertRaisesRegex(ValueError, "test_definition"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
+
+    def test_rejects_target_without_inline_implementation_profile(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["implementation"] = "missing"
+        with self.assertRaisesRegex(ValueError, "implementation profiles are missing: missing"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
     def test_rejects_canonical_lab_profile_override(self) -> None:
         with self.assertRaisesRegex(ValueError, "immutable"):

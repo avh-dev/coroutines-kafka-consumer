@@ -1,6 +1,6 @@
 schema_version: 1
-name: portable-smoke
-description: Run one self-contained smoke workload in internal-lab or AWS.
+name: aws-smoke
+description: Minimal end-to-end AWS experiment using the shared experiment and target contracts.
 workload:
   stubs:
     error_rate_percent: 0
@@ -21,13 +21,15 @@ workload:
       delay_p100_ms: 5
   load:
     shards: 1
-    workers: 1
-    base_tps: 100
+    base_tps: 10
     order_event_percent: 35
     batch_event_percent: 25
     cauldron_telemetry_percent: 40
-    load_profile: 0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down)
-      -> 0
+    producer_capacity_tps:
+      order: 1000
+      batch: 1000
+      telemetry: 1000
+    load_profile: 0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down) -> 0
     cauldron_count: 2
     min_orders_per_batch: 2
     max_orders_per_batch: 3
@@ -42,6 +44,64 @@ acceptance:
     path:
     - totals
     - missing_terminal
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-duplicate-processing
+    title: Records are not processed more than once
+    source: audit
+    path:
+    - totals
+    - duplicates
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-terminal-failures
+    title: Records do not end in terminal processing failure
+    source: audit
+    path:
+    - totals
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-processed-without-publish
+    title: Processed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-failed-without-publish
+    title: Failed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-dropped-without-publish
+    title: Dropped records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - dropped
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-conflicting-terminal-outcomes
+    title: Records have only one terminal outcome
+    source: audit
+    path:
+    - totals
+    - conflicting_terminal_outcomes
     operator: eq
     threshold: 0
     unit: records
@@ -123,22 +183,15 @@ defaults:
       PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
+targets:
+- runtime:
     planning_latency:
       order_ms: 50
       batch_ms: 50
       telemetry_ms: 150
-targets:
-- name: ckc
+  name: ckc
   implementation: ckc
-  runtime:
-    topics:
-      telemetry:
-        workers: 20
-        queue_capacity: 4096
 environments:
-  internal-lab:
-    lab:
-      profile: installed
   aws:
     region: eu-central-1
     lab:
@@ -161,8 +214,8 @@ environments:
         instance_types:
         - m7i.large
         desired_size: 2
-        min_size: 2
-        max_size: 2
+        min_size: 1
+        max_size: 4
         disk_size_gib: 100
       kafka:
         mode: kubernetes
