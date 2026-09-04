@@ -282,6 +282,7 @@
 | [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
 | [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
 | [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
+| [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3208,3 +3209,12 @@ One shared preparation step builds archived log streams, environment-aware dashb
 Internal-lab automatic and manual exports now produce the canonical three-artifact contract; AWS no longer emits the legacy result archive, and both environment-specific restore trees were removed.
 
 Verification: 24 shared orchestration/result tests, 6 shared dashboard tests, 53 internal-lab tests, and 27 AWS tests passed; modified Python and Bash files passed syntax checks and the diff passed whitespace validation.
+
+<a id="infra-140"></a>
+### INFRA-140 - Remove legacy experiment indirection
+
+_Date: 2026-09-04_
+
+Remove external test-definition, SLA-profile, and consumer-profile resolution from the canonical experiment API now that all maintained experiments are self-contained.
+Update reporting terminology and raw links to point at the resolved experiment and target snapshots.
+Document the shared experiment runner as the only supported operator entrypoint and keep environment run-test scripts as private compatibility backends.
