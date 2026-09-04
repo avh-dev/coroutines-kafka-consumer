@@ -5,7 +5,7 @@ set -euo pipefail
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
-TEST_DIR="${LAB_ROOT}/workloads/test-definitions"
+TEST_DIR="${LAB_ROOT}/state/materialized"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
 
 if [[ ! -f "${LAB_ENV}" ]]; then

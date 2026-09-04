@@ -436,7 +436,8 @@ Run every synced experiment sequentially with:
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh all
 ```
 
-Experiment definitions live under `/opt/ckc-lab/workloads/experiments`. The
+Self-contained experiment files are synced from `demo/infra/experiments` to
+`/opt/ckc-lab/experiments`. The
 runner executes each experiment target through `run-test.sh` and writes
 experiment-level logs and JSON summaries under
 `/opt/ckc-lab/results/experiments/<experiment-set-id>`.
@@ -472,17 +473,11 @@ SLA result. The `raw` directory keeps the experiment, test, resolved SLA, run
 metadata, and audit summary inputs needed when a selected report is copied into
 the repository later.
 
-Experiment definitions select a reusable SLA profile with `sla_profile`. The
-profiles live under `/opt/ckc-lab/workloads/sla-profiles`. The built-in
-`delivery-integrity` profile checks missing terminal records, duplicate
-processing, unmatched terminal outcomes, and conflicting outcomes. The
-`consumer-baseline` profile extends it with exact latency rules: business events
-must complete within two seconds with at most one percent above the limit, and
-telemetry must complete within one second with at most five percent above the
-limit. The report presents processed records, latency violations, violation
-percentage, and maximum observed latency together. Execution, delivery SLA,
-latency SLA, and overall evaluation remain separate; overall PASS requires all
-configured components to pass.
+Acceptance criteria now live directly in each experiment file beside the load
+and target definitions. The report presents processed records, latency
+violations, violation percentage, and maximum observed latency together.
+Execution, delivery acceptance, latency acceptance, and overall evaluation
+remain separate; overall PASS requires every configured component to pass.
 
 Regenerate reports for an existing experiment result with:
 
