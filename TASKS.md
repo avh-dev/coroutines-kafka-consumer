@@ -275,7 +275,7 @@
 | [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
 | [INFRA-131](#infra-131) | Add a 20-minute AWS 10k/s comparison of single-pod Spring Kafka with JDK HTTP and CKC, using 30% parallelism headroom. | DONE |
 | [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
-| [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | IN_PROGRESS |
+| [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3110,3 +3110,7 @@ _Date: 2026-09-04_
 Introduce one self-contained experiment document containing workload, acceptance criteria, targets, and environment definitions.
 Resolve and validate the document into a canonical runtime snapshot, including explicit environment capability checks before provisioning.
 Retain a bounded compatibility path for existing experiment, test-definition, SLA-profile, and consumer-profile inputs while later tasks migrate execution and remove the legacy model.
+
+The versioned JSON Schema, portable two-environment smoke example, and validation CLI document the new authoring boundary and emit one immutable selected-environment snapshot with defaults and target workload overrides fully resolved.
+
+Verification: 15 shared orchestration tests, 53 internal-lab tests, and 28 AWS tests passed; the canonical smoke validated and rendered for AWS, all modified Python modules compiled, and the schema passed Draft 2020-12 validation against the example.

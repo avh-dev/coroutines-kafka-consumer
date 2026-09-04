@@ -1,0 +1,70 @@
+schema_version: 1
+name: portable-smoke
+description: Run one self-contained smoke workload in internal-lab or AWS.
+
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {delay_p90_ms: 20, delay_p95_ms: 40, delay_p99_ms: 80, delay_p100_ms: 120}
+    flavour: {delay_p90_ms: 20, delay_p95_ms: 40, delay_p99_ms: 80, delay_p100_ms: 120}
+    registry: {delay_p90_ms: 2, delay_p95_ms: 3, delay_p99_ms: 4, delay_p100_ms: 5}
+  load:
+    shards: 1
+    workers: 1
+    base_tps: 100
+    order_event_percent: 35
+    batch_event_percent: 25
+    cauldron_telemetry_percent: 40
+    load_profile: "0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down) -> 0"
+    cauldron_count: 2
+    min_orders_per_batch: 2
+    max_orders_per_batch: 3
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+
+acceptance:
+  criteria:
+    - id: no-missing-terminal
+      title: Every published record has a terminal outcome
+      source: audit
+      path: [totals, missing_terminal]
+      operator: eq
+      threshold: 0
+      unit: records
+
+defaults:
+  application:
+    replicas: 1
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+
+targets:
+  - name: ckc
+    implementation: ckc
+    runtime:
+      topics:
+        telemetry:
+          workers: 20
+          queue_capacity: 4096
+
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+  aws:
+    region: eu-central-1
+    lab:
+      profile: smoke
