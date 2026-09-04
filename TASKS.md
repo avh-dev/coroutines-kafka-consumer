@@ -280,7 +280,7 @@
 | [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | DONE |
 | [INFRA-136](#infra-136) | Finalize every experiment into one report, one canonical evidence bundle, and one independent audit archive. | DONE |
 | [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
-| [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | IN_PROGRESS |
+| [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3186,3 +3186,9 @@ _Date: 2026-09-04_
 Apply application, stubs, and load-test Kubernetes resources generated from the resolved deployment plan instead of maintaining project-owned Helm charts.
 Keep Helm only for pinned third-party Kafka and Redis releases, whose chart and version are declared by the experiment environment.
 Preserve the exact generated manifests in experiment evidence for both internal-lab and AWS.
+
+The shared deployment-plan renderer now creates the application, stubs, services, optional HPA, workload ConfigMap, and load-test Job from the resolved experiment plus explicit runtime bindings.
+Internal-lab and AWS apply those generated files directly and retain them beside the resolved target; the repository-owned application and stubs Helm charts and their environment-specific values/deploy scripts were removed.
+AWS load-test deployment now uses the same renderer, including audit, resource, timing, and packet-capture settings; Helm remains only for pinned third-party Kafka and Redis releases declared in the experiment.
+
+Verification: 23 shared orchestration/result tests, 53 internal-lab tests, and 27 AWS tests passed; modified Python and Bash entrypoints passed syntax checks and the diff passed whitespace validation.
