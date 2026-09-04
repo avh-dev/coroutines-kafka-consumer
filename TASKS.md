@@ -277,6 +277,7 @@
 | [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
 | [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | DONE |
 | [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | DONE |
+| [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3129,3 +3130,12 @@ Canonical materialization now emits path-independent target deployment plans and
 The portable example defines the complete AWS lab topology directly and pins the currently validated Kafka and Redis third-party chart versions instead of selecting external Terraform profiles or floating Helm releases.
 
 Verification: 17 shared orchestration tests, 53 internal-lab tests, and 28 AWS tests passed; six generated Kubernetes documents round-tripped through YAML, the AWS Terraform input mapping was checked field-by-field, all modified Python modules compiled, and the canonical example continued to pass its Draft 2020-12 schema.
+
+<a id="infra-135"></a>
+### INFRA-135 - Run experiments through shared orchestration
+
+_Date: 2026-09-04_
+
+Provide one repository entrypoint that validates an experiment, selects an explicitly configured environment, and delegates environment operations through a shared lifecycle-adapter contract.
+Keep installed internal-lab execution and disposable AWS provisioning as bounded adapters while sharing resolution, command semantics, status handling, and interruption behavior.
+Retain compatibility wrappers during migration so the following artifact task can replace environment-specific finalization without changing how experiments are started.
