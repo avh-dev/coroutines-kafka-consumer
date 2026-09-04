@@ -1,3 +1,11 @@
+from .contract import (
+    KNOWN_ENVIRONMENT_CAPABILITIES,
+    SCHEMA_VERSION,
+    is_canonical_experiment,
+    required_capabilities,
+    validate_canonical_experiment,
+    write_resolved_experiment,
+)
 from .definition import ResolvedExperiment, ResolvedTarget, resolve_experiment_definition
 from .materialize import MaterializedTarget, materialize_experiment, materialize_target
 from .planner import plan_target, target_namespace
@@ -18,6 +26,9 @@ __all__ = [
     "ResolvedTarget",
     "MaterializedTarget",
     "deep_merge",
+    "KNOWN_ENVIRONMENT_CAPABILITIES",
+    "SCHEMA_VERSION",
+    "is_canonical_experiment",
     "load_yaml",
     "materialize_experiment",
     "materialize_target",
@@ -26,7 +37,10 @@ __all__ = [
     "resolve_experiment_definition",
     "resolve_named_yaml",
     "resolve_target_test",
+    "required_capabilities",
     "target_namespace",
     "validate_resolved_test",
     "write_resolved_test",
+    "validate_canonical_experiment",
+    "write_resolved_experiment",
 ]

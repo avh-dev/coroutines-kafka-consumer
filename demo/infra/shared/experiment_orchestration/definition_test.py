@@ -15,9 +15,20 @@ class ExperimentDefinitionTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.tests = self.root / "tests"
         self.tests.mkdir()
+        self.sla_profiles = self.root / "sla-profiles"
+        self.sla_profiles.mkdir()
         (self.tests / "baseline.yaml").write_text(yaml.safe_dump({
             "stubs": {"error_rate_percent": 0, "eta": {"delay_p90_ms": 10}},
             "load_test": {"load_profile": "0 -> (1m, hold) -> 100", "base_tps": 1000, "workers": 4},
+        }), encoding="utf-8")
+        (self.sla_profiles / "delivery.yaml").write_text(yaml.safe_dump({
+            "name": "delivery",
+            "criteria": [{"id": "no-missing", "source": "audit"}],
+        }), encoding="utf-8")
+        (self.sla_profiles / "consumer.yaml").write_text(yaml.safe_dump({
+            "name": "consumer",
+            "extends": "delivery",
+            "latency": {"rules": [{"id": "business-events", "max_ms": 2000}]},
         }), encoding="utf-8")
 
     def tearDown(self) -> None:
@@ -66,6 +77,22 @@ class ExperimentDefinitionTest(unittest.TestCase):
         })
         with self.assertRaisesRegex(ValueError, "cannot override"):
             resolve_experiment_definition(path, self.tests)
+
+    def test_legacy_sla_profile_is_resolved_into_inline_acceptance(self) -> None:
+        path = self.write_experiment({
+            "test_definition": "baseline",
+            "sla_profile": "consumer",
+            "targets": [{"name": "ckc", "profile": "ckc"}],
+        })
+        resolved = resolve_experiment_definition(
+            path,
+            self.tests,
+            sla_profile_dir=self.sla_profiles,
+        )
+
+        self.assertTrue(resolved.legacy)
+        self.assertEqual("no-missing", resolved.acceptance["criteria"][0]["id"])
+        self.assertEqual(2000, resolved.acceptance["latency"]["rules"][0]["max_ms"])
 
 
 if __name__ == "__main__":

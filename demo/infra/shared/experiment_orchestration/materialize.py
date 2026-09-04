@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from .contract import write_resolved_experiment
 from .definition import ResolvedExperiment, ResolvedTarget
 from .planner import plan_target
 from .test_definition import write_resolved_test
@@ -83,6 +84,8 @@ def materialize_experiment(
     repo_dir: Path,
 ) -> tuple[MaterializedTarget, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    if experiment.snapshot is not None:
+        write_resolved_experiment(output_dir / "resolved-experiment.yaml", experiment.snapshot)
     return tuple(
         materialize_target(
             experiment,

@@ -59,6 +59,27 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual("ckc", definition["deployment"]["run_plan"]["profile"])
         self.assertEqual(3, len(definition["deployment"]["kafka_topics"]))
 
+    def test_materializes_canonical_experiment_and_preserves_resolved_snapshot(self) -> None:
+        source = (
+            REPO_ROOT
+            / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            experiment = resolve_experiment_definition(source, None, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=output,
+                consumer_profiles_path=REPO_ROOT / "demo/infra/shared/workloads/consumer-profiles.yaml",
+                repo_dir=REPO_ROOT,
+            )
+            snapshot = yaml.safe_load((output / "resolved-experiment.yaml").read_text(encoding="utf-8"))
+            definition = yaml.safe_load(materialized[0].definition_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("internal-lab", snapshot["environment"]["name"])
+        self.assertEqual("ckc", snapshot["targets"][0]["implementation"])
+        self.assertEqual(20, definition["deployment"]["run_plan"]["topics"][2]["worker_concurrency"])
+
 
 if __name__ == "__main__":
     unittest.main()
