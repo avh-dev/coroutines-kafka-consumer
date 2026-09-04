@@ -108,6 +108,7 @@ class DeploymentBindings:
     application_service_type: str = "ClusterIP"
     application_node_port: int | None = None
     test_definition: str = "canonical"
+    started_at: str | None = None
 
 
 def build_deployment_plan(
@@ -469,14 +470,44 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
 def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dict[str, Any]:
     load = plan["workload"]["load"]
     shards = int(load.get("shards", 1))
+    defaults = {
+        "base_tps": 10000,
+        "order_event_percent": 40,
+        "batch_event_percent": 20,
+        "cauldron_telemetry_percent": 40,
+        "load_profile": "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0",
+        "cauldron_count": 32,
+        "min_orders_per_batch": 3,
+        "max_orders_per_batch": 8,
+        "min_brewing_steps": 5,
+        "max_brewing_steps": 10,
+        "brewing_step_burst_every": 1,
+        "min_brewing_step_burst": 5,
+        "max_brewing_step_burst": 10,
+        "max_burst": 1000,
+        "stats_log_interval_seconds": 30,
+        "diagnostics_blob_size": 512,
+        "telemetry_source_mode": "ACTIVE_BATCHES",
+        "publish_enabled": True,
+        "audit_log_enabled": True,
+        "workers": "",
+    }
+    for key in LOAD_ENV_NAMES:
+        defaults.setdefault(key, "")
     environment = {
-        **{environment_name: load[key] for key, environment_name in LOAD_ENV_NAMES.items() if key in load},
+        **{
+            environment_name: load.get(key, defaults[key])
+            for key, environment_name in LOAD_ENV_NAMES.items()
+            if key in load or key in defaults
+        },
         "BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
         "TOTAL_SHARDS": shards,
         "TEST_RUN_ID": bindings.run_id,
         "AUDIT_TCP_HOST": bindings.audit_host,
         "AUDIT_TCP_PORT": bindings.audit_port,
     }
+    if bindings.started_at:
+        environment["TEST_RUN_STARTED_AT"] = bindings.started_at
     container: dict[str, Any] = {
         "name": "load-test",
         "image": bindings.load_test_image,
@@ -484,16 +515,18 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         "ports": [{"name": "metrics", "containerPort": 9405}],
         "env": _environment_entries(environment),
     }
-    resource_values = {
-        "requests": {
-            "cpu": load.get("cpu_request"),
-            "memory": load.get("memory_request"),
-        },
-        "limits": {
-            "cpu": load.get("cpu_limit"),
-            "memory": load.get("memory_limit"),
-        },
-    }
+    resource_values: dict[str, dict[str, Any]] = {}
+    if any(load.get(key) is not None for key in ("cpu_request", "memory_request", "cpu_limit", "memory_limit")):
+        resource_values = {
+            "requests": {
+                "cpu": load.get("cpu_request", "500m"),
+                "memory": load.get("memory_request", "512Mi"),
+            },
+            "limits": {
+                "cpu": load.get("cpu_limit", "2"),
+                "memory": load.get("memory_limit", "1Gi"),
+            },
+        }
     resources = {
         group: {key: value for key, value in entries.items() if value not in (None, "")}
         for group, entries in resource_values.items()

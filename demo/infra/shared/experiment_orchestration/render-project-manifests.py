@@ -30,6 +30,7 @@ def main() -> int:
     parser.add_argument("--load-test-namespace", default="ckc-loadtest")
     parser.add_argument("--pull-policy", default="Always")
     parser.add_argument("--test-definition", default="canonical")
+    parser.add_argument("--started-at")
     parser.add_argument("--application-node-port", type=int)
     parser.add_argument("--packet-capture", action="store_true")
     parser.add_argument("--applications-only", action="store_true")
@@ -59,6 +60,7 @@ def main() -> int:
         application_service_type="NodePort" if args.application_node_port else "ClusterIP",
         application_node_port=args.application_node_port,
         test_definition=args.test_definition,
+        started_at=args.started_at,
     ))
     if args.applications_only:
         manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]

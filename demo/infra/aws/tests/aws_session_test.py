@@ -568,34 +568,49 @@ class AwsSessionTest(unittest.TestCase):
         ])
 
     def test_load_job_receives_the_runner_audit_endpoint(self) -> None:
-        manifests: list[str] = []
-        with patch.object(run_test_module, "kubectl_apply", side_effect=manifests.append):
-            run_test_module.deploy_load_job(
-                "example/load-test:latest",
-                {
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            definition_path = root / "resolved-test.yaml"
+            definition_path.write_text("name: smoke\n", encoding="utf-8")
+            (root / "deployment-plan.yaml").write_text(yaml.safe_dump({
+                "target": {"name": "smoke", "implementation": "ckc"},
+                "application": {"configuration": {}, "runtime": {}, "generated_values": {}},
+                "workload": {"load": {
                     "shards": 1,
                     "load_profile": "0 -> (10s, smoke) -> 0",
                     "cpu_request": "1",
                     "memory_request": "1Gi",
                     "cpu_limit": "2",
                     "memory_limit": "2Gi",
-                },
-                "kafka:9092",
-                "Always",
-                "2026-08-29T12:00:00Z",
-                "s-20260829-120000-abcdef",
-                120,
-                False,
-                "10.52.0.10",
-                5170,
-            )
-        self.assertEqual(1, len(manifests))
-        self.assertIn("AUDIT_TCP_HOST", manifests[0])
-        self.assertIn("10.52.0.10", manifests[0])
-        self.assertIn("AUDIT_TCP_PORT", manifests[0])
-        self.assertIn("containerPort: 9405", manifests[0])
-        self.assertIn('cpu: "1"', manifests[0])
-        self.assertIn('memory: "2Gi"', manifests[0])
+                }},
+            }), encoding="utf-8")
+            with patch.object(run_test_module, "run") as run_command:
+                job_name, manifest_path = run_test_module.deploy_load_workload(
+                    definition_path,
+                    {
+                        "kafka_bootstrap": "kafka:9092",
+                        "redis_host": "redis",
+                        "audit_tcp_host": "10.52.0.10",
+                        "audit_tcp_port": 5170,
+                        "image_pull_policy": "Always",
+                    },
+                    "example",
+                    False,
+                    "s-20260829-120000-abcdef",
+                    "2026-08-29T12:00:00Z",
+                    120,
+                    root / "generated",
+                )
+            manifest = manifest_path.read_text(encoding="utf-8")
+        self.assertEqual("ckc-load-test-s-20260829-120000-abcdef", job_name)
+        run_command.assert_called_once_with(["kubectl", "apply", "-f", str(manifest_path)])
+        self.assertIn("AUDIT_TCP_HOST", manifest)
+        self.assertIn("10.52.0.10", manifest)
+        self.assertIn("AUDIT_TCP_PORT", manifest)
+        self.assertIn("TEST_RUN_STARTED_AT", manifest)
+        self.assertIn("containerPort: 9405", manifest)
+        self.assertIn("cpu: '1'", manifest)
+        self.assertIn("memory: 2Gi", manifest)
 
     def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
