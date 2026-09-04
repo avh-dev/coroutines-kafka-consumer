@@ -262,6 +262,9 @@ def resolve_sla_profile(lab_root: Path, path: Path, seen: set[Path] | None = Non
 
 
 def load_sla_profile(lab_root: Path, experiment: dict[str, Any]) -> dict[str, Any] | None:
+    inline = experiment.get("acceptance")
+    if isinstance(inline, dict):
+        return inline
     configured = experiment.get("sla_profile")
     if not configured:
         return None

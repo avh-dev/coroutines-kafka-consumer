@@ -814,24 +814,27 @@ def run_experiment(
     global_env: dict[str, str],
     hook: Path | None,
 ) -> dict[str, Any]:
-    experiment = load_yaml(experiment_path)
-    sla_profile = load_sla_profile(lab_root, experiment)
+    source_experiment = load_yaml(experiment_path)
+    resolved_experiment = resolve_experiment_definition(
+        experiment_path,
+        lab_root / "workloads" / "test-definitions",
+        environment="internal-lab" if "schema_version" in source_experiment else None,
+        sla_profile_dir=lab_root / "workloads" / "sla-profiles",
+    )
+    experiment = resolved_experiment.definition
+    sla_profile = resolved_experiment.acceptance or load_sla_profile(lab_root, source_experiment)
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    resolved_experiment = resolve_experiment_definition(
-        experiment_path,
-        lab_root / "workloads" / "test-definitions",
-    )
     resolved_test = resolved_experiment.test
     definition = resolved_test.definition
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict) or not load_test.get("load_profile"):
         raise ValueError("Resolved experiment test must define load_test.load_profile")
     parse_load_profile(str(load_test["load_profile"]))
-    base_tps = experiment.get("base_tps", load_test.get("base_tps"))
+    base_tps = source_experiment.get("base_tps", load_test.get("base_tps"))
     if base_tps in (None, ""):
         raise ValueError(f"Experiment or inline test must define base_tps: {experiment_path}")
     base_tps = int(base_tps)

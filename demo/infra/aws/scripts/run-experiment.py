@@ -305,14 +305,21 @@ class SessionController:
             "commit": self.run(["git", "rev-parse", "HEAD"], capture=True),
             "dirty": bool(self.run(["git", "status", "--porcelain"], capture=True)),
         }
-        availability_zones = self.aws_json([
+        available_zones = self.aws_json([
             "ec2", "describe-availability-zones", "--region", self.config["region"],
             "--filters", "Name=state,Values=available",
             "--query", "AvailabilityZones[].ZoneName",
         ])
-        if not isinstance(availability_zones, list) or len(availability_zones) < 3:
+        if not isinstance(available_zones, list) or len(available_zones) < 3:
             raise RuntimeError(f"At least three available zones are required in {self.config['region']}")
-        self.config["availability_zones"] = availability_zones[:3]
+        configured_zones = (self.config.get("terraform_lab_inputs") or {}).get("availability_zones")
+        if configured_zones:
+            unavailable = sorted(set(configured_zones) - set(available_zones))
+            if unavailable:
+                raise RuntimeError(f"Configured availability zones are unavailable: {', '.join(unavailable)}")
+            self.config["availability_zones"] = configured_zones
+        else:
+            self.config["availability_zones"] = available_zones[:3]
         self.save()
         self.ensure_ecr()
         if build_images:
@@ -453,6 +460,7 @@ class SessionController:
 
         lab_module = self.repo / "demo/infra/aws/assets/terraform/load-lab"
         lab_variables = {
+            **config.get("terraform_lab_inputs", {}),
             **common,
             "environment": config["aws_environment"],
             "runner_role_arn": runner_outputs["role_arn"],
@@ -864,8 +872,8 @@ class SessionController:
 
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
-        sla_profile = None
-        if self.config.get("sla_profile"):
+        sla_profile = self.config.get("acceptance") or None
+        if sla_profile is None and self.config.get("sla_profile"):
             experiment_path = self.repo / self.config["experiment"]
             sla_profile = load_sla_profile(SHARED_INFRA, load_yaml(experiment_path))
         summaries: dict[str, str] = {}
@@ -1098,6 +1106,8 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         definition_path,
         repo_root() / "demo/infra/shared/workloads/test-definitions",
         lab_profile=args.lab_profile,
+        environment="aws" if "schema_version" in load_yaml(definition_path) else None,
+        sla_profile_dir=repo_root() / "demo/infra/shared/workloads/sla-profiles",
     )
     lab_profile = resolved.lab_profile or "default"
     materialized = materialize_experiment(
@@ -1105,6 +1115,12 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         output_dir=session_dir / "materialized",
         consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
         repo_dir=repo_root(),
+    )
+    terraform_inputs_path = session_dir / "materialized/environment/terraform-lab-inputs.json"
+    terraform_lab_inputs = (
+        json.loads(terraform_inputs_path.read_text(encoding="utf-8"))
+        if terraform_inputs_path.is_file()
+        else {}
     )
     targets = [
         {
@@ -1128,6 +1144,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
     aws_environment = f"s-{hashlib.sha256(session_id.encode('utf-8')).hexdigest()[:10]}"
+    canonical_region = str((resolved.environment_definition or {}).get("region") or "").strip()
+    region = canonical_region or args.region
+    if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", region):
+        raise ValueError("experiment AWS environment region is invalid")
     return {
         "schema_version": 1,
         "created_at": utc_text(),
@@ -1142,12 +1162,14 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "base_test_definition": base_test_definition,
             "base_tps": base_tps,
             "sla_profile": sla_profile,
+            "acceptance": resolved.acceptance or {},
             "mode": mode,
-            "region": args.region,
+            "region": region,
             "owner": args.owner,
             "expires_at": utc_text(expires_at),
             "image_environment": args.image_environment,
             "lab_profile": lab_profile,
+            "terraform_lab_inputs": terraform_lab_inputs,
             "experiment": definition.as_posix(),
             "test_definition": targets[0]["remote_definition"],
             "targets": targets,

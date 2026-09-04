@@ -217,6 +217,25 @@ class AwsSessionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "lab-profile"):
                 session_module.new_state(base, "safe-session", Path(directory))
 
+    def test_new_state_uses_canonical_environment_and_inline_acceptance(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="us-east-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=1800,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("eu-central-1", config["region"])
+        self.assertEqual(["m7i.large"], config["terraform_lab_inputs"]["node_instance_types"])
+        self.assertEqual("no-missing-terminal", config["acceptance"]["criteria"][0]["id"])
+
     def test_local_audit_analysis_materializes_shared_sla_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
