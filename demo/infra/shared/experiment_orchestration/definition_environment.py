@@ -336,6 +336,8 @@ def main() -> None:
         "PROCESSING_ENABLED": args.processing_enabled,
         "METRICS_IMPLEMENTATION": args.metrics_implementation,
         "LETTUCE_METRICS_ENABLED": args.lettuce_metrics_enabled,
+        "MODEL_HTTP_CLIENT": str(deployment_env.get("modelHttpClient", "ARMERIA")),
+        "MODEL_SYNC_HTTP_CLIENT": str(deployment_env.get("modelSyncHttpClient", "ARMERIA")),
         "JDK_HTTP_CLIENT_EXECUTOR": str(deployment_env.get("jdkHttpClientExecutor", "DEFAULT")),
         "WORKER_DISPATCHER_THREADS": str(args.worker_dispatcher_threads),
         "TOPIC_SPECS": ",".join(topic_specs),

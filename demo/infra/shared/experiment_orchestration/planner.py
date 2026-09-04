@@ -117,6 +117,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-enabled", choices=["true", "false"], default="true")
     parser.add_argument("--processing-dispatcher-type")
     parser.add_argument("--worker-dispatcher-threads", type=positive_int)
+    parser.add_argument("--model-http-client", choices=["ARMERIA", "JDK", "armeria", "jdk"])
+    parser.add_argument("--model-sync-http-client", choices=["ARMERIA", "JDK", "armeria", "jdk"])
     parser.add_argument("--jdk-http-client-executor", choices=["DEFAULT", "VIRTUAL", "default", "virtual"])
     parser.add_argument("--parallelism", type=non_empty)
     parser.add_argument("--demo-java-tool-options", type=non_empty)
@@ -207,6 +209,8 @@ def target_namespace(
         "processing_enabled": str(env.get("PROCESSING_ENABLED", "true")).lower(),
         "processing_dispatcher_type": env.get("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env.get("WORKER_DISPATCHER_THREADS"),
+        "model_http_client": env.get("MODEL_HTTP_CLIENT"),
+        "model_sync_http_client": env.get("MODEL_SYNC_HTTP_CLIENT"),
         "jdk_http_client_executor": env.get("JDK_HTTP_CLIENT_EXECUTOR"),
         "parallelism": merged.get("parallelism"),
         "demo_java_tool_options": application.get("java_tool_options", helm_env.get("javaToolOptions")),
@@ -567,6 +571,10 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         env["processingDispatcherType"] = processing_dispatcher
     if args.worker_dispatcher_threads:
         env["workerDispatcherThreads"] = int(args.worker_dispatcher_threads)
+    if args.model_http_client:
+        env["modelHttpClient"] = str(args.model_http_client).upper()
+    if args.model_sync_http_client:
+        env["modelSyncHttpClient"] = str(args.model_sync_http_client).upper()
     if args.jdk_http_client_executor:
         env["jdkHttpClientExecutor"] = str(args.jdk_http_client_executor).upper()
     if args.demo_java_tool_options:
@@ -723,6 +731,8 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         "replica_count": replica_count,
         "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),
         "worker_dispatcher_threads": env.get("workerDispatcherThreads"),
+        "model_http_client": str(env.get("modelHttpClient", "ARMERIA")),
+        "model_sync_http_client": str(env.get("modelSyncHttpClient", "ARMERIA")),
         "jdk_http_client_executor": str(env.get("jdkHttpClientExecutor", "DEFAULT")),
         "processing_enabled": args.processing_enabled == "true",
         "application": {

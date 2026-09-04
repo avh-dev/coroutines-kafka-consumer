@@ -85,6 +85,10 @@ spec:
               value: {{ .Values.env.flavourModelBaseUrl | quote }}
             - name: REGISTRY_BASE_URL
               value: {{ .Values.env.registryBaseUrl | quote }}
+            - name: MODEL_HTTP_CLIENT
+              value: {{ .Values.env.modelHttpClient | quote }}
+            - name: MODEL_SYNC_HTTP_CLIENT
+              value: {{ .Values.env.modelSyncHttpClient | quote }}
             - name: JDK_HTTP_CLIENT_EXECUTOR
               value: {{ .Values.env.jdkHttpClientExecutor | quote }}
             - name: JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX

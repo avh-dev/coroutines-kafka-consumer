@@ -272,6 +272,7 @@
 | [INFRA-128](#infra-128) | Unify experiment definitions and orchestration across internal-lab and AWS behind shared environment adapters. | DONE |
 | [INFRA-129](#infra-129) | Preserve application startup logs in AWS result bundles and verify expected Loki workload streams. | DONE |
 | [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
+| [INFRA-131](#infra-131) | Add a 20-minute AWS 10k/s comparison of single-pod Spring Kafka with JDK HTTP and CKC, using 30% parallelism headroom. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3061,3 +3062,15 @@ _Date: 2026-09-02_
 Preserve the environment-specific experiment directory while syncing shared test definitions, SLA profiles, and consumer profiles into the installed internal lab.
 Add regression coverage for the installed workload layout and validate the shared experiment path with the local `smoke-repeat` experiment.
 Validate experiment set `20260902T145139Z`: both targets completed with passing delivery and latency SLAs, complete application log labels, and healthy Kafka exporter metrics.
+
+<a id="infra-131"></a>
+### INFRA-131 - Add an AWS Spring Kafka and CKC 10k comparison
+
+_Date: 2026-09-03_
+
+Add a twenty-minute, 10,000 messages/s AWS comparison on the fixed MSK and ElastiCache lab profile.
+Run Spring Kafka with the synchronous JDK HTTP client and CKC with its suspend client, using one application pod for each target.
+Provision topic and consumer parallelism with thirty percent headroom over the planner's latency-based requirement.
+Keep audit collection enabled while explicitly disabling chaos and packet-capture diagnostics; prepare and validate the definition without starting AWS resources.
+
+Verification: both targets materialized with the expected topology and Spring Kafka JDK client selection; the Helm chart rendered and linted successfully, 6 shared orchestration tests, 28 AWS tests, and 53 internal-lab tests passed. No AWS session was started.

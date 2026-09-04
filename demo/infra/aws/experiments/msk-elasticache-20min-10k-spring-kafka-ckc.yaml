@@ -1,0 +1,63 @@
+name: msk-elasticache-20min-10k-spring-kafka-ckc
+description: Compare single-pod Spring Kafka with JDK HTTP and CKC at 10k/s for twenty minutes.
+lab:
+  profile: msk-elasticache-20min
+test:
+  extends: smoke
+  chaos_steps: null
+  diagnostic_steps: null
+  load_test:
+    workers: 100
+    base_tps: 10000
+    load_profile: "0 -> (600s, warmup) -> 100 -> (540s, steady) -> 100 -> (60s, cool-down) -> 0"
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    stats_log_interval_seconds: 15
+    consumer_drain_timeout_seconds: 300
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+sla_profile: delivery-integrity
+
+defaults:
+  application:
+    replicas: 1
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {cpu: "4", memory: 3Gi}
+    hpa:
+      enabled: false
+  env:
+    PROCESSING_ENABLED: true
+    AUDIT_LOG_ENABLED: true
+    METRICS_IMPLEMENTATION: MICROMETER
+    JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+
+targets:
+  - name: spring-kafka.jdk-http
+    profile: spring-kafka
+    parallelism: [partitions, pollers]
+    planning_latency: {order_ms: 25, batch_ms: 25, telemetry_ms: 70}
+    order_partitions: 115
+    batch_partitions: 82
+    telemetry_partitions: 364
+    order_pollers: 115
+    batch_pollers: 82
+    telemetry_pollers: 364
+    env:
+      MODEL_SYNC_HTTP_CLIENT: JDK
+
+  - name: ckc
+    profile: ckc
+    parallelism: [partitions, workers]
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    order_partitions: 228
+    batch_partitions: 163
+    telemetry_partitions: 780
+    order_workers: 228
+    batch_workers: 163
+    telemetry_workers: 780
+    order_queue_capacity: 4096
+    batch_queue_capacity: 4096
+    telemetry_queue_capacity: 4096
