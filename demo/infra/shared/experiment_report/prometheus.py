@@ -71,11 +71,11 @@ STANDARD_MEASUREMENTS = {
     ),
     "processing_worker_cpu_average_cores": (
         "sum(increase(thread_stats_cpu_seconds_total"
-        '{{job="ckc-demo", group=~"^(ckc-worker|virtual-thread-runtime)$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+        '{{job="ckc-demo", category=~"^([0-9]+\\\\. )?business$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
     "processing_worker_allocation_average_bytes_per_second": (
         "sum(increase(thread_stats_allocated_bytes_total"
-        '{{job="ckc-demo", group=~"^(ckc-worker|virtual-thread-runtime)$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+        '{{job="ckc-demo", category=~"^([0-9]+\\\\. )?business$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
     "context_switches_average_per_second": (
         "sum(increase(namedprocess_namegroup_thread_context_switches_total"

@@ -11,7 +11,7 @@ from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
-    def test_thread_stats_category_panels_separate_audit_from_other(self) -> None:
+    def test_thread_stats_category_panels_use_explicit_category_labels(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
         panels: list[dict] = []
@@ -25,11 +25,47 @@ class DashboardTest(unittest.TestCase):
         collect(dashboard["panels"])
         self.assertEqual(3, len(panels))
         for panel in panels:
-            targets = {target["legendFormat"].split()[0]: target for target in panel["targets"]}
-            self.assertIn('group=~"^(audit)$"', targets["Audit"]["expr"])
-            self.assertIn("redis-client|audit", targets["Other"]["expr"])
-            self.assertEqual("E", targets["Audit"]["refId"])
-            self.assertEqual("F", targets["Other"]["refId"])
+            self.assertEqual(1, len(panel["targets"]))
+            target = panel["targets"][0]
+            self.assertIn(
+                "sum by (category, ${pod_grouping})",
+                target["expr"],
+            )
+            self.assertNotIn('category="', target["expr"])
+            self.assertNotIn("category_order", target["expr"])
+            self.assertNotIn("ordered_category", target["expr"])
+            self.assertNotIn("group=~", target["expr"])
+            self.assertNotIn("group!~", target["expr"])
+            self.assertEqual(
+                "{{category}} {{pod_legend}}",
+                target["legendFormat"],
+            )
+            self.assertEqual("A", target["refId"])
+
+    def test_thread_stats_detail_panels_preserve_category_and_group(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        targets: list[dict] = []
+
+        def collect(items: list[dict]) -> None:
+            for panel in items:
+                if panel.get("id") in set(range(89, 94)) | set(range(96, 101)):
+                    targets.extend(panel.get("targets", []))
+                collect(panel.get("panels", []))
+
+        collect(dashboard["panels"])
+        self.assertEqual(10, len(targets))
+        for target in targets:
+            self.assertIn(
+                'label_replace(',
+                target["expr"],
+            )
+            self.assertIn(
+                '"category", "$1", "category", "^[0-9]+\\\\. (.+)$"',
+                target["expr"],
+            )
+            self.assertIn("group", target["expr"])
+            self.assertIn("{{category}} / {{group}}", target["legendFormat"])
 
     def test_patches_time_summary_environment_and_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
