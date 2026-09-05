@@ -131,20 +131,16 @@ def copy_report_sources(
     sources = {
         summary_path: raw_dir / "experiment-set-summary.json",
         Path(str(experiment_summary["experiment_file"])): raw_dir / "experiment.yaml",
-        (
-            Path(str(experiment_summary["resolved_test_path"]))
-            if experiment_summary.get("resolved_test_path")
-            else lab_root
-            / "workloads"
-            / "test-definitions"
-            / f"{experiment_summary['test_definition']}.yaml"
-        ): raw_dir / "test-definition.yaml",
+        Path(str(experiment_summary["resolved_test_path"])): raw_dir / "resolved-target.yaml",
     }
+    resolved_experiment = Path(str(experiment_summary.get("resolved_experiment_path") or ""))
+    if resolved_experiment.is_file():
+        sources[resolved_experiment] = raw_dir / "resolved-experiment.yaml"
     for source, target in sources.items():
         if source.is_file():
             shutil.copy2(source, target)
     if report.sla_profile:
-        (raw_dir / "sla-profile.yaml").write_text(
+        (raw_dir / "acceptance.yaml").write_text(
             yaml.safe_dump(report.sla_profile, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
@@ -171,7 +167,7 @@ def copy_report_sources(
         resolved = Path(str(target_result.get("resolved_test_path") or ""))
         run_id = Path(str(target_result.get("run_dir") or "")).name
         if resolved.is_file() and run_id:
-            shutil.copy2(resolved, raw_dir / f"{run_id}-test-definition.yaml")
+            shutil.copy2(resolved, raw_dir / f"{run_id}-resolved-target.yaml")
 
 
 def audit_input_file(audit_dir: Path) -> Path | None:
@@ -195,9 +191,9 @@ def reanalyze_experiment_audits(
     if not analyzer.is_file():
         raise FileNotFoundError(f"Audit analyzer was not found: {analyzer}")
     result_dir.mkdir(parents=True, exist_ok=True)
-    profile_file = result_dir / f"{experiment_summary['experiment']}-sla-profile.json"
+    profile_file = result_dir / f"{experiment_summary['experiment']}-acceptance.json"
     profile_file.write_text(json.dumps(sla_profile, indent=2), encoding="utf-8")
-    experiment_summary["sla_profile_file"] = str(profile_file)
+    experiment_summary["acceptance_file"] = str(profile_file)
     for target in experiment_summary.get("targets", []):
         if not isinstance(target, dict) or not target.get("run_dir"):
             continue

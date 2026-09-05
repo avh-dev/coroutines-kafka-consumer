@@ -436,8 +436,11 @@ def load_profile_seconds(profile: str) -> int:
 
 
 def test_expected_seconds(lab_root: Path, test_definition: str) -> int | None:
+    del lab_root
     try:
-        path = resolve_named_yaml(lab_root / "workloads" / "test-definitions", test_definition)
+        path = Path(test_definition)
+        if not path.is_file():
+            return None
         definition = load_yaml(path)
         load_test = definition.get("load_test", {})
         if not isinstance(load_test, dict):
@@ -824,7 +827,6 @@ def run_experiment(
     source_experiment = load_yaml(experiment_path)
     resolved_experiment = resolve_experiment_definition(
         experiment_path,
-        None,
         environment="internal-lab",
     )
     experiment = resolved_experiment.definition
@@ -846,23 +848,19 @@ def run_experiment(
     base_tps = int(base_tps)
     definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
-    materialized_targets = (
-        materialize_experiment(
-            resolved_experiment,
-            output_dir=log_dir / f"{experiment_path.stem}-materialized",
-            consumer_profiles_path=lab_root / "workloads" / "consumer-profiles.yaml",
-            repo_dir=lab_root,
-        )
-        if not resolved_experiment.legacy
-        else None
+    materialized_dir = log_dir / f"{experiment_path.stem}-materialized"
+    materialized_targets = materialize_experiment(
+        resolved_experiment,
+        output_dir=materialized_dir,
+        repo_dir=lab_root,
     )
     annotation_labels = target_annotation_labels(targets)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
     write_resolved_test(resolved_test_path, definition)
-    test_definition = resolved_test.source_name
+    test_definition = experiment_name
     log_path = log_dir / f"{experiment_name}.log"
-    sla_profile_file = log_dir / f"{experiment_name}-sla-profile.json" if sla_profile else None
+    sla_profile_file = log_dir / f"{experiment_name}-acceptance.json" if sla_profile else None
     if sla_profile_file is not None:
         sla_profile_file.write_text(json.dumps(sla_profile, indent=2), encoding="utf-8")
 
@@ -973,7 +971,8 @@ def run_experiment(
         "resolved_test_path": str(resolved_test_path),
         "base_tps": base_tps,
         "experiment_file": str(experiment_path),
-        "sla_profile_file": str(sla_profile_file) if sla_profile_file else "",
+        "resolved_experiment_path": str(materialized_dir / "resolved-experiment.yaml"),
+        "acceptance_file": str(sla_profile_file) if sla_profile_file else "",
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,

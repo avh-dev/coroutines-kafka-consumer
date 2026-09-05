@@ -28,7 +28,6 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
 from experiment_report import generate_experiment_reports
-from experiment_report.analyze import load_sla_profile, load_yaml
 from result_bundle import finalize as finalize_artifacts
 
 
@@ -872,9 +871,6 @@ class SessionController:
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
         sla_profile = self.config.get("acceptance") or None
-        if sla_profile is None and self.config.get("sla_profile"):
-            experiment_path = self.repo / self.config["experiment"]
-            sla_profile = load_sla_profile(SHARED_INFRA, load_yaml(experiment_path))
         summaries: dict[str, str] = {}
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
@@ -894,7 +890,7 @@ class SessionController:
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
             if sla_profile:
-                sla_path = audit_dir / "sla-profile.json"
+                sla_path = audit_dir / "acceptance.json"
                 json_write(sla_path, sla_profile)
                 command.extend(["--sla-profile-file", str(sla_path)])
             completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
@@ -945,6 +941,7 @@ class SessionController:
                 "resolved_test_path": str(base_test_path),
                 "base_tps": self.config.get("base_tps"),
                 "experiment_file": str((self.repo / self.config["experiment"]).resolve()),
+                "resolved_experiment_path": str(self.session_dir / "materialized/resolved-experiment.yaml"),
                 "result_dir": str(result_root),
                 "targets": targets,
                 "target_resolved_tests": {target["name"]: target["resolved_test_path"] for target in targets},
@@ -1122,13 +1119,11 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     experiment_id = args.experiment_id or slug(definition.stem)
     resolved = resolve_experiment_definition(
         definition_path,
-        None,
         environment="aws",
     )
     materialized = materialize_experiment(
         resolved,
         output_dir=session_dir / "materialized",
-        consumer_profiles_path=session_dir / "materialized/implementation-profiles.yaml",
         repo_dir=repo_root(),
     )
     terraform_inputs_path = session_dir / "materialized/environment/terraform-lab-inputs.json"
@@ -1152,9 +1147,8 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
-    base_test_definition = resolved.test.source_name
+    base_test_definition = resolved.name
     base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
-    sla_profile = str(resolved.definition.get("sla_profile") or "")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
     aws_environment = f"s-{hashlib.sha256(session_id.encode('utf-8')).hexdigest()[:10]}"
     canonical_region = str((resolved.environment_definition or {}).get("region") or "").strip()
@@ -1174,7 +1168,6 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "experiment_description": experiment_description,
             "base_test_definition": base_test_definition,
             "base_tps": base_tps,
-            "sla_profile": sla_profile,
             "acceptance": resolved.acceptance or {},
             "mode": mode,
             "region": region,

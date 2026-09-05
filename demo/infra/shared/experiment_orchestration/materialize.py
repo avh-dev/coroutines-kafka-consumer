@@ -95,23 +95,22 @@ def materialize_experiment(
     experiment: ResolvedExperiment,
     *,
     output_dir: Path,
-    consumer_profiles_path: Path,
     repo_dir: Path,
 ) -> tuple[MaterializedTarget, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    selected_profiles_path = consumer_profiles_path
-    if experiment.snapshot is not None:
-        write_resolved_experiment(output_dir / "resolved-experiment.yaml", experiment.snapshot)
-        selected_profiles_path = output_dir / "implementation-profiles.yaml"
-        write_resolved_experiment(selected_profiles_path, experiment.snapshot["implementations"])
-        if experiment.environment == "aws":
-            write_terraform_variables(
-                output_dir / "environment" / "terraform-lab-inputs.json",
-                aws_terraform_variables(
-                    experiment.environment_definition or {},
-                    experiment_id=experiment.name,
-                ),
-            )
+    if experiment.snapshot is None:
+        raise ValueError("Canonical materialization requires a resolved experiment snapshot")
+    write_resolved_experiment(output_dir / "resolved-experiment.yaml", experiment.snapshot)
+    selected_profiles_path = output_dir / "implementation-profiles.yaml"
+    write_resolved_experiment(selected_profiles_path, experiment.snapshot["implementations"])
+    if experiment.environment == "aws":
+        write_terraform_variables(
+            output_dir / "environment" / "terraform-lab-inputs.json",
+            aws_terraform_variables(
+                experiment.environment_definition or {},
+                experiment_id=experiment.name,
+            ),
+        )
     return tuple(
         materialize_target(
             experiment,

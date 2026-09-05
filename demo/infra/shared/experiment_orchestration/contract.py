@@ -227,7 +227,7 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
         validate_target_workload(value["workload"], f"{context}.workload")
 
 
-def target_to_legacy(target: Mapping[str, Any]) -> dict[str, Any]:
+def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
     result = {
         key: copy.deepcopy(target[key])
         for key in ("id", "name", "annotation_label", "application")
@@ -416,25 +416,6 @@ def validate_canonical_experiment(
         "defaults": defaults,
         "targets": resolved_targets,
     }
-
-
-def load_legacy_acceptance(profile_dir: Path | None, configured: Any) -> dict[str, Any]:
-    if not configured or profile_dir is None:
-        return {}
-    seen: set[Path] = set()
-
-    def resolve(name: str) -> dict[str, Any]:
-        path = profile_dir / (name if name.endswith(".yaml") else f"{name}.yaml")
-        path = path.resolve()
-        if path in seen:
-            raise ValueError(f"Circular legacy SLA profile inheritance: {path}")
-        seen.add(path)
-        value = load_yaml(path)
-        parent = str(value.pop("extends", "") or "").strip()
-        return deep_merge(resolve(parent), value) if parent else value
-
-    profile = resolve(str(configured))
-    return {key: copy.deepcopy(profile[key]) for key in ("criteria", "latency") if key in profile}
 
 
 def write_resolved_experiment(path: Path, value: Mapping[str, Any]) -> None:

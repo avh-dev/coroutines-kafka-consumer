@@ -23,11 +23,10 @@ def main() -> int:
 
     resolved = resolve_experiment_definition(
         args.experiment.resolve(),
-        None,
         environment=args.environment,
     )
-    if resolved.legacy or resolved.snapshot is None:
-        raise ValueError("validate-experiment accepts only schema_version: 1 canonical experiments")
+    if resolved.snapshot is None:
+        raise ValueError("Resolved canonical experiment snapshot is missing")
     rendered = yaml.safe_dump(resolved.snapshot, sort_keys=False, allow_unicode=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

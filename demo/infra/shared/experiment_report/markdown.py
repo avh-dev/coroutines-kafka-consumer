@@ -106,12 +106,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 "",
             ]
         )
-    lines.extend(["## SLA", ""])
+    lines.extend(["## Acceptance", ""])
     if report.sla_profile:
         lines.extend(
             [
-                f"Profile: **{cell(report.sla_profile.get('name', ''))}** — {cell(report.sla_profile.get('description', ''))}",
-                "",
                 "| Criterion | Source | Requirement |",
                 "| --- | --- | --- |",
             ]
@@ -138,7 +136,7 @@ def render_markdown(report: ExperimentReport) -> str:
                     f"{duration_ms(int(rule.get('max_ms', 0)))} | {number(float(rule.get('allowed_exceed_percent', 0)))}% |"
                 )
     else:
-        lines.append("No SLA profile is configured. Measurements are reported without PASS/FAIL evaluation.")
+        lines.append("No acceptance criteria are configured. Measurements are reported without PASS/FAIL evaluation.")
     lines.extend(
         [
             "",
@@ -446,7 +444,7 @@ def render_markdown(report: ExperimentReport) -> str:
             )
         lines.extend(
             [
-                "- Evidence Bundle: not exported automatically; use `export-result.sh --experiment <experiment-set-id>` when needed.",
+                "- Complete offline evidence is available in the experiment's `evidence.tar.gz`.",
                 "",
             ]
         )
@@ -486,11 +484,12 @@ def render_markdown(report: ExperimentReport) -> str:
             "## Raw artifacts",
             "",
             "- [Experiment definition](raw/experiment.yaml)",
-            "- [Test definition](raw/test-definition.yaml)",
+            "- [Resolved experiment](raw/resolved-experiment.yaml)",
+            "- [Resolved target](raw/resolved-target.yaml)",
         ]
     )
     if report.sla_profile:
-        lines.append("- [SLA profile](raw/sla-profile.yaml)")
+        lines.append("- [Acceptance criteria](raw/acceptance.yaml)")
     lines.extend(
         [
             "- [Experiment set summary](raw/experiment-set-summary.json)",

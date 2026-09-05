@@ -226,110 +226,74 @@ def nested_value(document: dict[str, Any], path: list[Any]) -> Any:
     return value
 
 
-def sla_profile_path(lab_root: Path, configured: Any) -> Path:
-    path = Path(str(configured))
-    if not path.is_absolute():
-        if path.suffix != ".yaml":
-            path = path.with_suffix(".yaml")
-        path = lab_root / "workloads" / "sla-profiles" / path
-    return path
-
-
-def resolve_sla_profile(lab_root: Path, path: Path, seen: set[Path] | None = None) -> dict[str, Any]:
-    resolved_path = path.resolve()
-    chain = set() if seen is None else set(seen)
-    if resolved_path in chain:
-        raise ValueError(f"Cyclic SLA profile inheritance: {path}")
-    chain.add(resolved_path)
-    child = load_yaml(path)
-    parent_name = child.get("extends")
-    if parent_name:
-        parent = resolve_sla_profile(lab_root, sla_profile_path(lab_root, parent_name), chain)
-        profile = {**parent, **child}
-        profile["criteria"] = [*(parent.get("criteria") or []), *(child.get("criteria") or [])]
-        parent_latency = parent.get("latency") if isinstance(parent.get("latency"), dict) else {}
-        child_latency = child.get("latency") if isinstance(child.get("latency"), dict) else {}
-        if parent_latency or child_latency:
-            profile["latency"] = {
-                **parent_latency,
-                **child_latency,
-                "rules": [*(parent_latency.get("rules") or []), *(child_latency.get("rules") or [])],
-            }
-    else:
-        profile = child
-    profile["source"] = str(path)
-    return profile
-
-
 def load_sla_profile(lab_root: Path, experiment: dict[str, Any]) -> dict[str, Any] | None:
+    del lab_root
     inline = experiment.get("acceptance")
-    if isinstance(inline, dict):
-        return inline
-    configured = experiment.get("sla_profile")
-    if not configured:
+    if inline is None:
         return None
-    path = sla_profile_path(lab_root, configured)
-    profile = resolve_sla_profile(lab_root, path)
+    if not isinstance(inline, dict):
+        raise ValueError("Experiment acceptance must be an object")
+    profile = inline
     criteria = profile.get("criteria")
     latency = profile.get("latency")
     if not isinstance(criteria, list):
-        raise ValueError(f"SLA profile criteria must be a list: {path}")
+        raise ValueError("Experiment acceptance criteria must be a list")
     if not criteria and not latency:
-        raise ValueError(f"SLA profile must define criteria or latency rules: {path}")
+        return profile
     identifiers = set()
     for index, criterion in enumerate(criteria, start=1):
         if not isinstance(criterion, dict):
-            raise ValueError(f"SLA criterion {index} must be an object: {path}")
+            raise ValueError(f"Acceptance criterion {index} must be an object")
         criterion_id = str(criterion.get("id") or "")
         if not criterion_id or criterion_id in identifiers:
-            raise ValueError(f"SLA criterion ids must be non-empty and unique: {path}")
+            raise ValueError("Acceptance criterion ids must be non-empty and unique")
         identifiers.add(criterion_id)
         source = str(criterion.get("source") or "audit")
         if source == "audit":
             criterion_path = criterion.get("path")
             if not isinstance(criterion_path, list) or not criterion_path:
-                raise ValueError(f"Audit SLA criterion {criterion_id!r} must define a non-empty path: {path}")
+                raise ValueError(f"Audit acceptance criterion {criterion_id!r} must define a non-empty path")
         elif source == "measurement":
             measurement = str(criterion.get("measurement") or "")
             if measurement not in STANDARD_MEASUREMENTS:
-                raise ValueError(f"Unknown standard measurement {measurement!r}: {path}")
+                raise ValueError(f"Unknown standard measurement {measurement!r}")
         else:
-            raise ValueError(f"Unknown SLA criterion source {source!r}: {path}")
+            raise ValueError(f"Unknown acceptance criterion source {source!r}")
         operator_name = str(criterion.get("operator") or "lte")
         if operator_name not in OPERATORS:
-            raise ValueError(f"Unknown SLA operator {operator_name!r}: {path}")
+            raise ValueError(f"Unknown acceptance operator {operator_name!r}")
         if "threshold" not in criterion:
-            raise ValueError(f"SLA criterion {criterion_id!r} must define threshold: {path}")
+            raise ValueError(f"Acceptance criterion {criterion_id!r} must define threshold")
     if latency is not None:
         if not isinstance(latency, dict) or not isinstance(latency.get("rules"), list) or not latency["rules"]:
-            raise ValueError(f"SLA profile latency.rules must be a non-empty list: {path}")
+            raise ValueError("Experiment acceptance latency.rules must be a non-empty list")
         latency_ids = set()
         used_topics = set()
         supported_topics = {"order.events.v1", "batch.events.v1", "cauldron.events.v1"}
         for index, rule in enumerate(latency["rules"], start=1):
             if not isinstance(rule, dict):
-                raise ValueError(f"Latency SLA rule {index} must be an object: {path}")
+                raise ValueError(f"Latency acceptance rule {index} must be an object")
             rule_id = str(rule.get("id") or "")
             if not rule_id or rule_id in latency_ids:
-                raise ValueError(f"Latency SLA rule ids must be non-empty and unique: {path}")
+                raise ValueError("Latency acceptance rule ids must be non-empty and unique")
             latency_ids.add(rule_id)
             topics = rule.get("topics")
             if not isinstance(topics, list) or not topics:
-                raise ValueError(f"Latency SLA rule {rule_id!r} must define topics: {path}")
+                raise ValueError(f"Latency acceptance rule {rule_id!r} must define topics")
             unknown_topics = sorted(set(topics) - supported_topics)
             if unknown_topics:
-                raise ValueError(f"Unknown latency SLA topics {unknown_topics}: {path}")
+                raise ValueError(f"Unknown latency acceptance topics {unknown_topics}")
             repeated_topics = sorted(set(topics) & used_topics)
             if repeated_topics:
-                raise ValueError(f"Latency SLA topics may occur in only one rule; repeated: {repeated_topics}")
+                raise ValueError(f"Latency acceptance topics may occur in only one rule; repeated: {repeated_topics}")
             used_topics.update(topics)
             max_ms = rule.get("max_ms")
             allowed_percent = rule.get("allowed_exceed_percent")
             if not isinstance(max_ms, int | float) or max_ms < 0:
-                raise ValueError(f"Latency SLA rule {rule_id!r} max_ms must be non-negative: {path}")
+                raise ValueError(f"Latency acceptance rule {rule_id!r} max_ms must be non-negative")
             if not isinstance(allowed_percent, int | float) or not 0 <= allowed_percent <= 100:
                 raise ValueError(
-                    f"Latency SLA rule {rule_id!r} allowed_exceed_percent must be between 0 and 100: {path}"
+                    f"Latency acceptance rule {rule_id!r} allowed_exceed_percent must be between 0 and 100"
                 )
     return profile
 
@@ -631,13 +595,11 @@ def analyze_experiment(
 ) -> ExperimentReport:
     experiment_path = Path(str(experiment_summary["experiment_file"]))
     experiment = load_yaml(experiment_path)
-    test_definition_name = str(experiment_summary["test_definition"])
     resolved_test_path = str(experiment_summary.get("resolved_test_path") or "").strip()
-    test_definition_path = (
-        Path(resolved_test_path)
-        if resolved_test_path
-        else lab_root / "workloads" / "test-definitions" / f"{test_definition_name}.yaml"
-    )
+    if not resolved_test_path:
+        raise ValueError("Experiment summary does not contain resolved_test_path")
+    test_definition_path = Path(resolved_test_path)
+    test_definition_name = str(experiment_summary.get("test_definition") or experiment_summary.get("experiment") or "experiment")
     test_definition = load_yaml(test_definition_path)
     load_test = test_definition.get("load_test") if isinstance(test_definition.get("load_test"), dict) else {}
     phases = parse_load_profile(str(load_test.get("load_profile") or ""))

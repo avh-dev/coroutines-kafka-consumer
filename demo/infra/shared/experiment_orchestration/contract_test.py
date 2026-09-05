@@ -82,11 +82,9 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment = canonical_experiment()
         resolved = resolve_experiment_definition(
             self.write(experiment),
-            None,
             environment="aws",
         )
 
-        self.assertFalse(resolved.legacy)
         self.assertEqual(1, resolved.schema_version)
         self.assertEqual("aws", resolved.environment)
         self.assertEqual("smoke", resolved.lab_profile)
@@ -101,7 +99,7 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment = canonical_experiment()
         experiment["environments"] = {"internal-lab": {"lab": {"profile": "installed"}}}
         experiment["targets"][0]["workload"] = {"load": {"base_tps": 250}}
-        resolved = resolve_experiment_definition(self.write(experiment), None)
+        resolved = resolve_experiment_definition(self.write(experiment))
         output = self.root / "resolved-experiment.yaml"
         write_resolved_experiment(output, resolved.snapshot or {})
         snapshot = yaml.safe_load(output.read_text(encoding="utf-8"))
@@ -152,16 +150,6 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment["targets"][0]["implementation"] = "missing"
         with self.assertRaisesRegex(ValueError, "implementation profiles are missing: missing"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
-
-    def test_rejects_canonical_lab_profile_override(self) -> None:
-        with self.assertRaisesRegex(ValueError, "immutable"):
-            resolve_experiment_definition(
-                self.write(canonical_experiment()),
-                None,
-                environment="aws",
-                lab_profile="other",
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

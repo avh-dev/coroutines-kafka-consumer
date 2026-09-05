@@ -103,11 +103,8 @@ def run(request: RunRequest) -> int:
         raise ValueError(f"Unsupported experiment environment: {request.environment}")
     resolved = resolve_experiment_definition(
         request.experiment,
-        None,
         environment=request.environment,
     )
-    if resolved.legacy:
-        raise ValueError("The shared experiment runner accepts only schema_version: 1 experiments")
     return execute(adapter.command(request, resolved))
 
 

@@ -19,11 +19,10 @@ EXAMPLE = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/porta
 class DeploymentPlanTest(unittest.TestCase):
     def materialize(self, environment: str) -> tuple[Path, dict, object]:
         root = Path(self.temp.name)
-        resolved = resolve_experiment_definition(EXAMPLE, None, environment=environment)
+        resolved = resolve_experiment_definition(EXAMPLE, environment=environment)
         targets = materialize_experiment(
             resolved,
             output_dir=root,
-            consumer_profiles_path=root / "not-used.yaml",
             repo_dir=REPO_ROOT,
         )
         plan = yaml.safe_load(targets[0].deployment_plan_path.read_text(encoding="utf-8"))

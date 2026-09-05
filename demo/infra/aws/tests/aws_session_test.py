@@ -213,7 +213,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(["m7i.large"], config["terraform_lab_inputs"]["node_instance_types"])
         self.assertEqual("no-missing-terminal", config["acceptance"]["criteria"][0]["id"])
 
-    def test_local_audit_analysis_materializes_shared_sla_as_json(self) -> None:
+    def test_local_audit_analysis_materializes_inline_acceptance_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
             run_dir = session_dir / "result/runs/run-ckc"
@@ -227,7 +227,15 @@ class AwsSessionTest(unittest.TestCase):
                     "session_id": "safe-session",
                     "region": "eu-central-1",
                     "experiment": "demo/infra/experiments/smoke.yaml",
-                    "sla_profile": "delivery-integrity",
+                    "acceptance": {
+                        "criteria": [{
+                            "id": "no-missing",
+                            "source": "audit",
+                            "path": ["totals", "missing_terminal"],
+                            "operator": "eq",
+                            "threshold": 0,
+                        }],
+                    },
                 },
                 "terraform": {},
                 "local_result_dirs": {"ckc": str(run_dir)},
@@ -238,7 +246,7 @@ class AwsSessionTest(unittest.TestCase):
             with patch.object(session_module.subprocess, "run", return_value=completed) as run_command:
                 controller.analyze_local_audit()
 
-            sla_path = run_dir / "audit/sla-profile.json"
+            sla_path = run_dir / "audit/acceptance.json"
             sla = json.loads(sla_path.read_text(encoding="utf-8"))
             command = run_command.call_args.args[0]
 
@@ -349,7 +357,7 @@ class AwsSessionTest(unittest.TestCase):
             dashboard = json.loads((result / "config/ckc-experiment.json").read_text(encoding="utf-8"))
             markdown = dashboard["panels"][0]["options"]["content"]
 
-        self.assertIn("Test definition `smoke`, base TPS `5000`", markdown)
+        self.assertIn("Workload `smoke`, base TPS `5000`", markdown)
         self.assertIn("spring-kafka", markdown)
         self.assertIn("ckc", markdown)
         self.assertIn("[Reset time range](/d/ckc-experiment/ckc-experiment?", markdown)
