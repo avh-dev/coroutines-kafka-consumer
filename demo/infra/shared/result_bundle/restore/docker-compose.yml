@@ -1,7 +1,7 @@
 services:
   loki:
     image: grafana/loki:3.3.2
-    user: "0:0"
+    user: "${CKC_RESTORE_UID:-1000}:${CKC_RESTORE_GID:-1000}"
     command: ["-config.file=/etc/loki/loki.yaml"]
     ports:
       - "127.0.0.1:${CKC_RESTORE_LOKI_PORT:-3102}:3100"
@@ -11,12 +11,14 @@ services:
 
   prometheus:
     image: victoriametrics/victoria-metrics:v1.102.1
+    user: "${CKC_RESTORE_UID:-1000}:${CKC_RESTORE_GID:-1000}"
     command: ["-storageDataPath=/victoria-metrics-data", "-httpListenAddr=:9090"]
     volumes:
       - ${CKC_RESTORE_WORK_DIR}/prometheus:/victoria-metrics-data
 
   grafana:
     image: grafana/grafana:11.6.0
+    user: "${CKC_RESTORE_UID:-1000}:${CKC_RESTORE_GID:-1000}"
     ports:
       - "${CKC_RESTORE_BIND_ADDRESS:-127.0.0.1}:${CKC_RESTORE_GRAFANA_PORT:-3002}:3000"
     environment:

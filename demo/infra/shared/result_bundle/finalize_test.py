@@ -59,7 +59,10 @@ class CanonicalFinalizerTest(unittest.TestCase):
             )
             report = root / "generated-report"
             report.mkdir()
-            (report / "report.md").write_text("# Report\n\n![](load.svg)\n", encoding="utf-8")
+            (report / "report.md").write_text(
+                "# Report\n\n![](load.svg)\n\nEvidence: `evidence.tar.gz`.\n",
+                encoding="utf-8",
+            )
             (report / "load.svg").write_text("<svg/>\n", encoding="utf-8")
             output = root / "final"
 
@@ -77,6 +80,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertEqual("<svg/>\n", (output / "report-assets/load.svg").read_text(encoding="utf-8"))
             self.assertIn("report-assets/load.svg", (output / "report.md").read_text(encoding="utf-8"))
             self.assertIn("Environment: `internal-lab`", (output / "report.md").read_text(encoding="utf-8"))
+            self.assertNotIn("](raw/", (output / "report.md").read_text(encoding="utf-8"))
             with tarfile.open(artifacts["audit"]) as archive:
                 audit_names = set(archive.getnames())
                 audit_manifest = json.load(archive.extractfile("audit/manifest.json"))
@@ -86,6 +90,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 evidence_names = set(archive.getnames())
                 evidence_manifest = json.load(archive.extractfile("evidence/manifest.json"))
                 redacted = json.load(archive.extractfile("evidence/result/session.json"))
+                restore_compose = archive.extractfile("evidence/restore/docker-compose.yml").read().decode()
             self.assertIn("evidence/result/runs/run-a/run-metadata.json", evidence_names)
             self.assertIn("evidence/result/metrics/victoriametrics-data.tar.gz", evidence_names)
             self.assertIn("evidence/result/runs/run-a/audit/summary.yaml", evidence_names)
@@ -93,6 +98,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn("evidence/restore/provisioning/dashboards/ckc.yml", evidence_names)
             self.assertIn("evidence/restore/provisioning/datasources/prometheus.yml", evidence_names)
             self.assertIn("evidence/restore/provisioning/datasources/loki.yml", evidence_names)
+            self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
             self.assertNotIn("evidence/result/runs/run-a/audit/chunks/audit-0001.log.gz", evidence_names)
             self.assertNotIn("evidence/result/terraform.tfstate", evidence_names)
             self.assertEqual("<redacted>", redacted["api_token"])

@@ -417,29 +417,26 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"- Delivery SLA: **{status(target.delivery_evaluation_status)}**",
                 f"- Latency SLA: **{status(target.latency_evaluation_status)}**",
                 f"- Overall SLA: **{status(target.evaluation_status)}**",
-                f"- Run metadata: [`{target.run_id}`](raw/{target.run_id}-metadata.json)",
-                f"- Raw audit summary: [summary.yaml](raw/{target.run_id}-audit-summary.yaml)",
+                f"- Run metadata: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/run-metadata.json`",
+                f"- Raw audit summary: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/audit/summary.yaml`",
             ]
         )
         if target.thread_stats.get("enabled") and target.thread_stats.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Thread Stats summary: [summary.json](raw/{target.run_id}-thread-stats-summary.json)",
-                    f"- Thread Stats index: [index.jsonl](raw/{target.run_id}-thread-stats-index.jsonl)",
+                    f"- Thread Stats: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/thread-stats/`",
                 ]
             )
         if target.packet_captures.get("enabled") and target.packet_captures.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Packet capture summary: [summary.json](raw/{target.run_id}-tcpdump-summary.json)",
-                    f"- Packet capture index: [index.jsonl](raw/{target.run_id}-tcpdump-index.jsonl)",
+                    f"- Packet captures: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/tcpdump/`",
                 ]
             )
         if target.pcap_analysis.get("status") not in {"disabled", "unavailable"}:
             lines.extend(
                 [
-                    f"- Kafka pcap analysis: [summary.json](raw/{target.run_id}-pcap-analysis.json)",
-                    f"- Human-readable Kafka pcap analysis: [summary.txt](raw/{target.run_id}-pcap-analysis.txt)",
+                    f"- Kafka pcap analysis: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/pcap-analysis/`",
                 ]
             )
         lines.extend(
@@ -481,19 +478,9 @@ def render_markdown(report: ExperimentReport) -> str:
             lines.append("")
     lines.extend(
         [
-            "## Raw artifacts",
+            "## Offline evidence",
             "",
-            "- [Experiment definition](raw/experiment.yaml)",
-            "- [Resolved experiment](raw/resolved-experiment.yaml)",
-            "- [Resolved target](raw/resolved-target.yaml)",
-        ]
-    )
-    if report.sla_profile:
-        lines.append("- [Acceptance criteria](raw/acceptance.yaml)")
-    lines.extend(
-        [
-            "- [Experiment set summary](raw/experiment-set-summary.json)",
-            "- [Normalized report model](report-model.yaml)",
+            "The resolved experiment and targets, acceptance criteria, normalized report model, logs, metrics, generated deployment inputs, and restore tooling are included in `evidence.tar.gz`.",
             "",
         ]
     )

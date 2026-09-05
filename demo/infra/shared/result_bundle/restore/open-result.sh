@@ -14,8 +14,12 @@ if [ -z "${DASHBOARD}" ]; then
   exit 1
 fi
 
-mkdir -p "${RESTORE_WORK_DIR}/grafana" "${RESTORE_WORK_DIR}/loki"
-chmod 0777 "${RESTORE_WORK_DIR}/grafana" "${RESTORE_WORK_DIR}/loki"
+mkdir -p "${RESTORE_WORK_DIR}/grafana/dashboards" "${RESTORE_WORK_DIR}/loki"
+touch "${RESTORE_WORK_DIR}/grafana/dashboards/ckc-experiment.json"
+chmod 0777 \
+  "${RESTORE_WORK_DIR}/grafana" \
+  "${RESTORE_WORK_DIR}/grafana/dashboards" \
+  "${RESTORE_WORK_DIR}/loki"
 if [ -d "${RESULT_DIR}/loki" ] && [ ! -f "${RESTORE_WORK_DIR}/.loki-copied" ]; then
   cp -a "${RESULT_DIR}/loki/." "${RESTORE_WORK_DIR}/loki/"
   touch "${RESTORE_WORK_DIR}/.loki-copied"
@@ -39,6 +43,8 @@ export CKC_RESTORE_WORK_DIR="${RESTORE_WORK_DIR}"
 export CKC_RESTORE_GRAFANA_PORT="${GRAFANA_PORT}"
 export CKC_RESTORE_LOKI_PORT="${CKC_RESTORE_LOKI_PORT:-3102}"
 export CKC_RESTORE_BIND_ADDRESS="${CKC_RESTORE_BIND_ADDRESS:-127.0.0.1}"
+export CKC_RESTORE_UID="${CKC_RESTORE_UID:-$(id -u)}"
+export CKC_RESTORE_GID="${CKC_RESTORE_GID:-$(id -g)}"
 docker compose -p "ckc-result-$(basename "${RESULT_DIR}")" -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
 if [ ! -f "${RESTORE_WORK_DIR}/.loki-imported" ]; then
