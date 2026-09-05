@@ -72,7 +72,7 @@ class ExperimentReportTest(unittest.TestCase):
 
     def fixture(self, root: Path, missing_terminal: int = 0) -> Path:
         lab_root = root / "lab"
-        experiment_path = lab_root / "workloads" / "experiments" / "comparison.yaml"
+        experiment_path = lab_root / "experiments" / "comparison.yaml"
         self.write_yaml(
             experiment_path,
             {
@@ -93,7 +93,7 @@ class ExperimentReportTest(unittest.TestCase):
             },
         )
         self.write_yaml(
-            lab_root / "workloads" / "test-definitions" / "smoke.yaml",
+            lab_root / "experiments" / "smoke-materialized" / "ckc" / "resolved-test.yaml",
             {
                 "name": "smoke",
                 "stubs": {
@@ -300,7 +300,7 @@ class ExperimentReportTest(unittest.TestCase):
                         "description": "Compare <one> & two.",
                         "experiment_file": str(experiment_path),
                         "test_definition": "smoke",
-                        "resolved_test_path": str(lab_root / "workloads/test-definitions/smoke.yaml"),
+                        "resolved_test_path": str(lab_root / "experiments/smoke-materialized/ckc/resolved-test.yaml"),
                         "base_tps": 100,
                         "exit_code": 0,
                         "targets": [
