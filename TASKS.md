@@ -282,7 +282,7 @@
 | [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
 | [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
 | [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
-| [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | IN_PROGRESS |
+| [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3218,3 +3218,9 @@ _Date: 2026-09-04_
 Remove external test-definition, SLA-profile, and consumer-profile resolution from the canonical experiment API now that all maintained experiments are self-contained.
 Update reporting terminology and raw links to point at the resolved experiment and target snapshots.
 Document the shared experiment runner as the only supported operator entrypoint and keep environment run-test scripts as private compatibility backends.
+
+The resolver now rejects every legacy shape, materialization uses only the inline implementation catalog, and the remaining shared workload helpers no longer carry a `test_definition` module boundary.
+Internal-lab synchronization preserves the canonical experiment catalog and independently owned shared helpers; checkout-side execution bootstraps shared packages without cwd assumptions, and canonical deployment plans cannot inherit interactive stub-replica overrides.
+The finalizer also ignores absent run-directory fields instead of interpreting them as the process cwd, preventing an early failed target from copying unrelated host files into evidence.
+
+Verification: 35 shared orchestration/result tests, 6 shared dashboard tests, 50 internal-lab tests, and 27 AWS tests passed; all 15 supported experiment/environment variants validated. Internal-lab experiment set `20260905T044153Z` completed both targets with passing delivery and latency acceptance, collected 3,443 labeled Loki records and one 102,346-sample metrics block, and produced the canonical report, evidence, and audit outputs. The evidence archive restored successfully into Grafana 11.6, Loki, and VictoriaMetrics and the restore stack was then removed.

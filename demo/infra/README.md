@@ -30,44 +30,19 @@ The AWS flow is split into two parts:
    A temporary EKS-based test environment used to deploy the app under test, supporting services, and load generators.
    It is intended to be created for a test window, used to collect pod-aware metrics in Grafana on the runner through in-cluster Alloy remote_write, and then destroyed to avoid ongoing cost.
 
-## Quick Start
+## Run an experiment
 
-From the repository root, prepare the runner:
-
-```sh
-cp demo/infra/aws/terraform/runner/terraform.tfvars.example demo/infra/aws/terraform/runner/terraform.tfvars
-cp demo/infra/aws/terraform/ecr/terraform.tfvars.example demo/infra/aws/terraform/ecr/terraform.tfvars
-./demo/infra/aws/scripts/create-runner-and-ecr.sh us-east-1 dev
-```
-
-What you get after `apply`:
-
-- a private EC2 runner in AWS
-- Prometheus-compatible metrics storage running on the runner
-- Grafana running on the runner
-- the shared `CKC Overview` dashboard already provisioned
-- no public inbound access to the instance
-
-Connect to the runner:
+Choose one self-contained file from `demo/infra/experiments` and select an
+environment declared by that file:
 
 ```sh
-./demo/infra/aws/scripts/connect-runner.sh us-east-1
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment internal-lab
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment aws
 ```
 
-Start long-running AWS lab work from the runner, preferably inside `tmux`:
-
-```sh
-tmux new -s ckc
-cd /opt/ckc-runner/assets/repo
-./demo/infra/aws/runner-assets/bin/create-lab.sh us-east-1 dev default
-./demo/infra/aws/runner-assets/bin/run-test.sh us-east-1 dev /path/to/materialized/resolved-test.yaml
-```
-
-Update images and runner assets from your local machine when the code changes:
-
-```sh
-./demo/infra/aws/scripts/update-aws-lab.sh us-east-1 dev
-```
+The shared command validates, resolves, and materializes the experiment before
+dispatching it to the environment adapter. Scripts below `internal-lab/assets`
+and `aws/runner-assets` are implementation backends, not operator entrypoints.
 
 Default local observability ports are intentionally distinct:
 
@@ -75,12 +50,8 @@ Default local observability ports are intentionally distinct:
 - internal-lab: app `30080`, Prometheus `30090`, Grafana `3000`
 - AWS runner: Prometheus-compatible storage and Grafana run on the runner host
 
-## Typical Workflow
-
-1. Create the runner and ECR repositories from your local machine.
-2. Update AWS lab images and runner assets from your local machine when needed.
-3. Connect to the runner from your local machine.
-4. Run lab creation, tests, chaos scenarios, and lab cleanup on the runner inside `tmux`.
-5. Destroy the long-lived runner and ECR stacks manually with Terraform only when they are no longer needed.
+Each completed run publishes `report.md` plus images, `evidence.tar.gz`, and
+`audit.tar.gz`. AWS provisioning is disposable and cleanup is verified after
+artifact transport; internal-lab keeps its installed services running.
 
 Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), and [internal-lab/README.md](internal-lab/README.md).

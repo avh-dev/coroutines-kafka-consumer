@@ -29,9 +29,9 @@ before provisioning when the selected adapter does not support them. The built-i
 contract currently records internal-lab chaos and packet capture support, while
 AWS supports packet capture but not chaos.
 
-The maintained catalog lives under `demo/infra/experiments`. Legacy resolution
-is retained temporarily only for reading historical results; new canonical
-documents cannot reference an external definition or profile catalog.
+The maintained catalog lives under `demo/infra/experiments`. The resolver accepts
+only this self-contained schema; historical external definitions and profile
+catalogs are not runtime inputs.
 
 Environment configuration contains reproducibility inputs such as region,
 service topology, and capacity. Credentials, account tokens, kubeconfigs, and
