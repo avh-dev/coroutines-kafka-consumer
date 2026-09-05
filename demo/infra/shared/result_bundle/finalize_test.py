@@ -9,10 +9,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from .collect import collect
-from .finalize import finalize, result_identity, run_directories
+from .finalize import finalize, portable_replacements, repository_root, result_identity, run_directories
 
 
 class CanonicalFinalizerTest(unittest.TestCase):
+    def test_repository_detection_never_treats_filesystem_root_as_checkout(self) -> None:
+        self.assertIsNotNone(repository_root())
+        self.assertNotIn("/", portable_replacements(Path("/opt/ckc-lab/results/example")))
+
     def test_result_identity_uses_internal_and_aws_session_timestamps(self) -> None:
         self.assertEqual(
             "smoke-20260905T044153Z",

@@ -242,14 +242,24 @@ Each run is stored below `runs/<run-id>/audit/`; `summary.yaml` contains the com
 """
 
 
+def repository_root() -> Path | None:
+    source = Path(__file__).resolve()
+    relative = Path("demo/infra/shared/result_bundle/finalize.py")
+    for candidate in source.parents:
+        if (candidate / relative).resolve() == source:
+            return candidate
+    return None
+
+
 def portable_replacements(result_root: Path) -> dict[str, str]:
-    repository = Path(__file__).resolve().parents[4]
     result = result_root.resolve()
     values = {
-        str(repository): "$REPOSITORY",
         str(result): "$RESULT_DIR",
         "/opt/ckc-lab": "$LAB_ROOT",
     }
+    repository = repository_root()
+    if repository is not None:
+        values[str(repository)] = "$REPOSITORY"
     if result.name == "result":
         values[str(result.parent)] = "$SESSION_DIR"
     return dict(sorted(values.items(), key=lambda item: len(item[0]), reverse=True))
@@ -332,7 +342,9 @@ def build_lab(result_root: Path, destination: Path, environment: str, replacemen
     if environment == "aws":
         session = result_root.parent if result_root.name == "result" else result_root
         copy_portable(session / "commands.log", destination / "commands.log", replacements)
-        repository = Path(__file__).resolve().parents[4]
+        repository = repository_root()
+        if repository is None:
+            raise RuntimeError("AWS evidence finalization requires a repository checkout")
         copy_portable(
             repository / "demo/infra/aws/runner-assets/bin/create-lab.sh",
             destination / "scripts/create-lab.sh",

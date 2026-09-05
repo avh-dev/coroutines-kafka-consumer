@@ -283,7 +283,7 @@
 | [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
 | [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
 | [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
-| [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | IN_PROGRESS |
+| [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3236,3 +3236,10 @@ _Date: 2026-09-05_
 Publish each run under an experiment-and-UTC-timestamp directory containing `report/` plus distinctly named evidence and audit archives.
 Replace result-tree copying with an explicit evidence whitelist organized around the report, restore data, deployment commands and inputs, and environment lab construction.
 Provide one foreground `run-grafana.sh` that restores the offline stack and cleans it up when the user presses `q` or interrupts it.
+
+The finalizer now publishes `<experiment>-<UTC timestamp>/report/` plus evidence and audit archives carrying the same unambiguous result name.
+Evidence is assembled from an explicit whitelist into `report`, `restore`, `deployment`, and `lab`; controller state, transport manifests, arbitrary result JSON, absolute host paths, Terraform state, and duplicated raw audit records are excluded.
+AWS evidence preserves controller commands, exact Terraform modules and resolved variables, the runner lab entrypoint, generated Kubernetes resources, and generated Helm values and commands when charts are used; internal-lab evidence records its commands and fixed-lab boundary.
+One root `run-grafana.sh` selects VictoriaMetrics for AWS snapshots or Prometheus for internal-lab TSDB blocks, imports Loki data, waits for `q` or interruption, and removes its user-owned runtime without a second script.
+
+Verification: 17 shared orchestration tests, 6 finalizer tests, 6 dashboard tests, 10 report tests, 50 internal-lab tests, and 28 AWS tests passed; Python and Bash syntax, Compose rendering, whitespace, archive whitelists, portable paths, and interactive restore cleanup were validated. Internal-lab experiment `20260905T134441Z` completed both smoke targets with passing acceptance, collected 3,522 Loki records and a 116,297-sample metrics block, and published `smoke-repeat-20260905T134441Z`. Its exported evidence restored Grafana 11.6, both application Loki streams, 555 Prometheus head series, and 11,911 series at a historical experiment timestamp, then stopped cleanly on `q`.
