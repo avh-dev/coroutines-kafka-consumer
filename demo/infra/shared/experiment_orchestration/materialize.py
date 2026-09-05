@@ -16,7 +16,7 @@ from .deployment_plan import (
     write_terraform_variables,
 )
 from .planner import plan_target
-from .test_definition import write_resolved_test
+from .workload import write_resolved_test
 
 
 @dataclass(frozen=True)

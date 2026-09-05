@@ -10,7 +10,7 @@ import yaml
 
 from .diagnostic_steps import normalize as normalize_diagnostic_steps
 from .definition_environment import normalized_chaos_steps
-from .test_definition import deep_merge, load_yaml, validate_resolved_test
+from .workload import deep_merge, load_yaml, validate_resolved_test
 
 
 SCHEMA_VERSION = 1

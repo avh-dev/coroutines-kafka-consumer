@@ -11,7 +11,7 @@ from .contract import (
     target_to_runner,
     validate_canonical_experiment,
 )
-from .test_definition import ResolvedExperimentTest, load_yaml
+from .workload import ResolvedExperimentTest, load_yaml
 
 
 @dataclass(frozen=True)

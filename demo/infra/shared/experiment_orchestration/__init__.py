@@ -19,7 +19,7 @@ from .deployment_plan import (
 )
 from .materialize import MaterializedTarget, materialize_experiment, materialize_target
 from .planner import plan_target, target_namespace
-from .test_definition import (
+from .workload import (
     ResolvedExperimentTest,
     deep_merge,
     load_yaml,
