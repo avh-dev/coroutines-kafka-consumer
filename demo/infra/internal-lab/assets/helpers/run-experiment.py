@@ -17,6 +17,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# When this checkout-side helper is invoked through the shared adapter, SSH starts
+# it outside the repository directory. Prefer the shared packages directly rather
+# than relying on the caller's cwd or the compatibility modules beside this file.
+SHARED_ROOT = Path(__file__).resolve().parents[3] / "shared"
+if SHARED_ROOT.is_dir():
+    sys.path.insert(0, str(SHARED_ROOT))
+
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import parse_load_profile
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
@@ -618,7 +625,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
         command.extend(application_override_args(test.get("application") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])
-    if "stub_replicas" in test:
+    if "stub_replicas" in test and not test.get("deployment_plan_path"):
         command.extend(["--stub-replicas", env_value(test["stub_replicas"])])
     for key, flag in LEGACY_ENV_ARGS.items():
         if key in env:

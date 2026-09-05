@@ -164,7 +164,10 @@ record_remote_fingerprint() {
 sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers" "${LAB_ROOT}/helpers"
+  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/helpers'"
+  for helper in "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers/"*.py; do
+    sync_file "${helper}" "${LAB_ROOT}/helpers/$(basename "${helper}")"
+  done
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
   ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/notify'"
@@ -184,7 +187,7 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
-  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/experiments' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
+  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -294,6 +297,7 @@ RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
+  demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
   demo/infra/experiments)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
@@ -338,12 +342,6 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/experiments/telemetry-fairness-profile-comparison.yaml" \
     "${LAB_ROOT}/experiments/spring-kafka-thread-stats-progression.yaml" \
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
-  RUNTIME_TEST_ASSETS_CHANGED=1
-fi
-if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
-  # The base helper sync owns LAB_ROOT/helpers with --delete, so it can remove
-  # shared runtime helpers such as helpers/audit even when their fingerprint
-  # has not changed.
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then

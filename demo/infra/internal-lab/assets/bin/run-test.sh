@@ -680,7 +680,11 @@ if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false"
   exit 1
 fi
 
-if [ -z "${STUB_REPLICA_COUNT}" ]; then
+if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
+  # The canonical deployment plan owns project resource replicas. Do not turn
+  # the persisted interactive-run value into an out-of-band override.
+  STUB_REPLICA_COUNT=""
+elif [ -z "${STUB_REPLICA_COUNT}" ]; then
   if [ ! -t 0 ]; then
     STUB_REPLICA_COUNT="${CURRENT_STUB_REPLICA_COUNT}"
   else

@@ -136,7 +136,12 @@ def run_directories(result_root: Path) -> list[Path]:
         paths = []
         for experiment in value.get("experiments", []):
             for target in experiment.get("targets", []):
-                configured = Path(str(target.get("run_dir") or ""))
+                configured_value = str(target.get("run_dir") or "").strip()
+                if not configured_value:
+                    continue
+                configured = Path(configured_value)
+                if not configured.is_absolute():
+                    configured = result_root / configured
                 if configured.is_dir():
                     paths.append(configured)
         if paths:

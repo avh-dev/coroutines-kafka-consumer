@@ -8,10 +8,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from .collect import collect
-from .finalize import digest, finalize
+from .finalize import digest, finalize, run_directories
 
 
 class CanonicalFinalizerTest(unittest.TestCase):
+    def test_missing_run_directory_never_resolves_to_current_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory)
+            (result / "summary.json").write_text(
+                '{"experiments":[{"targets":[{"status":"failed"}]}]}\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual([], run_directories(result))
+
     def test_collection_preserves_a_manifest_when_a_source_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

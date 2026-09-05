@@ -21,6 +21,20 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_generated_deployment_plan_owns_stub_replicas(self) -> None:
+        command = RUNNER.command_for_run(
+            Path("/opt/ckc-lab/bin/run-test.sh"),
+            {
+                "profile": "ckc",
+                "deployment_plan_path": "/tmp/deployment-plan.yaml",
+                "stub_replicas": 3,
+            },
+            "resolved-test.yaml",
+            {},
+        )
+
+        self.assertNotIn("--stub-replicas", command)
+
     def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/bin/run-test.sh"),
