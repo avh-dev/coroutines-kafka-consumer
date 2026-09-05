@@ -283,6 +283,7 @@
 | [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
 | [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
 | [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
+| [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3226,3 +3227,12 @@ Final Markdown reports no longer link to unpackaged `raw/` files: they identify 
 The shared restore stack runs with the invoking user's UID and GID and pre-creates the Grafana dashboard mount, so closing a restored result leaves no root-owned runtime files behind.
 
 Verification: 35 shared orchestration/result tests, 6 shared dashboard tests, 50 internal-lab tests, and 27 AWS tests passed; all 15 supported experiment/environment variants validated. Internal-lab experiment set `20260905T044153Z` completed both targets with passing delivery and latency acceptance, collected 3,443 labeled Loki records and one 102,346-sample metrics block, and produced the canonical report, evidence, and audit outputs. AWS session `s-20260905-051756-46249e` completed its `ckc` target with passing delivery acceptance, produced the same canonical outputs, and independently verified cleanup with no live session resources. Its evidence archive imported 8,568 Loki records and restored into Grafana 11.6, Loki, and VictoriaMetrics with 7,709 metric series; the user-owned restore stack and temporary files were then removed without elevated access.
+
+<a id="infra-141"></a>
+### INFRA-141 - Build human-readable evidence archives
+
+_Date: 2026-09-05_
+
+Publish each run under an experiment-and-UTC-timestamp directory containing `report/` plus distinctly named evidence and audit archives.
+Replace result-tree copying with an explicit evidence whitelist organized around the report, restore data, deployment commands and inputs, and environment lab construction.
+Provide one foreground `run-grafana.sh` that restores the offline stack and cleans it up when the user presses `q` or interrupts it.
