@@ -65,7 +65,7 @@ class ExperimentReportTest(unittest.TestCase):
         path.write_text(json.dumps(value), encoding="utf-8")
 
     def write_acceptance(self, root: Path, value: dict) -> None:
-        path = root / "lab/workloads/experiments/comparison.yaml"
+        path = root / "lab/experiments/comparison.yaml"
         experiment = yaml.safe_load(path.read_text(encoding="utf-8"))
         experiment["acceptance"] = value
         self.write_yaml(path, experiment)
@@ -136,24 +136,6 @@ class ExperimentReportTest(unittest.TestCase):
                             },
                         },
                     },
-                ],
-            },
-        )
-        self.write_yaml(
-            lab_root / "workloads" / "sla-profiles" / "delivery-integrity.yaml",
-            {
-                "name": "delivery-integrity",
-                "description": "Delivery checks.",
-                "criteria": [
-                    {
-                        "id": "no-loss",
-                        "title": "No loss",
-                        "source": "audit",
-                        "path": ["totals", "missing_terminal"],
-                        "operator": "eq",
-                        "threshold": 0,
-                        "unit": "records",
-                    }
                 ],
             },
         )
