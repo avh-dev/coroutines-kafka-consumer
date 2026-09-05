@@ -14,8 +14,11 @@ CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
 TEMP_DIR="${RUNNER_HOME}/tmp"
+LAB_EVIDENCE_DIR="${RUNNER_HOME}/config/lab-evidence"
+HELM_EVIDENCE_DIR="${LAB_EVIDENCE_DIR}/helm"
 
-mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}"
+mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}" "${HELM_EVIDENCE_DIR}"
+find "${HELM_EVIDENCE_DIR}" -mindepth 1 -delete
 
 infra_output() {
   local name="$1"
@@ -667,7 +670,7 @@ if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
   fi
-  KAFKA_VALUES_FILE="$(mktemp "${TEMP_DIR}/kafka-values.XXXXXX.yaml")"
+  KAFKA_VALUES_FILE="${HELM_EVIDENCE_DIR}/kafka-values.yaml"
   cat > "${KAFKA_VALUES_FILE}" <<EOF
 image:
   registry: docker.io
@@ -704,8 +707,8 @@ broker:
   persistence:
     enabled: false
 EOF
+  printf '%s\n' 'helm upgrade --install ckc-kafka bitnami/kafka --namespace ckc-app --create-namespace -f kafka-values.yaml' > "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-kafka bitnami/kafka --namespace ckc-app --create-namespace -f "${KAFKA_VALUES_FILE}"
-  rm -f "${KAFKA_VALUES_FILE}"
   kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=ckc-kafka --timeout=20m
   KAFKA_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
@@ -728,7 +731,7 @@ REDIS_MODE="$(infra_output elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
   REDIS_ARCHITECTURE="$(infra_output kubernetes_redis_architecture)"
   REDIS_REPLICA_COUNT="$(infra_output kubernetes_redis_replica_count)"
-  REDIS_VALUES_FILE="$(mktemp "${TEMP_DIR}/redis-values.XXXXXX.yaml")"
+  REDIS_VALUES_FILE="${HELM_EVIDENCE_DIR}/redis-values.yaml"
   cat > "${REDIS_VALUES_FILE}" <<EOF
 architecture: ${REDIS_ARCHITECTURE}
 auth:
@@ -741,8 +744,8 @@ replica:
   persistence:
     enabled: false
 EOF
+  printf '%s\n' 'helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f redis-values.yaml' >> "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f "${REDIS_VALUES_FILE}"
-  rm -f "${REDIS_VALUES_FILE}"
   kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=ckc-redis --timeout=15m
   REDIS_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-redis 6379 master redis)"
   REDIS_HOST="${REDIS_SERVICE}.ckc-app.svc.cluster.local"

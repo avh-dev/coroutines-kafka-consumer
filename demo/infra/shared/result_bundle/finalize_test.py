@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -8,10 +9,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from .collect import collect
-from .finalize import digest, finalize, run_directories
+from .finalize import finalize, result_identity, run_directories
 
 
 class CanonicalFinalizerTest(unittest.TestCase):
+    def test_result_identity_uses_internal_and_aws_session_timestamps(self) -> None:
+        self.assertEqual(
+            "smoke-20260905T044153Z",
+            result_identity("Smoke", Path("/results/20260905T044153Z")),
+        )
+        self.assertEqual(
+            "aws-smoke-20260905T051756Z",
+            result_identity("AWS Smoke", Path("/sessions/s-20260905-051756-46249e/result")),
+        )
+
     def test_missing_run_directory_never_resolves_to_current_working_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = Path(directory)
@@ -57,6 +68,16 @@ class CanonicalFinalizerTest(unittest.TestCase):
             (result / "session.json").write_text(
                 '{"region":"eu-central-1","api_token":"visible-secret"}\n', encoding="utf-8"
             )
+            (result / "summary.json").write_text(json.dumps({
+                "experiment_set_id": "20260905T120000Z",
+                "experiments": [{"targets": [{"run_dir": "runs/run-a"}]}],
+            }), encoding="utf-8")
+            config = result / "config"
+            config.mkdir()
+            (config / "ckc-experiment.json").write_text('{"title":"dashboard"}\n', encoding="utf-8")
+            loki = result / "logs/loki"
+            loki.mkdir(parents=True)
+            (loki / "kubernetes.jsonl").write_text('{"line":"hello"}\n', encoding="utf-8")
             report = root / "generated-report"
             report.mkdir()
             (report / "report.md").write_text(
@@ -64,6 +85,11 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (report / "load.svg").write_text("<svg/>\n", encoding="utf-8")
+            raw = report / "raw"
+            raw.mkdir()
+            (raw / "resolved-experiment.yaml").write_text(
+                f"source: {result}/input.yaml\n", encoding="utf-8"
+            )
             output = root / "final"
 
             artifacts = finalize(
@@ -76,34 +102,64 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 restore_sources=[Path(__file__).resolve().parent / "restore"],
             )
 
-            self.assertEqual({"report.md", "report-assets", "evidence.tar.gz", "audit.tar.gz"}, {p.name for p in output.iterdir()})
-            self.assertEqual("<svg/>\n", (output / "report-assets/load.svg").read_text(encoding="utf-8"))
-            self.assertIn("report-assets/load.svg", (output / "report.md").read_text(encoding="utf-8"))
-            self.assertIn("Environment: `internal-lab`", (output / "report.md").read_text(encoding="utf-8"))
-            self.assertNotIn("](raw/", (output / "report.md").read_text(encoding="utf-8"))
+            identity = "smoke-20260905T120000Z"
+            published = output / identity
+            self.assertEqual({identity}, {p.name for p in output.iterdir()})
+            self.assertEqual(
+                {"report", f"{identity}-evidence.tar.gz", f"{identity}-audit.tar.gz"},
+                {p.name for p in published.iterdir()},
+            )
+            self.assertEqual("<svg/>\n", (published / "report/assets/load.svg").read_text(encoding="utf-8"))
+            self.assertIn("assets/load.svg", (published / "report/report.md").read_text(encoding="utf-8"))
+            self.assertIn("Environment: `internal-lab`", (published / "report/report.md").read_text(encoding="utf-8"))
+            self.assertNotIn("](raw/", (published / "report/report.md").read_text(encoding="utf-8"))
             with tarfile.open(artifacts["audit"]) as archive:
                 audit_names = set(archive.getnames())
-                audit_manifest = json.load(archive.extractfile("audit/manifest.json"))
-            self.assertIn("audit/runs/run-a/audit/chunks/audit-0001.log.gz", audit_names)
-            self.assertEqual("ckc-audit", audit_manifest["kind"])
+            self.assertIn(f"{identity}/README.md", audit_names)
+            self.assertIn(f"{identity}/summary.yaml", audit_names)
+            self.assertIn(f"{identity}/runs/run-a/audit/chunks/audit-0001.log.gz", audit_names)
+            self.assertFalse(any(name.endswith("manifest.json") for name in audit_names))
             with tarfile.open(artifacts["evidence"]) as archive:
                 evidence_names = set(archive.getnames())
-                evidence_manifest = json.load(archive.extractfile("evidence/manifest.json"))
-                redacted = json.load(archive.extractfile("evidence/result/session.json"))
-                restore_compose = archive.extractfile("evidence/restore/docker-compose.yml").read().decode()
-            self.assertIn("evidence/result/runs/run-a/run-metadata.json", evidence_names)
-            self.assertIn("evidence/result/metrics/victoriametrics-data.tar.gz", evidence_names)
-            self.assertIn("evidence/result/runs/run-a/audit/summary.yaml", evidence_names)
-            self.assertIn("evidence/restore/open-result.sh", evidence_names)
-            self.assertIn("evidence/restore/provisioning/dashboards/ckc.yml", evidence_names)
-            self.assertIn("evidence/restore/provisioning/datasources/prometheus.yml", evidence_names)
-            self.assertIn("evidence/restore/provisioning/datasources/loki.yml", evidence_names)
+                readme = archive.extractfile(f"{identity}/README.md").read().decode()
+                resolved = archive.extractfile(f"{identity}/deployment/resolved-experiment.yaml").read().decode()
+                restore_compose = archive.extractfile(
+                    f"{identity}/restore/_implementation/docker-compose.yml"
+                ).read().decode()
+                extracted = root / "extracted"
+                archive.extractall(extracted, filter="data")
+            evidence_children = {
+                Path(name).parts[1]
+                for name in evidence_names
+                if len(Path(name).parts) > 1
+            }
+            self.assertEqual(
+                {"README.md", "run-grafana.sh", "report", "restore", "deployment", "lab"},
+                evidence_children,
+            )
+            self.assertIn(f"{identity}/run-grafana.sh", evidence_names)
+            self.assertIn(f"{identity}/report/report.md", evidence_names)
+            self.assertIn(f"{identity}/report/assets/load.svg", evidence_names)
+            self.assertIn(f"{identity}/restore/dashboard/ckc-experiment.json", evidence_names)
+            self.assertIn(f"{identity}/restore/loki/kubernetes.jsonl", evidence_names)
+            self.assertIn(f"{identity}/restore/victoriametrics-data.tar.gz", evidence_names)
+            self.assertIn(f"{identity}/restore/_implementation/provisioning/dashboards/ckc.yml", evidence_names)
             self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
-            self.assertNotIn("evidence/result/runs/run-a/audit/chunks/audit-0001.log.gz", evidence_names)
-            self.assertNotIn("evidence/result/terraform.tfstate", evidence_names)
-            self.assertEqual("<redacted>", redacted["api_token"])
-            self.assertEqual(digest(artifacts["audit"]), evidence_manifest["audit"]["sha256"])
-            self.assertFalse(any(path.name.endswith(".partial") for path in output.iterdir()))
+            self.assertIn("Run `./run-grafana.sh`", readme)
+            self.assertIn("$RESULT_DIR/input.yaml", resolved)
+            self.assertFalse(any(name.endswith("manifest.json") for name in evidence_names))
+            self.assertFalse(any("session.json" in name or "artifact-manifest" in name for name in evidence_names))
+            self.assertFalse(any("terraform.tfstate" in name for name in evidence_names))
+            noninteractive = subprocess.run(
+                [str(extracted / identity / "run-grafana.sh")],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(2, noninteractive.returncode)
+            self.assertIn("interactive terminal", noninteractive.stderr)
+            self.assertFalse(any(path.name.endswith(".partial") for path in published.iterdir()))
 
     def test_writes_fallback_report_for_early_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -112,7 +168,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             result.mkdir()
             output = root / "final"
 
-            finalize(
+            artifacts = finalize(
                 result_root=result,
                 report_dir=root / "missing-report",
                 output_dir=output,
@@ -121,7 +177,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 status="failed",
             )
 
-            report = (output / "report.md").read_text(encoding="utf-8")
+            report = artifacts["report"].read_text(encoding="utf-8")
             self.assertIn("Experiment failed-smoke", report)
             self.assertIn("Status: `failed`", report)
 

@@ -99,11 +99,6 @@ def main() -> int:
     lab_root = Path(args.lab_root)
     kind, result = resolve_result(args, lab_root)
     output_root = Path(args.output_dir) if args.output_dir else lab_root / "results/exports"
-    output = output_root / result.name
-    if output.exists():
-        if not args.force:
-            raise FileExistsError(f"Export already exists: {output}; use --force to replace it")
-        shutil.rmtree(output)
     runs = run_dirs(kind, result)
     dashboard_dir = lab_root / "grafana/dashboards"
     collection = collect(
@@ -125,13 +120,14 @@ def main() -> int:
     artifacts = finalize(
         result_root=result,
         report_dir=report_dir,
-        output_dir=output,
+        output_dir=output_root,
         experiment=experiment_name(kind, result),
         environment="internal-lab",
         status=status,
         restore_sources=[lab_root / "helpers/result_bundle/restore"],
+        replace=args.force,
     )
-    print(output)
+    print(artifacts["root"])
     for name in ("report", "evidence", "audit"):
         print(f"  {name}: {artifacts[name]}")
     return 0 if not collection["errors"] else 1

@@ -1082,6 +1082,7 @@ def main() -> int:
         environment="internal-lab",
         status="complete" if document["exit_code"] == 0 and not collection["errors"] else "failed",
         restore_sources=[lab_root / "helpers/result_bundle/restore"],
+        replace=True,
     )
     document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")

@@ -149,10 +149,11 @@ retain the timeout as a reported result rather than a lifecycle failure.
 `cluster-diagnostics/pod-health.json`, pod descriptions, Kubernetes events, and
 previous-container logs make any workload restart a failed run with retained
 evidence instead of allowing a degraded test to be reported as completed.
-`artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
-bucket can be considered safely disposable. Audit analysis runs locally only
-after AWS teardown. The final session directory contains the canonical
-`report.md`, `evidence.tar.gz`, and `audit.tar.gz`; the evidence archive embeds
+The transport-only `artifact-manifest.json` and `COMPLETE` must verify locally
+before the artifact bucket can be considered safely disposable, but neither is
+published in the evidence archive. Audit analysis runs locally only after AWS
+teardown. The final session directory contains one named result directory with
+`report/`, a named evidence archive, and a named audit archive. Evidence embeds
 the shared offline restore kit, so viewing metrics and logs does not require the
 original repository checkout.
 The restored dashboard uses the same shared experiment summary as internal-lab:
@@ -160,16 +161,16 @@ its target names open their exact run ranges, the reset and Loki Explore links
 preserve the archived time window, and run-start events are replayed as Grafana
 annotations.
 
-Open the archived metrics with:
+Open the archived metrics and logs with:
 
 ```bash
-tar -xzf evidence.tar.gz
-cd evidence
-./restore/open-result.sh ./result
+tar -xzf aws-smoke-20260905T051756Z-evidence.tar.gz
+cd aws-smoke-20260905T051756Z
+./run-grafana.sh
 ```
 
-Stop the local containers with `./restore/close-result.sh ./result` from the
-same extracted evidence directory. Grafana binds to `127.0.0.1:3002` by default.
+Grafana binds to `127.0.0.1:3002` by default. The script stays attached; press
+`q` or `Ctrl-C` to stop and remove the local containers.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are

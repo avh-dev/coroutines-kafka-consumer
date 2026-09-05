@@ -51,16 +51,16 @@ Use separate experiment files when Kafka, Redis, or node capacity differs.
 
 ## Results
 
-Every experiment finalizes the same logical outputs as AWS:
+Every experiment finalizes the same named result layout as AWS:
 
-- `report.md` and `report-assets/`;
-- `evidence.tar.gz`;
-- `audit.tar.gz`.
+- `<experiment>-<UTC timestamp>/report/report.md` and `report/assets/`;
+- `<experiment>-<UTC timestamp>-evidence.tar.gz`;
+- `<experiment>-<UTC timestamp>-audit.tar.gz`.
 
-Evidence contains the source and resolved experiment, resolved target files,
-generated Kubernetes manifests, run metadata, dashboard, Prometheus TSDB blocks,
-Loki JSONL, events, diagnostics, and audit summaries. Raw compact audit streams
-exist only in the independently checksummed audit archive.
+Evidence contains only the human-readable report, offline restore data, resolved
+deployment inputs and commands, generated Kubernetes manifests, and a concise
+description of the pre-existing lab. Raw compact audit streams and analyzer
+output exist only in the independent audit archive.
 
 Export an older run again with the same contract:
 
@@ -69,25 +69,22 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --run <run-id>
 LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --experiment <experiment-set-id>
 ```
 
-The default export location is `/opt/ckc-lab/results/exports/<result-id>`.
+The default export location is
+`/opt/ckc-lab/results/exports/<experiment>-<UTC timestamp>`.
 
 ## Offline restore
 
-The evidence archive uses the shared restore implementation and pinned Grafana,
-Loki, and VictoriaMetrics images:
+The evidence archive uses pinned Grafana, Loki, and Prometheus images:
 
 ```bash
-tar -xzf evidence.tar.gz
-cd evidence
-./restore/open-result.sh ./result
+tar -xzf smoke-repeat-20260905T044153Z-evidence.tar.gz
+cd smoke-repeat-20260905T044153Z
+./run-grafana.sh
 ```
 
-Grafana is available at `http://127.0.0.1:3002`. Pass another port as the second
-argument. Stop the stack with:
-
-```bash
-./restore/close-result.sh ./result
-```
+Grafana is available at `http://127.0.0.1:3002`. Set
+`CKC_RESTORE_GRAFANA_PORT` to use another port. Press `q` or `Ctrl-C` to stop
+the stack.
 
 ## Verification
 

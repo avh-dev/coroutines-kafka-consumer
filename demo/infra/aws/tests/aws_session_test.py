@@ -76,6 +76,15 @@ class AwsSessionTest(unittest.TestCase):
         for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
             self.assertIn(f"--require-application {application}", export_script)
 
+    def test_generated_helm_inputs_and_commands_are_exported_as_lab_evidence(self) -> None:
+        create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        self.assertIn('HELM_EVIDENCE_DIR="${LAB_EVIDENCE_DIR}/helm"', create_script)
+        self.assertIn('KAFKA_VALUES_FILE="${HELM_EVIDENCE_DIR}/kafka-values.yaml"', create_script)
+        self.assertIn('REDIS_VALUES_FILE="${HELM_EVIDENCE_DIR}/redis-values.yaml"', create_script)
+        self.assertIn('"${HELM_EVIDENCE_DIR}/commands.log"', create_script)
+        self.assertIn('cp -a "${RUNNER_HOME}/config/lab-evidence"', export_script)
+
     def test_loki_export_preserves_stream_labels_and_adds_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = Path(directory)

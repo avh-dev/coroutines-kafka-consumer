@@ -1094,6 +1094,7 @@ class SessionController:
             environment="aws",
             status=status,
             restore_sources=[self.repo / "demo/infra/shared/result_bundle/restore"],
+            replace=True,
         )
         self.state["canonical_artifacts"] = {key: str(value) for key, value in canonical.items()}
         self.save()

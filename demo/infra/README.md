@@ -50,8 +50,10 @@ Default local observability ports are intentionally distinct:
 - internal-lab: app `30080`, Prometheus `30090`, Grafana `3000`
 - AWS runner: Prometheus-compatible storage and Grafana run on the runner host
 
-Each completed run publishes `report.md` plus images, `evidence.tar.gz`, and
-`audit.tar.gz`. AWS provisioning is disposable and cleanup is verified after
-artifact transport; internal-lab keeps its installed services running.
+Each completed run publishes one `<experiment>-<UTC timestamp>/` directory.
+It contains `report/report.md` plus `report/assets/`, alongside distinctly named
+`<experiment>-<UTC timestamp>-evidence.tar.gz` and `-audit.tar.gz` archives.
+AWS provisioning is disposable and cleanup is verified after artifact transport;
+internal-lab keeps its installed services running.
 
 Module details are in [aws/README.md](aws/README.md), [aws/terraform/README.md](aws/terraform/README.md), [aws/assets/README.md](aws/assets/README.md), [local-dev/README.md](local-dev/README.md), and [internal-lab/README.md](internal-lab/README.md).

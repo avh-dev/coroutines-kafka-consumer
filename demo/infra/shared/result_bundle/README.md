@@ -1,42 +1,44 @@
-# Canonical experiment artifacts
+# Human-readable experiment results
 
-Every environment publishes the same three logical artifacts:
+Every environment publishes the same named result directory:
 
-- `report.md` and its `report-assets/` image directory;
-- `evidence.tar.gz`, rooted at `evidence/`;
-- `audit.tar.gz`, rooted at `audit/`.
+```text
+<experiment>-<UTC timestamp>/
+├── report/
+│   ├── report.md
+│   └── assets/
+├── <experiment>-<UTC timestamp>-evidence.tar.gz
+└── <experiment>-<UTC timestamp>-audit.tar.gz
+```
 
-Both archives contain a versioned `manifest.json` with SHA-256 and size for each
-member. The evidence manifest also records the SHA-256 of the independent audit
-archive. A finalization failure leaves no `*.partial` files; completed outputs
-replace previous files only after all new artifacts have been staged.
+The evidence archive has a strict whitelist and the same root name as the
+result. It contains `README.md`, one foreground `run-grafana.sh`, and four
+purpose-specific directories: `report/`, `restore/`, `deployment/`, and `lab/`.
+It does not expose collection manifests, controller session state, transport
+markers, Terraform state, kubeconfigs, or arbitrary result-tree JSON.
 
-`evidence/result/` contains the resolved definitions, metadata, metrics, logs,
-events, analyzer summaries, generated deployment inputs, dashboards, and
-environment description available at finalization time. Raw audit streams live
-only in `audit/runs/<run-id>/audit/`; audit summaries remain in evidence for
-ordinary report inspection. `evidence/restore/` is the environment-independent
-offline restore kit.
+`report/` is directly readable. `restore/` contains only the dashboard, Loki
+JSONL, the native metrics snapshot, and the private Compose/import implementation.
+`deployment/` preserves the source and resolved experiment, target definitions,
+generated Kubernetes YAML, and execution commands. `lab/` explains the
+environment; AWS evidence additionally contains controller commands, exact
+Terraform module sources and resolved variables, its runner-side lab script,
+and generated Helm values and commands when charts were used.
 
+Extract evidence, enter its root directory, and run `./run-grafana.sh`. It
+starts Grafana, Loki, and the matching Prometheus-compatible metrics engine, imports the preserved data, prints
+the dashboard URL, and remains attached. Press `q` or `Ctrl-C` to stop and
+remove the containers. Runtime files remain owned by the invoking user.
+
+Raw audit chunks are never duplicated into evidence. The independent audit
+archive has the same named root and contains `README.md`, a combined
+`summary.yaml`, and `runs/<run-id>/audit/`.
+
+Text, YAML, and JSON selected for evidence are redacted and known checkout,
+session, result, and internal-lab roots are replaced with portable variables.
 Terraform state, `.terraform` directories, kubeconfigs, and secret directories
-are excluded. Values beneath JSON/YAML keys that look like credentials, tokens,
-passwords, secrets, access keys, or private keys are replaced with
-`<redacted>`. Common text assignment forms and AWS access-key identifiers are
-redacted as well. The raw audit archive is copied byte-for-byte and therefore
-must not contain credentials at collection time.
+are always excluded.
 
-The finalizer accepts `complete`, `failed`, or `interrupted` status. When report
-generation did not run, it emits a small failure report that points to the
-collected diagnostics instead of omitting the artifact contract.
-
-`collect.py` is the shared live-source collector. Environment adapters supply
-only Prometheus and Loki endpoints plus the run directories; the collector
-writes canonical Loki JSONL, Prometheus TSDB blocks, and a collection manifest.
-Source failures are recorded in that manifest so diagnostics can still be
-finalized. `prepare.py` then builds the same environment-aware dashboard and
-archived-file log stream for either environment.
-
-The only restore implementation is `result_bundle/restore`. Its Compose file,
-pinned images, Grafana provisioning, and import helpers are copied unchanged
-into every evidence archive. Environment adapters do not package their own
-restore scripts.
+`collect.py` still owns live Prometheus/Loki collection and `prepare.py` builds
+the environment-aware dashboard. Their internal state supports finalization but
+is not part of the published evidence contract.

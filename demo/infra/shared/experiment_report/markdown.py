@@ -417,31 +417,31 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"- Delivery SLA: **{status(target.delivery_evaluation_status)}**",
                 f"- Latency SLA: **{status(target.latency_evaluation_status)}**",
                 f"- Overall SLA: **{status(target.evaluation_status)}**",
-                f"- Run metadata: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/run-metadata.json`",
-                f"- Raw audit summary: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/audit/summary.yaml`",
+                f"- Deployment snapshot: evidence archive → `deployment/targets/{target.name}/`",
+                "- Raw audit and analyzer output: sibling `*-audit.tar.gz` archive",
             ]
         )
         if target.thread_stats.get("enabled") and target.thread_stats.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Thread Stats: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/thread-stats/`",
+                    "- Thread Stats summary is reflected in this report.",
                 ]
             )
         if target.packet_captures.get("enabled") and target.packet_captures.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Packet captures: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/tcpdump/`",
+                    "- Packet capture summary is reflected in this report.",
                 ]
             )
         if target.pcap_analysis.get("status") not in {"disabled", "unavailable"}:
             lines.extend(
                 [
-                    f"- Kafka pcap analysis: `evidence.tar.gz` → `evidence/result/runs/{target.run_id}/diagnostics/pcap-analysis/`",
+                    "- Kafka pcap analysis is reflected in this report.",
                 ]
             )
         lines.extend(
             [
-                "- Complete offline evidence is available in the experiment's `evidence.tar.gz`.",
+                "- Complete offline evidence is available in the sibling `*-evidence.tar.gz` archive.",
                 "",
             ]
         )
@@ -480,7 +480,7 @@ def render_markdown(report: ExperimentReport) -> str:
         [
             "## Offline evidence",
             "",
-            "The resolved experiment and targets, acceptance criteria, normalized report model, logs, metrics, generated deployment inputs, and restore tooling are included in `evidence.tar.gz`.",
+            "The resolved experiment and targets, acceptance criteria, logs, metrics, generated deployment inputs, lab construction snapshot, and restore tooling are included in the sibling `*-evidence.tar.gz` archive.",
             "",
         ]
     )

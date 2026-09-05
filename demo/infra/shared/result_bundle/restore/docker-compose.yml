@@ -10,11 +10,12 @@ services:
       - ${CKC_RESTORE_WORK_DIR}/loki:/loki
 
   prometheus:
-    image: victoriametrics/victoria-metrics:v1.102.1
+    image: "${CKC_RESTORE_METRICS_IMAGE:-victoriametrics/victoria-metrics:v1.102.1}"
     user: "${CKC_RESTORE_UID:-1000}:${CKC_RESTORE_GID:-1000}"
-    command: ["-storageDataPath=/victoria-metrics-data", "-httpListenAddr=:9090"]
+    command: "${CKC_RESTORE_METRICS_COMMAND:--storageDataPath=/victoria-metrics-data -httpListenAddr=:9090}"
     volumes:
       - ${CKC_RESTORE_WORK_DIR}/prometheus:/victoria-metrics-data
+      - ${CKC_RESTORE_WORK_DIR}/prometheus:/prometheus
 
   grafana:
     image: grafana/grafana:11.6.0

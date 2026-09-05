@@ -35,6 +35,7 @@ for container in prometheus loki grafana audit ckc-msk-cloudwatch-exporter ckc-m
 done
 
 cp "${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json" "${RUN_DIR}/config/" 2>/dev/null || true
+cp -a "${RUNNER_HOME}/config/lab-evidence" "${RUN_DIR}/config/" 2>/dev/null || true
 cp "${RUNNER_HOME}/observability/grafana/dashboards/ckc-overview.json" "${RUN_DIR}/config/" 2>/dev/null || true
 cp "${RUNNER_HOME}/reports/session-${RUN_ID}.log" "${RUN_DIR}/logs/runner/session.log" 2>/dev/null || true
 

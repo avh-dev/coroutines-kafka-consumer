@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -14,42 +13,19 @@ from typing import Any, Iterable
 import yaml
 
 
-BUNDLE_VERSION = 1
 FINAL_STATUSES = {"complete", "failed", "interrupted"}
 SENSITIVE_NAMES = {".terraform", "terraform.tfstate", "terraform.tfstate.backup", "kubeconfig", "secrets"}
-AUDIT_RAW_NAMES = {"chunks"}
 SENSITIVE_KEY = re.compile(r"(?:password|passwd|secret|token|credential|private[_-]?key|access[_-]?key)", re.I)
 TEXT_SECRET = re.compile(
     r"(?im)(\b(?:password|passwd|secret|token|credential|private[_-]?key|access[_-]?key)\b\s*[:=]\s*)([^\s,;]+)"
 )
 AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
-
-
-def digest(path: Path) -> str:
-    value = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-
-def files_manifest(root: Path) -> list[dict[str, Any]]:
-    return [
-        {"path": path.relative_to(root).as_posix(), "size": path.stat().st_size, "sha256": digest(path)}
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and path.name != "manifest.json"
-    ]
-
-
-def write_manifest(root: Path, kind: str, metadata: dict[str, Any]) -> None:
-    document = {
-        "schema_version": BUNDLE_VERSION,
-        "kind": kind,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        **metadata,
-        "files": files_manifest(root),
-    }
-    (root / "manifest.json").write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+RESTORE_FILES = {
+    "docker-compose.yml",
+    "import-grafana-annotations.py",
+    "import-loki.py",
+    "loki.yaml",
+}
 
 
 def redact_value(value: Any) -> Any:
@@ -63,18 +39,36 @@ def redact_value(value: Any) -> Any:
     return value
 
 
-def copy_evidence_file(source: Path, target: Path) -> None:
+def portable_value(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, dict):
+        return {key: portable_value(item, replacements) for key, item in value.items()}
+    if isinstance(value, list):
+        return [portable_value(item, replacements) for item in value]
+    if isinstance(value, str):
+        for source, target in replacements.items():
+            value = value.replace(source, target)
+    return value
+
+
+def copy_evidence_file(source: Path, target: Path, replacements: dict[str, str] | None = None) -> None:
+    replacements = replacements or {}
     if source.suffix.lower() == ".json":
         try:
             document = json.loads(source.read_text(encoding="utf-8"))
-            target.write_text(json.dumps(redact_value(document), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            target.write_text(
+                json.dumps(portable_value(redact_value(document), replacements), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             return
         except (UnicodeDecodeError, json.JSONDecodeError):
             pass
     if source.suffix.lower() in {".yaml", ".yml"}:
         try:
             document = yaml.safe_load(source.read_text(encoding="utf-8"))
-            target.write_text(yaml.safe_dump(redact_value(document), sort_keys=False), encoding="utf-8")
+            target.write_text(
+                yaml.safe_dump(portable_value(redact_value(document), replacements), sort_keys=False),
+                encoding="utf-8",
+            )
             return
         except (UnicodeDecodeError, yaml.YAMLError):
             pass
@@ -83,6 +77,8 @@ def copy_evidence_file(source: Path, target: Path) -> None:
             content = source.read_text(encoding="utf-8")
             content = TEXT_SECRET.sub(r"\1<redacted>", content)
             content = AWS_ACCESS_KEY.sub("<redacted-aws-access-key>", content)
+            for source_path, portable_path in replacements.items():
+                content = content.replace(source_path, portable_path)
             target.write_text(content, encoding="utf-8")
             shutil.copystat(source, target)
             return
@@ -91,42 +87,39 @@ def copy_evidence_file(source: Path, target: Path) -> None:
     shutil.copy2(source, target)
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
+def copy_portable(source: Path, target: Path, replacements: dict[str, str]) -> bool:
+    if not source.is_file():
         return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    copy_evidence_file(source, target, replacements)
+    return True
 
 
-def copy_tree_filtered(
+def copy_portable_tree(
     source: Path,
-    destination: Path,
+    target: Path,
+    replacements: dict[str, str],
     *,
-    evidence: bool,
-    excluded_roots: Iterable[Path] = (),
+    suffixes: set[str] | None = None,
 ) -> None:
+    if not source.is_dir():
+        return
     for path in sorted(source.rglob("*")):
-        if any(is_within(path, excluded) for excluded in excluded_roots):
+        if not path.is_file() or any(part in SENSITIVE_NAMES for part in path.relative_to(source).parts):
             continue
+        if suffixes is not None and path.suffix.lower() not in suffixes and path.name not in suffixes:
+            continue
+        copy_portable(path, target / path.relative_to(source), replacements)
+
+
+def copy_audit_tree(source: Path, destination: Path) -> None:
+    for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
-        if any(part in SENSITIVE_NAMES for part in relative.parts):
-            continue
-        if path.name in {"evidence.tar.gz", "audit.tar.gz"}:
-            continue
-        if evidence and "audit" in relative.parts and (
-            any(part in AUDIT_RAW_NAMES for part in relative.parts)
-            or path.name.startswith("audit-")
-        ):
-            continue
         if path.is_dir():
             continue
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        if evidence:
-            copy_evidence_file(path, target)
-        else:
-            shutil.copy2(path, target)
+        shutil.copy2(path, target)
 
 
 def run_directories(result_root: Path) -> list[Path]:
@@ -162,6 +155,7 @@ def create_archive(source: Path, target: Path, root_name: str) -> None:
 
 def copy_report(report_dir: Path, output_dir: Path, *, experiment: str, environment: str, status: str) -> None:
     report = report_dir / "report.md"
+    output_dir.mkdir(parents=True, exist_ok=True)
     temporary = output_dir / "report.md.partial"
     markdown = (
         report.read_text(encoding="utf-8")
@@ -178,20 +172,232 @@ def copy_report(report_dir: Path, output_dir: Path, *, experiment: str, environm
         if report_dir.is_dir() and path.is_file() and path.suffix.lower() in {".svg", ".png", ".webp", ".jpg", ".jpeg"}
     } if report_dir.is_dir() else set()
     for name in asset_names:
-        markdown = re.sub(rf"\((?:\./)?{re.escape(name)}\)", f"(report-assets/{name})", markdown)
+        markdown = re.sub(rf"\((?:\./)?{re.escape(name)}\)", f"(assets/{name})", markdown)
     temporary.write_text(markdown, encoding="utf-8")
     os.replace(temporary, output_dir / "report.md")
-    assets_partial = output_dir / "report-assets.partial"
+    assets_partial = output_dir / "assets.partial"
     if assets_partial.exists():
         shutil.rmtree(assets_partial)
     assets_partial.mkdir()
     for path in sorted(report_dir.iterdir()) if report_dir.is_dir() else []:
         if path.is_file() and path.suffix.lower() in {".svg", ".png", ".webp", ".jpg", ".jpeg"}:
             shutil.copy2(path, assets_partial / path.name)
-    assets = output_dir / "report-assets"
+    assets = output_dir / "assets"
     if assets.exists():
         shutil.rmtree(assets)
     os.replace(assets_partial, assets)
+
+
+def timestamp_from(value: str) -> str | None:
+    match = re.search(r"(20\d{6})[T-]?(\d{6})Z?", value)
+    return f"{match.group(1)}T{match.group(2)}Z" if match else None
+
+
+def result_identity(experiment: str, result_root: Path) -> str:
+    timestamp = timestamp_from(result_root.name) or timestamp_from(result_root.parent.name)
+    summary = result_root / "summary.json"
+    document = json.loads(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
+    timestamp = timestamp or timestamp_from(str(document.get("experiment_set_id") or ""))
+    if timestamp is None:
+        starts = [
+            str(target.get("started_at") or "")
+            for item in document.get("experiments", [])
+            for target in item.get("targets", [])
+            if target.get("started_at")
+        ]
+        if starts:
+            parsed = datetime.fromisoformat(min(starts).replace("Z", "+00:00"))
+            timestamp = parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    name = re.sub(r"[^a-zA-Z0-9._-]+", "-", experiment.strip().lower()).strip("-") or "experiment"
+    return f"{name}-{timestamp}"
+
+
+def evidence_readme(identity: str, experiment: str, environment: str, status: str) -> str:
+    return f"""# Experiment evidence: {identity}
+
+| Field | Value |
+| --- | --- |
+| Experiment | `{experiment}` |
+| Environment | `{environment}` |
+| Status | `{status}` |
+| Result | `{identity}` |
+
+Run `./run-grafana.sh` from an interactive terminal to open the preserved report, metrics, and logs. Docker with Compose, Python 3, and curl are required. The command stays attached; press `q` or `Ctrl-C` to stop and remove the containers.
+
+## Contents
+
+- `report/` — the Markdown report and its images.
+- `restore/` — only the dashboard, Loki records, metrics snapshot, and private restore implementation.
+- `deployment/` — resolved experiment inputs, generated Kubernetes resources, and execution logs.
+- `lab/` — environment construction commands and, for AWS, the exact Terraform sources and resolved inputs.
+"""
+
+
+def audit_readme(identity: str, experiment: str, status: str) -> str:
+    return f"""# Experiment audit: {identity}
+
+Independent raw audit evidence for experiment `{experiment}` with final status `{status}`.
+Each run is stored below `runs/<run-id>/audit/`; `summary.yaml` contains the combined human-readable summaries when available.
+"""
+
+
+def portable_replacements(result_root: Path) -> dict[str, str]:
+    repository = Path(__file__).resolve().parents[4]
+    result = result_root.resolve()
+    values = {
+        str(repository): "$REPOSITORY",
+        str(result): "$RESULT_DIR",
+        "/opt/ckc-lab": "$LAB_ROOT",
+    }
+    if result.name == "result":
+        values[str(result.parent)] = "$SESSION_DIR"
+    return dict(sorted(values.items(), key=lambda item: len(item[0]), reverse=True))
+
+
+def build_restore(
+    result_root: Path,
+    destination: Path,
+    restore_sources: Iterable[Path],
+    replacements: dict[str, str],
+) -> None:
+    implementation = destination / "_implementation"
+    for source in restore_sources:
+        if not source.is_dir():
+            continue
+        for name in RESTORE_FILES:
+            copy_portable(source / name, implementation / name, replacements)
+        copy_portable_tree(source / "provisioning", implementation / "provisioning", replacements)
+        copy_portable(source / "run-grafana.sh", destination.parent / "run-grafana.sh", replacements)
+    dashboard = result_root / "config/ckc-experiment.json"
+    copy_portable(dashboard, destination / "dashboard/ckc-experiment.json", replacements)
+    root_loki = sorted((result_root / "logs/loki").glob("*.jsonl"))
+    if root_loki:
+        for source in root_loki:
+            copy_portable(source, destination / "loki" / source.name, replacements)
+    else:
+        for run_dir in run_directories(result_root):
+            for source in sorted((run_dir / "logs/loki").glob("*.jsonl")):
+                copy_portable(source, destination / "loki" / f"{run_dir.name}-{source.name}", replacements)
+    metrics_archive = result_root / "metrics/victoriametrics-data.tar.gz"
+    if metrics_archive.is_file():
+        copy_portable(metrics_archive, destination / "victoriametrics-data.tar.gz", replacements)
+    else:
+        copy_portable_tree(result_root / "metrics/prometheus", destination / "prometheus", replacements)
+
+
+def materialized_roots(result_root: Path) -> list[Path]:
+    roots = sorted(path for path in result_root.glob("*-materialized") if path.is_dir())
+    session_materialized = (result_root.parent if result_root.name == "result" else result_root) / "materialized"
+    if session_materialized.is_dir():
+        roots.append(session_materialized)
+    return roots
+
+
+def target_names_by_run(result_root: Path) -> dict[str, str]:
+    summary = result_root / "summary.json"
+    document = json.loads(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
+    return {
+        Path(str(target.get("run_dir"))).name: str(target.get("target") or target.get("name") or "target")
+        for experiment in document.get("experiments", [])
+        for target in experiment.get("targets", [])
+        if target.get("run_dir")
+    }
+
+
+def build_deployment(result_root: Path, report_dir: Path, destination: Path, replacements: dict[str, str]) -> None:
+    raw = report_dir / "raw"
+    for name in ("experiment.yaml", "resolved-experiment.yaml", "acceptance.yaml"):
+        copy_portable(raw / name, destination / name, replacements)
+    for root in materialized_roots(result_root):
+        copy_portable(root / "implementation-profiles.yaml", destination / "implementation-profiles.yaml", replacements)
+        if not (destination / "resolved-experiment.yaml").is_file():
+            copy_portable(root / "resolved-experiment.yaml", destination / "resolved-experiment.yaml", replacements)
+        for target_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+            target = destination / "targets" / target_dir.name
+            for source in sorted(target_dir.glob("*.yaml")):
+                section = "kubernetes" if source.name in {"load-test.yaml", "project-deployment.yaml"} else "definition"
+                copy_portable(source, target / section / source.name, replacements)
+    target_names = target_names_by_run(result_root)
+    for run_dir in run_directories(result_root):
+        target = destination / "targets" / target_names.get(run_dir.name, run_dir.name)
+        copy_portable_tree(run_dir / "generated", target / "kubernetes", replacements, suffixes={".yaml", ".yml"})
+        copy_portable(run_dir / "logs/runner/session.log", target / "execution.log", replacements)
+    logs = sorted(result_root.glob("*.log"))
+    if logs:
+        copy_portable(logs[0], destination / "commands.log", replacements)
+
+
+def build_lab(result_root: Path, destination: Path, environment: str, replacements: dict[str, str]) -> None:
+    if environment == "aws":
+        session = result_root.parent if result_root.name == "result" else result_root
+        copy_portable(session / "commands.log", destination / "commands.log", replacements)
+        repository = Path(__file__).resolve().parents[4]
+        copy_portable(
+            repository / "demo/infra/aws/runner-assets/bin/create-lab.sh",
+            destination / "scripts/create-lab.sh",
+            replacements,
+        )
+        terraform_root = destination / "terraform"
+        modules = {
+            "load-lab": repository / "demo/infra/aws/assets/terraform/load-lab",
+            "runner": repository / "demo/infra/aws/terraform/runner",
+            "session-artifacts": repository / "demo/infra/aws/terraform/session-artifacts",
+        }
+        for name, source in modules.items():
+            copy_portable_tree(
+                source,
+                terraform_root / name,
+                replacements,
+                suffixes={".tf", ".hcl", ".tftpl"},
+            )
+        state_path = session / "session.json"
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        stack_names = {"lab": "load-lab", "runner": "runner", "artifacts": "session-artifacts"}
+        for stack, target_name in stack_names.items():
+            variables = (state.get("terraform", {}).get(stack, {}) or {}).get("variables")
+            if isinstance(variables, dict):
+                target = terraform_root / target_name / "resolved.auto.tfvars.json"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    json.dumps(portable_value(redact_value(variables), replacements), indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+        for run_dir in run_directories(result_root):
+            copy_portable_tree(run_dir / "config/lab-evidence/helm", destination / "helm", replacements)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "README.md").write_text(
+            "# AWS lab construction\n\n`commands.log` preserves the executed controller commands and Terraform apply output. `terraform/` contains the exact module sources and resolved variables used for the disposable lab, runner, and artifact transport. `scripts/create-lab.sh` is the runner-side lab configuration entrypoint; generated third-party chart values are under `helm/` when Helm was used. Terraform state and credentials are intentionally excluded.\n",
+            encoding="utf-8",
+        )
+    else:
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "README.md").write_text(
+            "# Internal lab\n\nThe experiment used the pre-existing internal lab; it did not provision or destroy the lab. Deployment commands and generated Kubernetes inputs are preserved under `../deployment/`.\n",
+            encoding="utf-8",
+        )
+
+
+def build_audit(result_root: Path, destination: Path, identity: str, experiment: str, status: str) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    (destination / "README.md").write_text(audit_readme(identity, experiment, status), encoding="utf-8")
+    summaries: list[dict[str, Any]] = []
+    for run_dir in run_directories(result_root):
+        audit = run_dir / "audit"
+        if audit.is_dir():
+            target = destination / "runs" / run_dir.name / "audit"
+            copy_audit_tree(audit, target)
+            summary = audit / "summary.yaml"
+            if summary.is_file():
+                summaries.append({
+                    "run_id": run_dir.name,
+                    "summary": yaml.safe_load(summary.read_text(encoding="utf-8")),
+                })
+    if summaries:
+        (destination / "summary.yaml").write_text(
+            yaml.safe_dump({"runs": summaries}, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
 
 
 def finalize(
@@ -203,59 +409,46 @@ def finalize(
     environment: str,
     status: str,
     restore_sources: Iterable[Path] = (),
+    replace: bool = False,
 ) -> dict[str, Path]:
     if status not in FINAL_STATUSES:
         raise ValueError(f"Unsupported final artifact status: {status}")
     result_root = result_root.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    identity = result_identity(experiment, result_root)
+    final_dir = output_dir / identity
+    if final_dir.exists() and not replace:
+        raise FileExistsError(f"Final experiment result already exists: {final_dir}")
+    replacements = portable_replacements(result_root)
     with tempfile.TemporaryDirectory(prefix="ckc-finalize-", dir=output_dir) as temporary:
         staging = Path(temporary)
-        publish_root = staging / "publish"
-        audit_root = staging / "audit"
-        evidence_root = staging / "evidence"
+        publish_root = staging / identity
+        evidence_root = staging / "evidence" / identity
+        audit_root = staging / "audit" / identity
         publish_root.mkdir()
-        audit_root.mkdir()
-        evidence_root.mkdir()
-        for run_dir in run_directories(result_root):
-            audit = run_dir / "audit"
-            if audit.is_dir():
-                copy_tree_filtered(audit, audit_root / "runs" / run_dir.name / "audit", evidence=False)
-        write_manifest(audit_root, "ckc-audit", {"experiment": experiment, "status": status})
-        audit_target = publish_root / "audit.tar.gz"
-        create_archive(audit_root, audit_target, "audit")
-
-        copy_tree_filtered(
-            result_root,
-            evidence_root / "result",
-            evidence=True,
-            excluded_roots=[output_dir],
+        evidence_root.mkdir(parents=True)
+        build_audit(result_root, audit_root, identity, experiment, status)
+        audit_name = f"{identity}-audit.tar.gz"
+        audit_target = publish_root / audit_name
+        create_archive(audit_root, audit_target, identity)
+        (evidence_root / "README.md").write_text(
+            evidence_readme(identity, experiment, environment, status), encoding="utf-8"
         )
-        for run_dir in run_directories(result_root):
-            try:
-                run_dir.resolve().relative_to(result_root)
-            except ValueError:
-                copy_tree_filtered(run_dir, evidence_root / "result" / "runs" / run_dir.name, evidence=True)
-        for source in restore_sources:
-            if source.is_dir():
-                copy_tree_filtered(source, evidence_root / "restore", evidence=False)
-        write_manifest(evidence_root, "ckc-evidence", {
-            "experiment": experiment,
-            "environment": environment,
-            "status": status,
-            "audit": {"file": "audit.tar.gz", "sha256": digest(audit_target)},
-        })
-        evidence_target = publish_root / "evidence.tar.gz"
-        create_archive(evidence_root, evidence_target, "evidence")
-        copy_report(report_dir, publish_root, experiment=experiment, environment=environment, status=status)
-        for name in ("report.md", "evidence.tar.gz", "audit.tar.gz"):
-            os.replace(publish_root / name, output_dir / name)
-        assets = output_dir / "report-assets"
-        if assets.exists():
-            shutil.rmtree(assets)
-        os.replace(publish_root / "report-assets", assets)
+        copy_report(report_dir, evidence_root / "report", experiment=experiment, environment=environment, status=status)
+        build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
+        build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
+        build_lab(result_root, evidence_root / "lab", environment, replacements)
+        evidence_name = f"{identity}-evidence.tar.gz"
+        evidence_target = publish_root / evidence_name
+        create_archive(evidence_root, evidence_target, identity)
+        copy_report(report_dir, publish_root / "report", experiment=experiment, environment=environment, status=status)
+        if final_dir.exists():
+            shutil.rmtree(final_dir)
+        os.replace(publish_root, final_dir)
     return {
-        "report": output_dir / "report.md",
-        "report_assets": output_dir / "report-assets",
-        "evidence": output_dir / "evidence.tar.gz",
-        "audit": output_dir / "audit.tar.gz",
+        "root": final_dir,
+        "report": final_dir / "report/report.md",
+        "report_assets": final_dir / "report/assets",
+        "evidence": final_dir / f"{identity}-evidence.tar.gz",
+        "audit": final_dir / f"{identity}-audit.tar.gz",
     }

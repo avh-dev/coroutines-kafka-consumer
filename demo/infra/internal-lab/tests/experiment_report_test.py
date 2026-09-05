@@ -475,7 +475,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("producer", markdown)
             self.assertNotIn("](raw/", markdown)
             self.assertIn("## Offline evidence", markdown)
-            self.assertIn("evidence/result/runs/run-a/run-metadata.json", markdown)
+            self.assertIn("deployment/targets/target-a/", markdown)
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)
