@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 import os
 import re
 import shutil
@@ -112,14 +113,22 @@ def copy_portable_tree(
         copy_portable(path, target / path.relative_to(source), replacements)
 
 
-def copy_audit_tree(source: Path, destination: Path) -> None:
-    for path in sorted(source.rglob("*")):
-        relative = path.relative_to(source)
-        if path.is_dir():
-            continue
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+def copy_audit_log(source: Path, destination: Path) -> bool:
+    sources = sorted(source.glob("chunks/audit-*.log.gz"))
+    sources += sorted(source.glob("chunks/audit-*.log"))
+    sources += sorted(source.glob("audit-*.log.gz"))
+    sources += sorted(source.glob("audit-*.log"))
+    if not sources:
+        return False
+    with destination.open("wb") as output:
+        for path in sources:
+            if path.name.endswith(".gz"):
+                with gzip.open(path, "rb") as input_stream:
+                    shutil.copyfileobj(input_stream, output)
+            else:
+                with path.open("rb") as input_stream:
+                    shutil.copyfileobj(input_stream, output)
+    return True
 
 
 def run_directories(result_root: Path) -> list[Path]:
@@ -238,7 +247,7 @@ def audit_readme(identity: str, experiment: str, status: str) -> str:
     return f"""# Experiment audit: {identity}
 
 Independent raw audit evidence for experiment `{experiment}` with final status `{status}`.
-Each run is stored below `runs/<run-id>/audit/`; `summary.yaml` contains the combined human-readable summaries when available.
+Each target is stored below `targetN.<name>/`. A target contains its summary, analyzer progress, and one uncompressed `audit.log`; `summary.yaml` at this level combines the target summaries.
 """
 
 
@@ -308,10 +317,10 @@ def target_names_by_run(result_root: Path) -> dict[str, str]:
     summary = result_root / "summary.json"
     document = json.loads(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
     return {
-        Path(str(target.get("run_dir"))).name: str(target.get("target") or target.get("name") or "target")
+        Path(str(target.get("run_dir"))).name: str(target.get("target") or target.get("name"))
         for experiment in document.get("experiments", [])
         for target in experiment.get("targets", [])
-        if target.get("run_dir")
+        if target.get("run_dir") and (target.get("target") or target.get("name"))
     }
 
 
@@ -394,20 +403,27 @@ def build_audit(result_root: Path, destination: Path, identity: str, experiment:
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "README.md").write_text(audit_readme(identity, experiment, status), encoding="utf-8")
     summaries: list[dict[str, Any]] = []
-    for run_dir in run_directories(result_root):
+    target_names = target_names_by_run(result_root)
+    for index, run_dir in enumerate(run_directories(result_root), start=1):
         audit = run_dir / "audit"
         if audit.is_dir():
-            target = destination / "runs" / run_dir.name / "audit"
-            copy_audit_tree(audit, target)
+            target_name = re.sub(r"[^A-Za-z0-9._-]+", "-", target_names.get(run_dir.name, run_dir.name)).strip("-") or run_dir.name
+            target = destination / f"target{index}.{target_name}"
+            target.mkdir(parents=True, exist_ok=True)
+            for name in ("summary.yaml", "analyzer-progress.log", "acceptance.json"):
+                source = audit / name
+                if source.is_file():
+                    shutil.copy2(source, target / name)
+            copy_audit_log(audit, target / "audit.log")
             summary = audit / "summary.yaml"
             if summary.is_file():
                 summaries.append({
-                    "run_id": run_dir.name,
+                    "target": target.name,
                     "summary": yaml.safe_load(summary.read_text(encoding="utf-8")),
                 })
     if summaries:
         (destination / "summary.yaml").write_text(
-            yaml.safe_dump({"runs": summaries}, sort_keys=False, allow_unicode=True),
+            yaml.safe_dump({"targets": summaries}, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
 
@@ -435,14 +451,16 @@ def finalize(
     with tempfile.TemporaryDirectory(prefix="ckc-finalize-", dir=output_dir) as temporary:
         staging = Path(temporary)
         publish_root = staging / identity
-        evidence_root = staging / "evidence" / identity
-        audit_root = staging / "audit" / identity
+        evidence_identity = f"ckc-evidence-{identity}"
+        audit_identity = f"ckc-audit-{identity}"
+        evidence_root = staging / evidence_identity
+        audit_root = staging / audit_identity
         publish_root.mkdir()
         evidence_root.mkdir(parents=True)
         build_audit(result_root, audit_root, identity, experiment, status)
-        audit_name = f"{identity}-audit.tar.gz"
+        audit_name = f"{audit_identity}.tar.gz"
         audit_target = publish_root / audit_name
-        create_archive(audit_root, audit_target, identity)
+        create_archive(audit_root, audit_target, audit_identity)
         (evidence_root / "README.md").write_text(
             evidence_readme(identity, experiment, environment, status), encoding="utf-8"
         )
@@ -450,9 +468,9 @@ def finalize(
         build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
         build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
         build_lab(result_root, evidence_root / "lab", environment, replacements)
-        evidence_name = f"{identity}-evidence.tar.gz"
+        evidence_name = f"{evidence_identity}.tar.gz"
         evidence_target = publish_root / evidence_name
-        create_archive(evidence_root, evidence_target, identity)
+        create_archive(evidence_root, evidence_target, evidence_identity)
         copy_report(report_dir, publish_root / "report", experiment=experiment, environment=environment, status=status)
         if final_dir.exists():
             shutil.rmtree(final_dir)
@@ -461,6 +479,6 @@ def finalize(
         "root": final_dir,
         "report": final_dir / "report/report.md",
         "report_assets": final_dir / "report/assets",
-        "evidence": final_dir / f"{identity}-evidence.tar.gz",
-        "audit": final_dir / f"{identity}-audit.tar.gz",
+        "evidence": final_dir / f"ckc-evidence-{identity}.tar.gz",
+        "audit": final_dir / f"ckc-audit-{identity}.tar.gz",
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 import subprocess
 import tarfile
 import tempfile
@@ -64,7 +65,8 @@ class CanonicalFinalizerTest(unittest.TestCase):
             chunks.mkdir(parents=True)
             (run / "run-metadata.json").write_text('{"run_id":"run-a"}\n', encoding="utf-8")
             (audit / "summary.yaml").write_text("totals: {}\n", encoding="utf-8")
-            (chunks / "audit-0001.log.gz").write_bytes(b"raw-audit")
+            with gzip.open(chunks / "audit-0001.log.gz", "wb") as stream:
+                stream.write(b"raw-audit\n")
             (result / "terraform.tfstate").write_text("secret-state", encoding="utf-8")
             metrics = result / "metrics"
             metrics.mkdir()
@@ -110,7 +112,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             published = output / identity
             self.assertEqual({identity}, {p.name for p in output.iterdir()})
             self.assertEqual(
-                {"report", f"{identity}-evidence.tar.gz", f"{identity}-audit.tar.gz"},
+                {"report", f"ckc-evidence-{identity}.tar.gz", f"ckc-audit-{identity}.tar.gz"},
                 {p.name for p in published.iterdir()},
             )
             self.assertEqual("<svg/>\n", (published / "report/assets/load.svg").read_text(encoding="utf-8"))
@@ -119,16 +121,19 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertNotIn("](raw/", (published / "report/report.md").read_text(encoding="utf-8"))
             with tarfile.open(artifacts["audit"]) as archive:
                 audit_names = set(archive.getnames())
-            self.assertIn(f"{identity}/README.md", audit_names)
-            self.assertIn(f"{identity}/summary.yaml", audit_names)
-            self.assertIn(f"{identity}/runs/run-a/audit/chunks/audit-0001.log.gz", audit_names)
+            audit_identity = f"ckc-audit-{identity}"
+            self.assertIn(f"{audit_identity}/README.md", audit_names)
+            self.assertIn(f"{audit_identity}/summary.yaml", audit_names)
+            self.assertIn(f"{audit_identity}/target1.run-a/audit.log", audit_names)
+            self.assertNotIn(f"{audit_identity}/runs", audit_names)
             self.assertFalse(any(name.endswith("manifest.json") for name in audit_names))
             with tarfile.open(artifacts["evidence"]) as archive:
                 evidence_names = set(archive.getnames())
-                readme = archive.extractfile(f"{identity}/README.md").read().decode()
-                resolved = archive.extractfile(f"{identity}/deployment/resolved-experiment.yaml").read().decode()
+                evidence_identity = f"ckc-evidence-{identity}"
+                readme = archive.extractfile(f"{evidence_identity}/README.md").read().decode()
+                resolved = archive.extractfile(f"{evidence_identity}/deployment/resolved-experiment.yaml").read().decode()
                 restore_compose = archive.extractfile(
-                    f"{identity}/restore/_implementation/docker-compose.yml"
+                    f"{evidence_identity}/restore/_implementation/docker-compose.yml"
                 ).read().decode()
                 extracted = root / "extracted"
                 archive.extractall(extracted, filter="data")
@@ -141,13 +146,13 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 {"README.md", "run-grafana.sh", "report", "restore", "deployment", "lab"},
                 evidence_children,
             )
-            self.assertIn(f"{identity}/run-grafana.sh", evidence_names)
-            self.assertIn(f"{identity}/report/report.md", evidence_names)
-            self.assertIn(f"{identity}/report/assets/load.svg", evidence_names)
-            self.assertIn(f"{identity}/restore/dashboard/ckc-experiment.json", evidence_names)
-            self.assertIn(f"{identity}/restore/loki/kubernetes.jsonl", evidence_names)
-            self.assertIn(f"{identity}/restore/victoriametrics-data.tar.gz", evidence_names)
-            self.assertIn(f"{identity}/restore/_implementation/provisioning/dashboards/ckc.yml", evidence_names)
+            self.assertIn(f"{evidence_identity}/run-grafana.sh", evidence_names)
+            self.assertIn(f"{evidence_identity}/report/report.md", evidence_names)
+            self.assertIn(f"{evidence_identity}/report/assets/load.svg", evidence_names)
+            self.assertIn(f"{evidence_identity}/restore/dashboard/ckc-experiment.json", evidence_names)
+            self.assertIn(f"{evidence_identity}/restore/loki/kubernetes.jsonl", evidence_names)
+            self.assertIn(f"{evidence_identity}/restore/victoriametrics-data.tar.gz", evidence_names)
+            self.assertIn(f"{evidence_identity}/restore/_implementation/provisioning/dashboards/ckc.yml", evidence_names)
             self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
             self.assertIn("Run `./run-grafana.sh`", readme)
             self.assertIn("$RESULT_DIR/input.yaml", resolved)
@@ -155,7 +160,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertFalse(any("session.json" in name or "artifact-manifest" in name for name in evidence_names))
             self.assertFalse(any("terraform.tfstate" in name for name in evidence_names))
             noninteractive = subprocess.run(
-                [str(extracted / identity / "run-grafana.sh")],
+                [str(extracted / evidence_identity / "run-grafana.sh")],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
