@@ -52,7 +52,7 @@ Default local observability ports are intentionally distinct:
 
 Each completed run publishes one `<experiment>-<UTC timestamp>/` directory.
 It contains `report/report.md` plus `report/assets/`, alongside distinctly named
-`<experiment>-<UTC timestamp>-evidence.tar.gz` and `-audit.tar.gz` archives.
+`ckc-experiment-<experiment>-<UTC minute>-evidence.tar.gz` and `-audit.tar.gz` archives. Both archives unpack into the same result root; the audit archive contributes only `audit/`.
 AWS provisioning is disposable and cleanup is verified after artifact transport;
 internal-lab keeps its installed services running.
 

@@ -164,8 +164,8 @@ annotations.
 Open the archived metrics and logs with:
 
 ```bash
-tar -xzf aws-smoke-20260905T051756Z-evidence.tar.gz
-cd aws-smoke-20260905T051756Z
+tar -xzf ckc-experiment-aws-smoke-20260905T0517Z-evidence.tar.gz
+cd ckc-experiment-aws-smoke-20260905T0517Z
 ./run-grafana.sh
 ```
 

@@ -54,8 +54,8 @@ Use separate experiment files when Kafka, Redis, or node capacity differs.
 Every experiment finalizes the same named result layout as AWS:
 
 - `<experiment>-<UTC timestamp>/report/report.md` and `report/assets/`;
-- `<experiment>-<UTC timestamp>-evidence.tar.gz`;
-- `<experiment>-<UTC timestamp>-audit.tar.gz`.
+- `ckc-experiment-<experiment>-<UTC minute>-evidence.tar.gz`;
+- `ckc-experiment-<experiment>-<UTC minute>-audit.tar.gz`.
 
 Evidence contains only the human-readable report, offline restore data, resolved
 deployment inputs and commands, generated Kubernetes manifests, and a concise
@@ -77,8 +77,8 @@ The default export location is
 The evidence archive uses pinned Grafana, Loki, and Prometheus images:
 
 ```bash
-tar -xzf smoke-repeat-20260905T044153Z-evidence.tar.gz
-cd smoke-repeat-20260905T044153Z
+tar -xzf ckc-experiment-smoke-repeat-20260905T0441Z-evidence.tar.gz
+cd ckc-experiment-smoke-repeat-20260905T0441Z
 ./run-grafana.sh
 ```
 

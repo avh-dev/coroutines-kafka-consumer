@@ -199,7 +199,7 @@ def copy_report(report_dir: Path, output_dir: Path, *, experiment: str, environm
 
 def timestamp_from(value: str) -> str | None:
     match = re.search(r"(20\d{6})[T-]?(\d{6})Z?", value)
-    return f"{match.group(1)}T{match.group(2)}Z" if match else None
+    return f"{match.group(1)}T{match.group(2)[:4]}Z" if match else None
 
 
 def result_identity(experiment: str, result_root: Path) -> str:
@@ -219,7 +219,7 @@ def result_identity(experiment: str, result_root: Path) -> str:
             timestamp = parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     timestamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     name = re.sub(r"[^a-zA-Z0-9._-]+", "-", experiment.strip().lower()).strip("-") or "experiment"
-    return f"{name}-{timestamp}"
+    return f"ckc-experiment-{name}-{timestamp}"
 
 
 def evidence_readme(identity: str, experiment: str, environment: str, status: str) -> str:
@@ -451,16 +451,14 @@ def finalize(
     with tempfile.TemporaryDirectory(prefix="ckc-finalize-", dir=output_dir) as temporary:
         staging = Path(temporary)
         publish_root = staging / identity
-        evidence_identity = f"ckc-evidence-{identity}"
-        audit_identity = f"ckc-audit-{identity}"
-        evidence_root = staging / evidence_identity
-        audit_root = staging / audit_identity
+        evidence_root = staging / "evidence"
+        audit_root = staging / "audit"
         publish_root.mkdir()
-        evidence_root.mkdir(parents=True)
-        build_audit(result_root, audit_root, identity, experiment, status)
-        audit_name = f"{audit_identity}.tar.gz"
+        evidence_root.mkdir()
+        build_audit(result_root, audit_root / "audit", identity, experiment, status)
+        audit_name = f"{identity}-audit.tar.gz"
         audit_target = publish_root / audit_name
-        create_archive(audit_root, audit_target, audit_identity)
+        create_archive(audit_root, audit_target, identity)
         (evidence_root / "README.md").write_text(
             evidence_readme(identity, experiment, environment, status), encoding="utf-8"
         )
@@ -468,9 +466,9 @@ def finalize(
         build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
         build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
         build_lab(result_root, evidence_root / "lab", environment, replacements)
-        evidence_name = f"{evidence_identity}.tar.gz"
+        evidence_name = f"{identity}-evidence.tar.gz"
         evidence_target = publish_root / evidence_name
-        create_archive(evidence_root, evidence_target, evidence_identity)
+        create_archive(evidence_root, evidence_target, identity)
         copy_report(report_dir, publish_root / "report", experiment=experiment, environment=environment, status=status)
         if final_dir.exists():
             shutil.rmtree(final_dir)
@@ -479,6 +477,6 @@ def finalize(
         "root": final_dir,
         "report": final_dir / "report/report.md",
         "report_assets": final_dir / "report/assets",
-        "evidence": final_dir / f"ckc-evidence-{identity}.tar.gz",
-        "audit": final_dir / f"ckc-audit-{identity}.tar.gz",
+        "evidence": final_dir / f"{identity}-evidence.tar.gz",
+        "audit": final_dir / f"{identity}-audit.tar.gz",
     }

@@ -7,8 +7,8 @@ Every environment publishes the same named result directory:
 ├── report/
 │   ├── report.md
 │   └── assets/
-├── <experiment>-<UTC timestamp>-evidence.tar.gz
-└── <experiment>-<UTC timestamp>-audit.tar.gz
+├── ckc-experiment-<experiment>-<UTC minute>-evidence.tar.gz
+└── ckc-experiment-<experiment>-<UTC minute>-audit.tar.gz
 ```
 
 The evidence archive has a strict whitelist and the same root name as the
