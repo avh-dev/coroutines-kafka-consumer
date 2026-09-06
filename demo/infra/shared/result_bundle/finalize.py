@@ -73,7 +73,7 @@ def copy_evidence_file(source: Path, target: Path, replacements: dict[str, str] 
             return
         except (UnicodeDecodeError, yaml.YAMLError):
             pass
-    if source.suffix.lower() in {".env", ".log", ".txt", ".properties"} or source.name in {"stdout", "stderr"}:
+    if source.suffix.lower() in {".env", ".log", ".txt", ".properties", ".sh", ".tftpl", ".jsonl"} or source.name in {"stdout", "stderr"}:
         try:
             content = source.read_text(encoding="utf-8")
             content = TEXT_SECRET.sub(r"\1<redacted>", content)
