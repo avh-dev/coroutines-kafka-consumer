@@ -427,7 +427,10 @@ def build_audit(
             if summary.is_file():
                 summaries.append({
                     "target": target.name,
-                    "summary": yaml.safe_load(summary.read_text(encoding="utf-8")),
+                    "summary": portable_value(
+                        redact_value(yaml.safe_load(summary.read_text(encoding="utf-8"))),
+                        replacements,
+                    ),
                 })
     if summaries:
         (destination / "summary.yaml").write_text(
