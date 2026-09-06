@@ -1,0 +1,253 @@
+schema_version: 1
+name: ckc-large-poll-batch-worker-comparison
+description: Compare 40 and 200 CKC coroutine workers on fixed and single-carrier virtual-thread dispatchers when large telemetry
+  poll batches wake more workers than steady-state throughput requires.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      delay_p90_ms: 1
+      delay_p95_ms: 1
+      delay_p99_ms: 1
+      delay_p100_ms: 1
+    flavour:
+      delay_p90_ms: 1
+      delay_p95_ms: 1
+      delay_p99_ms: 1
+      delay_p100_ms: 1
+    registry:
+      delay_p90_ms: 1
+      delay_p95_ms: 1
+      delay_p99_ms: 1
+      delay_p100_ms: 1
+  load:
+    shards: 1
+    workers: 1
+    base_tps: 4500
+    order_event_percent: 0
+    batch_event_percent: 0
+    cauldron_telemetry_percent: 100
+    producer_capacity_tps:
+      order: 4500
+      batch: 4500
+      telemetry: 4500
+    telemetry_source_mode: FIXED_FLEET
+    load_profile: 100 -> (6m, steady) -> 100
+    cauldron_count: 1000
+    min_orders_per_batch: 4
+    max_orders_per_batch: 8
+    min_brewing_steps: 5
+    max_brewing_steps: 10
+    max_burst: 1000
+    diagnostics_blob_size: 256
+  chaos:
+  - at: 180s
+    duration: 60s
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      error_rate_percent: 0
+      eta:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10
+      flavour:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10
+      registry:
+        delay_p90_ms: 10
+        delay_p95_ms: 10
+        delay_p99_ms: 10
+        delay_p100_ms: 10
+acceptance:
+  criteria:
+  - id: average-large-poll-batch
+    title: Average telemetry poll batch contains at least 500 records
+    source: measurement
+    measurement: telemetry_poll_batch_average_records
+    operator: gte
+    threshold: 500
+    unit: records
+  - id: maximum-large-poll-batch
+    title: Maximum telemetry poll batch contains at least 500 records
+    source: measurement
+    measurement: telemetry_poll_batch_max_records
+    operator: gte
+    threshold: 500
+    unit: records
+implementations:
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent_key: order_event_percent
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent_key: batch_event_percent
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent_key: cauldron_telemetry_percent
+  profiles:
+    ckc:
+      spring_profile: ckc
+      default_processing_dispatcher: FIXED
+      allowed_processing_dispatchers:
+      - DEFAULT
+      - FIXED
+      - IO
+      - VIRTUAL
+      topics:
+        order:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        batch:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        telemetry:
+          default_planning_latency_ms: 150
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          allowed_processing_modes:
+          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          - FRESHNESS_FIRST_DROP_OLDEST
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+    ckc-sync:
+      extends: ckc
+      spring_profile: ckc-sync
+      default_processing_dispatcher: IO
+      allowed_processing_dispatchers:
+      - IO
+      - VIRTUAL
+defaults:
+  application:
+    replicas: 1
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
+      LETTUCE_METRICS_ENABLED: true
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 196608
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 1000
+      KAFKA_PRODUCER_LINGER_MS: 150
+      KAFKA_PRODUCER_BATCH_SIZE: 1048576
+      KAFKA_PRODUCER_COMPRESSION_TYPE: none
+targets:
+- application:
+    java_options: -Xms256m -Xmx256m -XX:+UseSerialGC -Djdk.virtualThreadScheduler.parallelism=1 -Djdk.virtualThreadScheduler.maxPoolSize=1
+  runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      batch:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      telemetry:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 40
+        queue_capacity: 4096
+  name: ckc-sync.virtual.1carrier.workers40
+  implementation: ckc-sync
+- application:
+    java_options: -Xms256m -Xmx256m -XX:+UseSerialGC -Djdk.virtualThreadScheduler.parallelism=1 -Djdk.virtualThreadScheduler.maxPoolSize=1
+  runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      batch:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      telemetry:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 200
+        queue_capacity: 4096
+  name: ckc-sync.virtual.1carrier.workers200
+  implementation: ckc-sync
+- runtime:
+    env:
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      batch:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      telemetry:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 40
+        queue_capacity: 4096
+  name: ckc.fixed.1.workers40
+  implementation: ckc
+- runtime:
+    env:
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 8
+      batch_ms: 8
+      telemetry_ms: 8
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      batch:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 1
+      telemetry:
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+        workers: 200
+        queue_capacity: 4096
+  name: ckc.fixed.1.workers200
+  implementation: ckc
+environments:
+  internal-lab:
+    lab:
+      profile: installed

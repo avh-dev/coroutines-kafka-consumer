@@ -21,6 +21,20 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_generated_deployment_plan_owns_stub_replicas(self) -> None:
+        command = RUNNER.command_for_run(
+            Path("/opt/ckc-lab/bin/run-test.sh"),
+            {
+                "profile": "ckc",
+                "deployment_plan_path": "/tmp/deployment-plan.yaml",
+                "stub_replicas": 3,
+            },
+            "resolved-test.yaml",
+            {},
+        )
+
+        self.assertNotIn("--stub-replicas", command)
+
     def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/bin/run-test.sh"),
@@ -46,31 +60,29 @@ class ExperimentRunnerTest(unittest.TestCase):
     def test_each_target_runs_with_its_own_resolved_test_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            definitions = root / "workloads/test-definitions"
-            definitions.mkdir(parents=True)
-            (definitions / "baseline.yaml").write_text(yaml.safe_dump({
-                "stubs": {"error_rate_percent": 0, "eta": {"delay_p90_ms": 10}},
-                "load_test": {"load_profile": "0 -> (1s, hold) -> 100", "base_tps": 1000, "workers": 4},
-            }), encoding="utf-8")
+            repository = Path(__file__).resolve().parents[4]
+            source = yaml.safe_load(
+                (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
+            )
+            implementations = yaml.safe_load(
+                (repository / "demo/infra/experiments/consumer-capacity-comparison.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )["implementations"]
+            source["name"] = "comparison"
+            source["implementations"] = implementations
+            source["environments"] = {"internal-lab": {"lab": {"profile": "installed"}}}
+            source["workload"]["load"].update({"base_tps": 1000, "workers": 4})
+            source["defaults"] = {
+                "application": {"replicas": 1},
+                "runtime": {"planning_latency": {"order_ms": 1, "batch_ms": 1, "telemetry_ms": 1}},
+            }
+            source["targets"] = [
+                {"name": "baseline", "implementation": "spring-kafka"},
+                {"name": "ckc", "implementation": "ckc", "workload": {"load": {"base_tps": 2000, "workers": 20}}},
+            ]
             experiment = root / "comparison.yaml"
-            experiment.write_text(yaml.safe_dump({
-                "name": "comparison",
-                "test_definition": "baseline",
-                "defaults": {"replicas": 1},
-                "targets": [
-                    {
-                        "name": "baseline",
-                        "profile": "spring-kafka",
-                        "planning_latency": {"order_ms": 1, "batch_ms": 1, "telemetry_ms": 1},
-                    },
-                    {
-                        "name": "ckc",
-                        "profile": "ckc",
-                        "planning_latency": {"order_ms": 1, "batch_ms": 1, "telemetry_ms": 1},
-                        "test": {"load_test": {"base_tps": 2000, "workers": 20}},
-                    },
-                ],
-            }), encoding="utf-8")
+            experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
             calls: list[dict] = []
 
             def run_one(*args, **kwargs):
@@ -87,7 +99,6 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
-                patch.object(RUNNER, "load_sla_profile", return_value=None),
                 patch.object(RUNNER, "notify"),
             ):
                 summary = RUNNER.run_experiment(

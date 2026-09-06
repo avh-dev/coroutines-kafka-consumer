@@ -4,28 +4,21 @@ set -euo pipefail
 
 REGION="${1:-us-east-1}"
 ENVIRONMENT="${2:-dev}"
-PROFILE_NAME="${3:-default}"
-TEST_DEFINITION_PATH="${4:-demo/infra/shared/workloads/test-definitions/smoke.yaml}"
+TEST_DEFINITION_PATH="${3:?create-lab requires a materialized experiment target}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-/opt/ckc-runner/assets/repo}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 PROVISIONED_CONTEXT_PATH="${CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH:-}"
 IMAGE_ENVIRONMENT="${CKC_AWS_IMAGE_ENVIRONMENT:-dev}"
 TERRAFORM_DIR="${REPO_DIR}/demo/infra/aws/assets/terraform/load-lab"
-PROFILE_PATH="${TERRAFORM_DIR}/profiles/${PROFILE_NAME}.tfvars"
 CLUSTER_NAME="ckc-load-lab-${ENVIRONMENT}"
 KUBECONFIG_PATH="${CKC_RUNNER_KUBECONFIG_PATH:-${RUNNER_HOME}/kubeconfig/${CLUSTER_NAME}.yaml}"
 LAB_CONTEXT_PATH="${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json"
 TEMP_DIR="${RUNNER_HOME}/tmp"
+LAB_EVIDENCE_DIR="${RUNNER_HOME}/config/lab-evidence"
+HELM_EVIDENCE_DIR="${LAB_EVIDENCE_DIR}/helm"
 
-PROFILE_ARGS=()
-if [ -f "${PROFILE_PATH}" ]; then
-  PROFILE_ARGS=(-var-file="${PROFILE_PATH}")
-elif [ "${PROFILE_NAME}" != "default" ]; then
-  echo "Lab profile not found: ${PROFILE_PATH}" >&2
-  exit 1
-fi
-
-mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}"
+mkdir -p "${RUNNER_HOME}/config" "$(dirname "${KUBECONFIG_PATH}")" "${TEMP_DIR}" "${HELM_EVIDENCE_DIR}"
+find "${HELM_EVIDENCE_DIR}" -mindepth 1 -delete
 
 infra_output() {
   local name="$1"
@@ -649,8 +642,7 @@ if [ -z "${PROVISIONED_CONTEXT_PATH}" ]; then
   terraform -chdir="${TERRAFORM_DIR}" init
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
     -var="aws_region=${REGION}" \
-    -var="environment=${ENVIRONMENT}" \
-    "${PROFILE_ARGS[@]}"
+    -var="environment=${ENVIRONMENT}"
 else
   CLUSTER_NAME="$(infra_output cluster_name)"
   if [ -z "${CLUSTER_NAME}" ]; then
@@ -678,7 +670,7 @@ if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
   fi
-  KAFKA_VALUES_FILE="$(mktemp "${TEMP_DIR}/kafka-values.XXXXXX.yaml")"
+  KAFKA_VALUES_FILE="${HELM_EVIDENCE_DIR}/kafka-values.yaml"
   cat > "${KAFKA_VALUES_FILE}" <<EOF
 image:
   registry: docker.io
@@ -715,8 +707,8 @@ broker:
   persistence:
     enabled: false
 EOF
+  printf '%s\n' 'helm upgrade --install ckc-kafka bitnami/kafka --namespace ckc-app --create-namespace -f kafka-values.yaml' > "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-kafka bitnami/kafka --namespace ckc-app --create-namespace -f "${KAFKA_VALUES_FILE}"
-  rm -f "${KAFKA_VALUES_FILE}"
   kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=ckc-kafka --timeout=20m
   KAFKA_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
@@ -739,7 +731,7 @@ REDIS_MODE="$(infra_output elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
   REDIS_ARCHITECTURE="$(infra_output kubernetes_redis_architecture)"
   REDIS_REPLICA_COUNT="$(infra_output kubernetes_redis_replica_count)"
-  REDIS_VALUES_FILE="$(mktemp "${TEMP_DIR}/redis-values.XXXXXX.yaml")"
+  REDIS_VALUES_FILE="${HELM_EVIDENCE_DIR}/redis-values.yaml"
   cat > "${REDIS_VALUES_FILE}" <<EOF
 architecture: ${REDIS_ARCHITECTURE}
 auth:
@@ -752,8 +744,8 @@ replica:
   persistence:
     enabled: false
 EOF
+  printf '%s\n' 'helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f redis-values.yaml' >> "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f "${REDIS_VALUES_FILE}"
-  rm -f "${REDIS_VALUES_FILE}"
   kubectl wait -n ckc-app --for=condition=Ready pod -l app.kubernetes.io/instance=ckc-redis --timeout=15m
   REDIS_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-redis 6379 master redis)"
   REDIS_HOST="${REDIS_SERVICE}.ckc-app.svc.cluster.local"
@@ -791,7 +783,7 @@ from pathlib import Path
 context = {
     "environment": "${ENVIRONMENT}",
     "region": "${REGION}",
-    "profile_name": "${PROFILE_NAME}",
+    "configuration_source": "experiment",
     "cluster_name": "${CLUSTER_NAME}",
     "kubeconfig_path": "${KUBECONFIG_PATH}",
     "kafka_mode": "${KAFKA_MODE}",
@@ -812,7 +804,7 @@ Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", enc
 PY
 
 echo "Lab is ready."
-echo "  profile=${PROFILE_NAME}"
+echo "  configuration=experiment"
 echo "  test_definition=${TEST_DEFINITION_PATH}"
 echo "  cluster_name=${CLUSTER_NAME}"
 echo "  kafka_mode=${KAFKA_MODE}"

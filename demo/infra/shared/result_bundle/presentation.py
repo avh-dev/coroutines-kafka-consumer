@@ -187,11 +187,11 @@ def experiment_facts(summary: dict[str, Any], run_dirs: list[Path]) -> list[str]
         test_definition = experiment.get("test_definition", "")
         base_tps = experiment.get("base_tps", "")
         if test_definition or base_tps:
-            facts.append(f"Test definition `{test_definition}`, base TPS `{base_tps}`")
+            facts.append(f"Workload `{test_definition}`, base TPS `{base_tps}`")
     if not facts and run_dirs:
         metadata = load_json(run_dirs[0] / "run-metadata.json") if (run_dirs[0] / "run-metadata.json").is_file() else {}
         load_test = metadata.get("load_test") if isinstance(metadata.get("load_test"), dict) else {}
-        facts.append(f"Test definition `{metadata.get('test_definition', '')}`, base TPS `{load_test.get('base_tps', '')}`")
+        facts.append(f"Workload `{metadata.get('test_definition', '')}`, base TPS `{load_test.get('base_tps', '')}`")
     return facts
 
 

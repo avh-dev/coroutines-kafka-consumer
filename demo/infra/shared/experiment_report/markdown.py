@@ -106,12 +106,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 "",
             ]
         )
-    lines.extend(["## SLA", ""])
+    lines.extend(["## Acceptance", ""])
     if report.sla_profile:
         lines.extend(
             [
-                f"Profile: **{cell(report.sla_profile.get('name', ''))}** — {cell(report.sla_profile.get('description', ''))}",
-                "",
                 "| Criterion | Source | Requirement |",
                 "| --- | --- | --- |",
             ]
@@ -138,7 +136,7 @@ def render_markdown(report: ExperimentReport) -> str:
                     f"{duration_ms(int(rule.get('max_ms', 0)))} | {number(float(rule.get('allowed_exceed_percent', 0)))}% |"
                 )
     else:
-        lines.append("No SLA profile is configured. Measurements are reported without PASS/FAIL evaluation.")
+        lines.append("No acceptance criteria are configured. Measurements are reported without PASS/FAIL evaluation.")
     lines.extend(
         [
             "",
@@ -419,34 +417,31 @@ def render_markdown(report: ExperimentReport) -> str:
                 f"- Delivery SLA: **{status(target.delivery_evaluation_status)}**",
                 f"- Latency SLA: **{status(target.latency_evaluation_status)}**",
                 f"- Overall SLA: **{status(target.evaluation_status)}**",
-                f"- Run metadata: [`{target.run_id}`](raw/{target.run_id}-metadata.json)",
-                f"- Raw audit summary: [summary.yaml](raw/{target.run_id}-audit-summary.yaml)",
+                f"- Deployment snapshot: evidence archive → `deployment/targets/{target.name}/`",
+                "- Raw audit and analyzer output: sibling `*-audit.tar.gz` archive",
             ]
         )
         if target.thread_stats.get("enabled") and target.thread_stats.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Thread Stats summary: [summary.json](raw/{target.run_id}-thread-stats-summary.json)",
-                    f"- Thread Stats index: [index.jsonl](raw/{target.run_id}-thread-stats-index.jsonl)",
+                    "- Thread Stats summary is reflected in this report.",
                 ]
             )
         if target.packet_captures.get("enabled") and target.packet_captures.get("status") != "unavailable":
             lines.extend(
                 [
-                    f"- Packet capture summary: [summary.json](raw/{target.run_id}-tcpdump-summary.json)",
-                    f"- Packet capture index: [index.jsonl](raw/{target.run_id}-tcpdump-index.jsonl)",
+                    "- Packet capture summary is reflected in this report.",
                 ]
             )
         if target.pcap_analysis.get("status") not in {"disabled", "unavailable"}:
             lines.extend(
                 [
-                    f"- Kafka pcap analysis: [summary.json](raw/{target.run_id}-pcap-analysis.json)",
-                    f"- Human-readable Kafka pcap analysis: [summary.txt](raw/{target.run_id}-pcap-analysis.txt)",
+                    "- Kafka pcap analysis is reflected in this report.",
                 ]
             )
         lines.extend(
             [
-                "- Evidence Bundle: not exported automatically; use `export-result.sh --experiment <experiment-set-id>` when needed.",
+                "- Complete offline evidence is available in the sibling `*-evidence.tar.gz` archive.",
                 "",
             ]
         )
@@ -483,18 +478,9 @@ def render_markdown(report: ExperimentReport) -> str:
             lines.append("")
     lines.extend(
         [
-            "## Raw artifacts",
+            "## Offline evidence",
             "",
-            "- [Experiment definition](raw/experiment.yaml)",
-            "- [Test definition](raw/test-definition.yaml)",
-        ]
-    )
-    if report.sla_profile:
-        lines.append("- [SLA profile](raw/sla-profile.yaml)")
-    lines.extend(
-        [
-            "- [Experiment set summary](raw/experiment-set-summary.json)",
-            "- [Normalized report model](report-model.yaml)",
+            "The resolved experiment and targets, acceptance criteria, logs, metrics, generated deployment inputs, lab construction snapshot, and restore tooling are included in the sibling `*-evidence.tar.gz` archive.",
             "",
         ]
     )

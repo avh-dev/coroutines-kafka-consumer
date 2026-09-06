@@ -164,18 +164,18 @@ record_remote_fingerprint() {
 sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers" "${LAB_ROOT}/helpers"
-  sync_path "${REPO_ROOT}/demo/infra/shared/helm" "${LAB_ROOT}/helm"
+  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/helpers'"
+  for helper in "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers/"*.py; do
+    sync_file "${helper}" "${LAB_ROOT}/helpers/$(basename "${helper}")"
+  done
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/restore" "${LAB_ROOT}/restore"
-  sync_file "${REPO_ROOT}/demo/infra/shared/result_bundle/restore/import-grafana-annotations.py" "${LAB_ROOT}/restore/import-grafana-annotations.py"
   ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/notify'"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/config" "${LAB_ROOT}/config/defaults"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/restore/'*.sh '${LAB_ROOT}/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
+  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }
 
 sync_runtime_test_assets() {
@@ -184,13 +184,10 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
-  sync_path "${REPO_ROOT}/demo/infra/internal-lab/workloads/experiments" "${LAB_ROOT}/workloads/experiments"
-  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/test-definitions" "${LAB_ROOT}/workloads/test-definitions"
-  sync_path "${REPO_ROOT}/demo/infra/shared/workloads/sla-profiles" "${LAB_ROOT}/workloads/sla-profiles"
-  sync_file "${REPO_ROOT}/demo/infra/shared/workloads/consumer-profiles.yaml" "${LAB_ROOT}/workloads/consumer-profiles.yaml"
+  sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
-  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/experiments' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
+  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -294,26 +291,21 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
   gradle/wrapper/gradle-wrapper.properties \
   demo/ckc-demo-contracts \
   demo/ckc-demo-load-test)"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets demo/infra/shared/helm)"
+ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
-  demo/infra/shared/workloads \
+  demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
-  demo/infra/internal-lab/workloads)"
+  demo/infra/experiments)"
 BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/compose \
   demo/infra/internal-lab/assets/grafana \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/shared/grafana \
-  demo/infra/shared/helm/demo)"
-STUBS_DEPLOY_FINGERPRINT="$(fingerprint_paths "stubs-deploy" \
-  demo/infra/internal-lab/assets/config/demo-stubs-values.yaml \
-  demo/infra/internal-lab/assets/libexec/deploy-stubs.sh \
-  demo/infra/shared/helm/demo-stubs)"
+  demo/infra/shared/grafana)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
@@ -322,7 +314,6 @@ LOAD_TEST_RUNTIME_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
-STUBS_DEPLOY_CHANGED=0
 DEMO_DEPLOY_RESTARTED=0
 
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}"; then
@@ -348,25 +339,13 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   ! remote_paths_exist \
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
     "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" \
-    "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
-    "${LAB_ROOT}/workloads/sla-profiles/consumer-baseline.yaml" \
-    "${LAB_ROOT}/workloads/test-definitions/telemetry-freshness-fairness.yaml" \
-    "${LAB_ROOT}/workloads/experiments/telemetry-fairness-profile-comparison.yaml" \
-    "${LAB_ROOT}/workloads/experiments/spring-kafka-thread-stats-progression.yaml" \
+    "${LAB_ROOT}/experiments/telemetry-fairness-profile-comparison.yaml" \
+    "${LAB_ROOT}/experiments/spring-kafka-thread-stats-progression.yaml" \
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
-  RUNTIME_TEST_ASSETS_CHANGED=1
-fi
-if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
-  # The base helper sync owns LAB_ROOT/helpers with --delete, so it can remove
-  # shared runtime helpers such as helpers/audit even when their fingerprint
-  # has not changed.
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
-fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "stubs-deploy" "${STUBS_DEPLOY_FINGERPRINT}"; then
-  STUBS_DEPLOY_CHANGED=1
 fi
 
 cd "${REPO_ROOT}"
@@ -441,13 +420,8 @@ if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
     DEMO_DEPLOY_RESTARTED=1
   fi
 fi
-if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] || [[ "${STUBS_DEPLOY_CHANGED}" -eq 1 ]]; then
-  if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
-    ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-stubs.sh' --restart"
-  else
-    ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-stubs.sh'"
-  fi
-  record_remote_fingerprint "stubs-deploy" "${STUBS_DEPLOY_FINGERPRINT}"
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] && ssh "root@${LAB_HOST}" "kubectl -n ckc-perf get deploy ckc-demo-stubs >/dev/null 2>&1"; then
+  ssh "root@${LAB_HOST}" "kubectl -n ckc-perf rollout restart deploy/ckc-demo-stubs && kubectl -n ckc-perf rollout status deploy/ckc-demo-stubs --timeout=240s"
 fi
 
 echo "Internal lab is updated."
@@ -459,6 +433,6 @@ echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"
 echo "  demo redeployed=${DEMO_DEPLOY_RESTARTED}"
-echo "  demo-stubs redeployed=$(( DEMO_STUBS_IMAGE_CHANGED || STUBS_DEPLOY_CHANGED ))"
+echo "  demo-stubs restarted=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  load-test runtime=${LAB_ROOT}/load-test-runtime"
 echo "  lab entrypoints=${LAB_ROOT}/bin"

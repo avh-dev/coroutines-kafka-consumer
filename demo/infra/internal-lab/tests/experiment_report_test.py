@@ -64,22 +64,36 @@ class ExperimentReportTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value), encoding="utf-8")
 
+    def write_acceptance(self, root: Path, value: dict) -> None:
+        path = root / "lab/experiments/comparison.yaml"
+        experiment = yaml.safe_load(path.read_text(encoding="utf-8"))
+        experiment["acceptance"] = value
+        self.write_yaml(path, experiment)
+
     def fixture(self, root: Path, missing_terminal: int = 0) -> Path:
         lab_root = root / "lab"
-        experiment_path = lab_root / "workloads" / "experiments" / "comparison.yaml"
+        experiment_path = lab_root / "experiments" / "comparison.yaml"
         self.write_yaml(
             experiment_path,
             {
                 "name": "comparison",
                 "description": "Compare <one> & two.",
-                "test_definition": "smoke",
-                "base_tps": 100,
-                "sla_profile": "delivery-integrity",
+                "acceptance": {
+                    "criteria": [{
+                        "id": "no-loss",
+                        "title": "No loss",
+                        "source": "audit",
+                        "path": ["totals", "missing_terminal"],
+                        "operator": "eq",
+                        "threshold": 0,
+                        "unit": "records",
+                    }],
+                },
                 "targets": [{"name": "target-a", "profile": "ckc"}],
             },
         )
         self.write_yaml(
-            lab_root / "workloads" / "test-definitions" / "smoke.yaml",
+            lab_root / "experiments" / "smoke-materialized" / "ckc" / "resolved-test.yaml",
             {
                 "name": "smoke",
                 "stubs": {
@@ -122,24 +136,6 @@ class ExperimentReportTest(unittest.TestCase):
                             },
                         },
                     },
-                ],
-            },
-        )
-        self.write_yaml(
-            lab_root / "workloads" / "sla-profiles" / "delivery-integrity.yaml",
-            {
-                "name": "delivery-integrity",
-                "description": "Delivery checks.",
-                "criteria": [
-                    {
-                        "id": "no-loss",
-                        "title": "No loss",
-                        "source": "audit",
-                        "path": ["totals", "missing_terminal"],
-                        "operator": "eq",
-                        "threshold": 0,
-                        "unit": "records",
-                    }
                 ],
             },
         )
@@ -286,6 +282,7 @@ class ExperimentReportTest(unittest.TestCase):
                         "description": "Compare <one> & two.",
                         "experiment_file": str(experiment_path),
                         "test_definition": "smoke",
+                        "resolved_test_path": str(lab_root / "experiments/smoke-materialized/ckc/resolved-test.yaml"),
                         "base_tps": 100,
                         "exit_code": 0,
                         "targets": [
@@ -476,6 +473,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("### Logical payload to wire ratio", markdown)
             self.assertIn("Producer useful / wire", markdown)
             self.assertIn("producer", markdown)
+            self.assertNotIn("](raw/", markdown)
+            self.assertIn("## Offline evidence", markdown)
+            self.assertIn("deployment/targets/target-a/", markdown)
             self.assertIn("675.00 / 950.00 records", markdown)
             self.assertIn("6.00 MiB/s", markdown)
             self.assertIn("## Load profile and planned chaos", markdown)
@@ -668,8 +668,8 @@ class ExperimentReportTest(unittest.TestCase):
             for name in (
                 "experiment-set-summary.json",
                 "experiment.yaml",
-                "test-definition.yaml",
-                "sla-profile.yaml",
+                "resolved-target.yaml",
+                "acceptance.yaml",
                 "run-a-metadata.json",
                 "run-a-audit-summary.yaml",
                 "run-a-thread-stats-summary.json",
@@ -682,8 +682,8 @@ class ExperimentReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
-            self.write_yaml(
-                root / "lab" / "workloads" / "sla-profiles" / "delivery-integrity.yaml",
+            self.write_acceptance(
+                root,
                 {
                     "name": "latency",
                     "criteria": [
@@ -716,8 +716,8 @@ class ExperimentReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
-            self.write_yaml(
-                root / "lab" / "workloads" / "sla-profiles" / "delivery-integrity.yaml",
+            self.write_acceptance(
+                root,
                 {
                     "name": "consumer-baseline",
                     "criteria": [
@@ -788,8 +788,8 @@ class ExperimentReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
-            self.write_yaml(
-                root / "lab" / "workloads" / "sla-profiles" / "delivery-integrity.yaml",
+            self.write_acceptance(
+                root,
                 {
                     "name": "consumer-baseline",
                     "criteria": [

@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 SHARED_INFRA = Path(__file__).resolve().parents[1]
 if str(SHARED_INFRA) not in sys.path:
@@ -24,6 +26,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
+from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
@@ -92,16 +95,6 @@ def json_dump(value: Any) -> str:
 
 
 def yaml_string(value: Any) -> str:
-    return json.dumps(str(value))
-
-
-def yaml_scalar(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return str(value)
-    if value is None:
-        return "null"
     return json.dumps(str(value))
 
 
@@ -498,236 +491,9 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
                     process.wait()
 
 
-def helm_upgrade_install(name: str, chart: Path, namespace: str, value_files: list[Path], set_values: dict[str, Any]) -> None:
-    command = [
-        "helm",
-        "upgrade",
-        "--install",
-        name,
-        str(chart),
-        "--namespace",
-        namespace,
-        "--create-namespace",
-    ]
-    for value_file in value_files:
-        command.extend(["-f", str(value_file)])
-    overlay_path: Path | None = None
-    try:
-        if set_values:
-            nested_values: dict[str, Any] = {}
-            for key, value in set_values.items():
-                cursor = nested_values
-                parts = key.split(".")
-                for part in parts[:-1]:
-                    cursor = cursor.setdefault(part, {})
-                cursor[parts[-1]] = value
-
-            def write_yaml(data: dict[str, Any], indent: int = 0) -> str:
-                lines: list[str] = []
-                prefix = " " * indent
-                for child_key, child_value in data.items():
-                    if isinstance(child_value, dict):
-                        lines.append(f"{prefix}{child_key}:")
-                        lines.append(write_yaml(child_value, indent + 2))
-                    else:
-                        lines.append(f"{prefix}{child_key}: {yaml_scalar(child_value)}")
-                return "\n".join(lines)
-
-            fd, overlay_name = tempfile.mkstemp(suffix=".yaml")
-            overlay_path = Path(overlay_name)
-            with os.fdopen(fd, "w", encoding="utf-8") as overlay_file:
-                overlay_file.write(write_yaml(nested_values) + "\n")
-            command.extend(["-f", str(overlay_path)])
-        run(command)
-    finally:
-        if overlay_path:
-            overlay_path.unlink(missing_ok=True)
-
-
-def helm_uninstall(name: str, namespace: str) -> None:
-    run(["helm", "uninstall", name, "--namespace", namespace], check=False)
-
-
-def indent_block(value: str, spaces: int) -> str:
-    prefix = " " * spaces
-    return "\n".join(f"{prefix}{line}" if line else prefix for line in value.splitlines())
-
-
-def deploy_definition_config_map(definition: dict[str, Any]) -> None:
-    manifest = f"""apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ckc-test-definition
-  namespace: ckc-loadtest
-data:
-  definition.json: |
-{indent_block(json_dump(definition), 4)}
-"""
-    kubectl_apply(manifest)
-
-
 def wait_for_demo_rollout() -> None:
     run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo-stubs", "--timeout=10m"])
     run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo", "--timeout=10m"])
-
-
-def deploy_load_job(
-    image: str,
-    load_test: dict[str, Any],
-    kafka_bootstrap: str,
-    image_pull_policy: str,
-    started_at: str,
-    run_id: str,
-    active_deadline_seconds: int,
-    packet_capture_enabled: bool,
-    audit_tcp_host: str,
-    audit_tcp_port: int,
-) -> str:
-    shards = as_int(load_test.get("shards"), 1)
-    job_name = f"ckc-load-test-{run_id}"
-    resources = ""
-    resource_keys = ("cpu_request", "memory_request", "cpu_limit", "memory_limit")
-    if any(load_test.get(key) is not None for key in resource_keys):
-        resources = f"""
-          resources:
-            requests:
-              cpu: {yaml_string(as_str(load_test.get("cpu_request"), "500m"))}
-              memory: {yaml_string(as_str(load_test.get("memory_request"), "512Mi"))}
-            limits:
-              cpu: {yaml_string(as_str(load_test.get("cpu_limit"), "2"))}
-              memory: {yaml_string(as_str(load_test.get("memory_limit"), "1Gi"))}"""
-    capture_container = """
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              add:
-                - NET_RAW
-              drop:
-                - ALL
-          volumeMounts:
-            - name: packet-captures
-              mountPath: /captures""" if packet_capture_enabled else ""
-    capture_volume = """
-      volumes:
-        - name: packet-captures
-          emptyDir:
-            sizeLimit: 256Mi""" if packet_capture_enabled else ""
-    manifest = f"""apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {job_name}
-  namespace: ckc-loadtest
-spec:
-  activeDeadlineSeconds: {active_deadline_seconds}
-  completions: {shards}
-  parallelism: {shards}
-  completionMode: Indexed
-  backoffLimit: 0
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ckc-load-test
-        ckc.dev/test-run-id: {yaml_string(run_id)}
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: load-test
-          image: {yaml_string(image)}
-          imagePullPolicy: {yaml_string(image_pull_policy)}
-{resources}
-          ports:
-            - name: metrics
-              containerPort: 9405
-{capture_container}
-          env:
-            - name: BOOTSTRAP_SERVERS
-              value: {yaml_string(kafka_bootstrap)}
-            - name: BASE_TPS
-              value: "{as_int(load_test.get("base_tps"), 10000)}"
-            - name: ORDER_EVENT_PERCENT
-              value: "{as_int(load_test.get("order_event_percent"), 40)}"
-            - name: BATCH_EVENT_PERCENT
-              value: "{as_int(load_test.get("batch_event_percent"), 20)}"
-            - name: CAULDRON_TELEMETRY_PERCENT
-              value: "{as_int(load_test.get("cauldron_telemetry_percent"), 40)}"
-            - name: LOAD_PROFILE
-              value: {yaml_string(as_str(load_test.get("load_profile"), "0 -> (60s, warmup) -> 100 -> (120s, maximum) -> 100 -> (30s, cool-down) -> 0"))}
-            - name: CAULDRON_COUNT
-              value: "{as_int(load_test.get("cauldron_count"), 32)}"
-            - name: MIN_ORDERS_PER_BATCH
-              value: "{as_int(load_test.get("min_orders_per_batch"), 3)}"
-            - name: MAX_ORDERS_PER_BATCH
-              value: "{as_int(load_test.get("max_orders_per_batch"), 8)}"
-            - name: MIN_BREWING_STEPS
-              value: "{as_int(load_test.get("min_brewing_steps"), 5)}"
-            - name: MAX_BREWING_STEPS
-              value: "{as_int(load_test.get("max_brewing_steps"), 10)}"
-            - name: BREWING_STEP_BURST_EVERY
-              value: "{as_int(load_test.get("brewing_step_burst_every"), 1)}"
-            - name: MIN_BREWING_STEP_BURST
-              value: "{as_int(load_test.get("min_brewing_step_burst"), 5)}"
-            - name: MAX_BREWING_STEP_BURST
-              value: "{as_int(load_test.get("max_brewing_step_burst"), 10)}"
-            - name: MAX_BURST
-              value: "{as_int(load_test.get("max_burst"), 1000)}"
-            - name: STATS_LOG_INTERVAL_SECONDS
-              value: "{as_int(load_test.get("stats_log_interval_seconds"), 30)}"
-            - name: DIAGNOSTICS_BLOB_SIZE
-              value: "{as_int(load_test.get("diagnostics_blob_size"), 512)}"
-            - name: TELEMETRY_SOURCE_MODE
-              value: {yaml_string(as_str(load_test.get("telemetry_source_mode"), "ACTIVE_BATCHES"))}
-            - name: PUBLISH_ENABLED
-              value: "{str(as_bool(load_test.get("publish_enabled"), True)).lower()}"
-            - name: AUDIT_LOG_ENABLED
-              value: "{str(as_bool(load_test.get("audit_log_enabled"), True)).lower()}"
-            - name: AUDIT_TCP_HOST
-              value: {yaml_string(audit_tcp_host)}
-            - name: AUDIT_TCP_PORT
-              value: "{audit_tcp_port}"
-            - name: LOAD_TEST_WORKERS
-              value: {yaml_string(as_str(load_test.get("workers"), ""))}
-            - name: KAFKA_PRODUCER_LINGER_MS
-              value: {yaml_string(as_str(load_test.get("kafka_producer_linger_ms"), ""))}
-            - name: KAFKA_PRODUCER_BATCH_SIZE
-              value: {yaml_string(as_str(load_test.get("kafka_producer_batch_size"), ""))}
-            - name: KAFKA_PRODUCER_COMPRESSION_TYPE
-              value: {yaml_string(as_str(load_test.get("kafka_producer_compression_type"), ""))}
-            - name: KAFKA_PRODUCER_BUFFER_MEMORY
-              value: {yaml_string(as_str(load_test.get("kafka_producer_buffer_memory"), ""))}
-            - name: ORDER_KAFKA_PRODUCER_LINGER_MS
-              value: {yaml_string(as_str(load_test.get("order_kafka_producer_linger_ms"), ""))}
-            - name: ORDER_KAFKA_PRODUCER_BATCH_SIZE
-              value: {yaml_string(as_str(load_test.get("order_kafka_producer_batch_size"), ""))}
-            - name: ORDER_KAFKA_PRODUCER_COMPRESSION_TYPE
-              value: {yaml_string(as_str(load_test.get("order_kafka_producer_compression_type"), ""))}
-            - name: ORDER_KAFKA_PRODUCER_BUFFER_MEMORY
-              value: {yaml_string(as_str(load_test.get("order_kafka_producer_buffer_memory"), ""))}
-            - name: BATCH_KAFKA_PRODUCER_LINGER_MS
-              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_linger_ms"), ""))}
-            - name: BATCH_KAFKA_PRODUCER_BATCH_SIZE
-              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_batch_size"), ""))}
-            - name: BATCH_KAFKA_PRODUCER_COMPRESSION_TYPE
-              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_compression_type"), ""))}
-            - name: BATCH_KAFKA_PRODUCER_BUFFER_MEMORY
-              value: {yaml_string(as_str(load_test.get("batch_kafka_producer_buffer_memory"), ""))}
-            - name: TELEMETRY_KAFKA_PRODUCER_LINGER_MS
-              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_linger_ms"), ""))}
-            - name: TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE
-              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_batch_size"), ""))}
-            - name: TELEMETRY_KAFKA_PRODUCER_COMPRESSION_TYPE
-              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_compression_type"), ""))}
-            - name: TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY
-              value: {yaml_string(as_str(load_test.get("telemetry_kafka_producer_buffer_memory"), ""))}
-            - name: TOTAL_SHARDS
-              value: "{shards}"
-            - name: TEST_RUN_ID
-              value: {yaml_string(run_id)}
-            - name: TEST_RUN_STARTED_AT
-              value: {yaml_string(started_at)}
-{capture_volume}
-"""
-    kubectl_apply(manifest)
-    return job_name
 
 
 def collect_job_logs(job_name: str, logs_dir: Path) -> None:
@@ -915,47 +681,8 @@ def require_section(root: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-def require_profile_file(base_dir: Path, name: str) -> Path:
-    path = base_dir / f"{name}.yaml"
-    if not path.is_file():
-        raise FileNotFoundError(f"Profile file was not found: {path}")
-    return path
-
-
-def deployment_value_overrides(deployment: dict[str, Any]) -> dict[str, Any]:
-    mappings = {
-        "replica_count": "replicaCount",
-        "processing_dispatcher_type": "env.processingDispatcherType",
-        "worker_dispatcher_threads": "env.workerDispatcherThreads",
-        "order_processing_mode": "env.orderProcessingMode",
-        "order_worker_concurrency": "env.orderWorkerConcurrency",
-        "order_poll_loop_concurrency": "env.orderPollLoopConcurrency",
-        "order_work_channel_capacity": "env.orderWorkChannelCapacity",
-        "batch_processing_mode": "env.batchProcessingMode",
-        "batch_worker_concurrency": "env.batchWorkerConcurrency",
-        "batch_poll_loop_concurrency": "env.batchPollLoopConcurrency",
-        "batch_work_channel_capacity": "env.batchWorkChannelCapacity",
-        "telemetry_processing_mode": "env.telemetryProcessingMode",
-        "telemetry_worker_concurrency": "env.telemetryWorkerConcurrency",
-        "telemetry_poll_loop_concurrency": "env.telemetryPollLoopConcurrency",
-        "telemetry_work_channel_capacity": "env.telemetryWorkChannelCapacity",
-    }
-    return {helm_name: deployment[name] for name, helm_name in mappings.items() if deployment.get(name) is not None}
-
-
 def deployment_profile(deployment: dict[str, Any]) -> str:
     return as_str(deployment.get("profile"), "ckc")
-
-
-def flatten_helm_values(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in values.items():
-        path = f"{prefix}.{key}" if prefix else str(key)
-        if isinstance(value, dict):
-            result.update(flatten_helm_values(value, path))
-        else:
-            result[path] = value
-    return result
 
 
 def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any]:
@@ -1006,72 +733,79 @@ def deploy_workloads(
     registry: str,
     packet_capture_enabled: bool,
     run_id: str,
-) -> None:
-    deployment = require_section(definition, "deployment")
-    profile = deployment_profile(deployment)
-    charts_dir = repo_dir / "demo" / "infra" / "shared" / "helm"
+    definition_path: Path,
+    generated_dir: Path,
+) -> Path:
+    require_section(definition, "deployment")
+    del repo_dir
     image_pull_policy = as_str(lab_context.get("image_pull_policy"), "Always")
-
-    stubs_chart = charts_dir / "demo-stubs"
-    stubs_value_files = [
-        stubs_chart / "values.yaml",
-        require_profile_file(stubs_chart / "profiles", "aws-hpa"),
-    ]
-    helm_upgrade_install(
-        "ckc-demo-stubs",
-        stubs_chart,
-        "ckc-app",
-        stubs_value_files,
-        {
-            "image.repository": f"{registry}/demo-stubs",
-            "image.tag": "latest",
-            "image.pullPolicy": image_pull_policy,
-            "env.redisHost": as_str(lab_context.get("redis_host"), ""),
-            "runId": run_id,
-        },
-    )
-
-    demo_chart = charts_dir / "demo"
-    demo_value_files = [demo_chart / "values.yaml"]
-    if not isinstance(deployment.get("values"), dict):
-        raise ValueError(
-            "AWS deployment.values is missing; materialize the target from a shared experiment before running it."
-        )
-    demo_overrides = {
-        "image.repository": f"{registry}/demo",
-        "image.tag": "latest",
-        "image.pullPolicy": image_pull_policy,
-        "env.bootstrapServers": as_str(lab_context.get("kafka_bootstrap"), ""),
-        "env.redisHost": as_str(lab_context.get("redis_host"), ""),
-        "env.auditTcpHost": as_str(lab_context.get("audit_tcp_host"), ""),
-        "env.auditTcpPort": as_int(lab_context.get("audit_tcp_port"), 5170),
-        "env.auditRunId": run_id,
-        "runProfile": profile,
-        "env.modelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.etaModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.flavourModelBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "env.registryBaseUrl": "http://ckc-demo-stubs.ckc-app.svc.cluster.local:8080",
-        "diagnostics.packetCapture.enabled": packet_capture_enabled,
-    }
-    planned_values = deployment.get("values") or {}
-    if isinstance(planned_values, dict):
-        demo_overrides.update(flatten_helm_values({key: value for key, value in planned_values.items() if key != "lab"}))
-    demo_overrides.update(deployment_value_overrides(deployment))
-    helm_upgrade_install(
-        "ckc-demo",
-        demo_chart,
-        "ckc-app",
-        demo_value_files,
-        demo_overrides,
-    )
+    plan_path = definition_path.parent / "deployment-plan.yaml"
+    if not plan_path.is_file():
+        raise FileNotFoundError(f"Generated deployment plan was not found: {plan_path}")
+    plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    manifests = render_project_manifests(plan, DeploymentBindings(
+        run_id=run_id,
+        application_image=f"{registry}/demo:latest",
+        stubs_image=f"{registry}/demo-stubs:latest",
+        load_test_image=f"{registry}/load-test:latest",
+        kafka_bootstrap=as_str(lab_context.get("kafka_bootstrap"), ""),
+        redis_host=as_str(lab_context.get("redis_host"), ""),
+        audit_host=as_str(lab_context.get("audit_tcp_host"), ""),
+        audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
+        image_pull_policy=image_pull_policy,
+        packet_capture_enabled=packet_capture_enabled,
+    ))
+    application_manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = generated_dir / "project-deployment.yaml"
+    manifest_path.write_text(yaml.safe_dump_all(application_manifests, sort_keys=False), encoding="utf-8")
+    run(["kubectl", "apply", "-f", str(manifest_path)])
+    return manifest_path
 
 
-def cleanup_workloads(job_name: str | None) -> None:
+def deploy_load_workload(
+    definition_path: Path,
+    lab_context: dict[str, Any],
+    registry: str,
+    packet_capture_enabled: bool,
+    run_id: str,
+    started_at: str,
+    active_deadline_seconds: int,
+    generated_dir: Path,
+) -> tuple[str, Path]:
+    plan_path = definition_path.parent / "deployment-plan.yaml"
+    if not plan_path.is_file():
+        raise FileNotFoundError(f"Generated deployment plan was not found: {plan_path}")
+    plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    manifests = render_project_manifests(plan, DeploymentBindings(
+        run_id=run_id,
+        application_image=f"{registry}/demo:latest",
+        stubs_image=f"{registry}/demo-stubs:latest",
+        load_test_image=f"{registry}/load-test:latest",
+        kafka_bootstrap=as_str(lab_context.get("kafka_bootstrap"), ""),
+        redis_host=as_str(lab_context.get("redis_host"), ""),
+        audit_host=as_str(lab_context.get("audit_tcp_host"), ""),
+        audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
+        image_pull_policy=as_str(lab_context.get("image_pull_policy"), "Always"),
+        packet_capture_enabled=packet_capture_enabled,
+        active_deadline_seconds=active_deadline_seconds,
+        started_at=started_at,
+    ))
+    load_manifests = [item for item in manifests if item["kind"] in {"ConfigMap", "Job"}]
+    job = next(item for item in load_manifests if item["kind"] == "Job")
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = generated_dir / "load-test.yaml"
+    manifest_path.write_text(yaml.safe_dump_all(load_manifests, sort_keys=False), encoding="utf-8")
+    run(["kubectl", "apply", "-f", str(manifest_path)])
+    return str(job["metadata"]["name"]), manifest_path
+
+
+def cleanup_workloads(job_name: str | None, project_manifest: Path | None) -> None:
     if job_name:
         delete_job(job_name)
-    run(["kubectl", "-n", "ckc-loadtest", "delete", "configmap", "ckc-test-definition", "--ignore-not-found=true"], check=False)
-    helm_uninstall("ckc-demo", "ckc-app")
-    helm_uninstall("ckc-demo-stubs", "ckc-app")
+    run(["kubectl", "-n", "ckc-loadtest", "delete", "configmap", "ckc-experiment-workload", "--ignore-not-found=true"], check=False)
+    if project_manifest:
+        run(["kubectl", "delete", "-f", str(project_manifest), "--ignore-not-found=true"], check=False)
 
 
 def main() -> None:
@@ -1119,6 +853,7 @@ def main() -> None:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
         raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
     job_name: str | None = None
+    project_manifest: Path | None = None
     diagnostics_process: subprocess.Popen[str] | None = None
     diagnostics_log = None
 
@@ -1151,7 +886,10 @@ def main() -> None:
     status = "FAILED"
 
     try:
-        deploy_workloads(repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id)
+        project_manifest = deploy_workloads(
+            repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id,
+            definition_path, run_dir / "generated",
+        )
         wait_for_demo_rollout()
         if stub_settings is not None:
             configure_stubs(stub_settings, run_dir / "logs" / "configure-stubs.log")
@@ -1172,18 +910,15 @@ def main() -> None:
             "status": "started",
             "details": {"runId": run_id, "annotationLabel": annotation_label},
         })
-        deploy_definition_config_map(definition)
-        job_name = deploy_load_job(
-            f"{registry}/load-test:latest",
-            load_test,
-            as_str(lab_context.get("kafka_bootstrap"), ""),
-            as_str(lab_context.get("image_pull_policy"), "Always"),
-            started_at,
-            run_id,
-            wait_timeout_seconds,
+        job_name, _ = deploy_load_workload(
+            definition_path,
+            lab_context,
+            registry,
             bool(diagnostic_steps),
-            as_str(lab_context.get("audit_tcp_host"), ""),
-            as_int(lab_context.get("audit_tcp_port"), 5170),
+            run_id,
+            started_at,
+            wait_timeout_seconds,
+            run_dir / "generated",
         )
         if diagnostic_steps:
             diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
@@ -1297,7 +1032,7 @@ def main() -> None:
             encoding="utf-8",
         )
         if bool(lab_context.get("cleanup_workloads", True)):
-            cleanup_workloads(job_name)
+            cleanup_workloads(job_name, project_manifest)
 
 
 if __name__ == "__main__":

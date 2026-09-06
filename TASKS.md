@@ -275,6 +275,15 @@
 | [INFRA-130](#infra-130) | Sync shared test definitions and SLA profiles into the installed internal lab. | DONE |
 | [INFRA-131](#infra-131) | Add a 20-minute AWS 10k/s comparison of single-pod Spring Kafka with JDK HTTP and CKC, using 30% parallelism headroom. | DONE |
 | [INFRA-132](#infra-132) | Use explicit Thread Stats categories in the Kafka agent, Grafana dashboards, and experiment reporting. | DONE |
+| [INFRA-133](#infra-133) | Define one self-contained experiment contract with canonical resolution and environment capability validation. | DONE |
+| [INFRA-134](#infra-134) | Generate environment deployment plans and inspectable infrastructure inputs from canonical experiments. | DONE |
+| [INFRA-135](#infra-135) | Run canonical experiments through one shared CLI and explicit internal-lab and AWS lifecycle adapters. | DONE |
+| [INFRA-136](#infra-136) | Finalize every experiment into one report, one canonical evidence bundle, and one independent audit archive. | DONE |
+| [INFRA-137](#infra-137) | Migrate maintained experiments and remove external workload, acceptance, implementation, and Terraform profile catalogs. | DONE |
+| [INFRA-138](#infra-138) | Generate and apply project-owned Kubernetes resources without repository Helm charts. | DONE |
+| [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
+| [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
+| [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3100,3 +3109,137 @@ Preserve configuration order in stacked category panels through an optional, cou
 Update the installed optilab runtime and validate the shared dashboard and telemetry contract with the `smoke-repeat` experiment.
 
 Verification: all 96 demo tests, 6 dashboard bundle tests, and 53 internal-lab tests passed. The optilab `smoke-repeat` experiment set `20260904T102937Z` completed both targets with passing SLA; the final installed endpoints expose count-width ordered categories (`1` through `7` for the demo), and non-stacked panels remove the prefix generically.
+
+<a id="infra-133"></a>
+### INFRA-133 - Define the canonical experiment contract
+
+_Date: 2026-09-04_
+
+Introduce one self-contained experiment document containing workload, acceptance criteria, targets, and environment definitions.
+Resolve and validate the document into a canonical runtime snapshot, including explicit environment capability checks before provisioning.
+Retain a bounded compatibility path for existing experiment, test-definition, SLA-profile, and consumer-profile inputs while later tasks migrate execution and remove the legacy model.
+
+The versioned JSON Schema, portable two-environment smoke example, and validation CLI document the new authoring boundary and emit one immutable selected-environment snapshot with defaults and target workload overrides fully resolved.
+
+Verification: 15 shared orchestration tests, 53 internal-lab tests, and 28 AWS tests passed; the canonical smoke validated and rendered for AWS, all modified Python modules compiled, and the schema passed Draft 2020-12 validation against the example.
+
+<a id="infra-134"></a>
+### INFRA-134 - Generate experiment deployment plans
+
+_Date: 2026-09-04_
+
+Generate one typed deployment plan from each resolved target instead of treating Helm values or Terraform profiles as user-authored workload configuration.
+Materialize deterministic Kubernetes resources for project-owned workloads and JSON Terraform variables for the selected AWS lab while retaining pinned third-party Helm releases as adapter details.
+Preserve the generated desired-state inputs as inspectable run artifacts for later inclusion in the canonical evidence bundle.
+
+Canonical materialization now emits path-independent target deployment plans and structured AWS Terraform inputs, while a shared renderer produces project-owned application, stubs, workload, and load-generator Kubernetes resources after runtime endpoints and image digests are bound.
+The portable example defines the complete AWS lab topology directly and pins the currently validated Kafka and Redis third-party chart versions instead of selecting external Terraform profiles or floating Helm releases.
+
+Verification: 17 shared orchestration tests, 53 internal-lab tests, and 28 AWS tests passed; six generated Kubernetes documents round-tripped through YAML, the AWS Terraform input mapping was checked field-by-field, all modified Python modules compiled, and the canonical example continued to pass its Draft 2020-12 schema.
+
+<a id="infra-135"></a>
+### INFRA-135 - Run experiments through shared orchestration
+
+_Date: 2026-09-04_
+
+Provide one repository entrypoint that validates an experiment, selects an explicitly configured environment, and delegates environment operations through a shared lifecycle-adapter contract.
+Keep installed internal-lab execution and disposable AWS provisioning as bounded adapters while sharing resolution, command semantics, status handling, and interruption behavior.
+Retain compatibility wrappers during migration so the following artifact task can replace environment-specific finalization without changing how experiments are started.
+
+The repository-level command now validates the selected canonical environment before dispatch, forwards termination signals, uses bounded root SSH for installed internal-lab execution, and invokes the existing disposable AWS lifecycle with experiment-owned region and Terraform inputs.
+Both adapters consume inline acceptance rules; environment-specific legacy entrypoints remain available while the shared artifact finalizer is introduced next.
+
+Verification: 20 shared orchestration tests, 53 internal-lab tests, and 29 AWS tests passed; canonical AWS session state was materialized without provisioning resources, modified Python modules compiled, Bash entrypoints passed syntax checks, and the shared CLI help/argument contract was exercised.
+
+<a id="infra-136"></a>
+### INFRA-136 - Produce canonical experiment artifacts
+
+_Date: 2026-09-04_
+
+Replace environment-specific export and packaging outcomes with one shared, atomic finalizer for successful, failed, and interrupted experiments.
+Produce a Markdown report with its image assets, a self-contained evidence tarball with one restore kit, and a separately verifiable audit tarball containing raw audit data and analyzer evidence.
+Use one versioned layout, manifests, checksums, and secret-redaction policy for internal-lab and AWS; environment differences remain explicit evidence content rather than different archive structures.
+
+The shared finalizer now stages and atomically publishes `report.md` with `report-assets/`, `evidence.tar.gz`, and `audit.tar.gz`; it also emits a diagnostic report after early failures or interruptions.
+Both environments call that finalizer, raw audit streams remain independently checksummed, external internal-lab run directories are included, and the evidence archive applies a documented secret-redaction policy.
+The evidence bundle contains one pinned Grafana/Loki/VictoriaMetrics restore kit, while successful reports identify only their execution environment and status as environment-specific presentation data.
+
+Verification: 42 shared tests, 53 internal-lab tests, and 29 AWS tests passed; modified Python modules compiled, restore Bash entrypoints passed syntax checks, and the archive test verified layout, report links, checksums, audit separation, metric preservation, redaction, fallback reports, and absence of partial outputs.
+
+<a id="infra-137"></a>
+### INFRA-137 - Migrate canonical experiments and remove profile catalogs
+
+_Date: 2026-09-04_
+
+Convert maintained internal-lab and AWS experiments into self-contained canonical files and make the shared repository entrypoint the documented way to run them.
+Remove legacy test-definition, SLA-profile, consumer-profile, and Terraform profile paths once no maintained experiment references them.
+Keep generic static Terraform modules, but drive them only with generated experiment inputs and preserve those generated files in canonical evidence.
+
+All 15 maintained experiments now live in `demo/infra/experiments` as schema-versioned, self-contained documents with inline workload, acceptance, implementation, target, and environment configuration.
+Canonical materialization writes an implementation profile file from that snapshot and no longer reads a repository catalog; internal-lab passes it through to the low-level compatibility runner.
+The duplicated environment experiment directories, shared workload catalogs, installed workload paths, and AWS Terraform `.tfvars` profiles were removed; AWS Terraform now receives only generated JSON plus runtime session bindings.
+
+Verification: all 15 experiments passed both canonical resolution and Draft 2020-12 schema validation and materialized without an external profile path; 21 shared orchestration tests, 53 internal-lab tests, and 29 AWS tests passed, and modified Python and Bash entrypoints passed syntax checks.
+
+<a id="infra-138"></a>
+### INFRA-138 - Generate project-owned deployments
+
+_Date: 2026-09-04_
+
+Apply application, stubs, and load-test Kubernetes resources generated from the resolved deployment plan instead of maintaining project-owned Helm charts.
+Keep Helm only for pinned third-party Kafka and Redis releases, whose chart and version are declared by the experiment environment.
+Preserve the exact generated manifests in experiment evidence for both internal-lab and AWS.
+
+The shared deployment-plan renderer now creates the application, stubs, services, optional HPA, workload ConfigMap, and load-test Job from the resolved experiment plus explicit runtime bindings.
+Internal-lab and AWS apply those generated files directly and retain them beside the resolved target; the repository-owned application and stubs Helm charts and their environment-specific values/deploy scripts were removed.
+AWS load-test deployment now uses the same renderer, including audit, resource, timing, and packet-capture settings; Helm remains only for pinned third-party Kafka and Redis releases declared in the experiment.
+
+Verification: 23 shared orchestration/result tests, 53 internal-lab tests, and 27 AWS tests passed; modified Python and Bash entrypoints passed syntax checks and the diff passed whitespace validation.
+
+<a id="infra-139"></a>
+### INFRA-139 - Share evidence collection and restore preparation
+
+_Date: 2026-09-04_
+
+Move metrics, workload-log, dashboard, and offline-restore preparation into one shared evidence pipeline.
+Make environment adapters provide only source endpoints and transport details, then feed the same canonical finalizer layout.
+Remove the duplicated AWS and internal-lab restore implementations after compatibility coverage proves the shared path.
+
+The shared collector now exports canonical Loki JSONL and Prometheus query-range TSDB blocks from adapter-supplied endpoints and records source failures in an evidence collection manifest.
+One shared preparation step builds archived log streams, environment-aware dashboards, capability metadata, and the fully provisioned offline restore kit for both environments.
+Internal-lab automatic and manual exports now produce the canonical three-artifact contract; AWS no longer emits the legacy result archive, and both environment-specific restore trees were removed.
+
+Verification: 24 shared orchestration/result tests, 6 shared dashboard tests, 53 internal-lab tests, and 27 AWS tests passed; modified Python and Bash files passed syntax checks and the diff passed whitespace validation.
+
+<a id="infra-140"></a>
+### INFRA-140 - Remove legacy experiment indirection
+
+_Date: 2026-09-04_
+
+Remove external test-definition, SLA-profile, and consumer-profile resolution from the canonical experiment API now that all maintained experiments are self-contained.
+Update reporting terminology and raw links to point at the resolved experiment and target snapshots.
+Document the shared experiment runner as the only supported operator entrypoint and keep environment run-test scripts as private compatibility backends.
+
+The resolver now rejects every legacy shape, materialization uses only the inline implementation catalog, and the remaining shared workload helpers no longer carry a `test_definition` module boundary.
+Internal-lab synchronization preserves the canonical experiment catalog and independently owned shared helpers; checkout-side execution bootstraps shared packages without cwd assumptions, and canonical deployment plans cannot inherit interactive stub-replica overrides.
+The finalizer also ignores absent run-directory fields instead of interpreting them as the process cwd, preventing an early failed target from copying unrelated host files into evidence.
+Final Markdown reports no longer link to unpackaged `raw/` files: they identify the exact evidence paths for per-run details and describe the remaining offline contents as part of `evidence.tar.gz`.
+The shared restore stack runs with the invoking user's UID and GID and pre-creates the Grafana dashboard mount, so closing a restored result leaves no root-owned runtime files behind.
+
+Verification: 35 shared orchestration/result tests, 6 shared dashboard tests, 50 internal-lab tests, and 27 AWS tests passed; all 15 supported experiment/environment variants validated. Internal-lab experiment set `20260905T044153Z` completed both targets with passing delivery and latency acceptance, collected 3,443 labeled Loki records and one 102,346-sample metrics block, and produced the canonical report, evidence, and audit outputs. AWS session `s-20260905-051756-46249e` completed its `ckc` target with passing delivery acceptance, produced the same canonical outputs, and independently verified cleanup with no live session resources. Its evidence archive imported 8,568 Loki records and restored into Grafana 11.6, Loki, and VictoriaMetrics with 7,709 metric series; the user-owned restore stack and temporary files were then removed without elevated access.
+
+<a id="infra-141"></a>
+### INFRA-141 - Build human-readable evidence archives
+
+_Date: 2026-09-05_
+
+Publish each run under an experiment-and-UTC-timestamp directory containing `report/` plus distinctly named evidence and audit archives.
+Replace result-tree copying with an explicit evidence whitelist organized around the report, restore data, deployment commands and inputs, and environment lab construction.
+Provide one foreground `run-grafana.sh` that restores the offline stack and cleans it up when the user presses `q` or interrupts it.
+
+The finalizer now publishes `<experiment>-<UTC timestamp>/report/` plus evidence and audit archives carrying the same unambiguous result name.
+Evidence is assembled from an explicit whitelist into `report`, `restore`, `deployment`, and `lab`; controller state, transport manifests, arbitrary result JSON, absolute host paths, Terraform state, and duplicated raw audit records are excluded.
+AWS evidence preserves controller commands, exact Terraform modules and resolved variables, the runner lab entrypoint, generated Kubernetes resources, and generated Helm values and commands when charts are used; internal-lab evidence records its commands and fixed-lab boundary.
+One root `run-grafana.sh` selects VictoriaMetrics for AWS snapshots or Prometheus for internal-lab TSDB blocks, imports Loki data, waits for `q` or interruption, and removes its user-owned runtime without a second script. Archive names now use `ckc-experiment-<experiment>-<UTC minute>-evidence.tar.gz` and `-audit.tar.gz`; both archives unpack into the same matching root, with the audit archive contributing only `audit/`. Audit targets are stored directly as `targetN.<name>/` with one uncompressed `audit.log`, without the historical `runs` directory or nested audit archives.
+
+Verification: 17 shared orchestration tests, 6 finalizer tests, 6 dashboard tests, 10 report tests, 50 internal-lab tests, and 28 AWS tests passed; Python and Bash syntax, Compose rendering, whitespace, archive whitelists, portable paths, and interactive restore cleanup were validated. Internal-lab experiment `20260905T134441Z` completed both smoke targets with passing acceptance, collected 3,522 Loki records and a 116,297-sample metrics block, and published `smoke-repeat-20260905T134441Z`. Its exported evidence restored Grafana 11.6, both application Loki streams, 555 Prometheus head series, and 11,911 series at a historical experiment timestamp, then stopped cleanly on `q`.

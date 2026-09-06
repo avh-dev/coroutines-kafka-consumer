@@ -10,8 +10,10 @@ RESULTS_DIR="${LAB_ROOT}/results"
 AUDIT_LIVE_DIR="${RESULTS_DIR}/live/audit"
 AUDIT_LIVE_FILE="${AUDIT_LIVE_DIR}/audit.log"
 CURRENT_DEPLOYMENT_PATH="${LAB_ROOT}/config/current-deployment.env"
-DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/helm/demo/profiles"
-TEST_DIR="${LAB_ROOT}/workloads/test-definitions"
+DEPLOYMENT_PROFILE_DIR="${LAB_ROOT}/state/materialized"
+TEST_DIR="${LAB_ROOT}/state/materialized"
+CONSUMER_PROFILES_PATH="${LAB_ROOT}/state/materialized/implementation-profiles.yaml"
+DEPLOYMENT_PLAN_PATH=""
 AUDIT_TCP_HOST="${AUDIT_TCP_HOST:-127.0.0.1}"
 AUDIT_TCP_PORT="${AUDIT_TCP_PORT:-5170}"
 AUDIT_HTTP_PORT="${AUDIT_HTTP_PORT:-2020}"
@@ -82,6 +84,8 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--jdk-http-client-executor DEFAULT|VIRTUAL]
           [--env KEY=VALUE]
+          [--consumer-profiles path]
+          [--deployment-plan path]
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
 Selects an internal-lab consumer profile and test definition, prepares the lab when
@@ -142,6 +146,9 @@ Options:
   --worker-dispatcher-threads
                     Set the fixed worker dispatcher thread count.
   --env             Override any generated test environment value. Can be repeated.
+  --consumer-profiles
+                    Use the generated implementation catalog from a canonical experiment.
+  --deployment-plan Use the generated Kubernetes desired state from a canonical experiment.
   -h, --help       Show this help.
 EOF
 }
@@ -256,6 +263,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --env)
       ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
+      shift 2
+      ;;
+    --consumer-profiles)
+      CONSUMER_PROFILES_PATH="${2:?--consumer-profiles requires a path}"
+      shift 2
+      ;;
+    --deployment-plan)
+      DEPLOYMENT_PLAN_PATH="${2:?--deployment-plan requires a path}"
       shift 2
       ;;
     -h|--help)
@@ -450,7 +465,7 @@ resolve_yaml() {
 
 list_run_profiles() {
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --list-profiles
 }
 
@@ -462,7 +477,7 @@ run_profile_exists() {
 profile_dispatcher_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --profile-dispatchers
 }
@@ -470,7 +485,7 @@ profile_dispatcher_info() {
 profile_planning_latency_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --profile-planning-latencies
 }
@@ -478,7 +493,7 @@ profile_planning_latency_info() {
 profile_processing_mode_info() {
   local profile="$1"
   python3 "${LAB_ROOT}/helpers/plan-run.py" \
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml" \
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}" \
     --profile "${profile}" \
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}" \
     --profile-processing-modes
@@ -665,7 +680,11 @@ if [ "${PROCESSING_ENABLED}" != "true" ] && [ "${PROCESSING_ENABLED}" != "false"
   exit 1
 fi
 
-if [ -z "${STUB_REPLICA_COUNT}" ]; then
+if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
+  # The canonical deployment plan owns project resource replicas. Do not turn
+  # the persisted interactive-run value into an out-of-band override.
+  STUB_REPLICA_COUNT=""
+elif [ -z "${STUB_REPLICA_COUNT}" ]; then
   if [ ! -t 0 ]; then
     STUB_REPLICA_COUNT="${CURRENT_STUB_REPLICA_COUNT}"
   else
@@ -891,7 +910,7 @@ if [ -z "${DEPLOYMENT_PROFILE}" ]; then
   PLAN_ARGS=(
     "${TEST_DEFINITION}"
     --profile "${RUN_PROFILE}"
-    --consumer-profiles "${LAB_ROOT}/workloads/consumer-profiles.yaml"
+    --consumer-profiles "${CONSUMER_PROFILES_PATH}"
     --output-dir "${PLAN_OUTPUT_DIR}"
     --current-deployment-env "${CURRENT_DEPLOYMENT_PATH}"
     --processing-enabled "${PROCESSING_ENABLED}"
@@ -1134,6 +1153,9 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     --kafka-implementation
     "${LAB_KAFKA_IMPLEMENTATION}"
   )
+  if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
+    PREPARE_ARGS+=(--deployment-plan "${DEPLOYMENT_PLAN_PATH}")
+  fi
   PREPARE_ARGS+=(--env "JDK_HTTP_CLIENT_EXECUTOR=${JDK_HTTP_CLIENT_EXECUTOR}")
   if [ -n "${STUB_REPLICA_COUNT}" ]; then
     PREPARE_ARGS+=(--stub-replicas "${STUB_REPLICA_COUNT}")
@@ -1151,6 +1173,9 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
       --kafka-implementation
       "${LAB_KAFKA_IMPLEMENTATION}"
     )
+    if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
+      PREPARE_ARGS+=(--deployment-plan "${DEPLOYMENT_PLAN_PATH}")
+    fi
     PREPARE_ARGS+=(--env "JDK_HTTP_CLIENT_EXECUTOR=${JDK_HTTP_CLIENT_EXECUTOR}")
     if [ -n "${STUB_REPLICA_COUNT}" ]; then
       PREPARE_ARGS+=(--stub-replicas "${STUB_REPLICA_COUNT}")

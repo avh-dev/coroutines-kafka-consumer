@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ckc.dev/schemas/experiment-v1.json",
+  "title": "CKC experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "workload", "acceptance", "implementations", "targets", "environments"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "workload": {"$ref": "#/$defs/workload"},
+    "acceptance": {"$ref": "#/$defs/acceptance"},
+    "implementations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topics", "profiles"],
+      "properties": {
+        "topics": {"type": "object", "minProperties": 1},
+        "profiles": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "object", "minProperties": 1}
+        }
+      }
+    },
+    "defaults": {"$ref": "#/$defs/defaults"},
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/target"}
+    },
+    "environments": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+      "additionalProperties": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stubs", "load"],
+      "properties": {
+        "stubs": {"type": "object", "minProperties": 1},
+        "load": {"type": "object", "minProperties": 1},
+        "chaos": {"type": "array", "items": {"type": "object"}},
+        "diagnostics": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "workloadOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stubs": {"type": "object"},
+        "load": {"type": "object"},
+        "chaos": {"type": "array", "items": {"type": "object"}},
+        "diagnostics": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {"id": {"type": "string", "minLength": 1}}
+          }
+        },
+        "latency": {"type": "object"}
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 1},
+        "resources": {"type": "object"},
+        "hpa": {"type": "object"},
+        "java_options": {"type": "string"}
+      }
+    },
+    "topicRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partitions": {"type": "integer", "minimum": 1},
+        "workers": {"type": "integer", "minimum": 1},
+        "pollers": {"type": "integer", "minimum": 1},
+        "queue_capacity": {"type": "integer", "minimum": 1},
+        "processing_mode": {"type": "string", "minLength": 1}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "object",
+          "additionalProperties": {"type": ["string", "number", "integer", "boolean", "null"]}
+        },
+        "planning_latency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "order_ms": {"type": "number", "minimum": 0},
+            "batch_ms": {"type": "number", "minimum": 0},
+            "telemetry_ms": {"type": "number", "minimum": 0}
+          }
+        },
+        "parallelism": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["partitions", "workers", "pollers"]}
+        },
+        "topics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "order": {"$ref": "#/$defs/topicRuntime"},
+            "batch": {"$ref": "#/$defs/topicRuntime"},
+            "telemetry": {"$ref": "#/$defs/topicRuntime"}
+          }
+        }
+      }
+    },
+    "targetConfiguration": {
+      "type": "object",
+      "properties": {
+        "application": {"$ref": "#/$defs/application"},
+        "runtime": {"$ref": "#/$defs/runtime"}
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "application": {"$ref": "#/$defs/application"},
+        "runtime": {"$ref": "#/$defs/runtime"}
+      }
+    },
+    "target": {
+      "allOf": [
+        {"$ref": "#/$defs/targetConfiguration"},
+        {
+          "type": "object",
+          "required": ["name", "implementation"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "name": {"type": "string", "minLength": 1},
+            "implementation": {"type": "string", "minLength": 1},
+            "annotation_label": {"type": "string"},
+            "workload": {"$ref": "#/$defs/workloadOverride"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

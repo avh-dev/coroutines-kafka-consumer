@@ -10,13 +10,10 @@ SHARED_ROOT = Path(__file__).resolve().parents[3] / "shared"
 if SHARED_ROOT.is_dir() and str(SHARED_ROOT) not in sys.path:
     sys.path.insert(0, str(SHARED_ROOT))
 
-from experiment_orchestration.test_definition import (  # noqa: E402,F401
+from experiment_orchestration.workload import (  # noqa: E402,F401
     ResolvedExperimentTest,
     deep_merge,
     load_yaml,
-    resolve_experiment_test,
-    resolve_named_yaml,
-    resolve_target_test,
     validate_resolved_test,
     write_resolved_test,
 )
@@ -25,6 +22,7 @@ from experiment_orchestration.definition import (  # noqa: E402,F401
     ResolvedTarget,
     resolve_experiment_definition,
 )
+from experiment_orchestration.materialize import materialize_experiment  # noqa: E402,F401
 
 __all__ = [
     "ResolvedExperimentTest",
@@ -32,10 +30,8 @@ __all__ = [
     "ResolvedTarget",
     "deep_merge",
     "load_yaml",
-    "resolve_experiment_test",
+    "materialize_experiment",
     "resolve_experiment_definition",
-    "resolve_named_yaml",
-    "resolve_target_test",
     "validate_resolved_test",
     "write_resolved_test",
 ]

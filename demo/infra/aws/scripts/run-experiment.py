@@ -28,7 +28,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
 from experiment_report import generate_experiment_reports
-from experiment_report.analyze import load_sla_profile, load_yaml
+from result_bundle import finalize as finalize_artifacts
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
@@ -305,14 +305,21 @@ class SessionController:
             "commit": self.run(["git", "rev-parse", "HEAD"], capture=True),
             "dirty": bool(self.run(["git", "status", "--porcelain"], capture=True)),
         }
-        availability_zones = self.aws_json([
+        available_zones = self.aws_json([
             "ec2", "describe-availability-zones", "--region", self.config["region"],
             "--filters", "Name=state,Values=available",
             "--query", "AvailabilityZones[].ZoneName",
         ])
-        if not isinstance(availability_zones, list) or len(availability_zones) < 3:
+        if not isinstance(available_zones, list) or len(available_zones) < 3:
             raise RuntimeError(f"At least three available zones are required in {self.config['region']}")
-        self.config["availability_zones"] = availability_zones[:3]
+        configured_zones = (self.config.get("terraform_lab_inputs") or {}).get("availability_zones")
+        if configured_zones:
+            unavailable = sorted(set(configured_zones) - set(available_zones))
+            if unavailable:
+                raise RuntimeError(f"Configured availability zones are unavailable: {', '.join(unavailable)}")
+            self.config["availability_zones"] = configured_zones
+        else:
+            self.config["availability_zones"] = available_zones[:3]
         self.save()
         self.ensure_ecr()
         if build_images:
@@ -453,16 +460,15 @@ class SessionController:
 
         lab_module = self.repo / "demo/infra/aws/assets/terraform/load-lab"
         lab_variables = {
+            **config.get("terraform_lab_inputs", {}),
             **common,
             "environment": config["aws_environment"],
             "runner_role_arn": runner_outputs["role_arn"],
             "availability_zones": config["availability_zones"],
         }
-        profile = config["lab_profile"]
-        lab_extra = [] if profile == "default" else [f"-var-file={lab_module / 'profiles' / (profile + '.tfvars')}"]
         self.phase("CREATING_LAB")
-        self.record_stack("lab", lab_module, lab_variables, lab_extra)
-        self.terraform("lab", lab_module, "apply", lab_variables, lab_extra)
+        self.record_stack("lab", lab_module, lab_variables, [])
+        self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
         context_path = self.session_dir / "provisioned-lab.json"
         json_write(context_path, lab_outputs)
@@ -483,7 +489,7 @@ class SessionController:
                 f"CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH={shlex.quote(remote_context)} "
                 f"CKC_AWS_IMAGE_ENVIRONMENT={shlex.quote(config['image_environment'])} "
                 "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/create-lab.sh "
-                f"{shlex.quote(region)} {shlex.quote(config['aws_environment'])} {shlex.quote(profile)} "
+                f"{shlex.quote(region)} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(config['test_definition'])}",
             ]),
             "configure disposable lab",
@@ -589,7 +595,7 @@ class SessionController:
         self.ssm(
             "CKC_LOAD_LAB_SKIP_TERRAFORM=true "
             "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/destroy-lab.sh "
-            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} {shlex.quote(config['lab_profile'])}",
+            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])}",
             "remove Kubernetes lab workloads",
             1800,
             check=False,
@@ -864,10 +870,7 @@ class SessionController:
 
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
-        sla_profile = None
-        if self.config.get("sla_profile"):
-            experiment_path = self.repo / self.config["experiment"]
-            sla_profile = load_sla_profile(SHARED_INFRA, load_yaml(experiment_path))
+        sla_profile = self.config.get("acceptance") or None
         summaries: dict[str, str] = {}
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
@@ -887,7 +890,7 @@ class SessionController:
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
             if sla_profile:
-                sla_path = audit_dir / "sla-profile.json"
+                sla_path = audit_dir / "acceptance.json"
                 json_write(sla_path, sla_profile)
                 command.extend(["--sla-profile-file", str(sla_path)])
             completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
@@ -938,6 +941,7 @@ class SessionController:
                 "resolved_test_path": str(base_test_path),
                 "base_tps": self.config.get("base_tps"),
                 "experiment_file": str((self.repo / self.config["experiment"]).resolve()),
+                "resolved_experiment_path": str(self.session_dir / "materialized/resolved-experiment.yaml"),
                 "result_dir": str(result_root),
                 "targets": targets,
                 "target_resolved_tests": {target["name"]: target["resolved_test_path"] for target in targets},
@@ -1033,8 +1037,11 @@ class SessionController:
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
             self.run([
-                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                sys.executable,
+                str(self.repo / "demo/infra/shared/result_bundle/prepare.py"),
                 str(result_dir),
+                "--repo-root", str(self.repo),
+                "--environment", "aws",
             ])
             session_metadata = result_dir / "session"
             session_metadata.mkdir(parents=True, exist_ok=True)
@@ -1054,8 +1061,11 @@ class SessionController:
         if self.config.get("mode") == "experiment":
             result_root = Path(self.state["local_result_dir"])
             self.run([
-                str(self.repo / "demo/infra/aws/restore/package-result.sh"),
+                sys.executable,
+                str(self.repo / "demo/infra/shared/result_bundle/prepare.py"),
                 str(result_root),
+                "--repo-root", str(self.repo),
+                "--environment", "aws",
             ])
             session_metadata = result_root / "session"
             session_metadata.mkdir(parents=True, exist_ok=True)
@@ -1068,11 +1078,25 @@ class SessionController:
                 str(result_root),
                 "--run-id", self.config["session_id"],
             ])
-        bundle_root = Path(self.state["local_result_dir"])
-        archive_path = self.session_dir / f"{self.config['session_id']}-result.tar.gz"
-        with tarfile.open(archive_path, "w:gz") as archive:
-            archive.add(bundle_root, arcname=self.config["session_id"])
-        self.state["result_bundle"] = str(archive_path)
+        self.finalize_canonical_artifacts("complete" if not self.state.get("failure") else "failed")
+        self.save()
+
+    def finalize_canonical_artifacts(self, status: str) -> None:
+        reports = [Path(value) for value in self.state.get("experiment_reports", [])]
+        configured_result = self.state.get("local_result_dir")
+        result_root = Path(configured_result) if configured_result and Path(configured_result).is_dir() else self.session_dir
+        report_dir = reports[0].parent if reports else self.session_dir / "missing-report"
+        canonical = finalize_artifacts(
+            result_root=result_root,
+            report_dir=report_dir,
+            output_dir=self.session_dir / "final",
+            experiment=self.config["experiment_name"],
+            environment="aws",
+            status=status,
+            restore_sources=[self.repo / "demo/infra/shared/result_bundle/restore"],
+            replace=True,
+        )
+        self.state["canonical_artifacts"] = {key: str(value) for key, value in canonical.items()}
         self.save()
 
 
@@ -1096,15 +1120,18 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     experiment_id = args.experiment_id or slug(definition.stem)
     resolved = resolve_experiment_definition(
         definition_path,
-        repo_root() / "demo/infra/shared/workloads/test-definitions",
-        lab_profile=args.lab_profile,
+        environment="aws",
     )
-    lab_profile = resolved.lab_profile or "default"
     materialized = materialize_experiment(
         resolved,
         output_dir=session_dir / "materialized",
-        consumer_profiles_path=repo_root() / "demo/infra/shared/workloads/consumer-profiles.yaml",
         repo_dir=repo_root(),
+    )
+    terraform_inputs_path = session_dir / "materialized/environment/terraform-lab-inputs.json"
+    terraform_lab_inputs = (
+        json.loads(terraform_inputs_path.read_text(encoding="utf-8"))
+        if terraform_inputs_path.is_file()
+        else {}
     )
     targets = [
         {
@@ -1121,13 +1148,14 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
-    base_test_definition = resolved.test.source_name
+    base_test_definition = resolved.name
     base_tps = resolved.test.definition.get("load_test", {}).get("base_tps")
-    sla_profile = str(resolved.definition.get("sla_profile") or "")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", lab_profile):
-        raise ValueError("lab-profile must be 1-32 lowercase letters, digits, or hyphens")
     expires_at = utc_now() + timedelta(hours=args.max_session_hours)
     aws_environment = f"s-{hashlib.sha256(session_id.encode('utf-8')).hexdigest()[:10]}"
+    canonical_region = str((resolved.environment_definition or {}).get("region") or "").strip()
+    region = canonical_region or args.region
+    if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", region):
+        raise ValueError("experiment AWS environment region is invalid")
     return {
         "schema_version": 1,
         "created_at": utc_text(),
@@ -1141,13 +1169,13 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "experiment_description": experiment_description,
             "base_test_definition": base_test_definition,
             "base_tps": base_tps,
-            "sla_profile": sla_profile,
+            "acceptance": resolved.acceptance or {},
             "mode": mode,
-            "region": args.region,
+            "region": region,
             "owner": args.owner,
             "expires_at": utc_text(expires_at),
             "image_environment": args.image_environment,
-            "lab_profile": lab_profile,
+            "terraform_lab_inputs": terraform_lab_inputs,
             "experiment": definition.as_posix(),
             "test_definition": targets[0]["remote_definition"],
             "targets": targets,
@@ -1160,7 +1188,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run and clean one checkout-local ephemeral AWS smoke session.")
-    parser.add_argument("--work-dir", default=str(repo_root() / ".demo-infra/aws/sessions"))
+    parser.add_argument("--work-dir", default=str(repo_root() / ".demo-infra/experiments/aws"))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Create, execute, export, and destroy one AWS smoke session.")
@@ -1169,7 +1197,6 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--experiment-id")
     run_parser.add_argument("--owner", default=os.environ.get("USER", "local-user"))
     run_parser.add_argument("--image-environment", default="dev")
-    run_parser.add_argument("--lab-profile", help="Override the experiment-wide lab profile.")
     run_parser.add_argument("--experiment")
     run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
     run_parser.add_argument("--max-session-hours", type=int, default=12)
@@ -1196,7 +1223,7 @@ def load_controller(work_dir: Path, session_id: str) -> SessionController:
 def main() -> None:
     args = parse_args()
     if args.command == "run" and not args.experiment:
-        args.experiment = "demo/infra/aws/experiments/smoke.yaml"
+        args.experiment = "demo/infra/experiments/smoke.yaml"
     work_dir = Path(args.work_dir).resolve()
     if args.command == "status":
         controller = load_controller(work_dir, args.session_id)
@@ -1255,6 +1282,14 @@ def main() -> None:
             controller.state["post_processing_failure"] = {"at": utc_text(), "message": str(error)}
             controller.save()
             primary_error = primary_error or error
+    if "canonical_artifacts" not in controller.state:
+        try:
+            status = "interrupted" if isinstance(primary_error, InterruptedError) else "failed" if primary_error else "complete"
+            controller.finalize_canonical_artifacts(status)
+        except Exception as error:
+            controller.state["canonical_finalization_failure"] = {"at": utc_text(), "message": str(error)}
+            controller.save()
+            primary_error = primary_error or error
     if primary_error or cleanup_failures:
         messages = [str(primary_error)] if primary_error else []
         if post_processing_error is not None and post_processing_error is not primary_error:
@@ -1266,7 +1301,8 @@ def main() -> None:
     print(f"AWS smoke session completed: {session_id}")
     print(f"  result={controller.state['local_result_dir']}")
     print(f"  audit_summary={controller.state['audit_summary']}")
-    print(f"  bundle={controller.state['result_bundle']}")
+    for name, path in controller.state["canonical_artifacts"].items():
+        print(f"  {name}={path}")
     print(f"  cleanup_report={controller.session_dir / 'cleanup-report.json'}")
 
 

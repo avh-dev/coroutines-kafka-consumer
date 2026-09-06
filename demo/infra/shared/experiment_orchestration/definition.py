@@ -4,9 +4,14 @@ import copy
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection, Mapping
 
-from .test_definition import ResolvedExperimentTest, load_yaml, resolve_experiment_test, resolve_target_test
+from .contract import (
+    is_canonical_experiment,
+    target_to_runner,
+    validate_canonical_experiment,
+)
+from .workload import ResolvedExperimentTest, load_yaml
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,11 @@ class ResolvedExperiment:
     definition: dict[str, Any]
     test: ResolvedExperimentTest
     targets: tuple[ResolvedTarget, ...]
+    schema_version: int = 0
+    environment: str = "legacy"
+    environment_definition: dict[str, Any] | None = None
+    acceptance: dict[str, Any] | None = None
+    snapshot: dict[str, Any] | None = None
 
 
 def safe_id(value: str) -> str:
@@ -37,31 +47,80 @@ def safe_id(value: str) -> str:
     return normalized
 
 
-def selected_lab_profile(experiment: dict[str, Any], override: str | None) -> str:
-    lab = experiment.get("lab") or {}
-    if not isinstance(lab, dict):
-        raise ValueError("Experiment lab must be an object")
-    declared = str(lab.get("profile") or experiment.get("lab_profile") or "").strip()
-    return str(override or declared).strip()
-
-
 def resolve_experiment_definition(
     experiment_path: Path,
-    test_definition_dir: Path,
     *,
-    lab_profile: str | None = None,
+    environment: str | None = None,
+    environment_capabilities: Mapping[str, Collection[str]] | None = None,
 ) -> ResolvedExperiment:
     experiment = load_yaml(experiment_path)
+    if not is_canonical_experiment(experiment):
+        raise ValueError(
+            "Only self-contained schema_version: 1 experiments are supported; "
+            "inline workload, acceptance, implementations, targets, and environments"
+        )
+    snapshot = validate_canonical_experiment(
+        experiment,
+        experiment_path,
+        environment=environment,
+        capabilities=environment_capabilities,
+    )
+    workload = snapshot["workload"]
+    test_definition = {
+        "stubs": copy.deepcopy(workload["stubs"]),
+        "load_test": copy.deepcopy(workload["load"]),
+        **({"chaos_steps": copy.deepcopy(workload["chaos"])} if "chaos" in workload else {}),
+        **({"diagnostic_steps": copy.deepcopy(workload["diagnostics"])} if "diagnostics" in workload else {}),
+    }
+    base_test = ResolvedExperimentTest(test_definition, "experiment")
+    selected_environment = snapshot["environment"]
+    lab = selected_environment["configuration"].get("lab") or {}
+    target_tests = []
+    for target in snapshot["targets"]:
+        target_workload = target["workload"]
+        target_tests.append(ResolvedExperimentTest({
+            "stubs": copy.deepcopy(target_workload["stubs"]),
+            "load_test": copy.deepcopy(target_workload["load"]),
+            **({"chaos_steps": copy.deepcopy(target_workload["chaos"])} if "chaos" in target_workload else {}),
+            **({"diagnostic_steps": copy.deepcopy(target_workload["diagnostics"])} if "diagnostics" in target_workload else {}),
+        }, "experiment"))
+    return _build_resolved_experiment(
+        experiment_path=experiment_path,
+        experiment={
+            "name": snapshot["name"],
+            "description": snapshot["description"],
+            "defaults": {},
+            "targets": [target_to_runner(target) for target in snapshot["targets"]],
+            "acceptance": copy.deepcopy(snapshot["acceptance"]),
+            "environment": copy.deepcopy(snapshot["environment"]),
+        },
+        base_test=base_test,
+        lab_profile=str(lab.get("profile") or "").strip(),
+        schema_version=int(snapshot["schema_version"]),
+        environment=str(selected_environment["name"]),
+        environment_definition=copy.deepcopy(selected_environment["configuration"]),
+        acceptance=copy.deepcopy(snapshot["acceptance"]),
+        snapshot=snapshot,
+        target_tests=target_tests,
+    )
+
+
+def _build_resolved_experiment(
+    *,
+    experiment_path: Path,
+    experiment: dict[str, Any],
+    base_test: ResolvedExperimentTest,
+    lab_profile: str,
+    schema_version: int,
+    environment: str,
+    environment_definition: dict[str, Any],
+    acceptance: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+    target_tests: list[ResolvedExperimentTest] | None = None,
+) -> ResolvedExperiment:
     name = str(experiment.get("name") or experiment_path.stem).strip()
     if not name:
         raise ValueError("Experiment name must not be empty")
-    base_test = resolve_experiment_test(experiment, test_definition_dir)
-    base_tps = experiment.get("base_tps", base_test.definition.get("load_test", {}).get("base_tps"))
-    base_definition = copy.deepcopy(base_test.definition)
-    if base_tps not in (None, ""):
-        base_definition.setdefault("load_test", {})["base_tps"] = int(base_tps)
-        base_test = ResolvedExperimentTest(base_definition, base_test.source_name)
-
     raw_targets = experiment.get("targets")
     if not isinstance(raw_targets, list) or not raw_targets:
         raise ValueError("Experiment must define a non-empty targets list")
@@ -74,8 +133,6 @@ def resolve_experiment_definition(
             raise ValueError(
                 f"Experiment targets[{index}] cannot override the experiment lab profile; start another experiment"
             )
-        if "test_definition" in raw_target:
-            raise ValueError(f"Experiment targets[{index}] must use target.test.extends")
         profile = str(raw_target.get("profile") or "").strip()
         deployment = str(raw_target.get("deployment") or "").strip()
         if not profile and not deployment:
@@ -91,15 +148,22 @@ def resolve_experiment_definition(
             profile=profile,
             deployment=deployment,
             definition=copy.deepcopy(raw_target),
-            test=resolve_target_test(base_test, raw_target, test_definition_dir),
+            test=(target_tests[index - 1] if target_tests is not None else ResolvedExperimentTest(
+                copy.deepcopy(base_test.definition), base_test.source_name
+            )),
         ))
 
     return ResolvedExperiment(
         name=name,
         description=str(experiment.get("description") or ""),
         source=experiment_path.resolve(),
-        lab_profile=selected_lab_profile(experiment, lab_profile),
+        lab_profile=lab_profile,
         definition=copy.deepcopy(experiment),
         test=base_test,
         targets=tuple(targets),
+        schema_version=schema_version,
+        environment=environment,
+        environment_definition=environment_definition,
+        acceptance=acceptance,
+        snapshot=snapshot,
     )

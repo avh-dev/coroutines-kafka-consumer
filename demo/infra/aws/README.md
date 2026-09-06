@@ -20,8 +20,8 @@
 - `../shared/`
   Test orchestration code, audit tooling, and Grafana assets reused by lab flows.
 
-- `experiments/`
-  AWS entrypoints using the shared experiment, target, and test contracts.
+- `../experiments/`
+  Self-contained experiment entrypoints shared by every environment they define.
 
 - `scripts/`
   Git Bash-compatible local operator commands for creating, updating, and connecting to the runner.
@@ -44,17 +44,13 @@
 
 - `assets/terraform`
   Defines the disposable AWS test lab. Terraform executes from the initiating
-  checkout and keeps its state under `.demo-infra/aws/sessions/<session-id>`.
+  checkout and keeps its state under `.demo-infra/experiments/aws/<session-id>`.
 
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
 
-- `../shared/helm/`
-  Shared app and stub workload charts. Environment profiles are values-only;
-  generated experiment targets do not select an AWS application profile.
-
 - `../shared/experiment_orchestration`
-  Resolves tests and target overrides and calculates the same profile, topic,
+  Resolves inline workloads and target overrides and calculates the same profile, topic,
   concurrency, replica, and resource plan used by internal-lab.
 
 - `../shared/audit`
@@ -80,18 +76,13 @@ targets sequentially in one immutable lab, downloads and verifies every target
 result, and tears the session down:
 
 ```bash
-./demo/infra/aws/scripts/run-experiment.sh run \
-  --region us-east-1 \
-  --experiment demo/infra/aws/experiments/smoke.yaml
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment aws
 ```
 
-AWS controller runs always use `--experiment`. The materialized resolved test is
-an internal hand-off to the runner, not a second user-facing definition model.
-For an experiment, `lab.profile` is fixed before provisioning; `--lab-profile`
-can override it for the whole experiment, never for an individual target.
-Each target selects `profile`, may override its resolved test (load, stubs,
-diagnostics, and chaos), and receives a separate run ID, audit analysis, and
-verified artifact directory under `result/runs/`.
+The materialized resolved workload, implementation catalog, Terraform variables,
+and deployment plan are generated internal hand-offs and retained as evidence.
+Each target receives a separate run ID, audit analysis, and verified artifact
+directory under `result/runs/`.
 
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
@@ -100,16 +91,13 @@ thread while retaining 100 coroutines per workload type and publishing 10,000
 messages per second:
 
 ```bash
-./demo/infra/aws/scripts/run-experiment.sh run \
-  --region eu-central-1 \
-  --experiment demo/infra/aws/experiments/msk-elasticache-20min-10k.yaml \
-  --test-timeout-seconds 3600 \
-  --max-session-hours 5 \
+demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.yaml \
+  --environment aws \
   --skip-build-images
 ```
 
 Reuse existing `latest` images with `--skip-build-images`. Session state and
-results stay below `.demo-infra/aws/sessions`; change the root with the global
+results stay below `.demo-infra/experiments/aws`; change the root with the global
 `--work-dir` option before the `run` subcommand.
 
 SIGINT/SIGTERM and ordinary failures still enter the teardown path. If the
@@ -161,28 +149,28 @@ retain the timeout as a reported result rather than a lifecycle failure.
 `cluster-diagnostics/pod-health.json`, pod descriptions, Kubernetes events, and
 previous-container logs make any workload restart a failed run with retained
 evidence instead of allowing a degraded test to be reported as completed.
-`artifact-manifest.json` and `COMPLETE` must verify locally before the artifact
-bucket can be considered safely disposable. Audit analysis runs locally only
-after AWS teardown, and the final session directory contains a portable
-`<run-id>-result.tar.gz`. The archive embeds `restore/open-result.sh`, Docker
-Compose, anonymous read-only Grafana provisioning, and local Loki import, so viewing the metrics and logs does not require the
+The transport-only `artifact-manifest.json` and `COMPLETE` must verify locally
+before the artifact bucket can be considered safely disposable, but neither is
+published in the evidence archive. Audit analysis runs locally only after AWS
+teardown. The final session directory contains one named result directory with
+`report/`, a named evidence archive, and a named audit archive. Evidence embeds
+the shared offline restore kit, so viewing metrics and logs does not require the
 original repository checkout.
 The restored dashboard uses the same shared experiment summary as internal-lab:
 its target names open their exact run ranges, the reset and Loki Explore links
 preserve the archived time window, and run-start events are replayed as Grafana
 annotations.
 
-Open the archived metrics with:
+Open the archived metrics and logs with:
 
 ```bash
-tar -xzf <run-id>-result.tar.gz
-cd <run-id>
-./restore/open-result.sh
+tar -xzf ckc-experiment-aws-smoke-20260905T0517Z-evidence.tar.gz
+cd ckc-experiment-aws-smoke-20260905T0517Z
+./run-grafana.sh
 ```
 
-Stop the local containers with `./restore/close-result.sh` from the same
-extracted result directory. Grafana binds to `0.0.0.0:3002` by default; pass
-`./restore/open-result.sh . 3002 127.0.0.1` to restrict it to the local host.
+Grafana binds to `127.0.0.1:3002` by default. The script stays attached; press
+`q` or `Ctrl-C` to stop and remove the local containers.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are

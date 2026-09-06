@@ -35,6 +35,7 @@ for container in prometheus loki grafana audit ckc-msk-cloudwatch-exporter ckc-m
 done
 
 cp "${RUNNER_HOME}/config/load-lab-${ENVIRONMENT}.json" "${RUN_DIR}/config/" 2>/dev/null || true
+cp -a "${RUNNER_HOME}/config/lab-evidence" "${RUN_DIR}/config/" 2>/dev/null || true
 cp "${RUNNER_HOME}/observability/grafana/dashboards/ckc-overview.json" "${RUN_DIR}/config/" 2>/dev/null || true
 cp "${RUNNER_HOME}/reports/session-${RUN_ID}.log" "${RUN_DIR}/logs/runner/session.log" 2>/dev/null || true
 
@@ -43,7 +44,8 @@ if docker inspect prometheus >/dev/null 2>&1; then
   tar -C "${RUNNER_HOME}" -czf "${RUN_DIR}/metrics/victoriametrics-data.tar.gz" prometheus
 fi
 
-"${REPO_DIR}/demo/infra/aws/restore/package-result.sh" "${RUN_DIR}"
+python3 "${REPO_DIR}/demo/infra/shared/result_bundle/prepare.py" \
+  "${RUN_DIR}" --repo-root "${REPO_DIR}" --environment aws
 python3 "${REPO_DIR}/demo/infra/aws/runner-assets/bin/build-artifact-manifest.py" \
   "${RUN_DIR}" --run-id "${RUN_ID}"
 

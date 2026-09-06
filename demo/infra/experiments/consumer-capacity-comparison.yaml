@@ -1,0 +1,337 @@
+schema_version: 1
+name: consumer-capacity-comparison
+description: Compare suspend CKC, CKC sync dispatcher modes, Confluent Parallel Consumer Reactor, and Spring Kafka on the
+  same baseline test.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      delay_p90_ms: 25
+      delay_p95_ms: 40
+      delay_p99_ms: 160
+      delay_p100_ms: 300
+    flavour:
+      delay_p90_ms: 10
+      delay_p95_ms: 12
+      delay_p99_ms: 15
+      delay_p100_ms: 50
+    registry:
+      delay_p90_ms: 10
+      delay_p95_ms: 14
+      delay_p99_ms: 18
+      delay_p100_ms: 60
+  load:
+    shards: 1
+    workers: 8
+    base_tps: 25000
+    order_event_percent: 60
+    batch_event_percent: 40
+    cauldron_telemetry_percent: 0
+    producer_capacity_tps:
+      order: 1000
+      batch: 1000
+      telemetry: 1000
+    telemetry_source_mode: FIXED_FLEET
+    load_profile: 0 -> (6m, capacity) -> 100
+    cauldron_count: 75
+    min_orders_per_batch: 4
+    max_orders_per_batch: 8
+    min_brewing_steps: 5
+    max_brewing_steps: 10
+    diagnostics_blob_size: 256
+acceptance:
+  criteria:
+  - id: no-missing-terminal
+    title: Every published record has a terminal outcome
+    source: audit
+    path:
+    - totals
+    - missing_terminal
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-duplicate-processing
+    title: Records are not processed more than once
+    source: audit
+    path:
+    - totals
+    - duplicates
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-terminal-failures
+    title: Records do not end in terminal processing failure
+    source: audit
+    path:
+    - totals
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-processed-without-publish
+    title: Processed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - processed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-failed-without-publish
+    title: Failed records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - failed
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-dropped-without-publish
+    title: Dropped records have matching publishes
+    source: audit
+    path:
+    - totals
+    - without_publish
+    - dropped
+    operator: eq
+    threshold: 0
+    unit: records
+  - id: no-conflicting-terminal-outcomes
+    title: Records have only one terminal outcome
+    source: audit
+    path:
+    - totals
+    - conflicting_terminal_outcomes
+    operator: eq
+    threshold: 0
+    unit: records
+  latency:
+    rules:
+    - id: business-events
+      title: Business event end-to-end latency
+      topics:
+      - order.events.v1
+      - batch.events.v1
+      max_ms: 2000
+      allowed_exceed_percent: 1.0
+    - id: telemetry
+      title: Telemetry end-to-end latency
+      topics:
+      - cauldron.events.v1
+      max_ms: 1000
+      allowed_exceed_percent: 5.0
+implementations:
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent_key: order_event_percent
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent_key: batch_event_percent
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent_key: cauldron_telemetry_percent
+  profiles:
+    ckc:
+      spring_profile: ckc
+      default_processing_dispatcher: FIXED
+      allowed_processing_dispatchers:
+      - DEFAULT
+      - FIXED
+      - IO
+      - VIRTUAL
+      topics:
+        order:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        batch:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+        telemetry:
+          default_planning_latency_ms: 150
+          parallelism:
+          - workers
+          mode_parallelism:
+            AT_LEAST_ONCE_PARTITION_ORDERING:
+            - partitions
+            - workers
+          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          allowed_processing_modes:
+          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+          - FRESHNESS_FIRST_DROP_OLDEST
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+    confluent-reactor:
+      extends: ckc
+      spring_profile: confluent-parallel-reactor
+      topics:
+        telemetry:
+          default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+          allowed_processing_modes:
+          - HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+          - AT_LEAST_ONCE_KEY_ORDERING
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+          - AT_LEAST_ONCE_NO_ORDERING
+    ckc-sync:
+      extends: ckc
+      spring_profile: ckc-sync
+      default_processing_dispatcher: IO
+      allowed_processing_dispatchers:
+      - IO
+      - VIRTUAL
+    spring-kafka-thread-pool:
+      spring_profile: spring-kafka-thread-pool
+      default_processing_dispatcher: ''
+      allowed_processing_dispatchers: []
+      topics:
+        order:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_NO_ORDERING
+        batch:
+          default_planning_latency_ms: 50
+          parallelism:
+          - workers
+          default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_NO_ORDERING
+        telemetry:
+          default_planning_latency_ms: 150
+          parallelism:
+          - workers
+          default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+          allowed_processing_modes:
+          - HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+    spring-kafka:
+      spring_profile: spring-kafka
+      topics:
+        order:
+          default_planning_latency_ms: 25
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+        batch:
+          default_planning_latency_ms: 25
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+          allowed_processing_modes:
+          - AT_LEAST_ONCE_PARTITION_ORDERING
+        telemetry:
+          default_planning_latency_ms: 70
+          parallelism:
+          - partitions
+          - pollers
+          default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+          allowed_processing_modes:
+          - HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+defaults:
+  application:
+    replicas: 2
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+targets:
+- runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: ckc.fixed.2
+  implementation: ckc
+- runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: ckc.fixed.1
+  implementation: ckc
+- runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: cpc-reactor.fixed.1
+  implementation: confluent-reactor
+- runtime:
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: ckc-sync.io
+  implementation: ckc-sync
+- runtime:
+    env:
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: ckc-sync.virtual-thread
+  implementation: ckc-sync
+- runtime:
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+  name: spring-kafka-thread-pool
+  implementation: spring-kafka-thread-pool
+- application:
+    resources:
+      requests:
+        memory: 2Gi
+      limits:
+        memory: 3Gi
+    java_options: -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+  runtime:
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+  name: spring-kafka
+  implementation: spring-kafka
+environments:
+  internal-lab:
+    lab:
+      profile: installed

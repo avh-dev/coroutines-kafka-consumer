@@ -17,9 +17,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# When this checkout-side helper is invoked through the shared adapter, SSH starts
+# it outside the repository directory. Prefer the shared packages directly rather
+# than relying on the caller's cwd or the compatibility modules beside this file.
+SHARED_ROOT = Path(__file__).resolve().parents[3] / "shared"
+if SHARED_ROOT.is_dir():
+    sys.path.insert(0, str(SHARED_ROOT))
+
 from experiment_report import generate_experiment_reports
-from experiment_report.analyze import load_sla_profile, parse_load_profile
-from experiment_test import resolve_experiment_definition, write_resolved_test
+from experiment_report.analyze import parse_load_profile
+from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
+from result_bundle import collect as collect_evidence
+from result_bundle import finalize as finalize_artifacts
+from result_bundle import prepare as prepare_evidence
 
 try:
     import yaml
@@ -47,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Global env override for all experiment targets.")
     parser.add_argument("--lab-root", default=lab_root)
     parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
-    parser.add_argument("--experiment-dir", default=f"{lab_root}/workloads/experiments")
+    parser.add_argument("--experiment-dir", default=f"{lab_root}/experiments")
     parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
@@ -433,8 +443,11 @@ def load_profile_seconds(profile: str) -> int:
 
 
 def test_expected_seconds(lab_root: Path, test_definition: str) -> int | None:
+    del lab_root
     try:
-        path = resolve_named_yaml(lab_root / "workloads" / "test-definitions", test_definition)
+        path = Path(test_definition)
+        if not path.is_file():
+            return None
         definition = load_yaml(path)
         load_test = definition.get("load_test", {})
         if not isinstance(load_test, dict):
@@ -581,6 +594,10 @@ def notify(hook: Path | None, event: str, payload: dict[str, Any], log_dir: Path
 
 def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
     command = [str(run_test), "--skip-analysis"]
+    if test.get("consumer_profiles_path"):
+        command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
+    if test.get("deployment_plan_path"):
+        command.extend(["--deployment-plan", str(test["deployment_plan_path"])])
     if "profile" in test:
         command.extend(["--profile", str(test["profile"])])
         if "parallelism" in test:
@@ -608,7 +625,7 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
         command.extend(application_override_args(test.get("application") or {}))
     else:
         command.extend(["--deployment", str(test["deployment"])])
-    if "stub_replicas" in test:
+    if "stub_replicas" in test and not test.get("deployment_plan_path"):
         command.extend(["--stub-replicas", env_value(test["stub_replicas"])])
     for key, flag in LEGACY_ENV_ARGS.items():
         if key in env:
@@ -814,36 +831,43 @@ def run_experiment(
     global_env: dict[str, str],
     hook: Path | None,
 ) -> dict[str, Any]:
-    experiment = load_yaml(experiment_path)
-    sla_profile = load_sla_profile(lab_root, experiment)
+    source_experiment = load_yaml(experiment_path)
+    resolved_experiment = resolve_experiment_definition(
+        experiment_path,
+        environment="internal-lab",
+    )
+    experiment = resolved_experiment.definition
+    sla_profile = resolved_experiment.acceptance or None
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    resolved_experiment = resolve_experiment_definition(
-        experiment_path,
-        lab_root / "workloads" / "test-definitions",
-    )
     resolved_test = resolved_experiment.test
     definition = resolved_test.definition
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict) or not load_test.get("load_profile"):
         raise ValueError("Resolved experiment test must define load_test.load_profile")
     parse_load_profile(str(load_test["load_profile"]))
-    base_tps = experiment.get("base_tps", load_test.get("base_tps"))
+    base_tps = source_experiment.get("base_tps", load_test.get("base_tps"))
     if base_tps in (None, ""):
         raise ValueError(f"Experiment or inline test must define base_tps: {experiment_path}")
     base_tps = int(base_tps)
     definition.setdefault("load_test", {})["base_tps"] = base_tps
     targets = normalize_targets(experiment, experiment_path)
+    materialized_dir = log_dir / f"{experiment_path.stem}-materialized"
+    materialized_targets = materialize_experiment(
+        resolved_experiment,
+        output_dir=materialized_dir,
+        repo_dir=lab_root,
+    )
     annotation_labels = target_annotation_labels(targets)
     experiment_name = str(experiment.get("name") or experiment_path.stem)
     resolved_test_path = log_dir / f"{experiment_path.stem}-resolved-test.yaml"
     write_resolved_test(resolved_test_path, definition)
-    test_definition = resolved_test.source_name
+    test_definition = experiment_name
     log_path = log_dir / f"{experiment_name}.log"
-    sla_profile_file = log_dir / f"{experiment_name}-sla-profile.json" if sla_profile else None
+    sla_profile_file = log_dir / f"{experiment_name}-acceptance.json" if sla_profile else None
     if sla_profile_file is not None:
         sla_profile_file.write_text(json.dumps(sla_profile, indent=2), encoding="utf-8")
 
@@ -872,6 +896,7 @@ def run_experiment(
             log_file.write(f"description: {description}\n")
         for index, target in enumerate(targets, start=1):
             resolved_target = resolved_experiment.targets[index - 1]
+            materialized_target = materialized_targets[index - 1] if materialized_targets else None
             target_definition = resolved_target.test.definition
             target_load_test = target_definition.get("load_test")
             if not isinstance(target_load_test, dict) or not target_load_test.get("load_profile"):
@@ -880,10 +905,13 @@ def run_experiment(
             target_base_tps = target_load_test.get("base_tps", base_tps)
             if target_base_tps in (None, ""):
                 raise ValueError(f"Resolved target test must define load_test.base_tps: {resolved_target.name}")
-            target_resolved_test_path = log_dir / (
-                f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
+            target_resolved_test_path = (
+                materialized_target.definition_path
+                if materialized_target
+                else log_dir / f"{experiment_path.stem}-{resolved_target.id}-resolved-test.yaml"
             )
-            write_resolved_test(target_resolved_test_path, target_definition)
+            if materialized_target is None:
+                write_resolved_test(target_resolved_test_path, target_definition)
             target_run = merge_target_defaults(defaults, target)
             target_run.update(
                 {
@@ -891,6 +919,12 @@ def run_experiment(
                     "resolved_test_path": str(target_resolved_test_path),
                     "base_tps": int(target_base_tps),
                     "run_annotation_label": annotation_labels[index - 1],
+                    **({
+                        "consumer_profiles_path": str(
+                            materialized_target.definition_path.parents[1] / "implementation-profiles.yaml"
+                        ),
+                        "deployment_plan_path": str(materialized_target.deployment_plan_path),
+                    } if materialized_target else {}),
                 }
             )
             result = run_one(
@@ -944,7 +978,8 @@ def run_experiment(
         "resolved_test_path": str(resolved_test_path),
         "base_tps": base_tps,
         "experiment_file": str(experiment_path),
-        "sla_profile_file": str(sla_profile_file) if sla_profile_file else "",
+        "resolved_experiment_path": str(materialized_dir / "resolved-experiment.yaml"),
+        "acceptance_file": str(sla_profile_file) if sla_profile_file else "",
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,
@@ -1004,11 +1039,53 @@ def main() -> int:
     }
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nExperiment summary: {summary_path}")
-    reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
+    reports = []
+    try:
+        reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
+    except Exception as error:
+        document["report_generation_error"] = str(error)
     document["reports"] = [str(path) for path in reports]
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     for report in reports:
         print(f"Experiment report: {report}")
+    evidence_runs = [
+        Path(str(target["run_dir"]))
+        for summary in summaries
+        for target in summary.get("targets", [])
+        if target.get("run_dir") and Path(str(target["run_dir"])).is_dir()
+    ]
+    dashboard_source = lab_root / "grafana/dashboards/ckc-overview.json"
+    collection = collect_evidence(
+        result_root=log_dir,
+        run_dirs=evidence_runs,
+        dashboard_dir=lab_root / "grafana/dashboards",
+        prometheus_url=args.prometheus_url,
+        loki_url="http://127.0.0.1:3100",
+    )
+    document["collection"] = collection
+    if (collection["errors"] or document.get("report_generation_error")) and document["exit_code"] == 0:
+        document["exit_code"] = 1
+    if dashboard_source.is_file():
+        dashboard_target = log_dir / "config/ckc-overview.json"
+        dashboard_target.parent.mkdir(parents=True, exist_ok=True)
+        dashboard_target.write_text(dashboard_source.read_text(encoding="utf-8"), encoding="utf-8")
+    if evidence_runs:
+        try:
+            prepare_evidence(log_dir, lab_root, "internal-lab")
+        except Exception as error:
+            document["evidence_preparation_error"] = str(error)
+    artifacts = finalize_artifacts(
+        result_root=log_dir,
+        report_dir=reports[0].parent if reports else log_dir / "missing-report",
+        output_dir=log_dir / "final",
+        experiment=str(summaries[0].get("experiment") if summaries else experiment_set_id),
+        environment="internal-lab",
+        status="complete" if document["exit_code"] == 0 and not collection["errors"] else "failed",
+        restore_sources=[lab_root / "helpers/result_bundle/restore"],
+        replace=True,
+    )
+    document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
+    summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     return int(document["exit_code"])
 
 
