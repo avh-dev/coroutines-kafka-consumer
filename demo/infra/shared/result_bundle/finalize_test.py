@@ -64,7 +64,8 @@ class CanonicalFinalizerTest(unittest.TestCase):
             chunks = audit / "chunks"
             chunks.mkdir(parents=True)
             (run / "run-metadata.json").write_text('{"run_id":"run-a"}\n', encoding="utf-8")
-            (audit / "summary.yaml").write_text("totals: {}\n", encoding="utf-8")
+            (audit / "summary.yaml").write_text("totals: {}\nsource: /opt/ckc-lab/results/runs/run-a\n", encoding="utf-8")
+            (audit / "analyzer-progress.log").write_text("Reading /opt/ckc-runner/audit/audit.log\n", encoding="utf-8")
             with gzip.open(chunks / "audit-0001.log.gz", "wb") as stream:
                 stream.write(b"raw-audit\n")
             (result / "terraform.tfstate").write_text("secret-state", encoding="utf-8")
@@ -124,6 +125,15 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn(f"{identity}/audit/README.md", audit_names)
             self.assertIn(f"{identity}/audit/summary.yaml", audit_names)
             self.assertIn(f"{identity}/audit/target1.run-a/audit.log", audit_names)
+            with tarfile.open(artifacts["audit"]) as archive:
+                audit_summary = archive.extractfile(f"{identity}/audit/target1.run-a/summary.yaml").read().decode()
+                analyzer_progress = archive.extractfile(
+                    f"{identity}/audit/target1.run-a/analyzer-progress.log"
+                ).read().decode()
+            self.assertIn("$LAB_ROOT/results/runs/run-a", audit_summary)
+            self.assertIn("$RUNNER_ROOT/audit/audit.log", analyzer_progress)
+            self.assertNotIn("/opt/ckc-lab", audit_summary)
+            self.assertNotIn("/opt/ckc-runner", analyzer_progress)
             self.assertNotIn(f"{identity}/audit/runs", audit_names)
             self.assertFalse(any(name.endswith("manifest.json") for name in audit_names))
             with tarfile.open(artifacts["evidence"]) as archive:

@@ -1188,7 +1188,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run and clean one checkout-local ephemeral AWS smoke session.")
-    parser.add_argument("--work-dir", default=str(repo_root() / ".demo-infra/aws/sessions"))
+    parser.add_argument("--work-dir", default=str(repo_root() / ".demo-infra/experiments/aws"))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Create, execute, export, and destroy one AWS smoke session.")

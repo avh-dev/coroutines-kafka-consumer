@@ -44,7 +44,7 @@
 
 - `assets/terraform`
   Defines the disposable AWS test lab. Terraform executes from the initiating
-  checkout and keeps its state under `.demo-infra/aws/sessions/<session-id>`.
+  checkout and keeps its state under `.demo-infra/experiments/aws/<session-id>`.
 
 - `runner-assets`
   Contains remote scripts that execute on the runner and orchestrate AWS lab lifecycle.
@@ -97,7 +97,7 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
 ```
 
 Reuse existing `latest` images with `--skip-build-images`. Session state and
-results stay below `.demo-infra/aws/sessions`; change the root with the global
+results stay below `.demo-infra/experiments/aws`; change the root with the global
 `--work-dir` option before the `run` subcommand.
 
 SIGINT/SIGTERM and ordinary failures still enter the teardown path. If the

@@ -265,6 +265,7 @@ def portable_replacements(result_root: Path) -> dict[str, str]:
     values = {
         str(result): "$RESULT_DIR",
         "/opt/ckc-lab": "$LAB_ROOT",
+        "/opt/ckc-runner": "$RUNNER_ROOT",
     }
     repository = repository_root()
     if repository is not None:
@@ -399,7 +400,14 @@ def build_lab(result_root: Path, destination: Path, environment: str, replacemen
         )
 
 
-def build_audit(result_root: Path, destination: Path, identity: str, experiment: str, status: str) -> None:
+def build_audit(
+    result_root: Path,
+    destination: Path,
+    identity: str,
+    experiment: str,
+    status: str,
+    replacements: dict[str, str],
+) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "README.md").write_text(audit_readme(identity, experiment, status), encoding="utf-8")
     summaries: list[dict[str, Any]] = []
@@ -413,7 +421,7 @@ def build_audit(result_root: Path, destination: Path, identity: str, experiment:
             for name in ("summary.yaml", "analyzer-progress.log", "acceptance.json"):
                 source = audit / name
                 if source.is_file():
-                    shutil.copy2(source, target / name)
+                    copy_portable(source, target / name, replacements)
             copy_audit_log(audit, target / "audit.log")
             summary = audit / "summary.yaml"
             if summary.is_file():
@@ -455,7 +463,7 @@ def finalize(
         audit_root = staging / "audit"
         publish_root.mkdir()
         evidence_root.mkdir()
-        build_audit(result_root, audit_root / "audit", identity, experiment, status)
+        build_audit(result_root, audit_root / "audit", identity, experiment, status, replacements)
         audit_name = f"{identity}-audit.tar.gz"
         audit_target = publish_root / audit_name
         create_archive(audit_root, audit_target, identity)

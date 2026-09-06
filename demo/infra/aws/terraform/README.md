@@ -14,7 +14,7 @@
 
 The preferred workflow invokes all session stacks through
 `scripts/run-experiment.sh`. It sets a stack-specific `TF_DATA_DIR` and explicit
-local state file under `.demo-infra/aws/sessions/<session-id>`, so no state is
+local state file under `.demo-infra/experiments/aws/<session-id>`, so no state is
 owned exclusively by the runner being deleted.
 
 The manual long-lived runner workflow below is retained only for infrastructure
