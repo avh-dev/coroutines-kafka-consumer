@@ -220,9 +220,9 @@ class AwsSessionTest(unittest.TestCase):
         config = state["config"]
         self.assertEqual("eu-central-1", config["region"])
         self.assertEqual(["m7i.large"], config["terraform_lab_inputs"]["node_instance_types"])
-        self.assertEqual({}, config["acceptance"])
+        self.assertEqual(2000, config["latency_limits"]["order.events.v1"])
 
-    def test_local_audit_analysis_materializes_inline_acceptance_as_json(self) -> None:
+    def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
             run_dir = session_dir / "result/runs/run-ckc"
@@ -236,15 +236,7 @@ class AwsSessionTest(unittest.TestCase):
                     "session_id": "safe-session",
                     "region": "eu-central-1",
                     "experiment": "demo/infra/experiments/smoke.yaml",
-                    "acceptance": {
-                        "criteria": [{
-                            "id": "no-missing",
-                            "source": "audit",
-                            "path": ["totals", "missing_terminal"],
-                            "operator": "eq",
-                            "threshold": 0,
-                        }],
-                    },
+                    "latency_limits": {"order.events.v1": 2000},
                 },
                 "terraform": {},
                 "local_result_dirs": {"ckc": str(run_dir)},
@@ -255,12 +247,12 @@ class AwsSessionTest(unittest.TestCase):
             with patch.object(session_module.subprocess, "run", return_value=completed) as run_command:
                 controller.analyze_local_audit()
 
-            sla_path = run_dir / "audit/acceptance.json"
-            sla = json.loads(sla_path.read_text(encoding="utf-8"))
+            limits_path = run_dir / "audit/latency-limits.json"
+            limits = json.loads(limits_path.read_text(encoding="utf-8"))
             command = run_command.call_args.args[0]
 
-        self.assertTrue(sla["criteria"])
-        self.assertEqual(str(sla_path), command[command.index("--sla-profile-file") + 1])
+        self.assertEqual(2000, limits["order.events.v1"])
+        self.assertEqual(str(limits_path), command[command.index("--latency-limits-file") + 1])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -222,10 +222,16 @@ class FreshnessGapStats:
         self.last_pending_drop_ms_by_key[record.message_key] = record.audit_timestamp_ms
 
     def summary(self) -> dict[str, object]:
+        histogram = dict(self.dropped_before_processed_histogram)
+        trailing_histogram: dict[int, int] = {}
+        for dropped in self.pending_drops_by_key.values():
+            trailing_histogram[dropped] = trailing_histogram.get(dropped, 0) + 1
+            histogram[dropped] = histogram.get(dropped, 0) + 1
         return {
             "processed_records": self.processed_records,
-            "dropped_before_processed": histogram_distribution_summary(self.dropped_before_processed_histogram),
-            "dropped_before_processed_histogram": dict(sorted(self.dropped_before_processed_histogram.items())),
+            "dropped_before_processed": histogram_distribution_summary(histogram),
+            "dropped_before_processed_histogram": dict(sorted(histogram.items())),
+            "trailing_dropped_before_processed_histogram": dict(sorted(trailing_histogram.items())),
             "first_drop_to_processed_ms": self.first_drop_to_processed_ms.summary(),
             "last_drop_to_processed_ms": self.last_drop_to_processed_ms.summary(),
             "keys_with_pending_drops": len(self.pending_drops_by_key),
@@ -527,6 +533,7 @@ class ClosedRecordState:
 @dataclass(slots=True)
 class AuditStats:
     open_record_ttl_ms: int | None
+    latency_limit_ms: int | float | None = None
     latency_sla_rules: tuple[LatencySlaRule, ...] = ()
     key_fairness: KeyFairnessStats | None = None
     published_records: int = 0
@@ -559,6 +566,10 @@ class AuditStats:
     last_eviction_ms: int = 0
     eviction_interval_ms: int = 1_000
     latency_sla: dict[str, LatencySlaStats] = field(init=False)
+    e2e_latency: OnlineAgeStats = field(default_factory=OnlineAgeStats)
+    e2e_latency_histogram: dict[int, int] = field(default_factory=dict)
+    e2e_exceeded: int = 0
+    e2e_invalid_negative: int = 0
 
     def __post_init__(self) -> None:
         self.latency_sla = {
@@ -752,6 +763,13 @@ class AuditStats:
             kafka_timestamp_ms = state.published.kafka_timestamp_ms
             if kafka_timestamp_ms is not None:
                 latency_ms = state.processed.audit_timestamp_ms - kafka_timestamp_ms
+                if latency_ms < 0:
+                    self.e2e_invalid_negative += 1
+                else:
+                    self.e2e_latency.add(latency_ms)
+                    self.e2e_latency_histogram[latency_ms] = self.e2e_latency_histogram.get(latency_ms, 0) + 1
+                    if self.latency_limit_ms is not None and latency_ms > self.latency_limit_ms:
+                        self.e2e_exceeded += 1
                 for latency in self.latency_sla.values():
                     if latency.rule.applies_to(key.topic_id):
                         latency.add_latency(latency_ms)
@@ -799,6 +817,7 @@ class AuditAccumulator:
         self,
         open_record_ttl_ms: int | None,
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
+        latency_limits_ms: dict[int, int | float] | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
         self.all = AuditStats(
@@ -808,6 +827,7 @@ class AuditAccumulator:
         self.by_topic = {
             topic_id: AuditStats(
                 open_record_ttl_ms=open_record_ttl_ms,
+                latency_limit_ms=(latency_limits_ms or {}).get(topic_id),
                 latency_sla_rules=tuple(
                     rule for rule in latency_sla_rules if rule.applies_to(topic_id)
                 ),
@@ -839,6 +859,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sla-profile-file",
         help="Resolved JSON SLA profile containing optional latency.rules definitions.",
+    )
+    parser.add_argument(
+        "--latency-limits-file",
+        help="Resolved JSON mapping of Kafka topic names to maximum end-to-end latency in milliseconds.",
     )
     parser.add_argument(
         "--open-record-ttl-seconds",
@@ -1021,6 +1045,7 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "retry_attempts": stats.retry_attempt_records,
             "terminal": stats.terminal_unique,
             "missing_terminal": stats.missing_terminal,
+            "not_successfully_processed": stats.dropped_unique + stats.failed_unique + stats.missing_terminal,
             "duplicates": {
                 "published": stats.duplicate_published,
                 "processed": stats.duplicate_processed,
@@ -1039,6 +1064,18 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             },
         }
     )
+    e2e = histogram_distribution_summary(stats.e2e_latency_histogram)
+    e2e.update({
+        "limit_ms": stats.latency_limit_ms,
+        "exceeded": stats.e2e_exceeded,
+        "exceeded_percent": (
+            round(100 * stats.e2e_exceeded / int(e2e["count"]), 6)
+            if e2e["count"]
+            else None
+        ),
+        "invalid_negative_latency": stats.e2e_invalid_negative,
+    })
+    summary["e2e_latency"] = e2e
     if stats.key_fairness is not None:
         summary["key_fairness"] = stats.key_fairness.summary()
     if stats.latency_sla:
@@ -1117,6 +1154,21 @@ def load_latency_sla_rules(path_value: str | None) -> tuple[LatencySlaRule, ...]
             )
         )
     return tuple(rules)
+
+
+def load_latency_limits(path_value: str | None) -> dict[int, int | float]:
+    if not path_value:
+        return {}
+    value = json.loads(Path(path_value).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("Latency limits must contain an object")
+    topic_ids = {name: identifier for identifier, name in TOPIC_NAMES.items()}
+    result: dict[int, int | float] = {}
+    for topic, limit in value.items():
+        if topic not in topic_ids or not isinstance(limit, int | float) or isinstance(limit, bool) or limit < 0:
+            raise ValueError(f"Invalid latency limit for topic {topic!r}")
+        result[topic_ids[topic]] = limit
+    return result
 
 
 def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object]) -> dict[str, object]:
@@ -1209,6 +1261,7 @@ def main() -> int:
             else None
         ),
         latency_sla_rules=load_latency_sla_rules(args.sla_profile_file),
+        latency_limits_ms=load_latency_limits(args.latency_limits_file),
     )
     read_files(args.input_file, accumulator)
     if args.input_dir:

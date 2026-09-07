@@ -52,6 +52,24 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_reports_topic_e2e_percentiles_and_limit_exceedances(self) -> None:
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None, latency_limits_ms={1: 1000})
+        for line in (
+            "P|1|0|1|1000|1000|order-a",
+            "C|1|0|1|1500|order-a",
+            "P|1|0|2|2000|2000|order-b",
+            "C|1|0|2|3501|order-b",
+        ):
+            accumulator.add(analyzer.parse_record(line))
+        accumulator.finish()
+        e2e = analyzer.summary_document(accumulator, {})["audit"]["topics"]["order.events.v1"]["e2e_latency"]
+
+        self.assertEqual(1000, e2e["limit_ms"])
+        self.assertEqual(2, e2e["count"])
+        self.assertEqual(1, e2e["exceeded"])
+        self.assertEqual(50.0, e2e["exceeded_percent"])
+        self.assertEqual(1000.5, e2e["p50"])
+
     def test_reports_exact_processed_latency_sla_violations(self) -> None:
         document = analyze(
             [
@@ -227,7 +245,8 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         freshness_gap = document["audit"]["topics"]["cauldron.events.v1"]["key_fairness"]["freshness_gap"]
 
         self.assertEqual(3, freshness_gap["processed_records"])
-        self.assertEqual({0: 1, 1: 1, 2: 1}, freshness_gap["dropped_before_processed_histogram"])
+        self.assertEqual({0: 1, 1: 2, 2: 1}, freshness_gap["dropped_before_processed_histogram"])
+        self.assertEqual({1: 1}, freshness_gap["trailing_dropped_before_processed_histogram"])
         self.assertEqual(1, freshness_gap["dropped_before_processed"]["p50"])
         self.assertEqual(2, freshness_gap["dropped_before_processed"]["max"])
         self.assertEqual(2, freshness_gap["first_drop_to_processed_ms"]["count"])

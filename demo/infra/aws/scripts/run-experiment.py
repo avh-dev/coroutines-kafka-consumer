@@ -870,7 +870,7 @@ class SessionController:
 
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
-        sla_profile = self.config.get("acceptance") or None
+        latency_limits = self.config.get("latency_limits") or {}
         summaries: dict[str, str] = {}
         for target_id, value in result_dirs.items():
             result_dir = Path(value)
@@ -889,10 +889,10 @@ class SessionController:
             metadata = result_dir / "run-metadata.json"
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
-            if sla_profile:
-                sla_path = audit_dir / "acceptance.json"
-                json_write(sla_path, sla_profile)
-                command.extend(["--sla-profile-file", str(sla_path)])
+            if latency_limits:
+                limits_path = audit_dir / "latency-limits.json"
+                json_write(limits_path, latency_limits)
+                command.extend(["--latency-limits-file", str(limits_path)])
             completed = subprocess.run(command, cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
             summary.write_text(completed.stdout, encoding="utf-8")
             progress.write_text(completed.stderr, encoding="utf-8")
@@ -1169,7 +1169,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "experiment_description": experiment_description,
             "base_test_definition": base_test_definition,
             "base_tps": base_tps,
-            "acceptance": resolved.acceptance or {},
+            "latency_limits": {
+                str(topic["kafka_topic"]): topic["max_e2e_latency_ms"]
+                for topic in (resolved.snapshot or {}).get("workload", {}).get("topics", {}).values()
+            },
             "mode": mode,
             "region": region,
             "owner": args.owner,
