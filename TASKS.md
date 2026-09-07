@@ -289,6 +289,7 @@
 | [INFRA-144](#infra-144) | Clarify Grafana application and Kafka thread panel titles by leading with Total, User, or System. | DONE |
 | [INFRA-145](#infra-145) | Simplify canonical experiment YAML into explicit workload topics and target settings. | DONE |
 | [INFRA-146](#infra-146) | Replace acceptance evaluation with topic-level evidence metrics. | DONE |
+| [INFRA-147](#infra-147) | Redesign the evidence report around one planned timeline and comparison table. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3303,3 +3304,13 @@ Replace generic acceptance criteria and pass/fail evaluation with directly repor
 Report metrics per workload topic, including successful-processing gaps, duplicate processing, latency-limit exceedances, latency percentiles, and trailing freshness-drop series.
 
 Verification: 57 audit, orchestration, internal-lab planning, and AWS-session unit tests passed. Audit summaries now calculate per-topic E2E count/p50/p95/p99/max, configured limit exceedances, successful-processing gaps, and trailing freshness-drop series; both runners supply limits from the canonical workload topics.
+
+<a id="infra-147"></a>
+### INFRA-147 - Redesign evidence report
+
+_Date: 2026-09-07_
+
+Render the experiment as a concise evidence report: its planned load and chaos timeline, target comparison, and one topic-grouped result table.
+Remove acceptance verdicts, actual-event timeline rendering, and auxiliary comparison graphs from the report surface.
+
+Verification: 57 audit, orchestration, internal-lab planning, and AWS-session unit tests passed; report modules compile. The report now emits only its planned load/chaos SVG and a topic-grouped comparison table with evidence-bundle and audit-archive links.

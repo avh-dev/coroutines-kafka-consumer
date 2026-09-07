@@ -728,6 +728,7 @@ def analyze_experiment(
                     "diagnostic_steps": target_test_definition.get("diagnostic_steps") or [],
                 },
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
+                topic_evidence=audit.get("topics", {}) if isinstance(audit.get("topics"), dict) else {},
                 measurements=measurements,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
