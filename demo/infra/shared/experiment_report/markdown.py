@@ -88,6 +88,50 @@ def render_evidence_markdown(report: ExperimentReport) -> str:
     ]
     def row(label: str, values: list[Any]) -> None:
         lines.append("| " + label + " | " + " | ".join(cell(value) for value in values) + " |")
+
+    def capture_windows(target: TargetReport) -> list[tuple[str, Any, Any]]:
+        windows = set()
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict):
+                continue
+            details = capture.get("capture", {})
+            if isinstance(details, dict):
+                windows.add((str(details.get("name") or "tcpdump"), details.get("planned_at_seconds"), details.get("duration_seconds")))
+        return sorted(windows, key=lambda value: (str(value[1]), value[0]))
+
+    def topic_wire_and_records(target: TargetReport, topic: str, role: str, window: tuple[str, Any, Any]) -> tuple[float | None, int]:
+        records = 0
+        wire_bytes = 0
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict) or capture.get("role") != role:
+                continue
+            details = capture.get("capture", {})
+            key = (str(details.get("name") or "tcpdump"), details.get("planned_at_seconds"), details.get("duration_seconds")) if isinstance(details, dict) else ("tcpdump", None, None)
+            if key != window:
+                continue
+            protocol = capture.get("protocol", {})
+            topics = protocol.get("topics", {}) if isinstance(protocol, dict) else {}
+            values = topics.get(topic, {}) if isinstance(topics, dict) else {}
+            if isinstance(values, dict):
+                records += int(values.get("records") or 0)
+                wire_bytes += int(values.get("captured_wire_bytes") or 0)
+        return (wire_bytes / records if records else None, records)
+
+    def topic_wire_per_message(target: TargetReport, topic: str, role: str, window: tuple[str, Any, Any]) -> float | None:
+        return topic_wire_and_records(target, topic, role, window)[0]
+
+    def network_value(target: TargetReport, topic: str, window: tuple[str, Any, Any]) -> str:
+        producer = topic_wire_per_message(target, topic, "producer", window)
+        consumer = topic_wire_per_message(target, topic, "consumer", window)
+        if producer is None and consumer is None:
+            return "—"
+        total = (producer or 0) + (consumer or 0)
+        producer_records = topic_wire_and_records(target, topic, "producer", window)[1]
+        consumer_records = topic_wire_and_records(target, topic, "consumer", window)[1]
+        duration = float(window[2]) if window[2] is not None else 0
+        observed_tps = (producer_records or consumer_records) / duration if duration else None
+        tps = f"; observed {number(observed_tps)} msg/s" if observed_tps is not None else ""
+        return f"{number(total)} B (P {number(producer)} / C {number(consumer)}){tps}"
     row("**All topics**", ["" for _ in report.targets])
     row("Published messages", [number(target.delivery.get("published"), 0) for target in report.targets])
     row("Not successfully processed ↓ less is better", [number(target.delivery.get("not_successfully_processed"), 0) for target in report.targets])
@@ -105,12 +149,23 @@ def render_evidence_markdown(report: ExperimentReport) -> str:
         row("E2E above limit ↓ less is better", [f"{number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get('exceeded'), 0)} ({number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get('exceeded_percent'))}%)" for target in report.targets])
         for percentile in ("p50", "p95", "p99"):
             row(f"E2E {percentile}", [f"{number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get(percentile))} ms" for target in report.targets])
+        windows = sorted({window for target in report.targets for window in capture_windows(target)})
+        for window in windows:
+            name, offset, duration = window
+            point = f"{name} @ planned {number(offset, 0)} s / {number(duration, 0)} s"
+            if any(topic_wire_per_message(target, topic, role, window) is not None for target in report.targets for role in ("producer", "consumer")):
+                row(f"TCP {point}: wire / application message ↓ less is better", [network_value(target, topic, window) for target in report.targets])
         freshness = first.topic_evidence[topic].get("key_fairness", {}).get("freshness_gap", {})
         if freshness:
             row("**Freshness: consecutive skipped messages per key**", ["" for _ in report.targets])
             for bucket in range(31):
                 row(f"Skipped {bucket} messages", [number((target.topic_evidence.get(topic, {}).get("key_fairness", {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}) or {}).get(bucket, 0), 0) for target in report.targets])
             row("Skipped >30 messages", [number(sum(count for skipped, count in (target.topic_evidence.get(topic, {}).get("key_fairness", {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}) or {}).items() if int(skipped) > 30), 0) for target in report.targets])
+    if any(target.pcap_analysis.get("status") not in {"disabled", "unavailable"} for target in report.targets):
+        lines.extend([
+            "", "Network values use the scheduled tcpdump window. Producer (P) and consumer (C) are shown separately;",
+            "their total is an estimate because TCP envelopes and acknowledgements are allocated by decoded Kafka batch share.",
+        ])
     lines.extend(["", "## Full evidence", "", "- [Evidence bundle](../evidence/)", "- [Audit archive](../audit/)", ""])
     return "\n".join(lines)
 

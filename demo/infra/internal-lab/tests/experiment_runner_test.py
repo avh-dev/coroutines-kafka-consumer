@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import sys
 import tempfile
 import unittest
@@ -64,22 +65,16 @@ class ExperimentRunnerTest(unittest.TestCase):
             source = yaml.safe_load(
                 (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
             )
-            implementations = yaml.safe_load(
-                (repository / "demo/infra/experiments/consumer-capacity-comparison.yaml").read_text(
-                    encoding="utf-8"
-                )
-            )["implementations"]
             source["name"] = "comparison"
-            source["implementations"] = implementations
             source["environments"] = {"internal-lab": {"lab": {"profile": "installed"}}}
             source["workload"]["load"].update({"base_tps": 1000, "workers": 4})
-            source["defaults"] = {
-                "application": {"replicas": 1},
-                "runtime": {"planning_latency": {"order_ms": 1, "batch_ms": 1, "telemetry_ms": 1}},
-            }
+            baseline = copy.deepcopy(source["targets"][0])
+            baseline["name"] = "baseline"
+            ckc = copy.deepcopy(baseline)
+            ckc["name"] = "ckc"
             source["targets"] = [
-                {"name": "baseline", "implementation": "spring-kafka"},
-                {"name": "ckc", "implementation": "ckc", "workload": {"load": {"base_tps": 2000, "workers": 20}}},
+                baseline,
+                {**ckc, "workload": {"load": {"base_tps": 2000, "workers": 20}}},
             ]
             experiment = root / "comparison.yaml"
             experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")

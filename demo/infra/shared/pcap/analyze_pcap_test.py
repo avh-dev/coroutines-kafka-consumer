@@ -55,7 +55,10 @@ def batch(records: bytes, count: int) -> bytes:
 class AnalyzePcapTest(unittest.TestCase):
     def test_tshark_rows_accepts_reassembled_fields_larger_than_csv_default(self) -> None:
         raw = "a" * (128 * 1024 + 1)
-        stdout = "\t".join(analyze_pcap.FIELDS) + "\n" + "\t".join(["1", *([""] * 24), raw, *([""] * 6)]) + "\n"
+        columns = [""] * len(analyze_pcap.FIELDS)
+        columns[analyze_pcap.FIELDS.index("frame.number")] = "1"
+        columns[analyze_pcap.FIELDS.index("tcp.reassembled.data")] = raw
+        stdout = "\t".join(analyze_pcap.FIELDS) + "\n" + "\t".join(columns) + "\n"
         completed = analyze_pcap.subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
         with patch.object(analyze_pcap.subprocess, "run", return_value=completed):
             rows = analyze_pcap.tshark_rows(Path("large.pcap"), "tshark")
@@ -82,6 +85,20 @@ class AnalyzePcapTest(unittest.TestCase):
     def test_role_can_be_inferred_from_capture_filename(self) -> None:
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))
         self.assertEqual("consumer", analyze_pcap.expected_role(Path("sample-consumer.pcap")))
+
+    def test_role_aggregation_preserves_topic_captured_wire_bytes(self) -> None:
+        capture = {
+            "role": "producer", "status": "success", "connections": {},
+            "network": {"captured_wire_bytes": 1000},
+            "protocol": {
+                "tls_detected": False, "api_types": {}, "record_batches": {},
+                "topics": {"order.events.v1": {"records": 4, "wire_bytes": 200, "captured_wire_bytes": 600}},
+            },
+        }
+        summary = analyze_pcap.aggregate_role([capture], "producer")
+        topic = summary["protocol"]["topics"]["order.events.v1"]
+        self.assertEqual(4, topic["records"])
+        self.assertEqual(600, topic["captured_wire_bytes"])
 
 
 if __name__ == "__main__":

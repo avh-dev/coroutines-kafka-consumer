@@ -290,6 +290,7 @@
 | [INFRA-145](#infra-145) | Simplify canonical experiment YAML into explicit workload topics and target settings. | DONE |
 | [INFRA-146](#infra-146) | Replace acceptance evaluation with topic-level evidence metrics. | DONE |
 | [INFRA-147](#infra-147) | Redesign the evidence report around one planned timeline and comparison table. | DONE |
+| [INFRA-148](#infra-148) | Add topic-level Kafka network evidence from packet captures. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3314,3 +3315,14 @@ Render the experiment as a concise evidence report: its planned load and chaos t
 Remove acceptance verdicts, actual-event timeline rendering, and auxiliary comparison graphs from the report surface.
 
 Verification: 57 audit, orchestration, internal-lab planning, and AWS-session unit tests passed; report modules compile. The report now emits only its planned load/chaos SVG and a topic-grouped comparison table with evidence-bundle and audit-archive links.
+
+<a id="infra-148"></a>
+### INFRA-148 - Add topic-level Kafka network evidence
+
+_Date: 2026-09-07_
+
+Derive producer, consumer, and total captured-wire bytes per application message for every scheduled Kafka tcpdump window.
+Show optional network evidence beside the matching topic results, including the planned capture window and observed message rate.
+Preserve the report's lightweight surface and remove stale internal-lab test expectations for acceptance verdicts and observed-event graphs.
+
+Verification: internal-lab tests (50) and packet-capture tests (5) pass. The installed lab was updated and `smoke-repeat` completed both targets; its report contains the planned-only load graph, topic comparison table, freshness histogram, and evidence/audit links.

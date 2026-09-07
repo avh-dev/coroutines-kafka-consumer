@@ -416,7 +416,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(30.0, report.targets[0].events[0]["at_seconds"])
             self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
             svg = svg_renderer.load_profile_svg(report)
-            self.assertIn("target-a: Packet capture · kafka-steady [success]", svg)
+            self.assertIn("Planned time from workload start", svg)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -454,32 +454,18 @@ class ExperimentReportTest(unittest.TestCase):
             model = yaml.safe_load((report_dir / "report-model.yaml").read_text(encoding="utf-8"))
             svg = (report_dir / "load-profile.svg").read_text(encoding="utf-8")
             self.assertEqual("FAIL", model["evaluation_status"])
-            self.assertIn("❌ FAIL", markdown)
-            self.assertIn("## Runtime measurements", markdown)
-            self.assertIn("## Resource cost", markdown)
-            self.assertIn("0.750 cores / 1,400.00 MiB", markdown)
-            self.assertIn("## Thread Stats snapshot coverage", markdown)
-            self.assertIn("4 / 0 / 4", markdown)
-            self.assertIn("## Packet capture coverage", markdown)
-            self.assertIn("2 / 2", markdown)
+            self.assertIn("## Results", markdown)
+            self.assertIn("Application CPU at measured load", markdown)
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-summary.json").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-index.jsonl").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-pcap-analysis.json").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-pcap-analysis.txt").is_file())
-            self.assertTrue((report_dir / "kafka-wire-breakdown.svg").is_file())
-            self.assertIn("## Kafka traffic analysis", markdown)
-            self.assertIn("### Total captured traffic and logical record payload", markdown)
-            self.assertIn("Attributes (keys + headers)", markdown)
-            self.assertIn("### Logical payload to wire ratio", markdown)
-            self.assertIn("Producer useful / wire", markdown)
-            self.assertIn("producer", markdown)
+            self.assertFalse((report_dir / "kafka-wire-breakdown.svg").exists())
+            self.assertNotIn("### Total captured traffic and logical record payload", markdown)
             self.assertNotIn("](raw/", markdown)
-            self.assertIn("## Offline evidence", markdown)
-            self.assertIn("deployment/targets/target-a/", markdown)
-            self.assertIn("675.00 / 950.00 records", markdown)
-            self.assertIn("6.00 MiB/s", markdown)
-            self.assertIn("## Load profile and planned chaos", markdown)
-            self.assertNotIn("## Test definition", markdown)
+            self.assertIn("## Full evidence", markdown)
+            self.assertIn("Evidence bundle", markdown)
+            self.assertIn("Audit archive", markdown)
             self.assertNotIn("- Definition:", markdown)
             self.assertIn(">TPS</text>", svg)
             self.assertNotIn(">Load profile and planned chaos events</text>", svg)
@@ -646,30 +632,11 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertGreaterEqual(len(axis_labels), 3)
             self.assertTrue(svg.startswith("<svg "))
-            for name in (
-                "latency-sla-misses.svg",
-                "latency-p95.svg",
-                "cpu-average.svg",
-                "application-memory-average.svg",
-                "broker-cpu-average.svg",
-                "broker-memory-average.svg",
-                "producer-cpu-average.svg",
-                "producer-memory-average.svg",
-                "throughput-average.svg",
-                "poll-batch-average.svg",
-                "active-workers-max.svg",
-                "worker-allocation-average.svg",
-                "worker-cpu-average.svg",
-                "context-switches-average.svg",
-            ):
-                self.assertTrue((report_dir / name).is_file())
-                ET.parse(report_dir / name)
             ET.parse(report_dir / "load-profile.svg")
             for name in (
                 "experiment-set-summary.json",
                 "experiment.yaml",
                 "resolved-target.yaml",
-                "acceptance.yaml",
                 "run-a-metadata.json",
                 "run-a-audit-summary.yaml",
                 "run-a-thread-stats-summary.json",
@@ -781,8 +748,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("PASS", model["targets"][0]["delivery_evaluation_status"])
             self.assertEqual("FAIL", model["targets"][0]["latency_evaluation_status"])
             self.assertEqual("FAIL", model["targets"][0]["evaluation_status"])
-            self.assertIn("12 (1.20%)", markdown)
-            self.assertIn("5m 0.0s", markdown)
+            self.assertNotIn("12 (1.20%)", markdown)
+            self.assertIn("## Results", markdown)
 
     def test_old_audit_can_be_reanalyzed_with_latency_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
