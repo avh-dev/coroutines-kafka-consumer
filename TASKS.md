@@ -286,6 +286,7 @@
 | [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | DONE |
 | [INFRA-142](#infra-142) | Reorganize Grafana dashboard groups and split Thread Stats CPU categories into total, user, and system views. | DONE |
 | [INFRA-143](#infra-143) | Add a simple 10-minute 5k/s Spring Kafka JDK HTTP versus single-worker fixed CKC comparison. | DONE |
+| [INFRA-144](#infra-144) | Clarify Grafana application and Kafka thread panel titles by leading with Total, User, or System. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3269,3 +3270,13 @@ Keep the workload, stubs, one-pod topology, audit, and acceptance contract ident
 Verification: canonical resolution succeeded for both `internal-lab` and AWS. Materialization confirmed 5,000 TPS, Spring Kafka JDK HTTP, and one CKC fixed dispatcher worker; 14 shared experiment-orchestration unit tests passed, and the diff passed whitespace validation. The experiment was not run.
 
 Live verification: `update-lab.sh` refreshed optilab successfully (63 Thread Stats tests passed), then experiment set `20260907T052954Z` completed both ten-minute targets with exit code 0. Spring processed 2,863,555 records at 4,775.51 records/s and 2.404 application cores; `ckc.fixed.1` processed 2,863,161 at 4,862.24 records/s and 1.163 cores. Both targets had zero missing terminal records, duplicates, failures, and conflicting outcomes, with 100% Thread Stats snapshot coverage. The report and evidence were generated under `/opt/ckc-lab/results/experiments/20260907T052954Z`.
+
+<a id="infra-144"></a>
+### INFRA-144 - Clarify Grafana thread panel titles
+
+_Date: 2026-09-07_
+
+Remove the redundant `Thread Stats` prefix from application and Kafka dashboard panel titles.
+Name total CPU panels explicitly, keeping `Total`, `User`, and `System` immediately visible for category comparisons.
+
+Verification: dashboard JSON parsed and all 6 dashboard tests passed. The three category panels use CPU-time-rate expressions and are titled `Total`, `User`, and `System CPU Time Rate by Category`; `Thread Stats` remains the application and Kafka section label. `update-lab.sh` installed the dashboard byte-for-byte on optilab. `smoke-repeat` set `20260907T081404Z` completed both targets with delivery and latency SLA PASS, required Loki labels, and Kafka exporter lag metrics available.
