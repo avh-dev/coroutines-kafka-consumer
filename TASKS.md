@@ -285,6 +285,7 @@
 | [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
 | [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | DONE |
 | [INFRA-142](#infra-142) | Reorganize Grafana dashboard groups and split Thread Stats CPU categories into total, user, and system views. | DONE |
+| [INFRA-143](#infra-143) | Add a simple 10-minute 5k/s Spring Kafka JDK HTTP versus single-worker fixed CKC comparison. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3255,3 +3256,16 @@ Rename model- and Lettuce-specific dashboard navigation to technology-neutral HT
 Add stacked category-level User and System CPU panels beside the existing Thread Stats total CPU view.
 
 Verification: dashboard JSON and 6 shared dashboard tests passed; all 50 internal-lab tests passed; Prometheus accepted the User and System expressions and live Grafana loaded both panels. Internal-lab was updated and `smoke-repeat` completed both targets (`20260907T050805Z`, `20260907T051100Z`) with exit code 0 and audit summaries.
+
+<a id="infra-143"></a>
+### INFRA-143 - Add a simple Spring Kafka JDK HTTP and CKC fixed.1 comparison
+
+_Date: 2026-09-07_
+
+Add a two-target, ten-minute 5,000 messages/s experiment suitable for a direct local or AWS comparison.
+Run one Spring Kafka application with synchronous JDK HTTP and one CKC application on a single fixed dispatcher worker.
+Keep the workload, stubs, one-pod topology, audit, and acceptance contract identical between targets.
+
+Verification: canonical resolution succeeded for both `internal-lab` and AWS. Materialization confirmed 5,000 TPS, Spring Kafka JDK HTTP, and one CKC fixed dispatcher worker; 14 shared experiment-orchestration unit tests passed, and the diff passed whitespace validation. The experiment was not run.
+
+Live verification: `update-lab.sh` refreshed optilab successfully (63 Thread Stats tests passed), then experiment set `20260907T052954Z` completed both ten-minute targets with exit code 0. Spring processed 2,863,555 records at 4,775.51 records/s and 2.404 application cores; `ckc.fixed.1` processed 2,863,161 at 4,862.24 records/s and 1.163 cores. Both targets had zero missing terminal records, duplicates, failures, and conflicting outcomes, with 100% Thread Stats snapshot coverage. The report and evidence were generated under `/opt/ckc-lab/results/experiments/20260907T052954Z`.
