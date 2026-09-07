@@ -774,7 +774,7 @@ def analyze_one(
     log_file,
     hook: Path | None,
     log_dir: Path,
-    sla_profile_file: Path | None,
+    latency_limits_file: Path,
 ) -> dict[str, Any]:
     audit_dir = Path(audit_dir_value)
     input_file = audit_input_file(audit_dir)
@@ -797,8 +797,7 @@ def analyze_one(
         str(metadata_file),
         "--require-records",
     ]
-    if sla_profile_file is not None:
-        command.extend(["--sla-profile-file", str(sla_profile_file)])
+    command.extend(["--latency-limits-file", str(latency_limits_file)])
     with summary_file.open("w", encoding="utf-8") as summary, progress_file.open("w", encoding="utf-8") as progress:
         process = subprocess.Popen(command, stdout=summary, stderr=subprocess.PIPE, text=True, bufsize=1)
         assert process.stderr is not None
@@ -837,7 +836,6 @@ def run_experiment(
         environment="internal-lab",
     )
     experiment = resolved_experiment.definition
-    sla_profile = resolved_experiment.acceptance or None
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
@@ -867,9 +865,12 @@ def run_experiment(
     write_resolved_test(resolved_test_path, definition)
     test_definition = experiment_name
     log_path = log_dir / f"{experiment_name}.log"
-    sla_profile_file = log_dir / f"{experiment_name}-acceptance.json" if sla_profile else None
-    if sla_profile_file is not None:
-        sla_profile_file.write_text(json.dumps(sla_profile, indent=2), encoding="utf-8")
+    latency_limits_file = log_dir / f"{experiment_name}-latency-limits.json"
+    workload_topics = (resolved_experiment.snapshot or {}).get("workload", {}).get("topics", {})
+    latency_limits_file.write_text(json.dumps({
+        str(settings["kafka_topic"]): settings["max_e2e_latency_ms"]
+        for settings in workload_topics.values()
+    }, indent=2), encoding="utf-8")
 
     results: list[dict[str, Any]] = []
     analysis_results: list[dict[str, Any]] = []
@@ -964,7 +965,7 @@ def run_experiment(
                         log_file,
                         hook,
                         log_dir,
-                        sla_profile_file,
+                        latency_limits_file,
                     )
                 )
             notify(hook, "audit_analysis_finished", {"experiment": experiment_name, "analysis": analysis_results}, log_dir)
@@ -979,7 +980,7 @@ def run_experiment(
         "base_tps": base_tps,
         "experiment_file": str(experiment_path),
         "resolved_experiment_path": str(materialized_dir / "resolved-experiment.yaml"),
-        "acceptance_file": str(sla_profile_file) if sla_profile_file else "",
+        "latency_limits_file": str(latency_limits_file),
         "result_dir": str(log_dir),
         "log_file": str(log_path),
         "targets": results,

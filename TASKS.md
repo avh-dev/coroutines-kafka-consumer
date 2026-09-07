@@ -288,6 +288,7 @@
 | [INFRA-143](#infra-143) | Add a simple 10-minute 5k/s Spring Kafka JDK HTTP versus single-worker fixed CKC comparison. | DONE |
 | [INFRA-144](#infra-144) | Clarify Grafana application and Kafka thread panel titles by leading with Total, User, or System. | DONE |
 | [INFRA-145](#infra-145) | Simplify canonical experiment YAML into explicit workload topics and target settings. | DONE |
+| [INFRA-146](#infra-146) | Replace acceptance evaluation with topic-level evidence metrics. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3292,3 +3293,13 @@ Move topic identity, traffic share, and maximum end-to-end latency into the work
 Migrate the canonical experiment catalog and retain resolved deployment artifacts as evidence rather than configuration inputs.
 
 Verification: 46 shared orchestration, internal-lab planning, and AWS-session unit tests passed. Every canonical experiment validated for each environment it declares. The Spring JDK versus CKC 5k comparison now fixes every CKC topic at two partitions and captures one 15-second Kafka tcpdump window in the middle of the steady-load phase.
+
+<a id="infra-146"></a>
+### INFRA-146 - Build lightweight evidence model
+
+_Date: 2026-09-07_
+
+Replace generic acceptance criteria and pass/fail evaluation with directly reported delivery, latency, and freshness evidence.
+Report metrics per workload topic, including successful-processing gaps, duplicate processing, latency-limit exceedances, latency percentiles, and trailing freshness-drop series.
+
+Verification: 57 audit, orchestration, internal-lab planning, and AWS-session unit tests passed. Audit summaries now calculate per-topic E2E count/p50/p95/p99/max, configured limit exceedances, successful-processing gaps, and trailing freshness-drop series; both runners supply limits from the canonical workload topics.
