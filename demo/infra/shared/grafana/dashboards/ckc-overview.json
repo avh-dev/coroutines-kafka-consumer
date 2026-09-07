@@ -2659,7 +2659,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats CPU Usage",
+          "title": "Total CPU Usage",
           "type": "timeseries"
         },
         {
@@ -2755,7 +2755,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats CPU Time Rate",
+          "title": "Total CPU Time Rate",
           "type": "timeseries"
         },
         {
@@ -2850,7 +2850,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats Allocation Rate",
+          "title": "Allocation Rate",
           "type": "timeseries"
         },
         {
@@ -2946,7 +2946,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats Thread Count",
+          "title": "Thread Count",
           "type": "timeseries"
         },
         {
@@ -3042,7 +3042,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats Thread States",
+          "title": "Thread States",
           "type": "timeseries"
         },
         {
@@ -3138,7 +3138,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats CPU by Category (Smooth Stacked)",
+          "title": "Total CPU Time Rate by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
@@ -3167,7 +3167,7 @@
             "expr": "(label_join((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
             "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
           }],
-          "title": "Thread Stats User CPU by Category (Smooth Stacked)",
+          "title": "User CPU Time Rate by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
@@ -3196,7 +3196,7 @@
             "expr": "(label_join((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
             "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
           }],
-          "title": "Thread Stats System CPU by Category (Smooth Stacked)",
+          "title": "System CPU Time Rate by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
@@ -3291,7 +3291,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats Allocations by Category (Smooth Stacked)",
+          "title": "Allocations by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
@@ -3386,7 +3386,7 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Stats CPU Usage by Category (Smooth Stacked)",
+          "title": "Total CPU Usage by Category (Smooth Stacked)",
           "type": "timeseries"
         }
       ],
@@ -3710,7 +3710,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats CPU Usage",
+          "title": "Kafka Total CPU Usage",
           "type": "timeseries"
         },
         {
@@ -3808,7 +3808,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats CPU Time Rate",
+          "title": "Kafka Total CPU Time Rate",
           "type": "timeseries"
         },
         {
@@ -3905,7 +3905,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats Allocation Rate",
+          "title": "Kafka Allocation Rate",
           "type": "timeseries"
         },
         {
@@ -4003,7 +4003,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats Thread Count",
+          "title": "Kafka Thread Count",
           "type": "timeseries"
         },
         {
@@ -4101,7 +4101,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats Thread States",
+          "title": "Kafka Thread States",
           "type": "timeseries"
         },
         {
@@ -4199,7 +4199,7 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Stats Sampling Errors",
+          "title": "Kafka Sampling Errors",
           "type": "timeseries"
         }
       ],
