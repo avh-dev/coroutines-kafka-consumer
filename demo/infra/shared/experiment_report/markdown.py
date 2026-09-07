@@ -65,6 +65,56 @@ def topic_summary(target: TargetReport) -> str:
 
 
 def render_markdown(report: ExperimentReport) -> str:
+    return render_evidence_markdown(report)
+
+
+def render_evidence_markdown(report: ExperimentReport) -> str:
+    lines = [
+        f"# Experiment Report: {report.name}", "", report.description, "",
+        "## Experiment setup", "",
+        f"- Planned base load: `{number(report.test_definition.get('base_tps'))} TPS`",
+        f"- Targets: `{len(report.targets)}`",
+        "", "## Planned load and chaos", "", "![Load profile](load-profile.svg)", "",
+        "## Targets", "",
+        "| Setting | " + " | ".join(cell(target.name) for target in report.targets) + " |",
+        "| --- | " + " | ".join("---" for _ in report.targets) + " |",
+        "| Implementation | " + " | ".join(cell(target.configuration.get("profile")) for target in report.targets) + " |",
+        "| Replicas | " + " | ".join(number(target.configuration.get("replicas"), 0) for target in report.targets) + " |",
+        "| Dispatcher | " + " | ".join(cell(target.configuration.get("dispatcher")) for target in report.targets) + " |",
+        "| Run duration | " + " | ".join(number(target.duration_seconds, 0) + " s" if target.duration_seconds is not None else "—" for target in report.targets) + " |",
+        "", "## Results", "",
+        "| Result | " + " | ".join(cell(target.name) for target in report.targets) + " |",
+        "| --- | " + " | ".join("---:" for _ in report.targets) + " |",
+    ]
+    def row(label: str, values: list[Any]) -> None:
+        lines.append("| " + label + " | " + " | ".join(cell(value) for value in values) + " |")
+    row("**All topics**", ["" for _ in report.targets])
+    row("Published messages", [number(target.delivery.get("published"), 0) for target in report.targets])
+    row("Not successfully processed ↓ less is better", [number(target.delivery.get("not_successfully_processed"), 0) for target in report.targets])
+    row("Processed more than once ↓ less is better", [number((target.delivery.get("duplicates") or {}).get("processed"), 0) for target in report.targets])
+    row("Application CPU at measured load ↓ less is better", [number(target.measurements.get("cpu_average_cores"), 3) + " cores" if target.measurements.get("cpu_average_cores") is not None else "—" for target in report.targets])
+    for topic in ("order.events.v1", "batch.events.v1", "cauldron.events.v1"):
+        first = next((value for value in report.targets if topic in value.topic_evidence), None)
+        if first is None:
+            continue
+        limit = first.topic_evidence[topic].get("e2e_latency", {}).get("limit_ms")
+        row(f"**{topic} — E2E limit {number(limit, 0)} ms**", ["" for _ in report.targets])
+        for key, label in (("published", "Published messages"), ("not_successfully_processed", "Not successfully processed ↓ less is better")):
+            row(label, [number(target.topic_evidence.get(topic, {}).get(key), 0) for target in report.targets])
+        row("Processed more than once ↓ less is better", [number((target.topic_evidence.get(topic, {}).get("duplicates") or {}).get("processed"), 0) for target in report.targets])
+        row("E2E above limit ↓ less is better", [f"{number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get('exceeded'), 0)} ({number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get('exceeded_percent'))}%)" for target in report.targets])
+        for percentile in ("p50", "p95", "p99"):
+            row(f"E2E {percentile}", [f"{number((target.topic_evidence.get(topic, {}).get('e2e_latency') or {}).get(percentile))} ms" for target in report.targets])
+        freshness = first.topic_evidence[topic].get("key_fairness", {}).get("freshness_gap", {})
+        if freshness:
+            row("**Freshness: consecutive skipped messages per key**", ["" for _ in report.targets])
+            for bucket in range(31):
+                row(f"Skipped {bucket} messages", [number((target.topic_evidence.get(topic, {}).get("key_fairness", {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}) or {}).get(bucket, 0), 0) for target in report.targets])
+            row("Skipped >30 messages", [number(sum(count for skipped, count in (target.topic_evidence.get(topic, {}).get("key_fairness", {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}) or {}).items() if int(skipped) > 30), 0) for target in report.targets])
+    lines.extend(["", "## Full evidence", "", "- [Evidence bundle](../evidence/)", "- [Audit archive](../audit/)", ""])
+    return "\n".join(lines)
+
+    # Historical renderer retained below temporarily while report fixtures migrate.
     timeline_title = (
         "Load profile and observed experiment events"
         if report.test_definition.get("observed_events")

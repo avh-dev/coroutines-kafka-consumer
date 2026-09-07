@@ -30,6 +30,8 @@ def write_report(report_dir: Path, report: Any) -> None:
         encoding="utf-8",
     )
     (report_dir / "load-profile.svg").write_text(load_profile_svg(report), encoding="utf-8")
+    (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
+    return
     latency_misses = []
     for target in report.targets:
         measured = sum(rule.measured for rule in target.latency_sla)

@@ -50,6 +50,7 @@ class TargetReport:
     configuration: dict[str, Any]
     test_definition: dict[str, Any]
     delivery: dict[str, Any]
+    topic_evidence: dict[str, Any]
     measurements: dict[str, float | None]
     thread_stats: dict[str, Any]
     packet_captures: dict[str, Any]
