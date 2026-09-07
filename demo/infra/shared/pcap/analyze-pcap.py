@@ -31,7 +31,7 @@ FIELDS = [
     "ip.len", "ip.hdr_len", "ipv6.plen", "tcp.stream", "tcp.srcport", "tcp.dstport",
     "tcp.len", "tcp.hdr_len", "tcp.flags.syn", "tcp.flags.ack", "tcp.flags.fin",
     "tcp.flags.reset", "tcp.analysis.retransmission", "kafka.len", "kafka.request_key",
-    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "kafka.topic", "tls.record.length",
+    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "kafka.topic_name", "tls.record.length",
     "tcp.pdu.size", "tcp.reassembled.data", "tcp.payload", "ip.src", "ip.dst",
     "ipv6.src", "ipv6.dst", "_ws.col.Info",
 ]
@@ -391,7 +391,7 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
                     "direction": direction,
                     "api_key": api_key,
                     "correlation": correlation,
-                    "topics": [topic for topic in row["kafka.topic"].split(",") if topic],
+                    "topics": [topic for topic in row["kafka.topic_name"].split(",") if topic],
                     "bytes": sum(length + 4 for length in kafka_lengths),
                     "raw": bytes_field(row["tcp.reassembled.data"]) or bytes_field(row["tcp.payload"]),
                 }

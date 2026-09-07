@@ -292,7 +292,8 @@
 | [INFRA-147](#infra-147) | Redesign the evidence report around one planned timeline and comparison table. | DONE |
 | [INFRA-148](#infra-148) | Add topic-level Kafka network evidence from packet captures. | DONE |
 | [INFRA-149](#infra-149) | Make fixed CKC comparison use worker parallelism with explicit two-partition topics. | DONE |
-| [INFRA-150](#infra-150) | Allow fixed Kafka partitions with worker-only target parallelism. | IN_PROGRESS |
+| [INFRA-150](#infra-150) | Allow fixed Kafka partitions with worker-only target parallelism. | DONE |
+| [INFRA-151](#infra-151) | Use the installed TShark Kafka topic field for packet-capture analysis. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3342,3 +3343,10 @@ The fixed CKC target now declares only `workers` as its parallelism source. Each
 _Date: 2026-09-07_
 
 Treat explicit Kafka partition counts as fixed topic settings independent of worker concurrency. This permits the CKC comparison's two-partition topics together with `parallelism: [workers]`.
+
+<a id="infra-151"></a>
+### INFRA-151 - Use the installed TShark Kafka topic field
+
+_Date: 2026-09-07_
+
+Use `kafka.topic_name`, the field exposed by the lab's TShark version, so scheduled captures produce topic-level network evidence instead of failing during analysis.
