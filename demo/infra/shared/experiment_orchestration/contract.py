@@ -10,10 +10,11 @@ import yaml
 
 from .diagnostic_steps import normalize as normalize_diagnostic_steps
 from .definition_environment import normalized_chaos_steps
+from .implementation_catalog import profile_catalog
 from .workload import deep_merge, load_yaml, validate_resolved_test
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ENVIRONMENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "internal-lab": frozenset({
@@ -30,7 +31,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 
 
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
-    return any(key in value for key in ("schema_version", "workload", "acceptance", "environments"))
+    return any(key in value for key in ("schema_version", "workload", "environments"))
 
 
 def require_mapping(value: Any, context: str, *, non_empty: bool = False) -> dict[str, Any]:
@@ -49,13 +50,49 @@ def require_list(value: Any, context: str, *, non_empty: bool = False) -> list[A
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
-    allowed = {"stubs", "load", "chaos", "diagnostics"}
+    allowed = {"stubs", "load", "topics", "chaos", "diagnostics"}
     unknown = sorted(set(workload) - allowed)
     if unknown:
         raise ValueError(f"Experiment workload contains unknown fields: {', '.join(unknown)}")
+    topics = require_mapping(workload.get("topics"), "Experiment workload.topics", non_empty=True)
+    expected_topics = {"order", "batch", "telemetry"}
+    if set(topics) != expected_topics:
+        missing = sorted(expected_topics - set(topics))
+        unknown_topics = sorted(set(topics) - expected_topics)
+        details = [*(f"missing {item}" for item in missing), *(f"unknown {item}" for item in unknown_topics)]
+        raise ValueError(f"Experiment workload.topics must define order, batch, and telemetry ({', '.join(details)})")
+    normalized_topics: dict[str, dict[str, Any]] = {}
+    load = require_mapping(workload.get("load"), "Experiment workload.load")
+    for topic, settings in topics.items():
+        item = require_mapping(settings, f"Experiment workload.topics.{topic}")
+        unknown_topic_fields = sorted(set(item) - {"kafka_topic", "traffic_percent", "max_e2e_latency_ms"})
+        if unknown_topic_fields:
+            raise ValueError(f"Experiment workload.topics.{topic} contains unknown fields: {', '.join(unknown_topic_fields)}")
+        kafka_topic = str(item.get("kafka_topic") or "").strip()
+        if not kafka_topic:
+            raise ValueError(f"Experiment workload.topics.{topic}.kafka_topic must not be empty")
+        traffic_percent = item.get("traffic_percent")
+        max_e2e_latency_ms = item.get("max_e2e_latency_ms")
+        if not isinstance(traffic_percent, (int, float)) or isinstance(traffic_percent, bool) or not 0 <= traffic_percent <= 100:
+            raise ValueError(f"Experiment workload.topics.{topic}.traffic_percent must be between 0 and 100")
+        if not isinstance(max_e2e_latency_ms, (int, float)) or isinstance(max_e2e_latency_ms, bool) or max_e2e_latency_ms < 0:
+            raise ValueError(f"Experiment workload.topics.{topic}.max_e2e_latency_ms must be non-negative")
+        normalized_topics[topic] = {
+            "kafka_topic": kafka_topic,
+            "traffic_percent": traffic_percent,
+            "max_e2e_latency_ms": max_e2e_latency_ms,
+        }
+    if sum(float(item["traffic_percent"]) for item in normalized_topics.values()) != 100:
+        raise ValueError("Experiment workload topic traffic_percent values must total 100")
+    load = copy.deepcopy(load)
+    load.update({
+        "order_event_percent": normalized_topics["order"]["traffic_percent"],
+        "batch_event_percent": normalized_topics["batch"]["traffic_percent"],
+        "cauldron_telemetry_percent": normalized_topics["telemetry"]["traffic_percent"],
+    })
     definition: dict[str, Any] = {
         "stubs": copy.deepcopy(workload.get("stubs")),
-        "load_test": copy.deepcopy(workload.get("load")),
+        "load_test": load,
     }
     if "chaos" in workload:
         definition["chaos_steps"] = copy.deepcopy(workload["chaos"])
@@ -66,6 +103,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         normalized_chaos_steps(definition, definition["stubs"], source)
     if "diagnostic_steps" in definition:
         normalize_diagnostic_steps(definition, source)
+    definition["topics"] = normalized_topics
     return definition
 
 
@@ -255,10 +293,7 @@ def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def canonical_targets(experiment: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    defaults = experiment.get("defaults", {})
-    defaults = require_mapping(defaults, "Experiment defaults")
-    validate_target_configuration(defaults, "Experiment defaults", defaults=True)
+def canonical_targets(experiment: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_targets = require_list(experiment.get("targets"), "Experiment targets", non_empty=True)
     targets: list[dict[str, Any]] = []
     for index, raw_target in enumerate(raw_targets, start=1):
@@ -269,23 +304,11 @@ def canonical_targets(experiment: Mapping[str, Any]) -> tuple[dict[str, Any], li
             raise ValueError(f"Experiment targets[{index}].implementation must not be empty")
         if not str(target.get("name") or "").strip():
             raise ValueError(f"Experiment targets[{index}].name must not be empty")
+        for required in ("application", "runtime"):
+            if required not in target:
+                raise ValueError(f"Experiment targets[{index}] must define {required} explicitly")
         targets.append(copy.deepcopy(target))
-    return copy.deepcopy(defaults), targets
-
-
-def validate_implementations(value: Any, targets: list[dict[str, Any]]) -> dict[str, Any]:
-    implementations = require_mapping(value, "Experiment implementations", non_empty=True)
-    topics = require_mapping(implementations.get("topics"), "Experiment implementations.topics", non_empty=True)
-    profiles = require_mapping(implementations.get("profiles"), "Experiment implementations.profiles", non_empty=True)
-    unknown = sorted(set(implementations) - {"topics", "profiles"})
-    if unknown:
-        raise ValueError(f"Experiment implementations contains unknown fields: {', '.join(unknown)}")
-    missing = sorted({str(target["implementation"]) for target in targets} - set(map(str, profiles)))
-    if missing:
-        raise ValueError(f"Experiment implementation profiles are missing: {', '.join(missing)}")
-    for name, profile in profiles.items():
-        require_mapping(profile, f"Experiment implementations.profiles.{name}", non_empty=True)
-    return {"topics": copy.deepcopy(topics), "profiles": copy.deepcopy(profiles)}
+    return targets
 
 
 def required_capabilities(workload: Mapping[str, Any]) -> frozenset[str]:
@@ -349,10 +372,7 @@ def validate_canonical_experiment(
     version = experiment.get("schema_version")
     if version != SCHEMA_VERSION:
         raise ValueError(f"Experiment schema_version must be {SCHEMA_VERSION}, got {version!r}")
-    allowed = {
-        "schema_version", "name", "description", "workload", "acceptance",
-        "implementations", "defaults", "targets", "environments",
-    }
+    allowed = {"schema_version", "name", "description", "workload", "targets", "environments"}
     unknown = sorted(set(experiment) - allowed)
     if unknown:
         raise ValueError(f"Experiment contains unknown fields: {', '.join(unknown)}")
@@ -360,12 +380,14 @@ def validate_canonical_experiment(
     if not name:
         raise ValueError("Experiment name must not be empty")
     workload = canonical_workload(experiment, source)
-    acceptance = validate_acceptance(experiment.get("acceptance"))
-    defaults, targets = canonical_targets(experiment)
-    implementations = validate_implementations(experiment.get("implementations"), targets)
+    targets = canonical_targets(experiment)
+    implementations = profile_catalog(workload["topics"])
+    missing = sorted({str(target["implementation"]) for target in targets} - set(implementations["profiles"]))
+    if missing:
+        raise ValueError(f"Unknown target implementations: {', '.join(missing)}")
     resolved_targets = [
         {
-            **deep_merge(defaults, {key: value for key, value in target.items() if key != "workload"}),
+            **{key: copy.deepcopy(value) for key, value in target.items() if key != "workload"},
             "workload": deep_merge(
                 {
                     "stubs": copy.deepcopy(workload["stubs"]),
@@ -408,12 +430,11 @@ def validate_canonical_experiment(
         "workload": {
             "stubs": copy.deepcopy(workload["stubs"]),
             "load": copy.deepcopy(workload["load_test"]),
+            "topics": copy.deepcopy(workload["topics"]),
             **({"chaos": copy.deepcopy(workload["chaos_steps"])} if "chaos_steps" in workload else {}),
             **({"diagnostics": copy.deepcopy(workload["diagnostic_steps"])} if "diagnostic_steps" in workload else {}),
         },
-        "acceptance": acceptance,
         "implementations": implementations,
-        "defaults": defaults,
         "targets": resolved_targets,
     }
 

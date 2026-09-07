@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from demo.infra.shared.experiment_orchestration.contract import validate_canonical_experiment
+
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 INTERNAL_LAB = REPO_ROOT / "demo" / "infra" / "internal-lab"
@@ -24,10 +26,15 @@ class PlanRunTest(unittest.TestCase):
             )
             profiles = output_dir / "implementation-profiles.yaml"
             definition = output_dir / "resolved-test.yaml"
-            profiles.write_text(yaml.safe_dump(experiment["implementations"], sort_keys=False), encoding="utf-8")
+            snapshot = validate_canonical_experiment(
+                experiment,
+                REPO_ROOT / "demo/infra/experiments/ckc-large-poll-batch-worker-comparison.yaml",
+                environment="internal-lab",
+            )
+            profiles.write_text(yaml.safe_dump(snapshot["implementations"], sort_keys=False), encoding="utf-8")
             definition.write_text(yaml.safe_dump({
                 "stubs": experiment["workload"]["stubs"],
-                "load_test": experiment["workload"]["load"],
+                "load_test": snapshot["workload"]["load"],
             }, sort_keys=False), encoding="utf-8")
             subprocess.run(
                 [
@@ -45,6 +52,12 @@ class PlanRunTest(unittest.TestCase):
                     "ckc",
                     "--processing-dispatcher-type",
                     "FIXED",
+                    "--order-planning-latency-ms",
+                    "50",
+                    "--batch-planning-latency-ms",
+                    "50",
+                    "--telemetry-planning-latency-ms",
+                    "150",
                     "--telemetry-processing-mode",
                     "AT_LEAST_ONCE_NO_ORDERING",
                     str(definition),

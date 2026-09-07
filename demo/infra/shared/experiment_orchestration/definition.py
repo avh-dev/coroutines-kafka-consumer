@@ -56,8 +56,8 @@ def resolve_experiment_definition(
     experiment = load_yaml(experiment_path)
     if not is_canonical_experiment(experiment):
         raise ValueError(
-            "Only self-contained schema_version: 1 experiments are supported; "
-            "inline workload, acceptance, implementations, targets, and environments"
+            "Only self-contained schema_version: 2 experiments are supported; "
+            "inline workload topics, targets, and environments are required"
         )
     snapshot = validate_canonical_experiment(
         experiment,
@@ -89,9 +89,7 @@ def resolve_experiment_definition(
         experiment={
             "name": snapshot["name"],
             "description": snapshot["description"],
-            "defaults": {},
             "targets": [target_to_runner(target) for target in snapshot["targets"]],
-            "acceptance": copy.deepcopy(snapshot["acceptance"]),
             "environment": copy.deepcopy(snapshot["environment"]),
         },
         base_test=base_test,
@@ -99,7 +97,7 @@ def resolve_experiment_definition(
         schema_version=int(snapshot["schema_version"]),
         environment=str(selected_environment["name"]),
         environment_definition=copy.deepcopy(selected_environment["configuration"]),
-        acceptance=copy.deepcopy(snapshot["acceptance"]),
+        acceptance=None,
         snapshot=snapshot,
         target_tests=target_tests,
     )

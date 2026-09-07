@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: msk-elasticache-20min-10k
 description: Twenty-minute 10k/s CKC run on fixed EKS, MSK, and ElastiCache capacity.
 workload:
@@ -22,14 +22,12 @@ workload:
   load:
     shards: 1
     base_tps: 10000
-    order_event_percent: 35
-    batch_event_percent: 25
-    cauldron_telemetry_percent: 40
     producer_capacity_tps:
       order: 1000
       batch: 1000
       telemetry: 1000
-    load_profile: 0 -> (600s, warmup) -> 100 -> (540s, steady) -> 100 -> (60s, cool-down) -> 0
+    load_profile: 0 -> (600s, warmup) -> 100 -> (540s, steady) -> 100 -> (60s, cool-down)
+      -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -42,137 +40,22 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
-acceptance:
-  criteria:
-  - id: no-missing-terminal
-    title: Every published record has a terminal outcome
-    source: audit
-    path:
-    - totals
-    - missing_terminal
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-duplicate-processing
-    title: Records are not processed more than once
-    source: audit
-    path:
-    - totals
-    - duplicates
-    - processed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-terminal-failures
-    title: Records do not end in terminal processing failure
-    source: audit
-    path:
-    - totals
-    - failed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-processed-without-publish
-    title: Processed records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - processed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-failed-without-publish
-    title: Failed records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - failed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-dropped-without-publish
-    title: Dropped records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - dropped
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-conflicting-terminal-outcomes
-    title: Records have only one terminal outcome
-    source: audit
-    path:
-    - totals
-    - conflicting_terminal_outcomes
-    operator: eq
-    threshold: 0
-    unit: records
-implementations:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent_key: order_event_percent
+      traffic_percent: 35
+      max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent_key: batch_event_percent
+      traffic_percent: 25
+      max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent_key: cauldron_telemetry_percent
-  profiles:
-    ckc:
-      spring_profile: ckc
-      default_processing_dispatcher: FIXED
-      allowed_processing_dispatchers:
-      - DEFAULT
-      - FIXED
-      - IO
-      - VIRTUAL
-      topics:
-        order:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        batch:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        telemetry:
-          default_planning_latency_ms: 150
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          allowed_processing_modes:
-          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          - FRESHNESS_FIRST_DROP_OLDEST
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-defaults:
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+targets:
+- name: ckc
+  implementation: ckc
   application:
     replicas: 2
     resources:
@@ -195,8 +78,6 @@ defaults:
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
-targets:
-- runtime:
     planning_latency:
       order_ms: 50
       batch_ms: 50
@@ -209,17 +90,17 @@ targets:
         partitions: 12
         workers: 100
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         partitions: 12
         workers: 100
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
         partitions: 12
         workers: 100
         queue_capacity: 4096
         processing_mode: FRESHNESS_FIRST_DROP_OLDEST
-  name: ckc
-  implementation: ckc
 environments:
   aws:
     region: eu-central-1

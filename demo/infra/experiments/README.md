@@ -1,7 +1,7 @@
 # Experiments
 
 This is the only author-maintained experiment catalog. Every YAML file contains
-its workload, acceptance rules, implementation profiles, targets, and supported
+its workload, topic traffic and latency limits, explicit targets, and supported
 environment definitions. It must not refer to another test, SLA, consumer, Helm,
 or Terraform profile.
 
@@ -25,5 +25,5 @@ demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml \
 
 An experiment may contain both environment entries when its workload is
 portable. Environment-specific capabilities are checked before any deployment.
-Generated implementation catalogs, Terraform inputs, Kubernetes manifests, and
+Generated planner capabilities, Terraform inputs, Kubernetes manifests, and
 resolved snapshots are evidence, not additional configuration sources.

@@ -47,16 +47,12 @@ def materialize_target(
     target_dir.mkdir(parents=True, exist_ok=True)
     source_test_path = target_dir / "resolved-test-source.yaml"
     write_resolved_test(source_test_path, target.test.definition)
-    defaults = experiment.definition.get("defaults") or {}
-    if not isinstance(defaults, dict):
-        raise ValueError("Experiment defaults must be an object")
     plan, values = plan_target(
         definition_path=source_test_path,
         consumer_profiles_path=consumer_profiles_path,
         profile_name=target.profile,
         output_dir=target_dir,
         target=target.definition,
-        defaults=defaults,
         repo_dir=repo_dir,
     )
 

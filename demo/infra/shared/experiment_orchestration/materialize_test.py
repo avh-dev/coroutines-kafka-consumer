@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
-    def test_materializes_canonical_snapshot_and_inline_implementations(self) -> None:
+    def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"

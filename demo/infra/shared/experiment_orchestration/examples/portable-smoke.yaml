@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: portable-smoke
 description: Run one self-contained smoke workload in internal-lab or AWS.
 workload:
@@ -23,9 +23,6 @@ workload:
     shards: 1
     workers: 1
     base_tps: 100
-    order_event_percent: 35
-    batch_event_percent: 25
-    cauldron_telemetry_percent: 40
     load_profile: 0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down)
       -> 0
     cauldron_count: 2
@@ -34,79 +31,22 @@ workload:
     min_brewing_steps: 5
     max_brewing_steps: 8
     diagnostics_blob_size: 64
-acceptance:
-  criteria:
-  - id: no-missing-terminal
-    title: Every published record has a terminal outcome
-    source: audit
-    path:
-    - totals
-    - missing_terminal
-    operator: eq
-    threshold: 0
-    unit: records
-implementations:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent_key: order_event_percent
+      traffic_percent: 35
+      max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent_key: batch_event_percent
+      traffic_percent: 25
+      max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent_key: cauldron_telemetry_percent
-  profiles:
-    ckc:
-      spring_profile: ckc
-      default_processing_dispatcher: FIXED
-      allowed_processing_dispatchers:
-      - DEFAULT
-      - FIXED
-      - IO
-      - VIRTUAL
-      topics:
-        order:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        batch:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        telemetry:
-          default_planning_latency_ms: 150
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          allowed_processing_modes:
-          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          - FRESHNESS_FIRST_DROP_OLDEST
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-defaults:
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+targets:
+- name: ckc
+  implementation: ckc
   application:
     replicas: 1
     resources:
@@ -123,18 +63,20 @@ defaults:
       PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
+      PROCESSING_DISPATCHER_TYPE: FIXED
     planning_latency:
       order_ms: 50
       batch_ms: 50
       telemetry_ms: 150
-targets:
-- name: ckc
-  implementation: ckc
-  runtime:
     topics:
       telemetry:
         workers: 20
         queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+      order:
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      batch:
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
 environments:
   internal-lab:
     lab:
