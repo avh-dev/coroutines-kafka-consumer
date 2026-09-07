@@ -581,6 +581,7 @@ def packet_capture_analysis(run_dir: Path, enabled: bool, warnings: list[str]) -
     return {
         "status": status,
         "tshark_version": summary.get("tshark_version"),
+        "captures": summary.get("captures") if isinstance(summary.get("captures"), list) else [],
         "roles": summary.get("roles") if isinstance(summary.get("roles"), dict) else {},
         "warnings": summary.get("warnings") if isinstance(summary.get("warnings"), list) else [],
     }

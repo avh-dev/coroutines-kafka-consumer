@@ -31,7 +31,7 @@ FIELDS = [
     "ip.len", "ip.hdr_len", "ipv6.plen", "tcp.stream", "tcp.srcport", "tcp.dstport",
     "tcp.len", "tcp.hdr_len", "tcp.flags.syn", "tcp.flags.ack", "tcp.flags.fin",
     "tcp.flags.reset", "tcp.analysis.retransmission", "kafka.len", "kafka.request_key",
-    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "tls.record.length",
+    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "kafka.topic", "tls.record.length",
     "tcp.pdu.size", "tcp.reassembled.data", "tcp.payload", "ip.src", "ip.dst",
     "ipv6.src", "ipv6.dst", "_ws.col.Info",
 ]
@@ -391,6 +391,7 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
                     "direction": direction,
                     "api_key": api_key,
                     "correlation": correlation,
+                    "topics": [topic for topic in row["kafka.topic"].split(",") if topic],
                     "bytes": sum(length + 4 for length in kafka_lengths),
                     "raw": bytes_field(row["tcp.reassembled.data"]) or bytes_field(row["tcp.payload"]),
                 }
@@ -457,6 +458,7 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         "record_overhead_bytes": 0, "decompression_unavailable_batches": 0,
     }
     codecs: Counter[str] = Counter()
+    topic_batches: dict[str, dict[str, int]] = defaultdict(lambda: {"records": 0, "wire_bytes": 0})
     batch_keys = [
         "records", "batch_wire_bytes", "batch_header_bytes", "compressed_record_bytes",
         "uncompressed_record_bytes", "compression_savings_bytes", "parsed_records", "key_bytes",
@@ -480,12 +482,29 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
                 add_numbers(batch_totals, batch, batch_keys)
                 if batch["decompression_status"] == "unavailable":
                     batch_totals["decompression_unavailable_batches"] += 1
+                for topic in message["topics"]:
+                    topic_batches[topic]["records"] += int(batch["records"])
+                    topic_batches[topic]["wire_bytes"] += int(batch["batch_wire_bytes"])
     batch_totals["codecs"] = dict(sorted(codecs.items()))
     known_uncompressed = batch_totals["uncompressed_record_bytes"]
     compressed = batch_totals["compressed_record_bytes"]
     batch_totals["compression_ratio_percent"] = round(compressed * 100 / known_uncompressed, 3) if known_uncompressed else None
     batch_totals["space_saving_percent"] = round(batch_totals["compression_savings_bytes"] * 100 / known_uncompressed, 3) if known_uncompressed else None
     kafka_bytes = sum(message["bytes"] for message in selected_messages)
+    topic_batch_bytes = sum(values["wire_bytes"] for values in topic_batches.values())
+    # TCP frames contain Kafka envelopes and acknowledgements that cannot be assigned to
+    # one record precisely. Attribute the captured wire bytes by each topic's share of
+    # decoded record-batch bytes; this keeps the reported per-message cost additive.
+    if topic_batch_bytes:
+        assigned = 0
+        ordered_topics = sorted(topic_batches.items())
+        for index, (_, values) in enumerate(ordered_topics):
+            if index + 1 == len(ordered_topics):
+                values["captured_wire_bytes"] = network["captured_wire_bytes"] - assigned
+            else:
+                allocated = round(network["captured_wire_bytes"] * values["wire_bytes"] / topic_batch_bytes)
+                values["captured_wire_bytes"] = allocated
+                assigned += allocated
     protocol = {
         "tls_detected": tls_detected,
         "kafka_analysis_available": not tls_detected,
@@ -494,11 +513,17 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         "kafka_protocol_bytes_excluding_batches": max(0, kafka_bytes - batch_totals["batch_wire_bytes"]) if not tls_detected else None,
         "api_types": dict(sorted(api_counts.items())),
         "record_batches": batch_totals,
+        "topics": dict(sorted(topic_batches.items())),
     }
     selected_connections = [connections[stream] for stream in selected]
     return {
         "path": str(path),
         "role": role,
+        "capture": {
+            "name": str(metadata.get("step") or path.parent.parent.name),
+            "planned_at_seconds": metadata.get("requested_at_seconds"),
+            "duration_seconds": metadata.get("requested_duration_seconds"),
+        },
         "capture_scope": "role" if role_scoped_capture else "classified-connections",
         "status": "partial" if warnings else "success",
         "warnings": warnings,
@@ -529,7 +554,7 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
     ]
     result: dict[str, Any] = {
         "capture_count": len(selected), "connections": {}, "network": {},
-        "protocol": {"api_types": {}, "record_batches": {}},
+        "protocol": {"api_types": {}, "record_batches": {}, "topics": {}},
     }
     for capture in selected:
         add_numbers(result["connections"], capture["connections"], list(capture["connections"]))
@@ -547,6 +572,11 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
         add_numbers(target_batches, batches, [key for key, value in batches.items() if isinstance(value, int)])
         codecs = target_batches.setdefault("codecs", {})
         add_numbers(codecs, batches.get("codecs", {}), list(batches.get("codecs", {})))
+        for topic, values in protocol.get("topics", {}).items():
+            target_topic = result["protocol"]["topics"].setdefault(
+                topic, {"records": 0, "wire_bytes": 0, "captured_wire_bytes": 0}
+            )
+            add_numbers(target_topic, values, ["records", "wire_bytes", "captured_wire_bytes"])
     network = result["network"]
     network["network_overhead_percent"] = round(network.get("network_header_bytes", 0) * 100 / network.get("captured_wire_bytes", 0), 3) if network.get("captured_wire_bytes") else None
     batches = result["protocol"]["record_batches"]
