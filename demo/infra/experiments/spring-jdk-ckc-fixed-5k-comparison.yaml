@@ -134,7 +134,6 @@ targets:
       batch_ms: 50
       telemetry_ms: 150
     parallelism:
-    - partitions
     - workers
     topics:
       order:
