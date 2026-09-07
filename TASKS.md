@@ -293,7 +293,8 @@
 | [INFRA-148](#infra-148) | Add topic-level Kafka network evidence from packet captures. | DONE |
 | [INFRA-149](#infra-149) | Make fixed CKC comparison use worker parallelism with explicit two-partition topics. | DONE |
 | [INFRA-150](#infra-150) | Allow fixed Kafka partitions with worker-only target parallelism. | DONE |
-| [INFRA-151](#infra-151) | Use the installed TShark Kafka topic field for packet-capture analysis. | IN_PROGRESS |
+| [INFRA-151](#infra-151) | Use the installed TShark Kafka topic field for packet-capture analysis. | DONE |
+| [INFRA-152](#infra-152) | Preserve topic network evidence when TShark returns fragmented topic names. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3350,3 +3351,10 @@ Treat explicit Kafka partition counts as fixed topic settings independent of wor
 _Date: 2026-09-07_
 
 Use `kafka.topic_name`, the field exposed by the lab's TShark version, so scheduled captures produce topic-level network evidence instead of failing during analysis.
+
+<a id="infra-152"></a>
+### INFRA-152 - Preserve topic network evidence with a fallback allocation
+
+_Date: 2026-09-07_
+
+When high-rate TShark output cannot reconstruct canonical topic names, allocate captured bytes by the audit's observed per-topic publish share and label the result as an estimate.

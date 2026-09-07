@@ -115,7 +115,31 @@ def render_evidence_markdown(report: ExperimentReport) -> str:
             if isinstance(values, dict):
                 records += int(values.get("records") or 0)
                 wire_bytes += int(values.get("captured_wire_bytes") or 0)
-        return (wire_bytes / records if records else None, records)
+        if records:
+            return wire_bytes / records, records
+        # Some TShark versions expose fragmented topic-name fields under heavy
+        # Kafka load. Keep the network comparison useful by allocating the role's
+        # captured bytes according to the audit's actual per-topic publish share.
+        topic_data = target.topic_evidence.get(topic, {})
+        topic_records = int(topic_data.get("published") or 0) if isinstance(topic_data, dict) else 0
+        all_records = sum(
+            int(value.get("published") or 0)
+            for value in target.topic_evidence.values()
+            if isinstance(value, dict)
+        )
+        if not topic_records or not all_records:
+            return None, 0
+        role_bytes = 0
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict) or capture.get("role") != role:
+                continue
+            details = capture.get("capture", {})
+            key = (str(details.get("name") or "tcpdump"), details.get("planned_at_seconds"), details.get("duration_seconds")) if isinstance(details, dict) else ("tcpdump", None, None)
+            if key != window:
+                continue
+            role_bytes += int((capture.get("network") or {}).get("captured_wire_bytes") or 0)
+        allocated = role_bytes * topic_records / all_records
+        return allocated / topic_records, topic_records
 
     def topic_wire_per_message(target: TargetReport, topic: str, role: str, window: tuple[str, Any, Any]) -> float | None:
         return topic_wire_and_records(target, topic, role, window)[0]
@@ -164,7 +188,8 @@ def render_evidence_markdown(report: ExperimentReport) -> str:
     if any(target.pcap_analysis.get("status") not in {"disabled", "unavailable"} for target in report.targets):
         lines.extend([
             "", "Network values use the scheduled tcpdump window. Producer (P) and consumer (C) are shown separately;",
-            "their total is an estimate because TCP envelopes and acknowledgements are allocated by decoded Kafka batch share.",
+            "their total is an estimate: TCP envelopes and acknowledgements use decoded Kafka batch share,"
+            " with audit publish share as fallback when TShark cannot reconstruct a topic name.",
         ])
     lines.extend(["", "## Full evidence", "", "- [Evidence bundle](../evidence/)", "- [Audit archive](../audit/)", ""])
     return "\n".join(lines)
