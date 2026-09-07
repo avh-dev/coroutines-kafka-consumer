@@ -12,7 +12,7 @@ from .definition import resolve_experiment_definition
 
 def canonical_experiment() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "name": "portable-smoke",
         "description": "Run the same smoke workload in either environment.",
         "workload": {
@@ -20,35 +20,20 @@ def canonical_experiment() -> dict:
             "load": {
                 "base_tps": 100,
                 "load_profile": "0 -> (10s, smoke) -> 100 -> (10s, cool-down) -> 0",
-                "order_event_percent": 35,
-                "batch_event_percent": 25,
-                "cauldron_telemetry_percent": 40,
             },
-        },
-        "acceptance": {
-            "criteria": [{
-                "id": "no-missing",
-                "source": "audit",
-                "path": ["totals", "missing_terminal"],
-                "operator": "eq",
-                "threshold": 0,
-            }],
-        },
-        "implementations": {
-            "topics": {"order": {"kafka_topic": "order.events.v1"}},
-            "profiles": {"ckc": {"spring_profile": "ckc"}},
-        },
-        "defaults": {
-            "application": {"replicas": 2},
-            "runtime": {
-                "env": {"AUDIT_LOG_ENABLED": True},
-                "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
+            "topics": {
+                "order": {"kafka_topic": "order.events.v1", "traffic_percent": 35, "max_e2e_latency_ms": 2000},
+                "batch": {"kafka_topic": "batch.events.v1", "traffic_percent": 25, "max_e2e_latency_ms": 2000},
+                "telemetry": {"kafka_topic": "cauldron.events.v1", "traffic_percent": 40, "max_e2e_latency_ms": 1000},
             },
         },
         "targets": [{
             "name": "ckc",
             "implementation": "ckc",
+            "application": {"replicas": 2},
             "runtime": {
+                "env": {"AUDIT_LOG_ENABLED": True, "PROCESSING_DISPATCHER_TYPE": "FIXED"},
+                "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
                 "topics": {
                     "telemetry": {
                         "workers": 20,
@@ -85,17 +70,17 @@ class CanonicalExperimentContractTest(unittest.TestCase):
             environment="aws",
         )
 
-        self.assertEqual(1, resolved.schema_version)
+        self.assertEqual(2, resolved.schema_version)
         self.assertEqual("aws", resolved.environment)
         self.assertEqual("smoke", resolved.lab_profile)
-        self.assertEqual(experiment["acceptance"], resolved.acceptance)
+        self.assertIsNone(resolved.acceptance)
         self.assertEqual(100, resolved.test.definition["load_test"]["base_tps"])
         self.assertEqual("ckc", resolved.targets[0].profile)
         self.assertEqual(2, resolved.targets[0].definition["application"]["replicas"])
         self.assertEqual(20, resolved.targets[0].definition["telemetry_workers"])
         self.assertEqual(4096, resolved.targets[0].definition["telemetry_queue_capacity"])
 
-    def test_materialized_snapshot_merges_defaults_and_target_workload(self) -> None:
+    def test_materialized_snapshot_keeps_explicit_target_workload(self) -> None:
         experiment = canonical_experiment()
         experiment["environments"] = {"internal-lab": {"lab": {"profile": "installed"}}}
         experiment["targets"][0]["workload"] = {"load": {"base_tps": 250}}
@@ -145,10 +130,10 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "test_definition"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
-    def test_rejects_target_without_inline_implementation_profile(self) -> None:
+    def test_rejects_unknown_target_implementation(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["implementation"] = "missing"
-        with self.assertRaisesRegex(ValueError, "implementation profiles are missing: missing"):
+        with self.assertRaisesRegex(ValueError, "Unknown target implementations: missing"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
 if __name__ == "__main__":

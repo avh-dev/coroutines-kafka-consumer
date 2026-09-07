@@ -1,7 +1,7 @@
 # Canonical experiment contract
 
-An experiment is the only author-maintained workload document. Schema version 1
-keeps the workload, acceptance rules, inline implementation catalog, target
+An experiment is the only author-maintained workload document. Schema version 2
+keeps the workload, explicit topic traffic and latency limits, target
 configurations, and every supported environment together. It does not permit
 `test_definition`, `test.extends`, `sla_profile`, consumer-profile files, or
 environment overrides outside the document.
@@ -18,8 +18,9 @@ python3 demo/infra/shared/validate-experiment.py \
 ```
 
 When more than one environment is declared, selection is mandatory. Resolution
-copies only the selected environment into the snapshot, recursively applies
-experiment defaults to each target, and expands every target workload override.
+copies only the selected environment into the snapshot and expands every target
+workload override. Targets do not inherit experiment defaults: each target names
+the application and runtime settings that affect its comparison.
 The original source and this `resolved-experiment.yaml` snapshot form the desired
 configuration evidence for later execution tasks.
 
@@ -31,7 +32,9 @@ AWS supports packet capture but not chaos.
 
 The maintained catalog lives under `demo/infra/experiments`. The resolver accepts
 only this self-contained schema; historical external definitions and profile
-catalogs are not runtime inputs.
+catalogs are not runtime inputs. Implementation-to-Spring-profile mappings and
+runtime compatibility checks are orchestration-owned capabilities, not copied
+into author-maintained experiment YAML.
 
 Environment configuration contains reproducibility inputs such as region,
 service topology, and capacity. Credentials, account tokens, kubeconfigs, and

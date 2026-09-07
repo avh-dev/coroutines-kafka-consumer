@@ -16,7 +16,7 @@ EXAMPLE = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/porta
 class ExperimentDefinitionTest(unittest.TestCase):
     def test_resolves_only_self_contained_canonical_experiments(self) -> None:
         resolved = resolve_experiment_definition(EXAMPLE, environment="internal-lab")
-        self.assertEqual(1, resolved.schema_version)
+        self.assertEqual(2, resolved.schema_version)
         self.assertEqual("internal-lab", resolved.environment)
         self.assertIsNotNone(resolved.snapshot)
         self.assertEqual("experiment", resolved.test.source_name)

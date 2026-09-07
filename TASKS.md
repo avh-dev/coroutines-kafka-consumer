@@ -287,6 +287,7 @@
 | [INFRA-142](#infra-142) | Reorganize Grafana dashboard groups and split Thread Stats CPU categories into total, user, and system views. | DONE |
 | [INFRA-143](#infra-143) | Add a simple 10-minute 5k/s Spring Kafka JDK HTTP versus single-worker fixed CKC comparison. | DONE |
 | [INFRA-144](#infra-144) | Clarify Grafana application and Kafka thread panel titles by leading with Total, User, or System. | DONE |
+| [INFRA-145](#infra-145) | Simplify canonical experiment YAML into explicit workload topics and target settings. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3280,3 +3281,14 @@ Remove the redundant `Thread Stats` prefix from application and Kafka dashboard 
 Name total CPU panels explicitly, keeping `Total`, `User`, and `System` immediately visible for category comparisons.
 
 Verification: dashboard JSON parsed and all 6 dashboard tests passed. The three category panels use CPU-time-rate expressions and are titled `Total`, `User`, and `System CPU Time Rate by Category`; `Thread Stats` remains the application and Kafka section label. `update-lab.sh` installed the dashboard byte-for-byte on optilab. `smoke-repeat` set `20260907T081404Z` completed both targets with delivery and latency SLA PASS, required Loki labels, and Kafka exporter lag metrics available.
+
+<a id="infra-145"></a>
+### INFRA-145 - Simplify canonical experiment contract
+
+_Date: 2026-09-07_
+
+Replace implementation catalogs, inherited defaults, and generic acceptance rules with a readable, explicit experiment definition.
+Move topic identity, traffic share, and maximum end-to-end latency into the workload; keep every target's comparison-relevant runtime setting beside that target.
+Migrate the canonical experiment catalog and retain resolved deployment artifacts as evidence rather than configuration inputs.
+
+Verification: 46 shared orchestration, internal-lab planning, and AWS-session unit tests passed. Every canonical experiment validated for each environment it declares. The Spring JDK versus CKC 5k comparison now fixes every CKC topic at two partitions and captures one 15-second Kafka tcpdump window in the middle of the steady-load phase.

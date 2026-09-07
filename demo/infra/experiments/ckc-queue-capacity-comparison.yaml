@@ -1,6 +1,7 @@
-schema_version: 1
+schema_version: 2
 name: ckc-queue-capacity-comparison
-description: Compare CKC queue capacity and fixed dispatcher sizing against the Spring Kafka coroutine-naive admission path.
+description: Compare CKC queue capacity and fixed dispatcher sizing against the Spring
+  Kafka coroutine-naive admission path.
 workload:
   stubs:
     error_rate_percent: 0
@@ -23,9 +24,6 @@ workload:
     shards: 1
     workers: 8
     base_tps: 25000
-    order_event_percent: 60
-    batch_event_percent: 40
-    cauldron_telemetry_percent: 0
     producer_capacity_tps:
       order: 1000
       batch: 1000
@@ -38,168 +36,22 @@ workload:
     min_brewing_steps: 5
     max_brewing_steps: 10
     diagnostics_blob_size: 256
-acceptance:
-  criteria:
-  - id: no-missing-terminal
-    title: Every published record has a terminal outcome
-    source: audit
-    path:
-    - totals
-    - missing_terminal
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-duplicate-processing
-    title: Records are not processed more than once
-    source: audit
-    path:
-    - totals
-    - duplicates
-    - processed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-terminal-failures
-    title: Records do not end in terminal processing failure
-    source: audit
-    path:
-    - totals
-    - failed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-processed-without-publish
-    title: Processed records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - processed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-failed-without-publish
-    title: Failed records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - failed
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-dropped-without-publish
-    title: Dropped records have matching publishes
-    source: audit
-    path:
-    - totals
-    - without_publish
-    - dropped
-    operator: eq
-    threshold: 0
-    unit: records
-  - id: no-conflicting-terminal-outcomes
-    title: Records have only one terminal outcome
-    source: audit
-    path:
-    - totals
-    - conflicting_terminal_outcomes
-    operator: eq
-    threshold: 0
-    unit: records
-  latency:
-    rules:
-    - id: business-events
-      title: Business event end-to-end latency
-      topics:
-      - order.events.v1
-      - batch.events.v1
-      max_ms: 2000
-      allowed_exceed_percent: 1.0
-    - id: telemetry
-      title: Telemetry end-to-end latency
-      topics:
-      - cauldron.events.v1
-      max_ms: 1000
-      allowed_exceed_percent: 5.0
-implementations:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent_key: order_event_percent
+      traffic_percent: 60
+      max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent_key: batch_event_percent
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent_key: cauldron_telemetry_percent
-  profiles:
-    ckc:
-      spring_profile: ckc
-      default_processing_dispatcher: FIXED
-      allowed_processing_dispatchers:
-      - DEFAULT
-      - FIXED
-      - IO
-      - VIRTUAL
-      topics:
-        order:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        batch:
-          default_planning_latency_ms: 50
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_PARTITION_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-        telemetry:
-          default_planning_latency_ms: 150
-          parallelism:
-          - workers
-          mode_parallelism:
-            AT_LEAST_ONCE_PARTITION_ORDERING:
-            - partitions
-            - workers
-          default_processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          allowed_processing_modes:
-          - FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-          - FRESHNESS_FIRST_DROP_OLDEST
-          - AT_LEAST_ONCE_KEY_ORDERING
-          - AT_LEAST_ONCE_NO_ORDERING
-    spring-kafka-coroutines-naive:
-      extends: ckc
-      spring_profile: spring-kafka-coroutines-naive
-      topics:
-        order:
-          default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_NO_ORDERING
-        batch:
-          default_processing_mode: AT_LEAST_ONCE_NO_ORDERING
-          allowed_processing_modes:
-          - AT_LEAST_ONCE_NO_ORDERING
-        telemetry:
-          default_processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-          allowed_processing_modes:
-          - HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-defaults:
+      traffic_percent: 0
+      max_e2e_latency_ms: 1000
+targets:
+- name: ckc.fixed.1.queue1024
+  implementation: ckc
   application:
     replicas: 2
   runtime:
@@ -207,9 +59,6 @@ defaults:
       PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
-targets:
-- runtime:
-    env:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
     planning_latency:
@@ -219,12 +68,21 @@ targets:
     topics:
       order:
         queue_capacity: 1024
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         queue_capacity: 1024
-  name: ckc.fixed.1.queue1024
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: ckc.fixed.1.queue4096
   implementation: ckc
-- runtime:
+  application:
+    replicas: 2
+  runtime:
     env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
     planning_latency:
@@ -234,12 +92,21 @@ targets:
     topics:
       order:
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         queue_capacity: 4096
-  name: ckc.fixed.1.queue4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: ckc.fixed.1.queue8192
   implementation: ckc
-- runtime:
+  application:
+    replicas: 2
+  runtime:
     env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
     planning_latency:
@@ -249,12 +116,21 @@ targets:
     topics:
       order:
         queue_capacity: 8192
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         queue_capacity: 8192
-  name: ckc.fixed.1.queue8192
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: ckc.fixed.2.queue4096
   implementation: ckc
-- runtime:
+  application:
+    replicas: 2
+  runtime:
     env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
     planning_latency:
@@ -264,12 +140,21 @@ targets:
     topics:
       order:
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         queue_capacity: 4096
-  name: ckc.fixed.2.queue4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: ckc.fixed.4.queue4096
   implementation: ckc
-- runtime:
+  application:
+    replicas: 2
+  runtime:
     env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 4
     planning_latency:
@@ -279,12 +164,21 @@ targets:
     topics:
       order:
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         queue_capacity: 4096
-  name: ckc.fixed.4.queue4096
-  implementation: ckc
-- runtime:
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: spring-naive.fixed.2.queue4096
+  implementation: spring-kafka-coroutines-naive
+  application:
+    replicas: 2
+  runtime:
     env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 2
     planning_latency:
@@ -294,12 +188,12 @@ targets:
     topics:
       order:
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
       batch:
         queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
       telemetry:
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-  name: spring-naive.fixed.2.queue4096
-  implementation: spring-kafka-coroutines-naive
 environments:
   internal-lab:
     lab:

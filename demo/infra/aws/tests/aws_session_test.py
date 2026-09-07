@@ -203,7 +203,7 @@ class AwsSessionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "session-id"):
                 session_module.new_state(base, "x", Path(directory))
 
-    def test_new_state_uses_canonical_environment_and_inline_acceptance(self) -> None:
+    def test_new_state_uses_canonical_environment(self) -> None:
         args = SimpleNamespace(
             experiment="demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml",
             experiment_id=None,
@@ -220,7 +220,7 @@ class AwsSessionTest(unittest.TestCase):
         config = state["config"]
         self.assertEqual("eu-central-1", config["region"])
         self.assertEqual(["m7i.large"], config["terraform_lab_inputs"]["node_instance_types"])
-        self.assertEqual("no-missing-terminal", config["acceptance"]["criteria"][0]["id"])
+        self.assertEqual({}, config["acceptance"])
 
     def test_local_audit_analysis_materializes_inline_acceptance_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
