@@ -291,7 +291,8 @@
 | [INFRA-146](#infra-146) | Replace acceptance evaluation with topic-level evidence metrics. | DONE |
 | [INFRA-147](#infra-147) | Redesign the evidence report around one planned timeline and comparison table. | DONE |
 | [INFRA-148](#infra-148) | Add topic-level Kafka network evidence from packet captures. | DONE |
-| [INFRA-149](#infra-149) | Make fixed CKC comparison use worker parallelism with explicit two-partition topics. | IN_PROGRESS |
+| [INFRA-149](#infra-149) | Make fixed CKC comparison use worker parallelism with explicit two-partition topics. | DONE |
+| [INFRA-150](#infra-150) | Allow fixed Kafka partitions with worker-only target parallelism. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3334,3 +3335,10 @@ Verification: internal-lab tests (50) and packet-capture tests (5) pass. The ins
 _Date: 2026-09-07_
 
 The fixed CKC target now declares only `workers` as its parallelism source. Each topic keeps an explicit two-partition setting, so the comparison cannot silently derive concurrency from the partition count.
+
+<a id="infra-150"></a>
+### INFRA-150 - Allow fixed partitions with worker-only parallelism
+
+_Date: 2026-09-07_
+
+Treat explicit Kafka partition counts as fixed topic settings independent of worker concurrency. This permits the CKC comparison's two-partition topics together with `parallelism: [workers]`.

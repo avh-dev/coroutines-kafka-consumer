@@ -604,7 +604,10 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         overrides = manual_overrides[topic_name]
         for knob in PARALLELISM_KNOBS:
             value = overrides[knob]
-            if value is not None and knob not in knobs:
+            # Kafka partitions are a fixed topic/deployment property, not a worker
+            # concurrency knob. Keep accepting an explicit partition count when a
+            # target selects workers-only parallelism.
+            if value is not None and knob not in knobs and knob != "partitions":
                 raise ValueError(f"Profile {args.profile!r} does not allow manual {topic_name} {knob} overrides for {mode}")
 
         if "partitions" in knobs:
