@@ -284,6 +284,7 @@
 | [INFRA-139](#infra-139) | Share evidence collection and offline restore preparation across internal-lab and AWS. | DONE |
 | [INFRA-140](#infra-140) | Remove legacy experiment indirection and direct low-level runner documentation. | DONE |
 | [INFRA-141](#infra-141) | Build human-readable, named experiment results and whitelist-based evidence archives. | DONE |
+| [INFRA-142](#infra-142) | Reorganize Grafana dashboard groups and split Thread Stats CPU categories into total, user, and system views. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3243,3 +3244,14 @@ AWS evidence preserves controller commands, exact Terraform modules and resolved
 One root `run-grafana.sh` selects VictoriaMetrics for AWS snapshots or Prometheus for internal-lab TSDB blocks, imports Loki data, waits for `q` or interruption, and removes its user-owned runtime without a second script. Archive names now use `ckc-experiment-<experiment>-<UTC minute>-evidence.tar.gz` and `-audit.tar.gz`; both archives unpack into the same matching root, with the audit archive contributing only `audit/`. Audit targets are stored directly as `targetN.<name>/` with one uncompressed `audit.log`, without the historical `runs` directory or nested audit archives.
 
 Verification: 17 shared orchestration tests, 6 finalizer tests, 6 dashboard tests, 10 report tests, 50 internal-lab tests, and 28 AWS tests passed; Python and Bash syntax, Compose rendering, whitespace, archive whitelists, portable paths, and interactive restore cleanup were validated. Internal-lab experiment `20260905T134441Z` completed both smoke targets with passing acceptance, collected 3,522 Loki records and a 116,297-sample metrics block, and published `smoke-repeat-20260905T134441Z`. Its exported evidence restored Grafana 11.6, both application Loki streams, 555 Prometheus head series, and 11,911 series at a historical experiment timestamp, then stopped cleanly on `q`.
+
+<a id="infra-142"></a>
+### INFRA-142 - Reorganize Grafana dashboard groups
+
+_Date: 2026-09-07_
+
+Reorganize the shared Grafana overview around delivery outcomes, downstream dependencies, application diagnostics, infrastructure, and load-generator details.
+Rename model- and Lettuce-specific dashboard navigation to technology-neutral HTTP and Redis call groups.
+Add stacked category-level User and System CPU panels beside the existing Thread Stats total CPU view.
+
+Verification: dashboard JSON and 6 shared dashboard tests passed; all 50 internal-lab tests passed; Prometheus accepted the User and System expressions and live Grafana loaded both panels. Internal-lab was updated and `smoke-repeat` completed both targets (`20260907T050805Z`, `20260907T051100Z`) with exit code 0 and audit summaries.

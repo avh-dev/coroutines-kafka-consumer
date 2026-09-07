@@ -901,7 +901,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 13
       },
       "panels": [
         {
@@ -997,7 +997,7 @@
               "refId": "A"
             }
           ],
-          "title": "Model Call Throughput",
+          "title": "HTTP Call Throughput",
           "type": "timeseries",
           "id": 70
         },
@@ -1138,12 +1138,12 @@
               "refId": "E"
             }
           ],
-          "title": "Model Call Duration",
+          "title": "HTTP Call Duration",
           "type": "timeseries",
           "id": 71
         }
       ],
-      "title": "Model Calls",
+      "title": "HTTP Downstream Calls",
       "type": "row",
       "id": 69
     },
@@ -1157,7 +1157,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 15
       },
       "id": 19,
       "panels": [
@@ -1883,7 +1883,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 12
       },
       "id": 30,
       "panels": [
@@ -2355,7 +2355,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 18
       },
       "id": 35,
       "panels": [
@@ -2563,7 +2563,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 17
       },
       "id": 94,
       "panels": [
@@ -2822,7 +2822,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 34
+            "y": 50
           },
           "id": 91,
           "options": {
@@ -2918,7 +2918,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 42
+            "y": 58
           },
           "id": 92,
           "options": {
@@ -3014,7 +3014,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 50
+            "y": 66
           },
           "id": 93,
           "options": {
@@ -3142,6 +3142,64 @@
           "type": "timeseries"
         },
         {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
+                "fillOpacity": 45, "showPoints": "never",
+                "stacking": {"mode": "normal", "group": "A"}
+              },
+              "unit": "mcores", "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+          "id": 117,
+          "options": {
+            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "none"}
+          },
+          "targets": [{
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "editorMode": "code",
+            "expr": "(label_join((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
+          }],
+          "title": "Thread Stats User CPU by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
+                "fillOpacity": 45, "showPoints": "never",
+                "stacking": {"mode": "normal", "group": "A"}
+              },
+              "unit": "mcores", "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
+          "id": 118,
+          "options": {
+            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "none"}
+          },
+          "targets": [{
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "editorMode": "code",
+            "expr": "(label_join((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
+          }],
+          "title": "Thread Stats System CPU by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -3205,7 +3263,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 34
+            "y": 50
           },
           "id": 103,
           "options": {
@@ -4363,7 +4421,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 14
       },
       "panels": [
         {
@@ -4459,7 +4517,7 @@
               "refId": "A"
             }
           ],
-          "title": "Lettuce Command Rate",
+          "title": "Redis Command Rate",
           "type": "timeseries",
           "id": 86
         },
@@ -4601,12 +4659,12 @@
               "refId": "E"
             }
           ],
-          "title": "Lettuce Command Completion Latency",
+          "title": "Redis Command Latency",
           "type": "timeseries",
           "id": 87
         }
       ],
-      "title": "Redis Client: Lettuce",
+      "title": "Redis Calls",
       "type": "row",
       "id": 85
     },
@@ -4620,7 +4678,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 22
       },
       "id": 106,
       "panels": [
