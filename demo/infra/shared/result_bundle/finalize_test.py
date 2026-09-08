@@ -68,6 +68,15 @@ class CanonicalFinalizerTest(unittest.TestCase):
             (audit / "analyzer-progress.log").write_text("Reading /opt/ckc-runner/audit/audit.log\n", encoding="utf-8")
             with gzip.open(chunks / "audit-0001.log.gz", "wb") as stream:
                 stream.write(b"raw-audit\n")
+            diagnostics = run / "diagnostics"
+            (diagnostics / "thread-stats").mkdir(parents=True)
+            (diagnostics / "thread-stats" / "summary.json").write_text('{"coverage_percent":100}\n', encoding="utf-8")
+            (diagnostics / "tcpdump" / "steady" / "application").mkdir(parents=True)
+            (diagnostics / "tcpdump" / "steady" / "application" / "capture.pcap.gz").write_bytes(b"pcap")
+            (diagnostics / "tcpdump" / "summary.json").write_text('{"captures":1}\n', encoding="utf-8")
+            (diagnostics / "pcap-analysis").mkdir(parents=True)
+            (diagnostics / "pcap-analysis" / "summary.json").write_text('{"status":"success"}\n', encoding="utf-8")
+            (diagnostics / "kafka-metadata.json").write_text('{"topics":[]}\n', encoding="utf-8")
             (result / "terraform.tfstate").write_text("secret-state", encoding="utf-8")
             metrics = result / "metrics"
             metrics.mkdir()
@@ -151,7 +160,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 if len(Path(name).parts) > 1
             }
             self.assertEqual(
-                {"README.md", "run-grafana.sh", "report", "restore", "deployment", "lab"},
+                {"README.md", "run-grafana.sh", "report", "restore", "deployment", "lab", "diagnostics"},
                 evidence_children,
             )
             self.assertIn(f"{identity}/run-grafana.sh", evidence_names)
@@ -161,6 +170,10 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn(f"{identity}/restore/loki/kubernetes.jsonl", evidence_names)
             self.assertIn(f"{identity}/restore/victoriametrics-data.tar.gz", evidence_names)
             self.assertIn(f"{identity}/restore/_implementation/provisioning/dashboards/ckc.yml", evidence_names)
+            self.assertIn(f"{identity}/diagnostics/targets/run-a/thread-stats/summary.json", evidence_names)
+            self.assertIn(f"{identity}/diagnostics/targets/run-a/tcpdump/steady/application/capture.pcap.gz", evidence_names)
+            self.assertIn(f"{identity}/diagnostics/targets/run-a/pcap-analysis/summary.json", evidence_names)
+            self.assertIn(f"{identity}/diagnostics/targets/run-a/kafka-metadata.json", evidence_names)
             self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
             self.assertIn("Run `./run-grafana.sh`", readme)
             self.assertIn("$RESULT_DIR/input.yaml", resolved)

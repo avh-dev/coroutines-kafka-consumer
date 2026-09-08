@@ -240,6 +240,7 @@ Run `./run-grafana.sh` from an interactive terminal to open the preserved report
 - `restore/` — only the dashboard, Loki records, metrics snapshot, and private restore implementation.
 - `deployment/` — resolved experiment inputs, generated Kubernetes resources, and execution logs.
 - `lab/` — environment construction commands and, for AWS, the exact Terraform sources and resolved inputs.
+- `diagnostics/` — raw Thread Stats snapshots, Kafka packet captures, capture metadata, and packet-analysis outputs.
 """
 
 
@@ -346,6 +347,17 @@ def build_deployment(result_root: Path, report_dir: Path, destination: Path, rep
     logs = sorted(result_root.glob("*.log"))
     if logs:
         copy_portable(logs[0], destination / "commands.log", replacements)
+
+
+def build_diagnostics(result_root: Path, destination: Path, replacements: dict[str, str]) -> None:
+    target_names = target_names_by_run(result_root)
+    for run_dir in run_directories(result_root):
+        target = destination / "targets" / target_names.get(run_dir.name, run_dir.name)
+        diagnostics = run_dir / "diagnostics"
+        copy_portable(diagnostics / "kafka-metadata.json", target / "kafka-metadata.json", replacements)
+        copy_portable_tree(diagnostics / "thread-stats", target / "thread-stats", replacements)
+        copy_portable_tree(diagnostics / "tcpdump", target / "tcpdump", replacements)
+        copy_portable_tree(diagnostics / "pcap-analysis", target / "pcap-analysis", replacements)
 
 
 def build_lab(result_root: Path, destination: Path, environment: str, replacements: dict[str, str]) -> None:
@@ -477,6 +489,7 @@ def finalize(
         build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
         build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
         build_lab(result_root, evidence_root / "lab", environment, replacements)
+        build_diagnostics(result_root, evidence_root / "diagnostics", replacements)
         evidence_name = f"{identity}-evidence.tar.gz"
         evidence_target = publish_root / evidence_name
         create_archive(evidence_root, evidence_target, identity)

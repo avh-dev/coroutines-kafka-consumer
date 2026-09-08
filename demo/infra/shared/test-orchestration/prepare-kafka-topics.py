@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--namespace", default="ckc-app")
     parser.add_argument("--admin-image", default="docker.io/bitnamilegacy/kafka:4.0.0-debian-12-r10")
     parser.add_argument("--topics-bin", default="/opt/bitnami/kafka/bin/kafka-topics.sh")
+    parser.add_argument("--metadata-output", help="Write the recreated topic UUID mapping to this JSON file.")
     return parser.parse_args()
 
 
@@ -145,6 +147,8 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         "    actual=$(printf '%s\\n' \"${description}\" | sed -n 's/.*PartitionCount: \\([0-9][0-9]*\\).*/\\1/p' | head -n 1)",
         "    if [ \"${actual}\" = \"${expected}\" ]; then",
         "      printf '%s\\n' \"${description}\"",
+        "      topic_id=$(printf '%s\\n' \"${description}\" | sed -n 's/.*TopicId: \\([^[:space:]]*\\).*/\\1/p' | head -n 1)",
+        "      printf 'CKC_TOPIC_METADATA|%s|%s|%s\\n' \"${topic}\" \"${topic_id}\" \"${actual}\"",
         "      return 0",
         "    fi",
         "    sleep 2",
@@ -179,7 +183,28 @@ def indent_block(value: str, spaces: int) -> str:
     return "\n".join(f"{prefix}{line}" if line else prefix for line in value.splitlines())
 
 
-def recreate_topics(args: argparse.Namespace, topics: list[dict[str, int | str]]) -> None:
+def topic_metadata(logs: str, topics: list[dict[str, int | str]]) -> list[dict[str, int | str | None]]:
+    found: dict[str, tuple[str | None, int]] = {}
+    for line in logs.splitlines():
+        if not line.startswith("CKC_TOPIC_METADATA|"):
+            continue
+        _, name, topic_id, partitions = line.split("|", 3)
+        try:
+            found[name] = (topic_id or None, int(partitions))
+        except ValueError as error:
+            raise ValueError(f"Invalid Kafka topic metadata marker: {line!r}") from error
+    result = []
+    for topic in topics:
+        name = str(topic["name"])
+        expected_partitions = int(topic["partitions"])
+        topic_id, partitions = found.get(name, (None, expected_partitions))
+        if partitions != expected_partitions:
+            raise ValueError(f"Kafka topic {name} metadata reports {partitions} partitions; expected {expected_partitions}")
+        result.append({"name": name, "id": topic_id, "partitions": partitions})
+    return result
+
+
+def recreate_topics(args: argparse.Namespace, topics: list[dict[str, int | str]]) -> list[dict[str, int | str | None]]:
     script = admin_script(args.bootstrap_server, args.replication_factor, args.topics_bin, topics)
     manifest = f"""apiVersion: v1
 kind: Pod
@@ -202,8 +227,10 @@ spec:
     run(["kubectl", "-n", args.namespace, "delete", "pod", "ckc-kafka-admin", "--ignore-not-found=true"], check=False)
     run(["kubectl", "apply", "-f", "-"], input_text=manifest)
     run(["kubectl", "-n", args.namespace, "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/ckc-kafka-admin", "--timeout=10m"])
-    run(["kubectl", "-n", args.namespace, "logs", "pod/ckc-kafka-admin"], check=False)
+    logs = run(["kubectl", "-n", args.namespace, "logs", "pod/ckc-kafka-admin"], capture_output=True)
+    sys.stdout.write(logs)
     run(["kubectl", "-n", args.namespace, "delete", "pod", "ckc-kafka-admin", "--ignore-not-found=true"], check=False)
+    return topic_metadata(logs, topics)
 
 
 def main() -> None:
@@ -214,7 +241,15 @@ def main() -> None:
     tempfile.tempdir = str(temp_dir)
     definition = load_definition(repo_dir, args.test_definition_path)
     topics = topic_specs(definition)
-    recreate_topics(args, topics)
+    metadata = recreate_topics(args, topics)
+    if args.metadata_output:
+        output = Path(args.metadata_output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps({
+            "schema_version": 1,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "topics": metadata,
+        }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Kafka topics recreated for test definition '{definition.get('name', 'unnamed')}'.")
 
 

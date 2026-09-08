@@ -13,6 +13,7 @@ TOPIC_RETENTION_MS="${TOPIC_RETENTION_MS:-300000}"
 TOPIC_SEGMENT_MS="${TOPIC_SEGMENT_MS:-60000}"
 TOPIC_RETENTION_BYTES="${TOPIC_RETENTION_BYTES:-}"
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
+KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}"
 
 if [ -f "${LAB_ENV}" ]; then
   # shellcheck disable=SC1090
@@ -124,6 +125,48 @@ list_topics() {
   esac
 }
 
+topic_description() {
+  case "${LAB_KAFKA_IMPLEMENTATION}" in
+    redpanda) rpk topic describe "$1" ;;
+    apache-kafka) apache_kafka_topics --describe --topic "$1" ;;
+  esac
+}
+
+write_topic_metadata() {
+  [ -n "${KAFKA_TOPIC_METADATA_FILE}" ] || return
+  metadata_dir="$(dirname "${KAFKA_TOPIC_METADATA_FILE}")"
+  mkdir -p "${metadata_dir}"
+  records_file="${KAFKA_TOPIC_METADATA_FILE}.records"
+  : > "${records_file}"
+  previous_ifs="${IFS-}"
+  IFS=","
+  for spec in ${TOPIC_SPECS}; do
+    topic="${spec%:*}"
+    expected_partitions="${spec##*:}"
+    description="$(topic_description "${topic}")"
+    topic_id="$(printf '%s\n' "${description}" | sed -n 's/.*TopicId: \([^[:space:]]*\).*/\1/p' | head -n 1)"
+    actual_partitions="$(printf '%s\n' "${description}" | sed -n 's/.*PartitionCount: \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+    printf '%s|%s|%s\n' "${topic}" "${topic_id}" "${actual_partitions:-${expected_partitions}}" >> "${records_file}"
+  done
+  IFS="${previous_ifs}"
+  KAFKA_TOPIC_METADATA_RECORDS="${records_file}" KAFKA_TOPIC_METADATA_OUTPUT="${KAFKA_TOPIC_METADATA_FILE}" python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+records = []
+for line in Path(os.environ["KAFKA_TOPIC_METADATA_RECORDS"]).read_text(encoding="utf-8").splitlines():
+    name, topic_id, partitions = line.split("|", 2)
+    records.append({"name": name, "id": topic_id or None, "partitions": int(partitions)})
+Path(os.environ["KAFKA_TOPIC_METADATA_OUTPUT"]).write_text(
+    json.dumps({"schema_version": 1, "captured_at": datetime.now(timezone.utc).isoformat(), "topics": records}, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+  rm -f "${records_file}"
+}
+
 if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
   docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
 else
@@ -152,4 +195,5 @@ for spec in ${TOPIC_SPECS}; do
 done
 unset IFS
 
+write_topic_metadata
 list_topics

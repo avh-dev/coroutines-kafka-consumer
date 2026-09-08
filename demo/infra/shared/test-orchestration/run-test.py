@@ -658,7 +658,12 @@ def load_lab_context(path: Path) -> dict[str, Any]:
     return data
 
 
-def reset_target_data(repo_dir: Path, definition_path: Path, lab_context: dict[str, Any]) -> None:
+def reset_target_data(
+    repo_dir: Path,
+    definition_path: Path,
+    lab_context: dict[str, Any],
+    kafka_metadata_output: Path,
+) -> None:
     run([
         sys.executable,
         str(repo_dir / "demo/infra/shared/test-orchestration/prepare-kafka-topics.py"),
@@ -666,6 +671,7 @@ def reset_target_data(repo_dir: Path, definition_path: Path, lab_context: dict[s
         "--replication-factor", str(as_int(lab_context.get("kafka_topic_replication_factor"), 1)),
         "--test-definition-path", str(definition_path),
         "--repo-dir", str(repo_dir),
+        "--metadata-output", str(kafka_metadata_output),
     ])
     run([
         sys.executable,
@@ -831,7 +837,6 @@ def main() -> None:
 
     configure_kube_access(args, lab_context, runner_home)
     prepare_namespaces()
-    reset_target_data(repo_dir, definition_path, lab_context)
 
     port_forward_pid_file = runner_home / "config" / "ckc-demo-port-forward.pid"
     port_forward_log_file = runner_home / "reports" / "ckc-demo-port-forward.log"
@@ -860,6 +865,7 @@ def main() -> None:
     run_dir = reports_dir / run_id
     logs_dir = run_dir / "logs"
     run_dir.mkdir(parents=True, exist_ok=True)
+    kafka_metadata_output = run_dir / "diagnostics" / "kafka-metadata.json"
     (run_dir / "resolved-test.json").write_text(json_dump(definition) + "\n", encoding="utf-8")
     orchestration_started_at = utc_now_text()
     started_at: str | None = None
@@ -881,11 +887,13 @@ def main() -> None:
         "expected_duration_seconds": load_profile_seconds,
         "kafka_mode": lab_context.get("kafka_mode"),
         "redis_mode": lab_context.get("redis_mode"),
+        "kafka_topic_metadata": str(kafka_metadata_output),
     }
     (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
     status = "FAILED"
 
     try:
+        reset_target_data(repo_dir, definition_path, lab_context, kafka_metadata_output)
         project_manifest = deploy_workloads(
             repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id,
             definition_path, run_dir / "generated",

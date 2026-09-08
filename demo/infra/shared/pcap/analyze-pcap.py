@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import ctypes
 import ctypes.util
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze Kafka packet captures with TShark.")
     parser.add_argument("path", help="Run directory, tcpdump diagnostics directory, or one pcap[.gz].")
     parser.add_argument("--output-dir", default="", help="Defaults to <run>/diagnostics/pcap-analysis.")
+    parser.add_argument("--topic-metadata", default="", help="Kafka topic UUID metadata JSON; defaults to the run diagnostics snapshot.")
     parser.add_argument("--tshark", default="tshark")
     return parser.parse_args()
 
@@ -223,6 +225,176 @@ def signed_varint(data: bytes, position: int) -> tuple[int, int]:
     raise ValueError("oversized varint")
 
 
+def unsigned_varint(data: bytes, position: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    for _ in range(5):
+        if position >= len(data):
+            raise ValueError("truncated unsigned varint")
+        byte = data[position]
+        position += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, position
+        shift += 7
+    raise ValueError("oversized unsigned varint")
+
+
+def signed_short(data: bytes, position: int, limit: int) -> tuple[int, int]:
+    if position + 2 > limit:
+        raise ValueError("truncated short")
+    return struct.unpack_from(">h", data, position)[0], position + 2
+
+
+def signed_int(data: bytes, position: int, limit: int) -> tuple[int, int]:
+    if position + 4 > limit:
+        raise ValueError("truncated integer")
+    return struct.unpack_from(">i", data, position)[0], position + 4
+
+
+def skip_tagged_fields(data: bytes, position: int, limit: int) -> int:
+    count, position = unsigned_varint(data, position)
+    for _ in range(count):
+        _, position = unsigned_varint(data, position)
+        size, position = unsigned_varint(data, position)
+        position += size
+        if position > limit:
+            raise ValueError("truncated tagged fields")
+    return position
+
+
+def kafka_topic_id(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def message_limit(data: bytes) -> int:
+    if len(data) < 4:
+        raise ValueError("truncated Kafka message")
+    size = struct.unpack_from(">i", data, 0)[0]
+    if size < 0 or size + 4 > len(data):
+        raise ValueError("truncated Kafka message payload")
+    return size + 4
+
+
+def kafka_string(data: bytes, position: int, limit: int, *, nullable: bool = False) -> tuple[str | None, int]:
+    length, position = signed_short(data, position, limit)
+    if length == -1 and nullable:
+        return None, position
+    if length < 0 or position + length > limit:
+        raise ValueError("invalid Kafka string")
+    return data[position : position + length].decode("utf-8"), position + length
+
+
+def kafka_bytes(data: bytes, position: int, limit: int) -> tuple[bytes, int]:
+    length, position = signed_int(data, position, limit)
+    if length == -1:
+        return b"", position
+    if length < 0 or position + length > limit:
+        raise ValueError("invalid Kafka bytes")
+    return data[position : position + length], position + length
+
+
+def compact_count(data: bytes, position: int, limit: int, *, nullable: bool = False) -> tuple[int | None, int]:
+    encoded, position = unsigned_varint(data, position)
+    if encoded == 0 and nullable:
+        return None, position
+    if encoded == 0:
+        raise ValueError("null compact value")
+    return encoded - 1, position
+
+
+def compact_string(data: bytes, position: int, limit: int, *, nullable: bool = False) -> tuple[str | None, int]:
+    length, position = compact_count(data, position, limit, nullable=nullable)
+    if length is None:
+        return None, position
+    if position + length > limit:
+        raise ValueError("truncated compact string")
+    return data[position : position + length].decode("utf-8"), position + length
+
+
+def compact_bytes(data: bytes, position: int, limit: int, *, nullable: bool = False) -> tuple[bytes, int]:
+    length, position = compact_count(data, position, limit, nullable=nullable)
+    if length is None:
+        return b"", position
+    if position + length > limit:
+        raise ValueError("truncated compact bytes")
+    return data[position : position + length], position + length
+
+
+def parse_produce_request_v9(data: bytes) -> list[dict[str, Any]]:
+    limit = message_limit(data)
+    api_key, position = signed_short(data, 4, limit)
+    version, position = signed_short(data, position, limit)
+    if api_key != 0 or version != 9:
+        raise ValueError(f"expected Produce v9, got key={api_key} version={version}")
+    _, position = signed_int(data, position, limit)  # correlation ID
+    _, position = kafka_string(data, position, limit, nullable=True)  # client ID
+    position = skip_tagged_fields(data, position, limit)  # Flexible request header v2.
+    _, position = compact_string(data, position, limit, nullable=True)  # transactional ID
+    _, position = signed_short(data, position, limit)  # acks
+    _, position = signed_int(data, position, limit)  # timeout
+    topic_count, position = compact_count(data, position, limit)
+    assert topic_count is not None
+    result: list[dict[str, Any]] = []
+    for _ in range(topic_count):
+        topic, position = compact_string(data, position, limit)
+        partition_count, position = compact_count(data, position, limit)
+        assert partition_count is not None
+        for _ in range(partition_count):
+            _, position = signed_int(data, position, limit)  # partition index
+            records, position = compact_bytes(data, position, limit, nullable=True)
+            position = skip_tagged_fields(data, position, limit)
+            result.append({"topic": topic, "records": records})
+        position = skip_tagged_fields(data, position, limit)
+    skip_tagged_fields(data, position, limit)
+    return result
+
+
+def parse_fetch_response_v17(data: bytes) -> list[dict[str, Any]]:
+    limit = message_limit(data)
+    position = 8  # MessageSize and Fetch response correlation ID.
+    position = skip_tagged_fields(data, position, limit)  # Flexible Fetch response header v1.
+    _, position = signed_int(data, position, limit)  # throttle_time_ms
+    _, position = signed_short(data, position, limit)  # error_code
+    _, position = signed_int(data, position, limit)  # session_id
+    topic_length, position = unsigned_varint(data, position)
+    if topic_length == 0:
+        return []
+    result: list[dict[str, Any]] = []
+    for _ in range(topic_length - 1):
+        if position + 16 > limit:
+            raise ValueError("truncated Fetch topic UUID")
+        topic_id = kafka_topic_id(data[position : position + 16])
+        position += 16
+        partition_length, position = unsigned_varint(data, position)
+        if partition_length == 0:
+            raise ValueError("Fetch partition array cannot be null")
+        for _ in range(partition_length - 1):
+            _, position = signed_int(data, position, limit)  # partition index
+            _, position = signed_short(data, position, limit)  # error code
+            if position + 24 > limit:
+                raise ValueError("truncated Fetch partition offsets")
+            position += 24  # high watermark, last stable offset, log start offset
+            aborted_length, position = unsigned_varint(data, position)
+            if aborted_length:
+                for _ in range(aborted_length - 1):
+                    if position + 16 > limit:
+                        raise ValueError("truncated aborted transaction")
+                    position += 16
+                    position = skip_tagged_fields(data, position, limit)
+            _, position = signed_int(data, position, limit)  # preferred read replica
+            records_length, position = unsigned_varint(data, position)
+            records_size = max(0, records_length - 1)
+            if position + records_size > limit:
+                raise ValueError("truncated Fetch records")
+            records = data[position : position + records_size]
+            position += records_size
+            position = skip_tagged_fields(data, position, limit)
+            result.append({"topic_id": topic_id, "records": records})
+        position = skip_tagged_fields(data, position, limit)
+    return result
+
+
 def record_sizes(data: bytes) -> dict[str, int]:
     position = 0
     result = {"parsed_records": 0, "key_bytes": 0, "value_bytes": 0, "header_bytes": 0, "record_overhead_bytes": 0}
@@ -356,12 +528,17 @@ def add_numbers(target: dict[str, int], source: dict[str, Any], keys: list[str])
         target[key] = target.get(key, 0) + int(source.get(key) or 0)
 
 
-def analyze_capture(path: Path, executable: str, compression: NativeCompression) -> dict[str, Any]:
+def analyze_capture(
+    path: Path,
+    executable: str,
+    compression: NativeCompression,
+    topic_names_by_id: dict[str, str],
+) -> dict[str, Any]:
     rows = tshark_rows(path, executable)
     role = expected_role(path)
     metadata = capture_metadata(path)
     connections: dict[int, dict[str, Any]] = defaultdict(lambda: {"request_apis": set(), "syn": False, "fin": False, "reset": False})
-    request_by_correlation: dict[tuple[int, int], int] = {}
+    request_by_correlation: dict[tuple[int, int], tuple[int, int]] = {}
     messages: list[dict[str, Any]] = []
     tls_detected = False
     for row in rows:
@@ -376,11 +553,12 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         tls_detected = tls_detected or "tls" in protocols
         request_api = integer(row["kafka.request_key"], -1)
         response_api = integer(row["kafka.response_key"], -1)
+        api_version = integer(row["kafka.api_version"], -1)
         correlation = integer(row["kafka.correlation_id"], -1)
         if request_api >= 0:
             connection["request_apis"].add(request_api)
             if correlation >= 0:
-                request_by_correlation[(stream, correlation)] = request_api
+                request_by_correlation[(stream, correlation)] = (request_api, api_version)
         kafka_lengths = integers(row["kafka.len"])
         if kafka_lengths:
             direction = "request" if request_api >= 0 or integer(row["tcp.dstport"], -1) == 9092 else "response"
@@ -390,6 +568,7 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
                     "stream": stream,
                     "direction": direction,
                     "api_key": api_key,
+                    "api_version": api_version,
                     "correlation": correlation,
                     "topics": [topic for topic in row["kafka.topic_name"].split(",") if topic],
                     "bytes": sum(length + 4 for length in kafka_lengths),
@@ -399,10 +578,19 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
 
     for message in messages:
         if message["direction"] == "response" and message["api_key"] < 0:
-            message["api_key"] = request_by_correlation.get((message["stream"], message["correlation"]), -1)
+            message["api_key"], message["api_version"] = request_by_correlation.get(
+                (message["stream"], message["correlation"]), (-1, -1)
+            )
     roles = {stream: connection_role(data["request_apis"]) for stream, data in connections.items()}
     selected = {stream for stream, stream_role in roles.items() if stream_role in {role, "mixed"}}
-    warnings = []
+    warnings: list[str] = []
+    warning_set: set[str] = set()
+
+    def warn(message: str) -> None:
+        if message not in warning_set:
+            warning_set.add(message)
+            warnings.append(message)
+
     role_scoped_capture = metadata.get("backend") == "kubernetes" or (
         bool(metadata.get("host_address")) and bool(metadata.get("excluded_network"))
     )
@@ -410,10 +598,10 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         selected = set(connections)
     if not selected:
         selected = set(connections)
-        warnings.append(f"No {role} Kafka connection could be classified; all observed TCP streams were used")
+        warn(f"No {role} Kafka connection could be classified; all observed TCP streams were used")
     if tls_detected:
         selected = set(connections)
-        warnings.append("TLS traffic detected; Kafka message, record-batch, and compression details are unavailable")
+        warn("TLS traffic detected; Kafka message, record-batch, and compression details are unavailable")
 
     network = {
         "frames": 0, "captured_wire_bytes": 0, "captured_bytes": 0, "truncated_frames": 0,
@@ -459,11 +647,25 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
     }
     codecs: Counter[str] = Counter()
     topic_batches: dict[str, dict[str, int]] = defaultdict(lambda: {"records": 0, "wire_bytes": 0})
+    unknown_topic_batches = 0
     batch_keys = [
         "records", "batch_wire_bytes", "batch_header_bytes", "compressed_record_bytes",
         "uncompressed_record_bytes", "compression_savings_bytes", "parsed_records", "key_bytes",
         "value_bytes", "header_bytes", "record_overhead_bytes",
     ]
+    def add_batch(batch: dict[str, Any], topic: str | None) -> None:
+        nonlocal unknown_topic_batches
+        batch_totals["batches"] += 1
+        codecs[batch["codec"]] += 1
+        add_numbers(batch_totals, batch, batch_keys)
+        if batch["decompression_status"] == "unavailable":
+            batch_totals["decompression_unavailable_batches"] += 1
+        if topic:
+            topic_batches[topic]["records"] += int(batch["records"])
+            topic_batches[topic]["wire_bytes"] += int(batch["batch_wire_bytes"])
+        else:
+            unknown_topic_batches += 1
+
     for message in selected_messages:
         api_key = int(message["api_key"])
         api_name = API_NAMES.get(api_key, f"Unknown({api_key})")
@@ -475,16 +677,34 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         ) or (
             role == "consumer" and message["direction"] == "response" and api_key == 1
         )
-        if carries_records and message["raw"]:
-            for batch in find_record_batches(message["raw"], compression):
-                batch_totals["batches"] += 1
-                codecs[batch["codec"]] += 1
-                add_numbers(batch_totals, batch, batch_keys)
-                if batch["decompression_status"] == "unavailable":
-                    batch_totals["decompression_unavailable_batches"] += 1
-                for topic in message["topics"]:
-                    topic_batches[topic]["records"] += int(batch["records"])
-                    topic_batches[topic]["wire_bytes"] += int(batch["batch_wire_bytes"])
+        if not carries_records or not message["raw"]:
+            continue
+        record_sets: list[tuple[str | None, bytes]] = []
+        try:
+            if role == "producer" and message["direction"] == "request" and api_key == 0 and message["api_version"] == 9:
+                record_sets = [(str(item["topic"]), bytes(item["records"])) for item in parse_produce_request_v9(message["raw"])]
+            elif role == "consumer" and message["direction"] == "response" and api_key == 1 and message["api_version"] == 17:
+                for item in parse_fetch_response_v17(message["raw"]):
+                    topic_id = str(item["topic_id"])
+                    topic = topic_names_by_id.get(topic_id)
+                    if topic is None:
+                        warn(f"Fetch topic UUID {topic_id} is absent from the saved Kafka metadata")
+                    record_sets.append((topic, bytes(item["records"])))
+            else:
+                canonical_topics = sorted({topic for topic in message["topics"] if topic in set(topic_names_by_id.values())})
+                if len(canonical_topics) == 1:
+                    record_sets = [(canonical_topics[0], message["raw"])]
+                else:
+                    warn(
+                        f"Could not associate {api_name} v{message['api_version']} record batches with a canonical topic"
+                    )
+                    record_sets = [(None, message["raw"])]
+        except ValueError as error:
+            warn(f"Could not parse {api_name} v{message['api_version']} records: {error}")
+            record_sets = [(None, message["raw"])]
+        for topic, records in record_sets:
+            for batch in find_record_batches(records, compression):
+                add_batch(batch, topic)
     batch_totals["codecs"] = dict(sorted(codecs.items()))
     known_uncompressed = batch_totals["uncompressed_record_bytes"]
     compressed = batch_totals["compressed_record_bytes"]
@@ -514,6 +734,7 @@ def analyze_capture(path: Path, executable: str, compression: NativeCompression)
         "api_types": dict(sorted(api_counts.items())),
         "record_batches": batch_totals,
         "topics": dict(sorted(topic_batches.items())),
+        "unknown_topic_batches": unknown_topic_batches,
     }
     selected_connections = [connections[stream] for stream in selected]
     return {
@@ -545,6 +766,32 @@ def capture_paths(source: Path) -> tuple[list[Path], Path]:
     captures = sorted([*tcpdump.rglob("*.pcap"), *tcpdump.rglob("*.pcap.gz")])
     default_output = tcpdump.parent / "pcap-analysis" if tcpdump.name == "tcpdump" else tcpdump / "pcap-analysis"
     return captures, default_output
+
+
+def load_topic_metadata(path: Path | None) -> tuple[dict[str, str], list[str]]:
+    if path is None or not path.is_file():
+        return {}, ["Saved Kafka topic UUID metadata is unavailable; per-topic Fetch evidence cannot be reconstructed"]
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {}, [f"Could not read saved Kafka topic UUID metadata: {error}"]
+    topics = document.get("topics") if isinstance(document, dict) else None
+    if not isinstance(topics, list):
+        return {}, ["Saved Kafka topic UUID metadata has no topics array"]
+    mapping: dict[str, str] = {}
+    warnings: list[str] = []
+    for item in topics:
+        if not isinstance(item, dict):
+            continue
+        topic_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if topic_id and name:
+            mapping[topic_id] = name
+        elif name:
+            warnings.append(f"Saved Kafka metadata has no UUID for topic {name}")
+    if not mapping:
+        warnings.append("Saved Kafka topic UUID metadata contains no usable UUID mappings")
+    return mapping, warnings
 
 
 def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
@@ -646,11 +893,15 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     version = tshark_version(args.tshark)
     compression = NativeCompression()
+    metadata_path = Path(args.topic_metadata).resolve() if args.topic_metadata else (
+        source / "diagnostics" / "kafka-metadata.json" if source.is_dir() else None
+    )
+    topic_names_by_id, metadata_warnings = load_topic_metadata(metadata_path)
     results = []
-    warnings = []
+    warnings = list(metadata_warnings)
     for capture in captures:
         try:
-            results.append(analyze_capture(capture, args.tshark, compression))
+            results.append(analyze_capture(capture, args.tshark, compression, topic_names_by_id))
         except Exception as error:
             warning = f"{capture}: {error}"
             warnings.append(warning)
@@ -662,6 +913,8 @@ def main() -> int:
         "status": "failed" if all(capture["status"] == "failed" for capture in results) else ("partial" if warnings else "success"),
         "tshark_version": version,
         "source": str(source),
+        "topic_metadata": str(metadata_path) if metadata_path else None,
+        "topic_names_by_id": dict(sorted(topic_names_by_id.items())),
         "captures": results,
         "roles": {
             "producer": aggregate_role(results, "producer"),
