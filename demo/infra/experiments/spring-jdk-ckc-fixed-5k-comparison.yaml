@@ -1,7 +1,7 @@
 schema_version: 2
 name: spring-jdk-ckc-fixed-5k-comparison
-description: Compare single-pod Spring Kafka with synchronous JDK HTTP and single-worker
-  fixed CKC at 5k/s for ten minutes.
+description: Compare single-pod Spring Kafka with synchronous JDK and Armeria HTTP clients,
+  then fixed-dispatcher CKC with Armeria, at 5k/s for ten minutes.
 workload:
   stubs:
     error_rate_percent: 0
@@ -108,6 +108,46 @@ targets:
         partitions: 182
         pollers: 182
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+- name: spring-kafka.armeria-http
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: ARMERIA
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 58
+        pollers: 58
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 41
+        pollers: 41
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 182
+        pollers: 182
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 - name: ckc.fixed.1
   implementation: ckc
   application:
@@ -127,6 +167,7 @@ targets:
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: ARMERIA
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
     planning_latency:

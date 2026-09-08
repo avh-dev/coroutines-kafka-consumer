@@ -24,6 +24,16 @@ def signed_varint(value: int) -> bytes:
     return bytes(result)
 
 
+def compact(value: int) -> bytes:
+    value += 1
+    result = bytearray()
+    while value > 0x7F:
+        result.append((value & 0x7F) | 0x80)
+        value >>= 7
+    result.append(value)
+    return bytes(result)
+
+
 def record(key: bytes, value: bytes, header_key: bytes = b"", header_value: bytes = b"") -> bytes:
     body = b"".join(
         (
@@ -50,6 +60,26 @@ def batch(records: bytes, count: int) -> bytes:
     struct.pack_into(">i", payload, 57, count)
     payload.extend(records)
     return bytes(payload)
+
+
+def unsigned_varint(value: int) -> bytes:
+    result = bytearray()
+    while value > 0x7F:
+        result.append((value & 0x7F) | 0x80)
+        value >>= 7
+    result.append(value)
+    return bytes(result)
+
+
+def kafka_string(value: str | None) -> bytes:
+    if value is None:
+        return struct.pack(">h", -1)
+    encoded = value.encode()
+    return struct.pack(">h", len(encoded)) + encoded
+
+
+def kafka_bytes(value: bytes) -> bytes:
+    return struct.pack(">i", len(value)) + value
 
 
 class AnalyzePcapTest(unittest.TestCase):
@@ -81,6 +111,31 @@ class AnalyzePcapTest(unittest.TestCase):
         self.assertEqual(2, found[0]["parsed_records"])
         self.assertEqual(len(records), found[0]["compressed_record_bytes"])
         self.assertEqual(len(records), found[0]["uncompressed_record_bytes"])
+
+    def test_parses_produce_v9_topic_blocks_without_tshark_topic_fields(self) -> None:
+        records = batch(record(b"same-key", b"value"), 1)
+        body = b"".join((
+            struct.pack(">hhi", 0, 9, 7), kafka_string("load-test"), b"\x00", b"\x00",
+            struct.pack(">hi", 1, 30_000), compact(1), compact(len("order.events.v1")), b"order.events.v1",
+            compact(1), struct.pack(">i", 0), compact(len(records)), records, b"\x00", b"\x00", b"\x00",
+        ))
+        parsed = analyze_pcap.parse_produce_request_v9(struct.pack(">i", len(body)) + body)
+        self.assertEqual([{"topic": "order.events.v1", "records": records}], parsed)
+
+    def test_parses_fetch_v17_topic_uuid_and_records(self) -> None:
+        records = batch(record(b"same-key", b"value"), 1)
+        topic_uuid = bytes(range(16))
+        body = b"".join((
+            struct.pack(">i", 7), unsigned_varint(0), struct.pack(">i", 0), struct.pack(">h", 0), struct.pack(">i", 0),
+            unsigned_varint(2), topic_uuid, unsigned_varint(2), struct.pack(">i", 0), struct.pack(">h", 0),
+            struct.pack(">qqq", 1, 1, 0), unsigned_varint(0), struct.pack(">i", -1),
+            unsigned_varint(len(records) + 1), records, unsigned_varint(0), unsigned_varint(0), unsigned_varint(0),
+        ))
+        parsed = analyze_pcap.parse_fetch_response_v17(struct.pack(">i", len(body)) + body)
+        self.assertEqual(
+            [{"topic_id": analyze_pcap.kafka_topic_id(topic_uuid), "records": records}],
+            parsed,
+        )
 
     def test_role_can_be_inferred_from_capture_filename(self) -> None:
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))

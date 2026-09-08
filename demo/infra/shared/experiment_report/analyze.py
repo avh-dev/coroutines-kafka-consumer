@@ -462,6 +462,7 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
         "dispatcher": application.get("processing_dispatcher_type"),
         "dispatcher_threads": application.get("worker_dispatcher_threads"),
         "jdk_http_client_executor": application.get("jdk_http_client_executor"),
+        "model_sync_http_client": application.get("model_sync_http_client"),
         "topics": topics,
     }
 

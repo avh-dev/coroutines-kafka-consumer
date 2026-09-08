@@ -295,6 +295,7 @@
 | [INFRA-150](#infra-150) | Allow fixed Kafka partitions with worker-only target parallelism. | DONE |
 | [INFRA-151](#infra-151) | Use the installed TShark Kafka topic field for packet-capture analysis. | DONE |
 | [INFRA-152](#infra-152) | Preserve topic network evidence when TShark returns fragmented topic names. | DONE |
+| [INFRA-153](#infra-153) | Persist Kafka topic UUID metadata, recover exact capture topics, and preserve raw diagnostics in evidence bundles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3360,3 +3361,14 @@ _Date: 2026-09-07_
 When high-rate TShark output cannot reconstruct canonical topic names, allocate captured bytes by the audit's observed per-topic publish share and label the result as an estimate.
 
 Verification: the 5k/s comparison completed both targets; both scheduled producer/application capture pairs were re-analyzed successfully and the final report contains network rows for all three topics.
+
+<a id="infra-153"></a>
+### INFRA-153 - Persist Kafka topic UUID metadata and raw diagnostics
+
+_Date: 2026-09-08_
+
+Persist the broker topic UUID mapping when test topics are prepared, use it to associate packet-capture Fetch records with canonical topics, and preserve raw capture and Thread Stats artifacts in the evidence archive.
+
+The 5k/s comparison now has JDK Spring, Armeria Spring, and fixed-dispatcher CKC/Armeria targets; reports also record the active synchronous HTTP client.
+
+Verification: shared orchestration (17), internal-lab (50), and PCAP/evidence-bundle (13) tests pass. The installed lab completed `smoke-repeat`; its final bundle contains the new diagnostics tree. A direct post-fix broker snapshot confirmed three separate topic UUID mappings, and the old real PCAP decodes Fetch v17 UUIDs without topic-key heuristics.
