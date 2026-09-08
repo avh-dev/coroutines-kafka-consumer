@@ -1315,6 +1315,7 @@ metadata = {
         "metrics_implementation": env("METRICS_IMPLEMENTATION"),
         "lettuce_metrics_enabled": env_bool("LETTUCE_METRICS_ENABLED"),
         "jdk_http_client_executor": env("JDK_HTTP_CLIENT_EXECUTOR", "DEFAULT"),
+        "model_http_client": env("MODEL_HTTP_CLIENT", "ARMERIA"),
         "model_sync_http_client": env("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
         "replica_count": env_int("REPLICA_COUNT"),
         "stub_replica_count": env_int("STUB_REPLICA_COUNT"),

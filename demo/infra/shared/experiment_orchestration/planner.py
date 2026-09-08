@@ -730,6 +730,8 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
     plan = {
         "profile": args.profile,
         "spring_profile": profile["spring_profile"],
+        "dedicated_processing_workers": bool(profile["dedicated_processing_workers"]),
+        "business_logic": str(profile["business_logic"]),
         "base_tps": base_tps,
         "replica_count": replica_count,
         "processing_dispatcher_type": str(env.get("processingDispatcherType", "")),

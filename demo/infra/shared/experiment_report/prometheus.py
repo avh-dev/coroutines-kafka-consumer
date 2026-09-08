@@ -51,6 +51,12 @@ STANDARD_MEASUREMENTS = {
         "sum(avg_over_time(namedprocess_namegroup_memory_bytes"
         '{{job="ckc-host-process-exporter", groupname="ckc-load-test", memtype="resident"}}[{window}])) / 1024 / 1024'
     ),
+    "producer_buffer_utilization_max_percent": (
+        "100 * max(max_over_time((1 - ("
+        'kafka_producer_buffer_available_bytes{{job="ckc-load-test"}} / '
+        'clamp_min(kafka_producer_buffer_total_bytes{{job="ckc-load-test"}}, 1)'
+        "))[{window}:]))"
+    ),
     "telemetry_poll_batch_average_records": (
         "sum(increase(demo_ckc_poll_records_sum"
         '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])) / '

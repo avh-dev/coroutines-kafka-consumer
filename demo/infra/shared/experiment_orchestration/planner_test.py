@@ -91,6 +91,8 @@ class PlannerTest(unittest.TestCase):
             )
 
         self.assertEqual("JDK", plan["model_sync_http_client"])
+        self.assertFalse(plan["dedicated_processing_workers"])
+        self.assertEqual("BLOCKING", plan["business_logic"])
         self.assertEqual("JDK", values["env"]["modelSyncHttpClient"])
         self.assertEqual("DEFAULT", values["env"]["jdkHttpClientExecutor"])
 
