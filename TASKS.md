@@ -296,6 +296,7 @@
 | [INFRA-151](#infra-151) | Use the installed TShark Kafka topic field for packet-capture analysis. | DONE |
 | [INFRA-152](#infra-152) | Preserve topic network evidence when TShark returns fragmented topic names. | DONE |
 | [INFRA-153](#infra-153) | Persist Kafka topic UUID metadata, recover exact capture topics, and preserve raw diagnostics in evidence bundles. | DONE |
+| [INFRA-154](#infra-154) | Consolidate experiment reports into one sectioned HTML comparison table with topic and complete wire-traffic metrics. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3372,3 +3373,18 @@ Persist the broker topic UUID mapping when test topics are prepared, use it to a
 The 5k/s comparison now has JDK Spring, Armeria Spring, and fixed-dispatcher CKC/Armeria targets; reports also record the active synchronous HTTP client.
 
 Verification: shared orchestration (17), internal-lab (50), and PCAP/evidence-bundle (13) tests pass. The installed lab completed `smoke-repeat`; its final bundle contains the new diagnostics tree. A direct post-fix broker snapshot confirmed three separate topic UUID mappings, and the old real PCAP decodes Fetch v17 UUIDs without topic-key heuristics.
+
+<a id="infra-154"></a>
+### INFRA-154 - Consolidate the experiment report comparison table
+
+_Date: 2026-09-08_
+
+Replace the split report result layout with one sectioned HTML comparison table covering target configuration, application, producer, broker, topic, freshness, and complete wire-traffic evidence.
+
+Separate intentional drops from failures and missing outcomes, render exact audit latency percentiles, and use one shared outer-tail cutoff for freshness histograms. Report rounded producer, consumer, and additive total bytes per message while retaining all captured Kafka protocol and TCP traffic in the estimate.
+
+Render topic configuration as individual rows and preserve whether the implementation has dedicated processing workers. Classic Spring Kafka now reports listener concurrency without exposing its unused worker and queue defaults; the synchronous-client implementation detail is presented simply as the HTTP client.
+
+Business-logic mode is explicit in the implementation plan so reports distinguish blocking services from non-blocking suspend services and select the corresponding HTTP client. The comparison table keeps ordinary cells white and normal-weight, reserving emphasis for major sections and neutral topic headers that include their E2E target.
+
+Verification: all 51 internal-lab tests pass. The preserved 5k/s experiment was regenerated offline without another workload run; its shared freshness boundary is 11 and its producer-buffer maximum was recovered from stored Prometheus data.

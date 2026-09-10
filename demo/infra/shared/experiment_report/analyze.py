@@ -441,6 +441,16 @@ def latency_profile_matches(
 def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     application = metadata.get("application") if isinstance(metadata.get("application"), dict) else {}
     run_plan = metadata.get("run_plan") if isinstance(metadata.get("run_plan"), dict) else {}
+    profile = application.get("run_profile") or application.get("profile")
+    dedicated_workers = run_plan.get("dedicated_processing_workers")
+    if dedicated_workers is None:
+        dedicated_workers = profile != "spring-kafka"
+    business_logic = run_plan.get("business_logic")
+    if business_logic is None:
+        business_logic = "BLOCKING" if profile in {
+            "spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "ckc-sync"
+        } else "NON_BLOCKING"
+    business_logic = str(business_logic).upper()
     topics = []
     for item in run_plan.get("topics", []):
         if not isinstance(item, dict):
@@ -448,21 +458,29 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
         topics.append(
             {
                 "name": item.get("name"),
+                "kafka_topic": item.get("kafka_topic"),
                 "processing_mode": item.get("processing_mode"),
                 "partitions": item.get("partitions"),
                 "workers": item.get("worker_concurrency"),
                 "pollers": item.get("poll_loop_concurrency"),
                 "queue_capacity": item.get("work_channel_capacity"),
                 "planning_latency_ms": item.get("average_processing_ms"),
+                "parallelism": item.get("parallelism") if isinstance(item.get("parallelism"), list) else [],
             }
         )
     return {
-        "profile": application.get("run_profile") or application.get("profile"),
+        "profile": profile,
         "replicas": application.get("replica_count"),
+        "dedicated_processing_workers": bool(dedicated_workers),
+        "business_logic": business_logic,
         "dispatcher": application.get("processing_dispatcher_type"),
         "dispatcher_threads": application.get("worker_dispatcher_threads"),
         "jdk_http_client_executor": application.get("jdk_http_client_executor"),
-        "model_sync_http_client": application.get("model_sync_http_client"),
+        "http_client": (
+            application.get("model_sync_http_client")
+            if business_logic == "BLOCKING"
+            else application.get("model_http_client") or application.get("model_sync_http_client")
+        ),
         "topics": topics,
     }
 

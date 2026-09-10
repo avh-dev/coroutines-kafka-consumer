@@ -57,15 +57,17 @@ def profile_catalog(topics: dict[str, Any]) -> dict[str, Any]:
         for topic, settings in topics.items()
     }
     profiles: dict[str, dict[str, Any]] = {}
-    for name, spring_profile, dispatcher in (
-        ("ckc", "ckc", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"])),
-        ("ckc-sync", "ckc-sync", ("IO", ["IO", "VIRTUAL"])),
-        ("ckc-spring-boot", "ckc-spring-boot", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"])),
-        ("confluent-reactor", "confluent-parallel-reactor", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"])),
-        ("spring-kafka-coroutines-naive", "spring-kafka-coroutines-naive", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"])),
+    for name, spring_profile, dispatcher, business_logic in (
+        ("ckc", "ckc", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"]), "NON_BLOCKING"),
+        ("ckc-sync", "ckc-sync", ("IO", ["IO", "VIRTUAL"]), "BLOCKING"),
+        ("ckc-spring-boot", "ckc-spring-boot", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"]), "NON_BLOCKING"),
+        ("confluent-reactor", "confluent-parallel-reactor", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"]), "NON_BLOCKING"),
+        ("spring-kafka-coroutines-naive", "spring-kafka-coroutines-naive", ("FIXED", ["DEFAULT", "FIXED", "IO", "VIRTUAL"]), "NON_BLOCKING"),
     ):
         profiles[name] = {
             "spring_profile": spring_profile,
+            "dedicated_processing_workers": True,
+            "business_logic": business_logic,
             "default_processing_dispatcher": dispatcher[0],
             "allowed_processing_dispatchers": dispatcher[1],
             "topics": copy.deepcopy(TOPIC_DEFAULTS),
@@ -77,6 +79,8 @@ def profile_catalog(topics: dict[str, Any]) -> dict[str, Any]:
     ):
         profiles[name] = {
             "spring_profile": spring_profile,
+            "dedicated_processing_workers": name != "spring-kafka",
+            "business_logic": "BLOCKING",
             "default_processing_dispatcher": "",
             "allowed_processing_dispatchers": [],
             "topics": {

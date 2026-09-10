@@ -22,11 +22,24 @@ from experiment_report.analyze import (  # noqa: E402
     parse_load_profile,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
+from experiment_report.markdown import shared_freshness_cutoff  # noqa: E402
 from experiment_report.model import LatencySlaResult  # noqa: E402
 from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_freshness_cutoff_uses_the_longest_outer_tail_boundary(self) -> None:
+        self.assertEqual(
+            11,
+            shared_freshness_cutoff(
+                [
+                    {0: 1000, 1: 100, 10: 3, 11: 5, 13: 2},
+                    {0: 1000, 1: 50, 10: 2, 11: 1},
+                    {0: 1000, 1: 20, 2: 3},
+                ]
+            ),
+        )
+
     def test_latency_result_must_match_resolved_profile(self) -> None:
         result = LatencySlaResult(
             id="business-events",
@@ -435,6 +448,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "broker_memory_average_mib": 1400.0,
                     "producer_cpu_average_cores": 0.5,
                     "producer_memory_average_mib": 320.0,
+                    "producer_buffer_utilization_max_percent": 42.5,
                     "telemetry_poll_batch_average_records": 675.0,
                     "telemetry_poll_batch_max_records": 950.0,
                     "telemetry_active_workers_average": 20.0,
@@ -455,7 +469,16 @@ class ExperimentReportTest(unittest.TestCase):
             svg = (report_dir / "load-profile.svg").read_text(encoding="utf-8")
             self.assertEqual("FAIL", model["evaluation_status"])
             self.assertIn("## Results", markdown)
-            self.assertIn("Application CPU at measured load", markdown)
+            self.assertIn("Application CPU average", markdown)
+            self.assertIn("Kafka buffer utilization maximum", markdown)
+            self.assertIn("42.5%", markdown)
+            self.assertIn("<thead><tr><th></th>", markdown)
+            self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
+            self.assertNotIn("Sync HTTP client", markdown)
+            self.assertIn("<th scope=\"row\">Business logic</th><td>Non-blocking</td>", markdown)
+            self.assertNotIn("Processing architecture", markdown)
+            self.assertIn("<th scope=\"row\">Dedicated processing workers</th><td>8</td>", markdown)
+            self.assertNotIn("Control-plane network", markdown)
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-summary.json").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-index.jsonl").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-pcap-analysis.json").is_file())

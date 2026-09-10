@@ -701,6 +701,9 @@ def normalized_application_metadata(deployment: dict[str, Any]) -> dict[str, Any
         "replica_count": run_plan.get("replica_count", deployment.get("replica_count")),
         "processing_dispatcher_type": run_plan.get("processing_dispatcher_type", deployment.get("processing_dispatcher_type", "AUTO")),
         "worker_dispatcher_threads": run_plan.get("worker_dispatcher_threads", env.get("workerDispatcherThreads", deployment.get("worker_dispatcher_threads", 8))),
+        "business_logic": run_plan.get("business_logic"),
+        "model_http_client": run_plan.get("model_http_client", env.get("modelHttpClient")),
+        "model_sync_http_client": run_plan.get("model_sync_http_client", env.get("modelSyncHttpClient")),
         "processing_modes": {
             "order": env.get("orderProcessingMode", deployment.get("order_processing_mode", "")),
             "batch": env.get("batchProcessingMode", deployment.get("batch_processing_mode", "")),
