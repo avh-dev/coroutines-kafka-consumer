@@ -22,6 +22,7 @@ ACTION_COLORS = {
     "network": "#7c3aed",
     "outage": "#b91c1c",
     "measurement": "#16a34a",
+    "diagnostic": "#0891b2",
     "chaos": "#64748b",
 }
 SERVICE_BADGES = {
@@ -293,6 +294,12 @@ def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
             f'<line x1="{center_x:.1f}" y1="{y+16:.1f}" x2="{x+19:.1f}" y2="{y+19:.1f}" {common}/>'
             f'<line x1="{x+12:.1f}" y1="{y+5:.1f}" x2="{x+16:.1f}" y2="{y+5:.1f}" {common}/>'
         )
+    elif action == "diagnostic":
+        symbol = (
+            f'<rect x="{x+7:.1f}" y="{y+10:.1f}" width="14" height="10" rx="2" {common}/>'
+            f'<circle cx="{x+14:.1f}" cy="{y+15:.1f}" r="2.5" {common}/>'
+            f'<path d="M {x+10:.1f} {y+10:.1f} L {x+12:.1f} {y+7:.1f} H {x+16:.1f} L {x+18:.1f} {y+10:.1f}" {common}/>'
+        )
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
@@ -439,6 +446,21 @@ def load_profile_svg(report: ExperimentReport) -> str:
             "type": "measurement", "action": "measurement", "title": measurement_window.get("name") or "steady-state measurement",
             "target": "", "at_seconds": start, "duration_seconds": float(measurement_window["duration_seconds"]),
             "end_seconds": start + float(measurement_window["duration_seconds"]),
+        })
+    for step in report.test_definition.get("diagnostic_steps", []):
+        if not isinstance(step, dict):
+            continue
+        at_match = re.fullmatch(r"(\d+)([hms])", str(step.get("at") or "").strip())
+        duration_match = re.fullmatch(r"(\d+)([hms])", str(step.get("duration") or "").strip())
+        if not at_match or not duration_match:
+            continue
+        factor = {"h": 3600, "m": 60, "s": 1}
+        at = int(at_match.group(1)) * factor[at_match.group(2)]
+        duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
+        title = str(step.get("name") or "Diagnostic capture").replace("-", " ").title()
+        chaos_scenarios.append({
+            "type": "diagnostic", "action": "diagnostic", "title": title,
+            "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
         })
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10

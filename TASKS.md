@@ -301,6 +301,7 @@
 | [INFRA-156](#infra-156) | Show planned stub latency in the experiment report and distinguish it from application handling time. | DONE |
 | [INFRA-157](#infra-157) | Add a declared steady-state measurement window and report full-run and windowed evidence. | DONE |
 | [INFRA-158](#infra-158) | Present the steady-state measurement window as a planned timeline card. | DONE |
+| [INFRA-159](#infra-159) | Render diagnostic steps as planned timeline stages. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3441,5 +3442,16 @@ Move the steady-state measurement-window annotation into the same planned-card v
 Use a stopwatch icon, an unobtrusive translucent interval overlay, and a timeline connector; start the 5k/s comparison window later in steady load.
 
 The measurement window is now rendered through the existing planned scenario-card loop as a `measurement` stage. It shares the same translucent interval overlay, boundaries, connector, card geometry, and timing label as duration-based chaos scenarios, with only a green stopwatch action icon distinguishing its purpose. The 5k/s comparison measures from 04:00 through 09:00.
+
+Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
+
+<a id="infra-159"></a>
+### INFRA-159 - Render diagnostic steps in the planned timeline
+
+_Date: 2026-09-10_
+
+Show scheduled diagnostic steps, including Kafka tcpdump, in the planned timeline using the same interval-card mechanism as chaos and measurement stages.
+
+Scheduled tcpdump steps now enter the existing planned-stage renderer as diagnostic intervals. They use a blue capture icon, translucent interval overlay, timeline connector, and the standard lower card; the 5k/s comparison therefore shows its `kafka-steady` capture at 05:00–05:15.
 
 Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
