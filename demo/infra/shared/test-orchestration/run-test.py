@@ -658,6 +658,104 @@ def load_lab_context(path: Path) -> dict[str, Any]:
     return data
 
 
+def kubectl_json(command: list[str]) -> dict[str, Any]:
+    output = run(command, capture_output=True, check=False)
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def environment_evidence(lab_context: dict[str, Any], job_name: str | None = None) -> dict[str, Any]:
+    """Capture the resolved Kubernetes layout without retaining credentials or endpoints."""
+    configured = lab_context.get("environment_evidence")
+    evidence = dict(configured) if isinstance(configured, dict) else {}
+    evidence.setdefault("environment", lab_context.get("environment"))
+    evidence.setdefault("region", lab_context.get("region"))
+    evidence.setdefault("cluster_name", lab_context.get("cluster_name"))
+    evidence.setdefault("kafka", {"mode": lab_context.get("kafka_mode")})
+    evidence.setdefault("redis", {"mode": lab_context.get("redis_mode")})
+
+    version = kubectl_json(["kubectl", "version", "--output=json"])
+    server = version.get("serverVersion") if isinstance(version.get("serverVersion"), dict) else {}
+    evidence["kubernetes"] = {
+        "version": server.get("gitVersion") or server.get("major"),
+        "platform": evidence.get("platform") or "Kubernetes",
+    }
+    nodes = []
+    for item in kubectl_json(["kubectl", "get", "nodes", "-o", "json"]).get("items", []):
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
+        status = item.get("status") if isinstance(item.get("status"), dict) else {}
+        capacity = status.get("capacity") if isinstance(status.get("capacity"), dict) else {}
+        allocatable = status.get("allocatable") if isinstance(status.get("allocatable"), dict) else {}
+        info = status.get("nodeInfo") if isinstance(status.get("nodeInfo"), dict) else {}
+        nodes.append({
+            "name": metadata.get("name"),
+            "instance_type": labels.get("node.kubernetes.io/instance-type") or labels.get("beta.kubernetes.io/instance-type"),
+            "cpu": capacity.get("cpu"),
+            "memory": capacity.get("memory"),
+            "allocatable_cpu": allocatable.get("cpu"),
+            "allocatable_memory": allocatable.get("memory"),
+            "architecture": info.get("architecture"),
+            "os_image": info.get("osImage"),
+            "kernel_version": info.get("kernelVersion"),
+            "kubelet_version": info.get("kubeletVersion"),
+        })
+    evidence["nodes"] = nodes
+
+    workloads: dict[str, list[str]] = {}
+    role_selectors = {
+        "application": ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        "stubs": ("ckc-app", "app.kubernetes.io/name=demo-stubs"),
+        "kafka": ("ckc-app", "app.kubernetes.io/instance=ckc-kafka"),
+        "redis": ("ckc-app", "app.kubernetes.io/instance=ckc-redis"),
+    }
+    if job_name:
+        role_selectors["producer"] = ("ckc-loadtest", f"job-name={job_name}")
+    for role, (namespace, selector) in role_selectors.items():
+        pods = kubectl_json(["kubectl", "-n", namespace, "get", "pods", "-l", selector, "-o", "json"])
+        locations = []
+        for item in pods.get("items", []):
+            if isinstance(item, dict):
+                spec = item.get("spec") if isinstance(item.get("spec"), dict) else {}
+                node = spec.get("nodeName")
+                if node:
+                    locations.append(str(node))
+        if locations:
+            workloads[role] = sorted(set(locations))
+    evidence["workloads"] = workloads
+    if str(lab_context.get("environment")) == "internal-lab":
+        cpu_rows: dict[str, Any] = {}
+        try:
+            cpu_rows = json.loads(run(["lscpu", "--json"], capture_output=True, check=False))
+        except (OSError, json.JSONDecodeError):
+            pass
+        fields = {
+            str(item.get("field") or "").rstrip(":"): str(item.get("data") or "").strip()
+            for item in cpu_rows.get("lscpu", [])
+            if isinstance(item, dict)
+        } if isinstance(cpu_rows, dict) else {}
+        memory_bytes = None
+        try:
+            memory_kib = int(next(line.split()[1] for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemTotal:")))
+            memory_bytes = memory_kib * 1024
+        except (FileNotFoundError, IndexError, StopIteration, ValueError):
+            pass
+        evidence["hardware"] = {
+            "cpu_model": fields.get("Model name"),
+            "logical_cpus": fields.get("CPU(s)"),
+            "sockets": fields.get("Socket(s)"),
+            "cores_per_socket": fields.get("Core(s) per socket"),
+            "max_mhz": fields.get("CPU max MHz"),
+            "memory_bytes": memory_bytes,
+        }
+    return evidence
+
+
 def reset_target_data(
     repo_dir: Path,
     definition_path: Path,
@@ -931,6 +1029,8 @@ def main() -> None:
             wait_timeout_seconds,
             run_dir / "generated",
         )
+        metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
+        (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         if diagnostic_steps:
             diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
             diagnostics_dir.mkdir(parents=True, exist_ok=True)

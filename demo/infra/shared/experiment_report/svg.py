@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import html
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,11 @@ SERVICE_BADGES = {
     "redis": ("redis", "R", "#dc382d"),
     "kafka": ("kafka", "K", "#231f20"),
     "audit": ("audit", "AUD", "#0f766e"),
+}
+STUB_NAMES = {
+    "eta": "Arcane ETA ML",
+    "flavour": "Order flavour ML",
+    "registry": "Legacy brewing registry",
 }
 
 
@@ -95,6 +101,121 @@ def horizontal_tick_seconds(total_seconds: float, plot_width: float = 885, minim
 
 def format_tps(value: float) -> str:
     return f"{int(round(value)):,}"
+
+
+def environment_topology_svg(report: ExperimentReport) -> str:
+    environment = report.environment if isinstance(report.environment, dict) else {}
+    width, height = 1000, 375
+    provider = str(environment.get("provider") or environment.get("environment") or "Environment")
+    region = str(environment.get("region") or "")
+    kubernetes = environment.get("kubernetes") if isinstance(environment.get("kubernetes"), dict) else {}
+    platform = str(kubernetes.get("platform") or environment.get("platform") or "Kubernetes")
+    version = str(kubernetes.get("version") or "")
+    nodes = [node for node in environment.get("nodes", []) if isinstance(node, dict)]
+    worker_group = environment.get("worker_group") if isinstance(environment.get("worker_group"), dict) else {}
+    node_types = [str(value) for value in worker_group.get("instance_types", []) if value]
+    if not node_types:
+        node_types = sorted({str(node.get("instance_type")) for node in nodes if node.get("instance_type")})
+    total_cpu = sum(int(str(node.get("allocatable_cpu") or node.get("cpu") or "0")) for node in nodes if str(node.get("allocatable_cpu") or node.get("cpu") or "0").isdigit())
+    total_memory_kib = sum(
+        int(match.group(1)) * {"Ki": 1, "Mi": 1024, "Gi": 1024 * 1024}.get(match.group(2), 0)
+        for node in nodes
+        if (match := re.fullmatch(r"(\d+)(Ki|Mi|Gi)", str(node.get("allocatable_memory") or node.get("memory") or "")))
+    )
+    node_count = len(nodes) or int(worker_group.get("desired_nodes") or 0)
+    node_line = " · ".join(part for part in [
+        f"{node_count} worker nodes" if node_count else "worker nodes unavailable",
+        "/".join(node_types),
+        f"{total_cpu} allocatable CPU" if total_cpu else "",
+        f"{total_memory_kib / (1024 * 1024):.0f} GiB allocatable" if total_memory_kib else "",
+    ] if part)
+    disk = worker_group.get("disk_gib")
+    if disk:
+        node_line += f" · {disk} GiB/node disk"
+    kafka = environment.get("kafka") if isinstance(environment.get("kafka"), dict) else {}
+    kafka_mode = str(kafka.get("mode") or "Kafka")
+    kafka_title = "Amazon MSK" if kafka_mode == "msk" else "Kafka in Kubernetes"
+    kafka_line = " · ".join(str(value) for value in [
+        f"{kafka.get('brokers')} brokers" if kafka.get("brokers") else "",
+        kafka.get("instance_type"),
+        f"{kafka.get('disk_gib')} GiB/broker" if kafka.get("disk_gib") else "",
+        kafka.get("kafka_version"),
+    ] if value)
+    redis = environment.get("redis") if isinstance(environment.get("redis"), dict) else {}
+    workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
+    hardware = environment.get("hardware") if isinstance(environment.get("hardware"), dict) else {}
+    hardware_line = " · ".join(str(value) for value in [
+        hardware.get("cpu_model"),
+        f"{hardware.get('logical_cpus')} logical CPUs" if hardware.get("logical_cpus") else "",
+        f"up to {hardware.get('max_mhz')} MHz" if hardware.get("max_mhz") else "",
+        f"{int(hardware.get('memory_bytes')) / (1024 ** 3):.0f} GiB RAM" if hardware.get("memory_bytes") else "",
+    ] if value)
+
+    def placement(role: str) -> str:
+        names = workloads.get(role)
+        return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
+
+    body = [
+        f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
+        f'<rect x="25" y="52" width="950" height="298" rx="12" fill="#f8fafc" stroke="#94a3b8"/>',
+        f'<text class="card-title" x="45" y="78">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
+        f'<text class="muted" x="45" y="96">{esc(node_line)}</text>',
+        f'<text class="muted" x="45" y="112">{esc(hardware_line)}</text>' if hardware_line else '',
+        '<rect x="45" y="120" width="190" height="108" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+        '<text class="card-title" x="60" y="148">Producer and stubs</text>',
+        f'<text class="muted" x="60" y="171">{esc(placement("producer"))}</text>',
+        f'<text class="muted" x="60" y="191">{esc(placement("stubs"))}</text>',
+        '<rect x="310" y="120" width="190" height="108" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+        '<text class="card-title" x="325" y="148">Application targets</text>',
+        f'<text class="muted" x="325" y="171">{esc(placement("application"))}</text>',
+        '<text class="muted" x="325" y="191">Target configuration is compared below</text>',
+        '<line x1="235" y1="174" x2="310" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+    ]
+    kafka_x = 575 if kafka_mode != "msk" else 745
+    if kafka_mode == "msk":
+        body.extend([
+            '<rect x="550" y="108" width="400" height="132" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="565" y="132">AWS managed services</text>',
+        ])
+    body.extend([
+        f'<rect x="{kafka_x}" y="120" width="190" height="108" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+        f'<text class="card-title" x="{kafka_x+15}" y="148">{esc(kafka_title)}</text>',
+        f'<text class="muted" x="{kafka_x+15}" y="171">{esc(kafka_line or placement("kafka"))}</text>',
+        f'<text class="muted" x="{kafka_x+15}" y="191">{esc(placement("kafka")) if kafka_mode != "msk" else "outside Kubernetes"}</text>',
+        f'<line x1="500" y1="174" x2="{kafka_x}" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        '<rect x="310" y="260" width="190" height="58" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+        '<text class="card-title" x="325" y="285">Redis</text>',
+        f'<text class="muted" x="325" y="305">{esc(str(redis.get("mode") or "configuration unavailable"))} · {esc(placement("redis"))}</text>',
+        '<line x1="405" y1="228" x2="405" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>',
+    ])
+    return svg_document(width, height, body, "Resolved environment topology")
+
+
+def stub_latency_svg(report: ExperimentReport) -> str:
+    stubs = report.test_definition.get("stubs", {})
+    if not isinstance(stubs, dict):
+        stubs = {}
+    streams = [(name, values) for name, values in stubs.items() if isinstance(values, dict)]
+    width = 1000
+    height = max(150, 92 + 42 * len(streams))
+    body = [
+        '<text class="title" x="30" y="32">Planned dependency-stub latency</text>',
+        '<text class="muted" x="30" y="52">Configured response-delay percentiles; separate from application message-handling time below.</text>',
+        '<rect x="25" y="68" width="950" height="28" rx="5" fill="#eaeef2"/>',
+        '<text class="table-head" x="45" y="87">Dependency</text>',
+        '<text class="table-head" x="500" y="87" text-anchor="middle">p90</text>',
+        '<text class="table-head" x="620" y="87" text-anchor="middle">p95</text>',
+        '<text class="table-head" x="740" y="87" text-anchor="middle">p99</text>',
+        '<text class="table-head" x="860" y="87" text-anchor="middle">max</text>',
+    ]
+    for index, (name, values) in enumerate(streams):
+        y = 120 + index * 42
+        body.extend([
+            f'<text class="label" x="45" y="{y}">{esc(STUB_NAMES.get(name, name))}</text>',
+            *[f'<text class="table-cell" x="{x}" y="{y}" text-anchor="middle">{esc(values.get(f"delay_{percentile}_ms", "—"))} ms</text>' for x, percentile in ((500, "p90"), (620, "p95"), (740, "p99"), (860, "p100"))],
+        ])
+    return svg_document(width, height, body, "Planned dependency-stub latency")
 
 
 def smoothed_line_path(points: list[tuple[float, float]], radius: float = 10) -> str:

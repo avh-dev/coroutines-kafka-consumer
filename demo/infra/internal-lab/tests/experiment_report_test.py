@@ -183,6 +183,28 @@ class ExperimentReportTest(unittest.TestCase):
                 "packet_captures": {
                     "enabled": True,
                 },
+                "environment_evidence": {
+                    "environment": "internal-lab",
+                    "platform": "K3s",
+                    "kubernetes": {"version": "v1.33.0+k3s"},
+                    "kafka": {"mode": "kubernetes", "brokers": 3},
+                    "redis": {"mode": "kubernetes"},
+                    "nodes": [{
+                        "name": "optilab",
+                        "cpu": "8",
+                        "memory": "32768000Ki",
+                        "allocatable_cpu": "7",
+                        "allocatable_memory": "30000000Ki",
+                        "architecture": "amd64",
+                    }],
+                    "workloads": {
+                        "application": ["optilab"],
+                        "producer": ["optilab"],
+                        "stubs": ["optilab"],
+                        "kafka": ["optilab"],
+                        "redis": ["optilab"],
+                    },
+                },
             },
         )
         self.write_json(
@@ -468,6 +490,11 @@ class ExperimentReportTest(unittest.TestCase):
             model = yaml.safe_load((report_dir / "report-model.yaml").read_text(encoding="utf-8"))
             svg = (report_dir / "load-profile.svg").read_text(encoding="utf-8")
             self.assertEqual("FAIL", model["evaluation_status"])
+            self.assertEqual("internal-lab", model["environment"]["environment"])
+            self.assertTrue((report_dir / "environment-topology.svg").is_file())
+            ET.parse(report_dir / "environment-topology.svg")
+            self.assertIn("## Environment", markdown)
+            self.assertIn("environment-topology.svg", markdown)
             self.assertIn("## Results", markdown)
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)

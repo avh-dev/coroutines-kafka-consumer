@@ -73,6 +73,7 @@ class ExperimentReport:
     started_at: str
     ended_at: str
     duration_seconds: float | None
+    environment: dict[str, Any]
     test_definition: dict[str, Any]
     sla_profile: dict[str, Any] | None
     targets: list[TargetReport]

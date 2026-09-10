@@ -664,6 +664,10 @@ helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm repo update
 
 KAFKA_MODE="$(infra_output kafka_mode)"
+KUBERNETES_VERSION="$(infra_output kubernetes_version)"
+NODE_INSTANCE_TYPES="$(infra_output node_instance_types)"
+NODE_DESIRED_SIZE="$(infra_output node_desired_size)"
+NODE_DISK_SIZE="$(infra_output node_disk_size)"
 if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   KAFKA_BROKERS="$(infra_output kubernetes_kafka_brokers)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${KAFKA_BROKERS}"
@@ -715,6 +719,9 @@ EOF
 else
   KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
   MSK_BROKER_NODES="$(infra_output msk_number_of_broker_nodes)"
+  MSK_KAFKA_VERSION="$(infra_output msk_kafka_version)"
+  MSK_BROKER_INSTANCE_TYPE="$(infra_output msk_broker_instance_type)"
+  MSK_EBS_VOLUME_SIZE="$(infra_output msk_ebs_volume_size)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${MSK_BROKER_NODES}"
   if [ "${KAFKA_TOPIC_REPLICATION_FACTOR}" -gt 3 ]; then
     KAFKA_TOPIC_REPLICATION_FACTOR=3
@@ -799,6 +806,26 @@ context = {
     "kafka_exporter_enabled": True,
     "msk_cloudwatch_enabled": "${MSK_CLOUDWATCH_ENABLED}" == "true",
     "msk_cloudwatch_cluster_name": "${MSK_CLOUDWATCH_CLUSTER_NAME}",
+    "environment_evidence": {
+        "platform": "Amazon EKS",
+        "provider": "AWS",
+        "region": "${REGION}",
+        "cluster_name": "${CLUSTER_NAME}",
+        "kubernetes": {"version": "${KUBERNETES_VERSION}"},
+        "worker_group": {
+            "desired_nodes": ${NODE_DESIRED_SIZE},
+            "instance_types": json.loads('''${NODE_INSTANCE_TYPES}'''),
+            "disk_gib": ${NODE_DISK_SIZE},
+        },
+        "kafka": {
+            "mode": "${KAFKA_MODE}",
+            "brokers": ${KAFKA_BROKERS:-${MSK_BROKER_NODES:-0}},
+            "kafka_version": "${MSK_KAFKA_VERSION:-}",
+            "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
+            "disk_gib": ${MSK_EBS_VOLUME_SIZE:-0},
+        },
+        "redis": {"mode": "${REDIS_MODE}"},
+    },
 }
 Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
 PY
