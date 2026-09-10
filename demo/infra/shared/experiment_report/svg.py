@@ -21,6 +21,7 @@ ACTION_COLORS = {
     "degradation": "#d97706",
     "network": "#7c3aed",
     "outage": "#b91c1c",
+    "measurement": "#16a34a",
     "chaos": "#64748b",
 }
 SERVICE_BADGES = {
@@ -285,6 +286,13 @@ def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
             f'<path d="M {x+9:.1f} {y+9:.1f} A 9 9 0 1 0 {x+19:.1f} {y+9:.1f}" {common}/>'
             f'<line x1="{center_x:.1f}" y1="{y+4:.1f}" x2="{center_x:.1f}" y2="{y+14:.1f}" {common}/>'
         )
+    elif action == "measurement":
+        symbol = (
+            f'<circle cx="{center_x:.1f}" cy="{y+16:.1f}" r="7" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{y+16:.1f}" x2="{center_x:.1f}" y2="{y+11:.1f}" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{y+16:.1f}" x2="{x+19:.1f}" y2="{y+19:.1f}" {common}/>'
+            f'<line x1="{x+12:.1f}" y1="{y+5:.1f}" x2="{x+16:.1f}" y2="{y+5:.1f}" {common}/>'
+        )
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
@@ -423,7 +431,15 @@ def load_profile_svg(report: ExperimentReport) -> str:
         for scenario in report.test_definition.get("chaos_scenarios", [])
         if isinstance(scenario, dict)
     ]
-    chaos_scenarios = planned_chaos_scenarios
+    chaos_scenarios = list(planned_chaos_scenarios)
+    measurement_window = report.test_definition.get("measurement_window")
+    if isinstance(measurement_window, dict) and float(measurement_window.get("duration_seconds") or 0) > 0:
+        start = float(measurement_window.get("start_seconds") or 0)
+        chaos_scenarios.append({
+            "type": "measurement", "action": "measurement", "title": measurement_window.get("name") or "steady-state measurement",
+            "target": "", "at_seconds": start, "duration_seconds": float(measurement_window["duration_seconds"]),
+            "end_seconds": start + float(measurement_window["duration_seconds"]),
+        })
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)
@@ -512,16 +528,6 @@ def load_profile_svg(report: ExperimentReport) -> str:
         f'transform="rotate(-90 22 {top+plot_height/2:.1f})">TPS</text>'
     )
     body.extend(grid_lines)
-    measurement_window = report.test_definition.get("measurement_window")
-    if isinstance(measurement_window, dict):
-        window_start = max(0.0, float(measurement_window.get("start_seconds") or 0))
-        window_duration = max(0.0, float(measurement_window.get("duration_seconds") or 0))
-        window_end = min(total, window_start + window_duration)
-        if window_duration and window_start < total:
-            body.extend([
-                f'<rect data-measurement-window="true" x="{x(window_start):.1f}" y="{top}" width="{max(0, x(window_end)-x(window_start)):.1f}" height="{plot_height}" fill="#86efac" opacity="0.25"/>',
-                f'<text class="axis-label" x="{(x(window_start)+x(window_end))/2:.1f}" y="{top+17}" text-anchor="middle">{esc(measurement_window.get("name") or "steady-state")} · {format_duration(window_start)}–{format_duration(window_end)}</text>',
-            ])
     points = []
     load_vertices = []
     phase_labels = []
@@ -684,7 +690,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} on {esc(target)} at {esc(time_label)}</title>',
                 f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="#d1d5db"/>',
                 action_icon(action, action_x, icon_y),
-                service_icon(target, service_x - 1, card_y + 4, 30),
+                *( [service_icon(target, service_x - 1, card_y + 4, 30)] if target else [] ),
                 f'<text class="card-title" x="{title_x:.1f}" y="{card_y+24:.1f}">{esc(title)}</text>',
                 f'<text class="card-time" x="{time_x:.1f}" y="{card_y+24:.1f}">· {esc(time_label)}</text>',
                 *stubs_table_svg(scenario, card_x, card_y, estimated_width, color),

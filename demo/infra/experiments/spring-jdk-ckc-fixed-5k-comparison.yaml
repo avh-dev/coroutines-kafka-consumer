@@ -43,8 +43,8 @@ workload:
     maximum_first_sample_delay_seconds: 90
   measurement_window:
     name: steady-state
-    start: 2m
-    duration: 7m
+    start: 4m
+    duration: 5m
   topics:
     order:
       kafka_topic: order.events.v1

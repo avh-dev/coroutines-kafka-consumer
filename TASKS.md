@@ -300,6 +300,7 @@
 | [INFRA-155](#infra-155) | Capture resolved environment facts and render the experiment topology in the evidence report. | DONE |
 | [INFRA-156](#infra-156) | Show planned stub latency in the experiment report and distinguish it from application handling time. | DONE |
 | [INFRA-157](#infra-157) | Add a declared steady-state measurement window and report full-run and windowed evidence. | DONE |
+| [INFRA-158](#infra-158) | Present the steady-state measurement window as a planned timeline card. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3430,3 +3431,15 @@ The canonical workload now accepts one named measurement window and resolves it 
 The 5k/s comparison declares `steady-state` from 02:00 through 09:00. Internal-lab set `20260910T143304Z` completed all three targets and generated the full-run and steady-state report.
 
 Verification: canonical internal-lab resolution, 11 experiment-report tests, 7 contract tests, 11 audit/report tests, Python compilation, and whitespace validation passed.
+
+<a id="infra-158"></a>
+### INFRA-158 - Present the measurement window in the planned timeline
+
+_Date: 2026-09-10_
+
+Move the steady-state measurement-window annotation into the same planned-card visual language used for chaos scenarios.
+Use a stopwatch icon, an unobtrusive translucent interval overlay, and a timeline connector; start the 5k/s comparison window later in steady load.
+
+The measurement window is now rendered through the existing planned scenario-card loop as a `measurement` stage. It shares the same translucent interval overlay, boundaries, connector, card geometry, and timing label as duration-based chaos scenarios, with only a green stopwatch action icon distinguishing its purpose. The 5k/s comparison measures from 04:00 through 09:00.
+
+Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
