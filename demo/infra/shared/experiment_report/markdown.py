@@ -58,6 +58,8 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "![Resolved environment topology](environment-topology.svg)",
         "",
+        "![Planned dependency-stub latency](stub-latency.svg)",
+        "",
         "![Load profile](load-profile.svg)",
         "",
         "## Results",

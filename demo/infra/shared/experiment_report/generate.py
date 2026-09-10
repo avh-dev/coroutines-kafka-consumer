@@ -14,7 +14,7 @@ import yaml
 
 from .analyze import analyze_experiment, load_json, load_sla_profile, load_yaml
 from .markdown import render_markdown
-from .svg import comparison_bar_svg, comparison_values_svg, environment_topology_svg, kafka_wire_breakdown_svg, load_profile_svg
+from .svg import comparison_bar_svg, comparison_values_svg, environment_topology_svg, kafka_wire_breakdown_svg, load_profile_svg, stub_latency_svg
 
 
 def slugify(value: str) -> str:
@@ -30,6 +30,7 @@ def write_report(report_dir: Path, report: Any) -> None:
         encoding="utf-8",
     )
     (report_dir / "environment-topology.svg").write_text(environment_topology_svg(report), encoding="utf-8")
+    (report_dir / "stub-latency.svg").write_text(stub_latency_svg(report), encoding="utf-8")
     (report_dir / "load-profile.svg").write_text(load_profile_svg(report), encoding="utf-8")
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
     return

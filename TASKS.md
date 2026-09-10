@@ -298,6 +298,7 @@
 | [INFRA-153](#infra-153) | Persist Kafka topic UUID metadata, recover exact capture topics, and preserve raw diagnostics in evidence bundles. | DONE |
 | [INFRA-154](#infra-154) | Consolidate experiment reports into one sectioned HTML comparison table with topic and complete wire-traffic metrics. | DONE |
 | [INFRA-155](#infra-155) | Capture resolved environment facts and render the experiment topology in the evidence report. | DONE |
+| [INFRA-156](#infra-156) | Show planned stub latency in the experiment report and distinguish it from application handling time. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3402,3 +3403,15 @@ Show where the producer, stubs, application target, and Kafka run, while retaini
 The shared runner now captures Kubernetes server and node facts plus the actual pod-to-node placement at the start of every workload. Internal-lab runs also record host CPU model, logical CPU count, maximum frequency, and physical RAM. AWS Terraform exposes the resolved EKS worker and MSK settings; the disposable lab carries them into each target snapshot. The report renders `environment-topology.svg` before the planned-load diagram, and the full source snapshot remains in every target metadata file.
 
 Verification: Python compilation, AWS Bash syntax, Terraform formatting, and whitespace validation passed. All 51 internal-lab tests, 28 AWS tests, 42 shared audit/orchestration/result tests, and 12 shared dashboard/result-bundle tests passed.
+
+<a id="infra-156"></a>
+### INFRA-156 - Show planned stub latency in experiment reports
+
+_Date: 2026-09-10_
+
+Render each dependency stub's configured latency distribution as part of the experiment setup, separately from each target's planned message-handling time.
+Show changes caused by stub-degradation scenarios on the planned timeline so reported end-to-end latency can be read in context.
+
+The report now renders a planned dependency-stub latency SVG with p90, p95, p99, and maximum response delays for every configured stub. It appears beside the environment and planned-load diagrams, labels the values as dependency delays, and retains the existing target-level planned handling-time rows separately. Existing chaos cards continue to show stub-degradation changes on the timeline.
+
+Verification: report Python compilation, experiment-report tests (11), and whitespace validation passed.

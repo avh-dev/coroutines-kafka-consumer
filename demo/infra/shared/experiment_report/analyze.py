@@ -798,6 +798,7 @@ def analyze_experiment(
             "load_test": load_test,
             "load_phases": phases,
             "load_topics": load_topics,
+            "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
             "diagnostic_steps": test_definition.get("diagnostic_steps") or [],
