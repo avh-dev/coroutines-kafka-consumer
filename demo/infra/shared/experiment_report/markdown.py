@@ -193,6 +193,25 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Application memory average", measurement("application_memory_average_mib", 0, " MiB"))
     row("Context switches average", measurement("context_switches_average_per_second", 0, " /s"))
 
+    window = report.test_definition.get("measurement_window")
+    if isinstance(window, dict):
+        section(
+            f"{escaped(window.get('name') or 'Steady-state')} window · "
+            f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + (window.get('duration_seconds') or 0), 0)} s"
+        )
+        def window_measurement(key: str, digits: int, suffix: str) -> list[str]:
+            return ["—" if target.window_measurements.get(key) is None else number(target.window_measurements[key], digits) + suffix for target in targets]
+        row("Processed throughput", window_measurement("throughput_average_rps", 0, " msg/s"))
+        row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets])
+        row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets])
+        row("Failed processing", [number(target.window_delivery.get("failed"), 0) for target in targets])
+        row("Intentionally dropped", [number(target.window_delivery.get("dropped"), 0) for target in targets])
+        row("Missing terminal outcome", [number(target.window_delivery.get("missing_terminal"), 0) for target in targets])
+        row("Application CPU average", window_measurement("cpu_average_cores", 3, " cores"))
+        row("Application memory average", window_measurement("application_memory_average_mib", 0, " MiB"))
+        row("Kafka broker CPU average", window_measurement("broker_cpu_average_cores", 3, " cores"))
+        row("Producer CPU average", window_measurement("producer_cpu_average_cores", 3, " cores"))
+
     section("Producer metrics")
     row("CPU average", measurement("producer_cpu_average_cores", 3, " cores"))
     row("Memory average", measurement("producer_memory_average_mib", 0, " MiB"))

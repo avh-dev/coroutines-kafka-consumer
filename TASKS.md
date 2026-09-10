@@ -299,6 +299,7 @@
 | [INFRA-154](#infra-154) | Consolidate experiment reports into one sectioned HTML comparison table with topic and complete wire-traffic metrics. | DONE |
 | [INFRA-155](#infra-155) | Capture resolved environment facts and render the experiment topology in the evidence report. | DONE |
 | [INFRA-156](#infra-156) | Show planned stub latency in the experiment report and distinguish it from application handling time. | DONE |
+| [INFRA-157](#infra-157) | Add a declared steady-state measurement window and report full-run and windowed evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3415,3 +3416,17 @@ Show changes caused by stub-degradation scenarios on the planned timeline so rep
 The report now renders a planned dependency-stub latency SVG with p90, p95, p99, and maximum response delays for every configured stub. It appears beside the environment and planned-load diagrams, labels the values as dependency delays, and retains the existing target-level planned handling-time rows separately. Existing chaos cards continue to show stub-degradation changes on the timeline.
 
 Verification: report Python compilation, experiment-report tests (11), and whitespace validation passed.
+
+<a id="infra-157"></a>
+### INFRA-157 - Add a steady-state measurement window
+
+_Date: 2026-09-10_
+
+Allow an experiment to declare one optional window after warm-up, draw it on the planned load and chaos diagram, and label its exact boundaries.
+Report full-run evidence alongside metrics collected only inside that steady-state interval, using one common relative window for every target.
+
+The canonical workload now accepts one named measurement window and resolves it into every target. The report shades that interval on the planned load chart, separately queries Prometheus for it, and renders its throughput, resource, and delivery cohort evidence. Audit analysis now supports a publication-time cohort: terminal outcomes remain eligible after the window ends, avoiding false missing outcomes at its right boundary.
+
+The 5k/s comparison declares `steady-state` from 02:00 through 09:00. Internal-lab set `20260910T143304Z` completed all three targets and generated the full-run and steady-state report.
+
+Verification: canonical internal-lab resolution, 11 experiment-report tests, 7 contract tests, 11 audit/report tests, Python compilation, and whitespace validation passed.

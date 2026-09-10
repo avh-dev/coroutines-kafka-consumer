@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import operator
 import re
-from datetime import datetime, timezone
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -617,6 +619,31 @@ def resolved_environment(snapshots: list[dict[str, Any]], warnings: list[str]) -
     return environment
 
 
+def window_audit(run_dir: Path, lab_root: Path, start: datetime, window: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    raw_logs = sorted((run_dir / "audit").glob("audit-*.log*"))
+    if not raw_logs:
+        warnings.append("Window audit is unavailable because raw audit records are absent")
+        return {}
+    offset = float(window.get("start_seconds") or 0)
+    duration = float(window.get("duration_seconds") or 0)
+    if duration <= 0:
+        return {}
+    analyzer = lab_root / "helpers" / "audit" / "analyze-audit.py"
+    if not analyzer.is_file():
+        warnings.append("Window audit analyzer is unavailable")
+        return {}
+    result = subprocess.run(
+        [sys.executable, str(analyzer), "--input-file", str(raw_logs[0]), "--published-from-ms", str(round((start.timestamp() + offset) * 1000)), "--published-until-ms", str(round((start.timestamp() + offset + duration) * 1000))],
+        text=True, capture_output=True, check=False,
+    )
+    if result.returncode:
+        warnings.append(f"Window audit failed: {result.stderr.strip() or 'unknown error'}")
+        return {}
+    document = yaml.safe_load(result.stdout) or {}
+    audit = document.get("audit") if isinstance(document, dict) else {}
+    return audit if isinstance(audit, dict) else {}
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -673,9 +700,22 @@ def analyze_experiment(
         warnings: list[str] = []
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
+        window_measurements = {name: None for name in STANDARD_MEASUREMENTS}
+        window_audit_document: dict[str, Any] = {}
         if start is not None:
             try:
                 measurements = collect_standard_measurements(prometheus, start, target_load_duration)
+                window = target_load_test.get("measurement_window")
+                if isinstance(window, dict):
+                    window_start = float(window.get("start_seconds") or 0)
+                    window_duration = float(window.get("duration_seconds") or 0)
+                    if window_duration > 0 and window_start + window_duration <= target_load_duration:
+                        window_measurements = collect_standard_measurements(
+                            prometheus, start + timedelta(seconds=window_start), window_duration
+                        )
+                        window_audit_document = window_audit(run_dir, lab_root, start, window, warnings)
+                    else:
+                        warnings.append("Configured measurement window falls outside the planned load profile")
             except Exception as error:
                 warnings.append(f"Prometheus measurements are unavailable: {error}")
         else:
@@ -762,8 +802,10 @@ def analyze_experiment(
                     "diagnostic_steps": target_test_definition.get("diagnostic_steps") or [],
                 },
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
+                window_delivery=window_audit_document.get("totals", {}) if isinstance(window_audit_document.get("totals"), dict) else {},
                 topic_evidence=audit.get("topics", {}) if isinstance(audit.get("topics"), dict) else {},
                 measurements=measurements,
+                window_measurements=window_measurements,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
@@ -798,6 +840,7 @@ def analyze_experiment(
             "load_test": load_test,
             "load_phases": phases,
             "load_topics": load_topics,
+            "measurement_window": load_test.get("measurement_window"),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,

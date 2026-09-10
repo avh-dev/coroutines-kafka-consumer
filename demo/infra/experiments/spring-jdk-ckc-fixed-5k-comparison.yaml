@@ -41,6 +41,10 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: steady-state
+    start: 2m
+    duration: 7m
   topics:
     order:
       kafka_topic: order.events.v1

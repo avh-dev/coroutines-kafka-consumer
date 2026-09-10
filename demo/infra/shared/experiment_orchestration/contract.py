@@ -30,6 +30,25 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
+def measurement_window(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    window = require_mapping(value, "Experiment workload.measurement_window")
+    unknown = sorted(set(window) - {"name", "start", "duration"})
+    if unknown:
+        raise ValueError(f"Experiment workload.measurement_window contains unknown fields: {', '.join(unknown)}")
+    if set(window) < {"start", "duration"}:
+        raise ValueError("Experiment workload.measurement_window must define start and duration")
+    def seconds(name: str, positive: bool) -> int:
+        text = str(window[name]).strip()
+        matches = list(re.finditer(r"(\d+)\s*([hms])", text))
+        result = sum(int(match.group(1)) * {"h": 3600, "m": 60, "s": 1}[match.group(2)] for match in matches)
+        if not matches or "".join(match.group(0) for match in matches) != text.replace(" ", "") or (positive and result <= 0):
+            raise ValueError(f"Experiment workload.measurement_window.{name} must be a {'positive' if positive else 'non-negative'} duration")
+        return result
+    return {"name": str(window.get("name") or "steady-state"), "start_seconds": seconds("start", False), "duration_seconds": seconds("duration", True)}
+
+
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
     return any(key in value for key in ("schema_version", "workload", "environments"))
 
@@ -50,7 +69,7 @@ def require_list(value: Any, context: str, *, non_empty: bool = False) -> list[A
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
-    allowed = {"stubs", "load", "topics", "chaos", "diagnostics"}
+    allowed = {"stubs", "load", "topics", "chaos", "diagnostics", "measurement_window"}
     unknown = sorted(set(workload) - allowed)
     if unknown:
         raise ValueError(f"Experiment workload contains unknown fields: {', '.join(unknown)}")
@@ -94,6 +113,9 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         "stubs": copy.deepcopy(workload.get("stubs")),
         "load_test": load,
     }
+    window = measurement_window(workload.get("measurement_window"))
+    if window:
+        definition["load_test"]["measurement_window"] = window
     if "chaos" in workload:
         definition["chaos_steps"] = copy.deepcopy(workload["chaos"])
     if "diagnostics" in workload:

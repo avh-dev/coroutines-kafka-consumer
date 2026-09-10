@@ -512,6 +512,16 @@ def load_profile_svg(report: ExperimentReport) -> str:
         f'transform="rotate(-90 22 {top+plot_height/2:.1f})">TPS</text>'
     )
     body.extend(grid_lines)
+    measurement_window = report.test_definition.get("measurement_window")
+    if isinstance(measurement_window, dict):
+        window_start = max(0.0, float(measurement_window.get("start_seconds") or 0))
+        window_duration = max(0.0, float(measurement_window.get("duration_seconds") or 0))
+        window_end = min(total, window_start + window_duration)
+        if window_duration and window_start < total:
+            body.extend([
+                f'<rect data-measurement-window="true" x="{x(window_start):.1f}" y="{top}" width="{max(0, x(window_end)-x(window_start)):.1f}" height="{plot_height}" fill="#86efac" opacity="0.25"/>',
+                f'<text class="axis-label" x="{(x(window_start)+x(window_end))/2:.1f}" y="{top+17}" text-anchor="middle">{esc(measurement_window.get("name") or "steady-state")} · {format_duration(window_start)}–{format_duration(window_end)}</text>',
+            ])
     points = []
     load_vertices = []
     phase_labels = []
