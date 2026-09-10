@@ -606,6 +606,17 @@ def packet_capture_analysis(run_dir: Path, enabled: bool, warnings: list[str]) -
     }
 
 
+def resolved_environment(snapshots: list[dict[str, Any]], warnings: list[str]) -> dict[str, Any]:
+    if not snapshots:
+        warnings.append("Resolved environment evidence is unavailable")
+        return {}
+    environment = snapshots[0]
+    identity = tuple(environment.get(key) for key in ("provider", "environment", "region", "cluster_name"))
+    if any(tuple(snapshot.get(key) for key in ("provider", "environment", "region", "cluster_name")) != identity for snapshot in snapshots[1:]):
+        warnings.append("Targets were captured with different resolved environment identities")
+    return environment
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -633,6 +644,7 @@ def analyze_experiment(
     targets: list[TargetReport] = []
     report_warnings: list[str] = []
     observed_events: list[dict[str, Any]] = []
+    environment_snapshots: list[dict[str, Any]] = []
 
     for target in experiment_summary.get("targets", []):
         run_dir = Path(str(target.get("run_dir") or ""))
@@ -653,6 +665,8 @@ def analyze_experiment(
         status_path = run_dir / "run-status.json"
         audit_path = run_dir / "audit" / "summary.yaml"
         metadata = load_json(metadata_path) if metadata_path.is_file() else {}
+        if isinstance(metadata.get("environment_evidence"), dict):
+            environment_snapshots.append(metadata["environment_evidence"])
         status = load_json(status_path) if status_path.is_file() else {}
         audit_document = load_yaml(audit_path) if audit_path.is_file() else {}
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
@@ -777,6 +791,7 @@ def analyze_experiment(
         started_at=start.isoformat() if start else "",
         ended_at=end.isoformat() if end else "",
         duration_seconds=(end - start).total_seconds() if start and end else None,
+        environment=resolved_environment(environment_snapshots, report_warnings),
         test_definition={
             "name": test_definition_name,
             "base_tps": experiment_summary.get("base_tps"),

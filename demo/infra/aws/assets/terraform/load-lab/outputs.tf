@@ -8,6 +8,26 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
 }
 
+output "kubernetes_version" {
+  description = "Resolved EKS Kubernetes version."
+  value       = var.kubernetes_version
+}
+
+output "node_instance_types" {
+  description = "Instance types accepted by the EKS worker node group."
+  value       = var.node_instance_types
+}
+
+output "node_desired_size" {
+  description = "Requested EKS worker node count."
+  value       = var.node_desired_size
+}
+
+output "node_disk_size" {
+  description = "Per-worker EBS volume size in GiB."
+  value       = var.node_disk_size
+}
+
 output "vpc_id" {
   description = "VPC identifier."
   value       = module.vpc.vpc_id
@@ -41,6 +61,21 @@ output "msk_bootstrap_brokers" {
 output "msk_number_of_broker_nodes" {
   description = "Broker count for the MSK cluster."
   value       = var.msk_number_of_broker_nodes
+}
+
+output "msk_kafka_version" {
+  description = "MSK Kafka version."
+  value       = var.msk_kafka_version
+}
+
+output "msk_broker_instance_type" {
+  description = "MSK broker instance type."
+  value       = var.msk_broker_instance_type
+}
+
+output "msk_ebs_volume_size" {
+  description = "Per-MSK-broker EBS volume size in GiB."
+  value       = var.msk_ebs_volume_size
 }
 
 output "elasticache_mode" {

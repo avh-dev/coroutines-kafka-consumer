@@ -297,6 +297,7 @@
 | [INFRA-152](#infra-152) | Preserve topic network evidence when TShark returns fragmented topic names. | DONE |
 | [INFRA-153](#infra-153) | Persist Kafka topic UUID metadata, recover exact capture topics, and preserve raw diagnostics in evidence bundles. | DONE |
 | [INFRA-154](#infra-154) | Consolidate experiment reports into one sectioned HTML comparison table with topic and complete wire-traffic metrics. | DONE |
+| [INFRA-155](#infra-155) | Capture resolved environment facts and render the experiment topology in the evidence report. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3388,3 +3389,16 @@ Render topic configuration as individual rows and preserve whether the implement
 Business-logic mode is explicit in the implementation plan so reports distinguish blocking services from non-blocking suspend services and select the corresponding HTTP client. The comparison table keeps ordinary cells white and normal-weight, reserving emphasis for major sections and neutral topic headers that include their E2E target.
 
 Verification: all 51 internal-lab tests pass. The preserved 5k/s experiment was regenerated offline without another workload run; its shared freshness boundary is 11 and its producer-buffer maximum was recovered from stored Prometheus data.
+
+<a id="infra-155"></a>
+### INFRA-155 - Capture environment evidence and render experiment topology
+
+_Date: 2026-09-10_
+
+Capture a resolved, factual description of the environment used by each experiment and render it as a compact SVG topology at the beginning of the evidence report.
+Describe AWS region, EKS workers, Kafka placement and broker storage for cloud runs; describe CPU, memory, storage, network, and Kubernetes resources for the internal lab.
+Show where the producer, stubs, application target, and Kafka run, while retaining exact resolved inputs in the evidence bundle.
+
+The shared runner now captures Kubernetes server and node facts plus the actual pod-to-node placement at the start of every workload. Internal-lab runs also record host CPU model, logical CPU count, maximum frequency, and physical RAM. AWS Terraform exposes the resolved EKS worker and MSK settings; the disposable lab carries them into each target snapshot. The report renders `environment-topology.svg` before the planned-load diagram, and the full source snapshot remains in every target metadata file.
+
+Verification: Python compilation, AWS Bash syntax, Terraform formatting, and whitespace validation passed. All 51 internal-lab tests, 28 AWS tests, 42 shared audit/orchestration/result tests, and 12 shared dashboard/result-bundle tests passed.
