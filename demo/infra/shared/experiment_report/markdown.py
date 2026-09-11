@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import math
 from typing import Any
 
 from .model import ExperimentReport, TargetReport
@@ -32,6 +33,8 @@ def shared_freshness_cutoff(histograms: list[dict[int, int]]) -> int | None:
     for histogram in histograms:
         non_zero = [bucket for bucket, count in histogram.items() if bucket > 0 and count > 0]
         if not non_zero:
+            if histogram.get(0, 0) > 0:
+                cutoffs.append(0)
             continue
         maximum = max(non_zero)
         cutoff = maximum
@@ -68,6 +71,64 @@ def planned_rate(report: ExperimentReport, start: float, duration: float) -> flo
 def render_markdown(report: ExperimentReport) -> str:
     targets = report.targets
     column_count = len(targets) + 1
+    preferred_topics = ("order.events.v1", "batch.events.v1", "cauldron.events.v1")
+    available_topics = {topic for target in targets for topic in target.topic_evidence}
+    topics = [topic for topic in preferred_topics if topic in available_topics]
+    topics.extend(sorted(available_topics - set(topics)))
+
+    def role_topic_wire(target: TargetReport, topic: str, role: str) -> tuple[int, int]:
+        total_bytes = records = 0
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict) or capture.get("role") != role:
+                continue
+            protocol = capture.get("protocol", {})
+            capture_topics = protocol.get("topics", {}) if isinstance(protocol, dict) else {}
+            values = capture_topics.get(topic, {}) if isinstance(capture_topics, dict) else {}
+            if isinstance(values, dict):
+                total_bytes += int(values.get("captured_wire_bytes") or 0)
+                records += int(values.get("records") or 0)
+        return total_bytes, records
+
+    def bytes_per_message(target: TargetReport, topic: str, role: str) -> float | None:
+        total_bytes, records = role_topic_wire(target, topic, role)
+        return total_bytes / records if records else None
+
+    def all_topic_bytes_per_message(target: TargetReport, role: str) -> float | None:
+        total_bytes = records = 0
+        for topic in topics:
+            topic_bytes, topic_records = role_topic_wire(target, topic, role)
+            total_bytes += topic_bytes
+            records += topic_records
+        return total_bytes / records if records else None
+
+    def all_wire(target: TargetReport) -> float | None:
+        producer = all_topic_bytes_per_message(target, "producer")
+        consumer = all_topic_bytes_per_message(target, "consumer")
+        return None if producer is None or consumer is None else producer + consumer
+
+    def display_wire(value: float | None) -> str:
+        return "—" if value is None else f"{number(value, 0)} bytes/msg"
+
+    def compared(values: list[float | None], digits: int, suffix: str) -> list[str]:
+        baseline = values[0] if values else None
+        cells = []
+        for index, value in enumerate(values):
+            primary = "—" if value is None else f"{number(value, digits)}{suffix}"
+            if value is None or baseline in (None, 0):
+                note = ""
+            elif index == 0:
+                note = "baseline"
+            elif math.isclose(float(value), float(baseline), rel_tol=0.005):
+                note = "≈ baseline"
+            elif value == 0:
+                note = "lower than baseline"
+            elif value < baseline:
+                note = f"{baseline / value:.2f}× lower"
+            else:
+                note = f"{value / baseline:.2f}× higher"
+            cells.append(primary + (f'<br><span class="delta">{note}</span>' if note else ""))
+        return cells
+
     environment_block = (
         ["![Resolved environment topology](environment-topology.svg)"]
         if report.environment
@@ -82,11 +143,19 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         *environment_block,
         "",
+        "## Experiment setup",
+        "",
+        "### Planned dependency latency",
+        "",
         "![Planned dependency-stub latency](stub-latency.svg)",
+        "",
+        "### Planned load and experiment stages",
         "",
         "![Load profile](load-profile.svg)",
         "",
         "## Results",
+        "",
+        "### Steady-state highlights" if isinstance(report.test_definition.get("measurement_window"), dict) else "### Detailed results",
         "",
         (
             '<style>table.comparison{border-collapse:collapse;width:100%}'
@@ -95,10 +164,14 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison tbody th[scope=row]{font-weight:400}'
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
-            'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}</style>'
+            'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}'
+            'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}</style>'
         ),
         '<table class="comparison">',
-        "<thead><tr><th></th>" + "".join(f"<th>{escaped(target.name)}</th>" for target in targets) + "</tr></thead>",
+        "<thead><tr><th></th>" + "".join(
+            f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+            for index, target in enumerate(targets)
+        ) + "</tr></thead>",
         "<tbody>",
     ]
 
@@ -120,6 +193,47 @@ def render_markdown(report: ExperimentReport) -> str:
             "—" if target.measurements.get(key) is None else number(target.measurements[key], digits) + suffix
             for target in targets
         ]
+
+    window = report.test_definition.get("measurement_window")
+    if isinstance(window, dict):
+        window_duration = float(window.get("duration_seconds") or 0)
+        section(
+            f"{escaped(window.get('name') or 'Steady-state')} · "
+            f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
+        )
+        row(
+            "Audit published rate",
+            [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets],
+        )
+        row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
+        row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
+        row("Context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
+        row("Audit E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"))
+        row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"))
+        row(
+            "Delivery outcome",
+            [
+                f'{number(target.window_delivery.get("missing_terminal"), 0)} missing · '
+                f'{number(target.window_delivery.get("failed"), 0)} failed · '
+                f'{number((target.window_delivery.get("duplicates") or {}).get("processed"), 0)} duplicates'
+                for target in targets
+            ],
+        )
+        lines.extend([
+            "</tbody></table>",
+            "",
+            "Multipliers compare lower-is-better metrics with the first target over the steady-state measurement window.",
+            "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
+            "",
+            "### Detailed results",
+            "",
+            '<table class="comparison">',
+            "<thead><tr><th></th>" + "".join(
+                f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+                for index, target in enumerate(targets)
+            ) + "</tr></thead>",
+            "<tbody>",
+        ])
 
     section("Target configuration")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
@@ -197,7 +311,7 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Target lifecycle duration", [f"{number(target.duration_seconds, 0)} s" for target in targets])
     row("Planned average publish rate", [number(planned_rate(report, 0, load_duration), 0) + " msg/s" for _target in targets])
     row("Actual publish rate over load interval", [number((target.delivery.get("published") or 0) / load_duration, 0) + " msg/s" if load_duration else "—" for target in targets])
-    row("Average throughput", measurement("throughput_average_rps", 0, " msg/s"))
+    row("Prometheus processed throughput", measurement("throughput_average_rps", 0, " msg/s"))
     row("Published", [number(target.delivery.get("published"), 0) for target in targets])
     row("Successfully processed", [number(target.delivery.get("processed"), 0) for target in targets])
     row("Intentionally dropped", [number(target.delivery.get("dropped"), 0) for target in targets])
@@ -220,7 +334,6 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Application memory average", measurement("application_memory_average_mib", 0, " MiB"))
     row("Context switches average", measurement("context_switches_average_per_second", 0, " /s"))
 
-    window = report.test_definition.get("measurement_window")
     if isinstance(window, dict):
         section(
             f"{escaped(window.get('name') or 'Steady-state')} window · "
@@ -228,10 +341,9 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         def window_measurement(key: str, digits: int, suffix: str) -> list[str]:
             return ["—" if target.window_measurements.get(key) is None else number(target.window_measurements[key], digits) + suffix for target in targets]
-        window_duration = float(window.get("duration_seconds") or 0)
         row("Planned average publish rate", [number(planned_rate(report, float(window.get("start_seconds") or 0), window_duration), 0) + " msg/s" for _target in targets])
         row("Actual published cohort rate", [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets])
-        row("Processed throughput", window_measurement("throughput_average_rps", 0, " msg/s"))
+        row("Prometheus processed throughput", window_measurement("throughput_average_rps", 0, " msg/s"))
         row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets])
         row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets])
         row("Failed processing", [number(target.window_delivery.get("failed"), 0) for target in targets])
@@ -251,7 +363,10 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Producer CPU average", window_measurement("producer_cpu_average_cores", 3, " cores"))
         row("Producer memory average", window_measurement("producer_memory_average_mib", 0, " MiB"))
         row("Kafka buffer utilization maximum", window_measurement("producer_buffer_utilization_max_percent", 1, "%"))
-        for topic in sorted({name for target in targets for name in target.window_topic_evidence}):
+        window_available_topics = {name for target in targets for name in target.window_topic_evidence}
+        window_topics = [topic for topic in preferred_topics if topic in window_available_topics]
+        window_topics.extend(sorted(window_available_topics - set(window_topics)))
+        for topic in window_topics:
             subsection(f"{topic} · measurement window")
             def window_topic(target: TargetReport) -> dict[str, Any]:
                 value = target.window_topic_evidence.get(topic, {})
@@ -285,14 +400,19 @@ def render_markdown(report: ExperimentReport) -> str:
                 for target in targets
             ]
             window_cutoff = shared_freshness_cutoff(window_histograms)
-            if window_cutoff is not None:
+            has_processed_gaps = any(
+                (window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms")
+                for target in targets
+            )
+            if window_cutoff is not None or has_processed_gaps:
                 subsection(f"{topic} · measurement-window freshness skips")
-                for bucket in range(window_cutoff + 1):
-                    row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms])
-                row(
-                    f"Skipped >{window_cutoff}",
-                    [number(sum(count for bucket, count in histogram.items() if bucket > window_cutoff), 0) for histogram in window_histograms],
-                )
+                if window_cutoff is not None:
+                    for bucket in range(window_cutoff + 1):
+                        row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms])
+                    row(
+                        f"Skipped >{window_cutoff}",
+                        [number(sum(count for bucket, count in histogram.items() if bucket > window_cutoff), 0) for histogram in window_histograms],
+                    )
                 for percentile in ("p95", "p99", "max"):
                     row(
                         f"Time between processed updates {percentile}",
@@ -311,11 +431,6 @@ def render_markdown(report: ExperimentReport) -> str:
     section("Kafka broker metrics")
     row("CPU average", measurement("broker_cpu_average_cores", 3, " cores"))
     row("Memory average", measurement("broker_memory_average_mib", 0, " MiB"))
-
-    preferred_topics = ("order.events.v1", "batch.events.v1", "cauldron.events.v1")
-    available_topics = {topic for target in targets for topic in target.topic_evidence}
-    topics = [topic for topic in preferred_topics if topic in available_topics]
-    topics.extend(sorted(available_topics - set(topics)))
 
     def topic_data(target: TargetReport, topic: str) -> dict[str, Any]:
         value = target.topic_evidence.get(topic, {})
@@ -365,14 +480,19 @@ def render_markdown(report: ExperimentReport) -> str:
             for target in targets
         ]
         cutoff = shared_freshness_cutoff(histograms)
-        if cutoff is not None:
+        has_processed_gaps = any(
+            (topic_data(target, topic).get("key_fairness") or {}).get("processed_max_gap_ms")
+            for target in targets
+        )
+        if cutoff is not None or has_processed_gaps:
             subsection(f"{topic} · consecutive freshness skips")
-            for bucket in range(cutoff + 1):
-                row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in histograms])
-            row(
-                f"Skipped >{cutoff}",
-                [number(sum(count for bucket, count in histogram.items() if bucket > cutoff), 0) for histogram in histograms],
-            )
+            if cutoff is not None:
+                for bucket in range(cutoff + 1):
+                    row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in histograms])
+                row(
+                    f"Skipped >{cutoff}",
+                    [number(sum(count for bucket, count in histogram.items() if bucket > cutoff), 0) for histogram in histograms],
+                )
             for percentile in ("p95", "p99", "max"):
                 row(
                     f"Time between processed updates {percentile}",
@@ -382,34 +502,6 @@ def render_markdown(report: ExperimentReport) -> str:
                         for target in targets
                     ],
                 )
-
-    def role_topic_wire(target: TargetReport, topic: str, role: str) -> tuple[int, int]:
-        total_bytes = records = 0
-        for capture in target.pcap_analysis.get("captures", []):
-            if not isinstance(capture, dict) or capture.get("role") != role:
-                continue
-            protocol = capture.get("protocol", {})
-            capture_topics = protocol.get("topics", {}) if isinstance(protocol, dict) else {}
-            values = capture_topics.get(topic, {}) if isinstance(capture_topics, dict) else {}
-            if isinstance(values, dict):
-                total_bytes += int(values.get("captured_wire_bytes") or 0)
-                records += int(values.get("records") or 0)
-        return total_bytes, records
-
-    def bytes_per_message(target: TargetReport, topic: str, role: str) -> float | None:
-        total_bytes, records = role_topic_wire(target, topic, role)
-        return total_bytes / records if records else None
-
-    def display_wire(value: float | None) -> str:
-        return "—" if value is None else f"{number(value, 0)} bytes/msg"
-
-    def all_topic_bytes_per_message(target: TargetReport, role: str) -> float | None:
-        total_bytes = records = 0
-        for topic in topics:
-            topic_bytes, topic_records = role_topic_wire(target, topic, role)
-            total_bytes += topic_bytes
-            records += topic_records
-        return total_bytes / records if records else None
 
     section("Estimated wire traffic")
     for topic in topics:

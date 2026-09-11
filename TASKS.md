@@ -304,6 +304,7 @@
 | [INFRA-158](#infra-158) | Present the steady-state measurement window as a planned timeline card. | DONE |
 | [INFRA-159](#infra-159) | Render diagnostic steps as planned timeline stages. | DONE |
 | [INFRA-160](#infra-160) | Harden windowed evidence semantics and report completeness before rerunning the comparison. | DONE |
+| [INFRA-161](#infra-161) | Refine environment topology and baseline-oriented comparison presentation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3483,3 +3484,13 @@ Keep prerequisite generation for valid simulated domain state while preventing i
 `EmitResult` now exposes its complete publication count and the rate controller spends permits for both the requested event and every delegated prerequisite. The real `smoke-repeat` run produced 86.6 and 87.0 messages/s against a planned 87.5 messages/s full-profile average.
 
 Verification: all `ckc-demo-load-test` tests passed from clean task execution, including a delegated-publication rate-budget regression test. Internal-lab set `20260911T045715Z` completed both targets with zero failed or missing outcomes, complete required Loki labels, live Kafka exporter metrics, and populated bare-metal environment evidence.
+
+<a id="infra-161"></a>
+### INFRA-161 - Refine the comparison report
+
+_Date: 2026-09-11_
+
+Present the first target as the comparison baseline and add compact multiplicative comparisons to the most important steady-state results.
+Redraw internal-lab topology around the real host and Kubernetes boundaries, correct traffic relationships, and expose the runtime limits and versions needed to interpret shared-host measurements.
+Improve report hierarchy, evidence navigation, topic ordering, freshness visibility, and metric labels using the completed experiment data without rerunning the workload.
+Regenerated and finalized the completed comparison report from preserved evidence; verified all SVGs, archive links, and compressed bundles.

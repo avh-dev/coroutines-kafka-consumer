@@ -107,7 +107,7 @@ def format_tps(value: float) -> str:
 
 def environment_topology_svg(report: ExperimentReport) -> str:
     environment = report.environment if isinstance(report.environment, dict) else {}
-    width, height = 1000, 375
+    width, height = 1000, 500
     provider = str(environment.get("provider") or environment.get("environment") or "Environment")
     region = str(environment.get("region") or "")
     kubernetes = environment.get("kubernetes") if isinstance(environment.get("kubernetes"), dict) else {}
@@ -126,7 +126,7 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     )
     node_count = len(nodes) or int(worker_group.get("desired_nodes") or 0)
     node_line = " · ".join(part for part in [
-        f"{node_count} worker nodes" if node_count else "worker nodes unavailable",
+        (f"{node_count} worker node" if node_count == 1 else f"{node_count} worker nodes") if node_count else "worker nodes unavailable",
         "/".join(node_types),
         f"{total_cpu} allocatable CPU" if total_cpu else "",
         f"{total_memory_kib / (1024 * 1024):.0f} GiB allocatable" if total_memory_kib else "",
@@ -138,64 +138,114 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     kafka_mode = str(kafka.get("mode") or "Kafka")
     kafka_title = {
         "msk": "Amazon MSK",
-        "docker": "Kafka host container",
+        "docker": "Apache Kafka host container",
     }.get(kafka_mode, "Kafka in Kubernetes")
+    if kafka_mode == "docker" and kafka.get("kafka_version"):
+        kafka_title = f"Apache Kafka {kafka.get('kafka_version')} · host container"
+    broker_count = kafka.get("brokers")
     kafka_line = " · ".join(str(value) for value in [
-        f"{kafka.get('brokers')} brokers" if kafka.get("brokers") else "",
+        (f"{broker_count} broker" if str(broker_count) == "1" else f"{broker_count} brokers") if broker_count else "",
         kafka.get("instance_type"),
         f"{kafka.get('disk_gib')} GiB/broker" if kafka.get("disk_gib") else "",
         f"{kafka.get('cpu_limit')} CPU limit" if kafka.get("cpu_limit") else "",
         f"{kafka.get('memory_limit_gib')} GiB limit" if kafka.get("memory_limit_gib") else "",
-        kafka.get("kafka_version"),
+        kafka.get("kafka_version") if kafka_mode != "docker" else "",
     ] if value)
     redis = environment.get("redis") if isinstance(environment.get("redis"), dict) else {}
     workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
     hardware = environment.get("hardware") if isinstance(environment.get("hardware"), dict) else {}
+    max_mhz = hardware.get("max_mhz")
+    formatted_mhz = f"{float(max_mhz):,.0f}" if max_mhz else ""
     hardware_line = " · ".join(str(value) for value in [
         hardware.get("cpu_model"),
         f"{hardware.get('logical_cpus')} logical CPUs" if hardware.get("logical_cpus") else "",
-        f"up to {hardware.get('max_mhz')} MHz" if hardware.get("max_mhz") else "",
+        f"up to {formatted_mhz} MHz" if formatted_mhz else "",
         f"{int(hardware.get('memory_bytes')) / (1024 ** 3):.0f} GiB RAM" if hardware.get("memory_bytes") else "",
+    ] if value)
+
+    first_node = nodes[0] if nodes else {}
+    os_line = " · ".join(str(value) for value in [first_node.get("os_image"), first_node.get("kernel_version")] if value)
+    resources = [target.configuration.get("resources") for target in report.targets]
+    shared_resources = resources[0] if resources and all(value == resources[0] for value in resources) else {}
+    requests = shared_resources.get("requests", {}) if isinstance(shared_resources, dict) else {}
+    limits = shared_resources.get("limits", {}) if isinstance(shared_resources, dict) else {}
+    app_resources = " · ".join(part for part in [
+        f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "",
+        f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else "",
+    ] if part) or "resources vary by target"
+    app_requests = f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "resources vary by target"
+    app_limits = f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else ""
+    load_test = report.test_definition.get("load_test") if isinstance(report.test_definition.get("load_test"), dict) else {}
+    redis_title = f"Redis {redis.get('version')} · host container" if redis.get("version") else "Redis host container"
+    redis_line = " · ".join(str(value) for value in [
+        redis.get("mode"),
+        f"{redis.get('cpu_limit')} CPU limit" if redis.get("cpu_limit") else "",
+        f"{redis.get('memory_limit_gib')} GiB limit" if redis.get("memory_limit_gib") else "",
     ] if value)
 
     def placement(role: str) -> str:
         names = workloads.get(role)
         return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
 
-    body = [
-        f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
-        f'<rect x="25" y="52" width="950" height="298" rx="12" fill="#f8fafc" stroke="#94a3b8"/>',
-        f'<text class="card-title" x="45" y="78">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
-        f'<text class="muted" x="45" y="96">{esc(node_line)}</text>',
-        f'<text class="muted" x="45" y="112">{esc(hardware_line)}</text>' if hardware_line else '',
-        '<rect x="45" y="120" width="190" height="108" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
-        '<text class="card-title" x="60" y="148">Producer and stubs</text>',
-        f'<text class="muted" x="60" y="171">{esc(placement("producer"))}</text>',
-        f'<text class="muted" x="60" y="191">{esc(placement("stubs"))}</text>',
-        '<rect x="310" y="120" width="190" height="108" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
-        '<text class="card-title" x="325" y="148">Application targets</text>',
-        f'<text class="muted" x="325" y="171">{esc(placement("application"))}</text>',
-        '<text class="muted" x="325" y="191">Target configuration is compared below</text>',
-        '<line x1="235" y1="174" x2="310" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-    ]
-    kafka_x = 575 if kafka_mode != "msk" else 745
-    if kafka_mode == "msk":
-        body.extend([
-            '<rect x="550" y="108" width="400" height="132" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-dasharray="5 4"/>',
-            '<text class="card-title" x="565" y="132">AWS managed services</text>',
-        ])
-    body.extend([
-        f'<rect x="{kafka_x}" y="120" width="190" height="108" rx="8" fill="#fef3c7" stroke="#d97706"/>',
-        f'<text class="card-title" x="{kafka_x+15}" y="148">{esc(kafka_title)}</text>',
-        f'<text class="muted" x="{kafka_x+15}" y="171">{esc(kafka_line or placement("kafka"))}</text>',
-        f'<text class="muted" x="{kafka_x+15}" y="191">{esc(placement("kafka")) if kafka_mode != "msk" else "outside Kubernetes"}</text>',
-        f'<line x1="500" y1="174" x2="{kafka_x}" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-        '<rect x="310" y="260" width="190" height="58" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
-        '<text class="card-title" x="325" y="285">Redis</text>',
-        f'<text class="muted" x="325" y="305">{esc(" · ".join(str(value) for value in [redis.get("mode") or "configuration unavailable", f"{redis.get("cpu_limit")} CPU" if redis.get("cpu_limit") else "", f"{redis.get("memory_limit_gib")} GiB" if redis.get("memory_limit_gib") else "", placement("redis")] if value))}</text>',
-        '<line x1="405" y1="228" x2="405" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-        '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>',
-    ])
+    if kafka_mode != "docker":
+        # Managed environments retain distinct Kubernetes and service boundaries.
+        body = [
+            f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
+            '<rect x="25" y="58" width="600" height="390" rx="12" fill="#f8fafc" stroke="#326ce5"/>',
+            f'<text class="card-title" x="45" y="85">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
+            f'<text class="muted" x="45" y="104">{esc(node_line)}</text>',
+            '<rect x="60" y="145" width="245" height="105" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            '<text class="card-title" x="78" y="174">Application targets</text>',
+            f'<text class="muted" x="78" y="196">{esc(app_resources)}</text>',
+            '<rect x="350" y="145" width="235" height="105" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            '<text class="card-title" x="368" y="174">Dependency stubs</text>',
+            f'<text class="muted" x="368" y="196">{esc(placement("stubs"))}</text>',
+            '<rect x="680" y="110" width="270" height="120" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            f'<text class="card-title" x="700" y="142">{esc(kafka_title)}</text>',
+            f'<text class="muted" x="700" y="166">{esc(kafka_line)}</text>',
+            '<rect x="680" y="280" width="270" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            '<text class="card-title" x="700" y="312">Redis</text>',
+            f'<text class="muted" x="700" y="336">{esc(redis_line)}</text>',
+            '<line x1="680" y1="170" x2="305" y2="190" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="305" y1="205" x2="350" y2="205" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="305" y1="225" x2="680" y2="320" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        ]
+    else:
+        body = [
+            f'<text class="title" x="30" y="32">Resolved environment · {esc(provider)} host {esc(environment.get("cluster_name") or "")}</text>',
+            '<rect x="25" y="52" width="950" height="420" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="45" y="80">Physical host · {esc(environment.get("cluster_name") or "captured host")}</text>',
+            f'<text class="muted" x="45" y="100">{esc(hardware_line)}</text>',
+            f'<text class="muted" x="45" y="118">{esc(os_line)}</text>',
+            '<text class="muted" x="955" y="80" text-anchor="end">All components share this host</text>',
+            '<rect x="45" y="140" width="555" height="305" rx="10" fill="#eff6ff" stroke="#326ce5"/>',
+            f'<text class="card-title" x="65" y="168">{esc(platform)} {esc(version)}</text>',
+            f'<text class="muted" x="65" y="187">{esc(node_line)}</text>',
+            '<rect x="70" y="220" width="235" height="110" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            '<text class="card-title" x="88" y="248">Application target</text>',
+            '<text class="muted" x="88" y="270">1 pod per target · measured process</text>',
+            f'<text class="muted" x="88" y="290">{esc(app_requests)}</text>',
+            f'<text class="muted" x="88" y="308">{esc(app_limits)}</text>' if app_limits else '',
+            '<rect x="345" y="220" width="225" height="110" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            '<text class="card-title" x="363" y="248">Dependency stubs</text>',
+            '<text class="muted" x="363" y="270">1 pod · planned latency shown below</text>',
+            f'<text class="muted" x="363" y="290">{esc(placement("stubs"))}</text>',
+            '<rect x="650" y="140" width="285" height="88" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            '<text class="card-title" x="670" y="168">Load generator</text>',
+            f'<text class="muted" x="670" y="190">host process · {esc(str(load_test.get("workers") or "—"))} workers</text>',
+            '<text class="muted" x="670" y="208">no dedicated CPU/RAM limit</text>',
+            '<rect x="650" y="260" width="285" height="88" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            f'<text class="card-title" x="670" y="288">{esc(kafka_title)}</text>',
+            f'<text class="muted" x="670" y="312">{esc(kafka_line)}</text>',
+            '<rect x="650" y="380" width="285" height="65" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            f'<text class="card-title" x="670" y="407">{esc(redis_title)}</text>',
+            f'<text class="muted" x="670" y="429">{esc(redis_line)}</text>',
+            '<line x1="792" y1="228" x2="792" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="650" y1="304" x2="305" y2="270" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="305" y1="255" x2="345" y2="255" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M305 305 C430 390 540 412 650 412" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        ]
+    body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     return svg_document(width, height, body, "Resolved environment topology")
 
 

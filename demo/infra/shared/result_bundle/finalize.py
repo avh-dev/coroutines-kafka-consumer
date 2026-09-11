@@ -162,7 +162,16 @@ def create_archive(source: Path, target: Path, root_name: str) -> None:
     os.replace(partial, target)
 
 
-def copy_report(report_dir: Path, output_dir: Path, *, experiment: str, environment: str, status: str) -> None:
+def copy_report(
+    report_dir: Path,
+    output_dir: Path,
+    *,
+    experiment: str,
+    environment: str,
+    status: str,
+    evidence_name: str | None = None,
+    audit_name: str | None = None,
+) -> None:
     report = report_dir / "report.md"
     output_dir.mkdir(parents=True, exist_ok=True)
     temporary = output_dir / "report.md.partial"
@@ -176,6 +185,16 @@ def copy_report(report_dir: Path, output_dir: Path, *, experiment: str, environm
         insertion = 1 if lines and lines[0].startswith("#") else 0
         lines[insertion:insertion] = [f"\n> Environment: `{environment}` · Status: `{status}`\n"]
         markdown = "".join(lines)
+    if evidence_name and audit_name:
+        links = (
+            f"[Evidence bundle](../{evidence_name}) · "
+            f"[Audit archive](../{audit_name})"
+        )
+        placeholder = "Evidence bundle and audit archive links are added when the result is finalized."
+        if placeholder in markdown:
+            markdown = markdown.replace(placeholder, links)
+        elif links not in markdown:
+            markdown = markdown.rstrip() + f"\n\n## Full evidence\n\n{links}\n"
     asset_names = {
         path.name for path in report_dir.iterdir()
         if report_dir.is_dir() and path.is_file() and path.suffix.lower() in {".svg", ".png", ".webp", ".jpg", ".jpeg"}
@@ -493,7 +512,15 @@ def finalize(
         evidence_name = f"{identity}-evidence.tar.gz"
         evidence_target = publish_root / evidence_name
         create_archive(evidence_root, evidence_target, identity)
-        copy_report(report_dir, publish_root / "report", experiment=experiment, environment=environment, status=status)
+        copy_report(
+            report_dir,
+            publish_root / "report",
+            experiment=experiment,
+            environment=environment,
+            status=status,
+            evidence_name=evidence_name,
+            audit_name=audit_name,
+        )
         if final_dir.exists():
             shutil.rmtree(final_dir)
         os.replace(publish_root, final_dir)

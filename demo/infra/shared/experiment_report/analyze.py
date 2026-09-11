@@ -474,6 +474,11 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
         "profile": profile,
         "replicas": application.get("replica_count"),
+        "resources": (
+            run_plan.get("application", {}).get("resources", {})
+            if isinstance(run_plan.get("application"), dict)
+            else {}
+        ),
         "dedicated_processing_workers": bool(dedicated_workers),
         "business_logic": business_logic,
         "dispatcher": application.get("processing_dispatcher_type"),

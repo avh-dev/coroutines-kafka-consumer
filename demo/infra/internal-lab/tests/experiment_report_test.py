@@ -496,6 +496,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("## Environment", markdown)
             self.assertIn("environment-topology.svg", markdown)
             self.assertIn("## Results", markdown)
+            self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
@@ -924,6 +925,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Above E2E limit", markdown)
             self.assertIn("Context switches average", markdown)
+            self.assertIn("### Steady-state highlights", markdown)
+            self.assertIn("Audit published rate", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
