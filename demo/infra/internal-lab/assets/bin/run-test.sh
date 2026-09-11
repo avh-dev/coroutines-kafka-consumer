@@ -1428,6 +1428,7 @@ PY
 }
 
 write_run_metadata
+python3 "${LAB_ROOT}/helpers/capture-environment-evidence.py" --metadata "${RUN_METADATA_FILE}"
 
 write_run_status() {
   local status="$1"

@@ -136,11 +136,16 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         node_line += f" · {disk} GiB/node disk"
     kafka = environment.get("kafka") if isinstance(environment.get("kafka"), dict) else {}
     kafka_mode = str(kafka.get("mode") or "Kafka")
-    kafka_title = "Amazon MSK" if kafka_mode == "msk" else "Kafka in Kubernetes"
+    kafka_title = {
+        "msk": "Amazon MSK",
+        "docker": "Kafka host container",
+    }.get(kafka_mode, "Kafka in Kubernetes")
     kafka_line = " · ".join(str(value) for value in [
         f"{kafka.get('brokers')} brokers" if kafka.get("brokers") else "",
         kafka.get("instance_type"),
         f"{kafka.get('disk_gib')} GiB/broker" if kafka.get("disk_gib") else "",
+        f"{kafka.get('cpu_limit')} CPU limit" if kafka.get("cpu_limit") else "",
+        f"{kafka.get('memory_limit_gib')} GiB limit" if kafka.get("memory_limit_gib") else "",
         kafka.get("kafka_version"),
     ] if value)
     redis = environment.get("redis") if isinstance(environment.get("redis"), dict) else {}
@@ -187,7 +192,7 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         f'<line x1="500" y1="174" x2="{kafka_x}" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
         '<rect x="310" y="260" width="190" height="58" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
         '<text class="card-title" x="325" y="285">Redis</text>',
-        f'<text class="muted" x="325" y="305">{esc(str(redis.get("mode") or "configuration unavailable"))} · {esc(placement("redis"))}</text>',
+        f'<text class="muted" x="325" y="305">{esc(" · ".join(str(value) for value in [redis.get("mode") or "configuration unavailable", f"{redis.get("cpu_limit")} CPU" if redis.get("cpu_limit") else "", f"{redis.get("memory_limit_gib")} GiB" if redis.get("memory_limit_gib") else "", placement("redis")] if value))}</text>',
         '<line x1="405" y1="228" x2="405" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
         '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>',
     ])
@@ -457,7 +462,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         factor = {"h": 3600, "m": 60, "s": 1}
         at = int(at_match.group(1)) * factor[at_match.group(2)]
         duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
-        title = str(step.get("name") or "Diagnostic capture").replace("-", " ").title()
+        title = "Kafka packet capture" if step.get("type") == "tcpdump" else str(step.get("name") or "Diagnostic capture").replace("-", " ").title()
         chaos_scenarios.append({
             "type": "diagnostic", "action": "diagnostic", "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,

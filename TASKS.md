@@ -302,6 +302,7 @@
 | [INFRA-157](#infra-157) | Add a declared steady-state measurement window and report full-run and windowed evidence. | DONE |
 | [INFRA-158](#infra-158) | Present the steady-state measurement window as a planned timeline card. | DONE |
 | [INFRA-159](#infra-159) | Render diagnostic steps as planned timeline stages. | DONE |
+| [INFRA-160](#infra-160) | Harden windowed evidence semantics and report completeness before rerunning the comparison. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3455,3 +3456,17 @@ Show scheduled diagnostic steps, including Kafka tcpdump, in the planned timelin
 Scheduled tcpdump steps now enter the existing planned-stage renderer as diagnostic intervals. They use a blue capture icon, translucent interval overlay, timeline connector, and the standard lower card; the 5k/s comparison therefore shows its `kafka-steady` capture at 05:00–05:15.
 
 Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
+
+<a id="infra-160"></a>
+### INFRA-160 - Harden windowed evidence reporting
+
+_Date: 2026-09-11_
+
+Make publication-window audit analysis independent of interleaved producer and consumer record order and expose the complete topic-level window evidence.
+Clarify metric time bases, planned versus actual rates, diagnostic labels, environment-evidence failures, network comparability, and evidence links before the next 5k/s run.
+
+Window audit analysis now selects publication keys in a first pass, then analyzes every matching terminal event in a second pass. Window tables include total and per-topic delivery, duplicates, latency targets, freshness evidence, and resource metrics; traffic rows expose decoded sample sizes and explain partition-sensitive batching.
+
+The internal-lab runner now records its bare-metal hardware, k3s version and capacity, workload placement, and host-container Kafka and Redis limits. Reports omit stale environment diagrams when evidence is absent and label lifecycle, load, and measurement-window time bases explicitly.
+
+Verification: 53 internal-lab tests, 12 audit tests, Python compilation, Bash syntax validation, and whitespace validation passed. Regenerating historical set `20260910T143304Z` confirmed zero missing terminal outcomes for all three measurement-window cohorts.

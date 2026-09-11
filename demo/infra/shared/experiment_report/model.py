@@ -52,6 +52,7 @@ class TargetReport:
     delivery: dict[str, Any]
     window_delivery: dict[str, Any]
     topic_evidence: dict[str, Any]
+    window_topic_evidence: dict[str, Any]
     measurements: dict[str, float | None]
     window_measurements: dict[str, float | None]
     thread_stats: dict[str, Any]

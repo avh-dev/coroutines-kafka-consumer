@@ -46,9 +46,33 @@ def shared_freshness_cutoff(histograms: list[dict[int, int]]) -> int | None:
     return max(cutoffs) if cutoffs else None
 
 
+def planned_rate(report: ExperimentReport, start: float, duration: float) -> float | None:
+    if duration <= 0:
+        return None
+    base = float(report.test_definition.get("base_tps") or 0)
+    total = 0.0
+    end = start + duration
+    for phase in report.test_definition.get("load_phases", []):
+        phase_start = float(phase.get("start_seconds") or 0)
+        phase_duration = float(phase.get("duration_seconds") or 0)
+        overlap_start, overlap_end = max(start, phase_start), min(end, phase_start + phase_duration)
+        if overlap_end <= overlap_start or phase_duration <= 0:
+            continue
+        def value(at: float) -> float:
+            progress = (at - phase_start) / phase_duration
+            return base * (float(phase.get("start_percent") or 0) + progress * (float(phase.get("end_percent") or 0) - float(phase.get("start_percent") or 0))) / 100
+        total += (value(overlap_start) + value(overlap_end)) * (overlap_end - overlap_start) / 2
+    return total / duration
+
+
 def render_markdown(report: ExperimentReport) -> str:
     targets = report.targets
     column_count = len(targets) + 1
+    environment_block = (
+        ["![Resolved environment topology](environment-topology.svg)"]
+        if report.environment
+        else ["**Environment evidence is unavailable for this run.**"]
+    )
     lines = [
         f"# Experiment Report: {escaped(report.name)}",
         "",
@@ -56,7 +80,7 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "## Environment",
         "",
-        "![Resolved environment topology](environment-topology.svg)",
+        *environment_block,
         "",
         "![Planned dependency-stub latency](stub-latency.svg)",
         "",
@@ -168,8 +192,11 @@ def render_markdown(report: ExperimentReport) -> str:
             ],
         )
 
-    section("Application metrics")
-    row("Run duration (wall clock)", [f"{number(target.duration_seconds, 0)} s" for target in targets])
+    load_duration = sum(float(phase.get("duration_seconds") or 0) for phase in report.test_definition.get("load_phases", []))
+    section(f"Full load interval metrics · {number(load_duration, 0)} s")
+    row("Target lifecycle duration", [f"{number(target.duration_seconds, 0)} s" for target in targets])
+    row("Planned average publish rate", [number(planned_rate(report, 0, load_duration), 0) + " msg/s" for _target in targets])
+    row("Actual publish rate over load interval", [number((target.delivery.get("published") or 0) / load_duration, 0) + " msg/s" if load_duration else "—" for target in targets])
     row("Average throughput", measurement("throughput_average_rps", 0, " msg/s"))
     row("Published", [number(target.delivery.get("published"), 0) for target in targets])
     row("Successfully processed", [number(target.delivery.get("processed"), 0) for target in targets])
@@ -201,16 +228,80 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         def window_measurement(key: str, digits: int, suffix: str) -> list[str]:
             return ["—" if target.window_measurements.get(key) is None else number(target.window_measurements[key], digits) + suffix for target in targets]
+        window_duration = float(window.get("duration_seconds") or 0)
+        row("Planned average publish rate", [number(planned_rate(report, float(window.get("start_seconds") or 0), window_duration), 0) + " msg/s" for _target in targets])
+        row("Actual published cohort rate", [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets])
         row("Processed throughput", window_measurement("throughput_average_rps", 0, " msg/s"))
         row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets])
         row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets])
         row("Failed processing", [number(target.window_delivery.get("failed"), 0) for target in targets])
         row("Intentionally dropped", [number(target.window_delivery.get("dropped"), 0) for target in targets])
         row("Missing terminal outcome", [number(target.window_delivery.get("missing_terminal"), 0) for target in targets])
+        row(
+            "Processed duplicates",
+            [number((target.window_delivery.get("duplicates") or {}).get("processed"), 0) for target in targets],
+        )
+        for percentile in ("p50", "p95", "p99", "max"):
+            row(f"Audit E2E latency {percentile}", ["—" if (target.window_delivery.get("e2e_latency") or {}).get(percentile) is None else number((target.window_delivery.get("e2e_latency") or {})[percentile], 0) + " ms" for target in targets])
         row("Application CPU average", window_measurement("cpu_average_cores", 3, " cores"))
         row("Application memory average", window_measurement("application_memory_average_mib", 0, " MiB"))
+        row("Context switches average", window_measurement("context_switches_average_per_second", 0, " /s"))
         row("Kafka broker CPU average", window_measurement("broker_cpu_average_cores", 3, " cores"))
+        row("Kafka broker memory average", window_measurement("broker_memory_average_mib", 0, " MiB"))
         row("Producer CPU average", window_measurement("producer_cpu_average_cores", 3, " cores"))
+        row("Producer memory average", window_measurement("producer_memory_average_mib", 0, " MiB"))
+        row("Kafka buffer utilization maximum", window_measurement("producer_buffer_utilization_max_percent", 1, "%"))
+        for topic in sorted({name for target in targets for name in target.window_topic_evidence}):
+            subsection(f"{topic} · measurement window")
+            def window_topic(target: TargetReport) -> dict[str, Any]:
+                value = target.window_topic_evidence.get(topic, {})
+                return value if isinstance(value, dict) else {}
+            for label, key in (("Published", "published"), ("Successfully processed", "processed"), ("Intentionally dropped", "dropped"), ("Failed processing", "failed"), ("Missing terminal outcome", "missing_terminal")):
+                row(label, [number(window_topic(target).get(key), 0) for target in targets])
+            row(
+                "Processed duplicates",
+                [number((window_topic(target).get("duplicates") or {}).get("processed"), 0) for target in targets],
+            )
+            for percentile in ("p50", "p95", "p99", "max"):
+                row(f"Audit E2E latency {percentile}", ["—" if (window_topic(target).get("e2e_latency") or {}).get(percentile) is None else number((window_topic(target).get("e2e_latency") or {})[percentile], 0) + " ms" for target in targets])
+            if any((window_topic(target).get("e2e_latency") or {}).get("limit_ms") is not None for target in targets):
+                row(
+                    "Above E2E limit",
+                    [
+                        "—" if (window_topic(target).get("e2e_latency") or {}).get("limit_ms") is None
+                        else number((window_topic(target).get("e2e_latency") or {}).get("exceeded"), 0)
+                        + " ("
+                        + number((window_topic(target).get("e2e_latency") or {}).get("exceeded_percent"), 2)
+                        + "%)"
+                        for target in targets
+                    ],
+                )
+            window_histograms = [
+                normalized_histogram(
+                    (window_topic(target).get("key_fairness") or {})
+                    .get("freshness_gap", {})
+                    .get("dropped_before_processed_histogram", {})
+                )
+                for target in targets
+            ]
+            window_cutoff = shared_freshness_cutoff(window_histograms)
+            if window_cutoff is not None:
+                subsection(f"{topic} · measurement-window freshness skips")
+                for bucket in range(window_cutoff + 1):
+                    row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms])
+                row(
+                    f"Skipped >{window_cutoff}",
+                    [number(sum(count for bucket, count in histogram.items() if bucket > window_cutoff), 0) for histogram in window_histograms],
+                )
+                for percentile in ("p95", "p99", "max"):
+                    row(
+                        f"Time between processed updates {percentile}",
+                        [
+                            "—" if ((window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile) is None
+                            else number(((window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms") or {})[percentile], 0) + " ms"
+                            for target in targets
+                        ],
+                    )
 
     section("Producer metrics")
     row("CPU average", measurement("producer_cpu_average_cores", 3, " cores"))
@@ -325,6 +416,8 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection(e2e_target_title(topic, targets))
         row("Producer", [display_wire(bytes_per_message(target, topic, "producer")) for target in targets])
         row("Consumer", [display_wire(bytes_per_message(target, topic, "consumer")) for target in targets])
+        row("Decoded producer records", [number(role_topic_wire(target, topic, "producer")[1], 0) for target in targets])
+        row("Decoded consumer records", [number(role_topic_wire(target, topic, "consumer")[1], 0) for target in targets])
         row(
             "Total",
             [
@@ -338,6 +431,14 @@ def render_markdown(report: ExperimentReport) -> str:
     subsection("All topics")
     row("Producer", [display_wire(all_topic_bytes_per_message(target, "producer")) for target in targets])
     row("Consumer", [display_wire(all_topic_bytes_per_message(target, "consumer")) for target in targets])
+    row(
+        "Decoded producer records",
+        [number(sum(role_topic_wire(target, topic, "producer")[1] for topic in topics), 0) for target in targets],
+    )
+    row(
+        "Decoded consumer records",
+        [number(sum(role_topic_wire(target, topic, "consumer")[1] for topic in topics), 0) for target in targets],
+    )
     row(
         "Total",
         [
@@ -353,12 +454,11 @@ def render_markdown(report: ExperimentReport) -> str:
         [
             "</tbody></table>",
             "",
-            "Wire traffic is a rounded estimate from the scheduled packet-capture window. It includes Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size.",
+            "Wire traffic is a rounded estimate from the scheduled packet-capture window. It includes Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
             "## Full evidence",
             "",
-            "- [Evidence bundle](../evidence/)",
-            "- [Audit archive](../audit/)",
+            "Evidence bundle and audit archive links are added when the result is finalized.",
             "",
         ]
     )

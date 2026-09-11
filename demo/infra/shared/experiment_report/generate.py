@@ -29,7 +29,11 @@ def write_report(report_dir: Path, report: Any) -> None:
         yaml.safe_dump(model, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    (report_dir / "environment-topology.svg").write_text(environment_topology_svg(report), encoding="utf-8")
+    environment_svg = report_dir / "environment-topology.svg"
+    if report.environment:
+        environment_svg.write_text(environment_topology_svg(report), encoding="utf-8")
+    else:
+        environment_svg.unlink(missing_ok=True)
     (report_dir / "stub-latency.svg").write_text(stub_latency_svg(report), encoding="utf-8")
     (report_dir / "load-profile.svg").write_text(load_profile_svg(report), encoding="utf-8")
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
