@@ -6,6 +6,7 @@ import argparse
 import json
 import platform
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -78,12 +79,39 @@ def hardware_evidence() -> dict[str, Any]:
         memory_bytes = int(line.split()[1]) * 1024
     except (FileNotFoundError, StopIteration, IndexError, ValueError):
         pass
+    frequency: dict[str, Any] = {}
+    policy_paths = sorted(Path("/sys/devices/system/cpu/cpufreq").glob("policy*"))
+
+    def frequency_values(name: str) -> list[int]:
+        values = []
+        for policy in policy_paths:
+            try:
+                values.append(round(int((policy / name).read_text(encoding="utf-8").strip()) / 1000))
+            except (FileNotFoundError, ValueError):
+                continue
+        return values
+
+    configured_max = frequency_values("scaling_max_freq")
+    hardware_max = frequency_values("cpuinfo_max_freq")
+    governors = sorted({
+        value
+        for policy in policy_paths
+        if (value := ((policy / "scaling_governor").read_text(encoding="utf-8").strip() if (policy / "scaling_governor").is_file() else ""))
+    })
+    if configured_max:
+        frequency["configured_max_mhz"] = max(configured_max)
+    if hardware_max:
+        frequency["hardware_max_mhz"] = max(hardware_max)
+    if governors:
+        frequency["governors"] = governors
+
     return {
         "cpu_model": fields.get("Model name"),
         "logical_cpus": fields.get("CPU(s)"),
         "sockets": fields.get("Socket(s)"),
         "cores_per_socket": fields.get("Core(s) per socket"),
         "max_mhz": fields.get("CPU max MHz"),
+        "frequency": frequency,
         "memory_bytes": memory_bytes,
     }
 
@@ -99,6 +127,7 @@ def main() -> int:
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
     metadata["environment_evidence"] = {
+        "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "provider": "bare metal",
         "environment": "internal-lab",
         "cluster_name": host,
@@ -115,6 +144,19 @@ def main() -> int:
             "memory_limit_gib": 4,
         },
         "redis": {"mode": "Docker container", "version": "7.4", "cpu_limit": 1, "memory_limit_gib": 2},
+        "observability": {
+            "kubernetes": [
+                {"name": "Prometheus", "version": "3.3.1", "role": "metrics"},
+                {"name": "Grafana Alloy", "version": "1.5.1", "role": "pod logs"},
+            ],
+            "docker": [
+                {"name": "Fluent Bit", "version": "4.2.3", "role": "audit transport"},
+                {"name": "Loki", "version": "3.3.2", "role": "log storage"},
+                {"name": "Grafana", "version": "11.6.0", "role": "visualization"},
+                {"name": "Kafka exporter", "version": "1.8.0", "role": "broker metrics"},
+                {"name": "process-exporter", "version": "0.8.7", "role": "host-process metrics"},
+            ],
+        },
     }
     args.metadata.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     return 0

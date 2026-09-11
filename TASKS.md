@@ -305,6 +305,7 @@
 | [INFRA-159](#infra-159) | Render diagnostic steps as planned timeline stages. | DONE |
 | [INFRA-160](#infra-160) | Harden windowed evidence semantics and report completeness before rerunning the comparison. | DONE |
 | [INFRA-161](#infra-161) | Refine environment topology and baseline-oriented comparison presentation. | DONE |
+| [INFRA-162](#infra-162) | Enrich the internal-lab topology with runtime boundaries, observability, icons, and the effective CPU frequency cap. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3494,3 +3495,14 @@ Present the first target as the comparison baseline and add compact multiplicati
 Redraw internal-lab topology around the real host and Kubernetes boundaries, correct traffic relationships, and expose the runtime limits and versions needed to interpret shared-host measurements.
 Improve report hierarchy, evidence navigation, topic ordering, freshness visibility, and metric labels using the completed experiment data without rerunning the workload.
 Regenerated and finalized the completed comparison report from preserved evidence; verified all SVGs, archive links, and compressed bundles.
+
+<a id="infra-162"></a>
+### INFRA-162 - Enrich the internal-lab environment topology
+
+_Date: 2026-09-11_
+
+Capture the host CPU frequency limit and the resolved internal-lab observability components alongside existing environment evidence.
+Separate Kubernetes and Docker visually, add portable embedded service icons, and route primary traffic with orthogonal connectors that avoid report cards.
+Regenerate the completed comparison report from preserved evidence without rerunning the workload.
+The completed report now shows the 2 GHz configured cap against the 3 GHz hardware maximum, embeds the available brand icons, and groups the resolved metrics and logging services by runtime boundary.
+Verification: all 11 internal-lab test modules and six finalizer tests passed; the published SVG, relative archive links, and both compressed bundles were validated.

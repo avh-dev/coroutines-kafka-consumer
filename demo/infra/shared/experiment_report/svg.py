@@ -31,6 +31,18 @@ SERVICE_BADGES = {
     "redis": ("redis", "R", "#dc382d"),
     "kafka": ("kafka", "K", "#231f20"),
     "audit": ("audit", "AUD", "#0f766e"),
+    "environment-kubernetes": ("kubernetes-brand", "K8S", "#326ce5"),
+    "environment-docker": ("docker", "D", "#2496ed"),
+    "application": ("openjdk", "JVM", "#e76f00"),
+    "load-generator": ("openjdk", "JVM", "#e76f00"),
+    "apache-kafka": ("apache-kafka", "K", "#231f20"),
+    "redis-service": ("redis-brand", "R", "#ff4438"),
+    "prometheus": ("prometheus", "P", "#e6522c"),
+    "alloy": ("alloy", "A", "#7c3aed"),
+    "fluent-bit": ("fluent-bit", "FB", "#49bda5"),
+    "loki": ("loki", "L", "#fbbf24"),
+    "grafana": ("grafana", "G", "#f46800"),
+    "exporters": ("exporters", "EX", "#64748b"),
 }
 STUB_NAMES = {
     "eta": "Arcane ETA ML",
@@ -107,7 +119,7 @@ def format_tps(value: float) -> str:
 
 def environment_topology_svg(report: ExperimentReport) -> str:
     environment = report.environment if isinstance(report.environment, dict) else {}
-    width, height = 1000, 500
+    width, height = 1000, 680
     provider = str(environment.get("provider") or environment.get("environment") or "Environment")
     region = str(environment.get("region") or "")
     kubernetes = environment.get("kubernetes") if isinstance(environment.get("kubernetes"), dict) else {}
@@ -156,10 +168,18 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     hardware = environment.get("hardware") if isinstance(environment.get("hardware"), dict) else {}
     max_mhz = hardware.get("max_mhz")
     formatted_mhz = f"{float(max_mhz):,.0f}" if max_mhz else ""
+    frequency = hardware.get("frequency") if isinstance(hardware.get("frequency"), dict) else {}
+    configured_max_mhz = frequency.get("configured_max_mhz")
+    hardware_max_mhz = frequency.get("hardware_max_mhz") or max_mhz
+    frequency_line = " · ".join(part for part in [
+        f"CPU capped at {float(configured_max_mhz) / 1000:g} GHz" if configured_max_mhz else "",
+        f"{float(hardware_max_mhz) / 1000:g} GHz hardware max" if hardware_max_mhz else "",
+        f"governor {', '.join(str(value) for value in frequency.get('governors', []))}" if frequency.get("governors") else "",
+    ] if part)
     hardware_line = " · ".join(str(value) for value in [
         hardware.get("cpu_model"),
         f"{hardware.get('logical_cpus')} logical CPUs" if hardware.get("logical_cpus") else "",
-        f"up to {formatted_mhz} MHz" if formatted_mhz else "",
+        f"up to {formatted_mhz} MHz" if formatted_mhz and not frequency_line else "",
         f"{int(hardware.get('memory_bytes')) / (1024 ** 3):.0f} GiB RAM" if hardware.get("memory_bytes") else "",
     ] if value)
 
@@ -182,6 +202,18 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         f"{redis.get('cpu_limit')} CPU limit" if redis.get("cpu_limit") else "",
         f"{redis.get('memory_limit_gib')} GiB limit" if redis.get("memory_limit_gib") else "",
     ] if value)
+    observability = environment.get("observability") if isinstance(environment.get("observability"), dict) else {}
+    observability_components = [
+        value
+        for location in ("kubernetes", "docker")
+        for value in observability.get(location, [])
+        if isinstance(value, dict)
+    ]
+
+    def component_title(name: str) -> str:
+        component = next((value for value in observability_components if value.get("name") == name), {})
+        version_value = component.get("version")
+        return f"{name} {version_value}" if version_value else name
 
     def placement(role: str) -> str:
         names = workloads.get(role)
@@ -213,37 +245,72 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     else:
         body = [
             f'<text class="title" x="30" y="32">Resolved environment · {esc(provider)} host {esc(environment.get("cluster_name") or "")}</text>',
-            '<rect x="25" y="52" width="950" height="420" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            '<rect x="25" y="52" width="950" height="600" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="45" y="80">Physical host · {esc(environment.get("cluster_name") or "captured host")}</text>',
             f'<text class="muted" x="45" y="100">{esc(hardware_line)}</text>',
             f'<text class="muted" x="45" y="118">{esc(os_line)}</text>',
-            '<text class="muted" x="955" y="80" text-anchor="end">All components share this host</text>',
-            '<rect x="45" y="140" width="555" height="305" rx="10" fill="#eff6ff" stroke="#326ce5"/>',
-            f'<text class="card-title" x="65" y="168">{esc(platform)} {esc(version)}</text>',
-            f'<text class="muted" x="65" y="187">{esc(node_line)}</text>',
-            '<rect x="70" y="220" width="235" height="110" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
-            '<text class="card-title" x="88" y="248">Application target</text>',
-            '<text class="muted" x="88" y="270">1 pod per target · measured process</text>',
-            f'<text class="muted" x="88" y="290">{esc(app_requests)}</text>',
-            f'<text class="muted" x="88" y="308">{esc(app_limits)}</text>' if app_limits else '',
-            '<rect x="345" y="220" width="225" height="110" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
-            '<text class="card-title" x="363" y="248">Dependency stubs</text>',
-            '<text class="muted" x="363" y="270">1 pod · planned latency shown below</text>',
-            f'<text class="muted" x="363" y="290">{esc(placement("stubs"))}</text>',
-            '<rect x="650" y="140" width="285" height="88" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
-            '<text class="card-title" x="670" y="168">Load generator</text>',
-            f'<text class="muted" x="670" y="190">host process · {esc(str(load_test.get("workers") or "—"))} workers</text>',
-            '<text class="muted" x="670" y="208">no dedicated CPU/RAM limit</text>',
-            '<rect x="650" y="260" width="285" height="88" rx="8" fill="#fef3c7" stroke="#d97706"/>',
-            f'<text class="card-title" x="670" y="288">{esc(kafka_title)}</text>',
-            f'<text class="muted" x="670" y="312">{esc(kafka_line)}</text>',
-            '<rect x="650" y="380" width="285" height="65" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
-            f'<text class="card-title" x="670" y="407">{esc(redis_title)}</text>',
-            f'<text class="muted" x="670" y="429">{esc(redis_line)}</text>',
-            '<line x1="792" y1="228" x2="792" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<line x1="650" y1="304" x2="305" y2="270" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<line x1="305" y1="255" x2="345" y2="255" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M305 305 C430 390 540 412 650 412" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            f'<text class="muted" x="45" y="136">{esc(frequency_line)}</text>' if frequency_line else '',
+            '<rect x="680" y="70" width="265" height="78" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 696, 88, 30),
+            '<text class="card-title" x="738" y="101">Load generator</text>',
+            f'<text class="muted" x="738" y="121">host process · {esc(str(load_test.get("workers") or "—"))} workers</text>',
+            '<text class="muted" x="738" y="138">no dedicated CPU/RAM limit</text>',
+            '<rect x="45" y="175" width="545" height="445" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 192, 32),
+            f'<text class="card-title" x="108" y="204">Kubernetes · {esc(platform)} {esc(version)}</text>',
+            f'<text class="muted" x="108" y="224">{esc(node_line)}</text>',
+            '<rect x="70" y="250" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 86, 266, 30),
+            '<text class="card-title" x="128" y="279">Application target</text>',
+            '<text class="muted" x="86" y="316">1 pod per target · measured JVM</text>',
+            f'<text class="muted" x="86" y="336">{esc(app_requests)}</text>',
+            f'<text class="muted" x="86" y="354">{esc(app_limits)}</text>' if app_limits else '',
+            '<rect x="330" y="250" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 346, 266, 30),
+            '<text class="card-title" x="388" y="279">Dependency stubs</text>',
+            '<text class="muted" x="346" y="316">1 pod · planned latency below</text>',
+            f'<text class="muted" x="346" y="336">{esc(placement("stubs"))}</text>',
+            '<rect x="70" y="405" width="485" height="185" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="88" y="430">Observability inside Kubernetes</text>',
+            '<rect x="90" y="450" width="205" height="105" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
+            service_icon("prometheus", 106, 466, 30),
+            f'<text class="card-title" x="148" y="479">{esc(component_title("Prometheus"))}</text>',
+            '<text class="muted" x="106" y="516">Metrics store</text>',
+            '<text class="muted" x="106" y="535">Scrapes apps and exporters</text>',
+            '<rect x="330" y="450" width="205" height="105" rx="7" fill="#f5f3ff" stroke="#7c3aed"/>',
+            service_icon("alloy", 346, 466, 30),
+            f'<text class="card-title" x="388" y="479">{esc(component_title("Grafana Alloy"))}</text>',
+            '<text class="muted" x="346" y="516">Kubernetes pod logs</text>',
+            '<text class="muted" x="346" y="535">Forwards to Loki</text>',
+            '<rect x="620" y="175" width="330" height="445" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
+            service_icon("environment-docker", 640, 192, 32),
+            '<text class="card-title" x="683" y="204">Docker host services</text>',
+            '<text class="muted" x="683" y="224">Containers share the physical host</text>',
+            '<rect x="645" y="250" width="280" height="82" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            service_icon("apache-kafka", 661, 266, 30),
+            f'<text class="card-title" x="703" y="279">{esc(kafka_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="314">{esc(kafka_line)}</text>',
+            '<rect x="645" y="355" width="280" height="82" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            service_icon("redis-service", 661, 371, 30),
+            f'<text class="card-title" x="703" y="384">{esc(redis_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="419">{esc(redis_line.replace("Docker container · ", ""))}</text>',
+            '<rect x="645" y="465" width="280" height="125" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="661" y="487">Observability inside Docker</text>',
+            service_icon("fluent-bit", 661, 501, 24),
+            f'<text class="muted" x="692" y="517">{esc(component_title("Fluent Bit"))} · audit → file</text>',
+            service_icon("loki", 661, 535, 24),
+            f'<text class="muted" x="692" y="551">{esc(component_title("Loki"))} · log storage</text>',
+            service_icon("grafana", 661, 565, 24),
+            f'<text class="muted" x="692" y="581">{esc(component_title("Grafana"))} · dashboards</text>',
+            service_icon("exporters", 825, 501, 24),
+            '<text class="muted" x="856" y="512">Kafka + process</text>',
+            '<text class="muted" x="856" y="527">exporters</text>',
+            '<path d="M945 109 H960 V238 H900 V250" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M645 291 H605 V238 H183 V250" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M295 291 H330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M183 365 V385 H605 V396 H645" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<text class="muted" x="45" y="642">All shown components share this physical host</text>',
+            '<text class="muted" x="955" y="642" text-anchor="end">Solid arrows: experiment data flow</text>',
         ]
     body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     return svg_document(width, height, body, "Resolved environment topology")

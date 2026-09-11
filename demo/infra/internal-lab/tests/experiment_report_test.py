@@ -187,8 +187,8 @@ class ExperimentReportTest(unittest.TestCase):
                     "environment": "internal-lab",
                     "platform": "K3s",
                     "kubernetes": {"version": "v1.33.0+k3s"},
-                    "kafka": {"mode": "kubernetes", "brokers": 3},
-                    "redis": {"mode": "kubernetes"},
+                    "kafka": {"mode": "docker", "brokers": 1, "kafka_version": "4.3.1"},
+                    "redis": {"mode": "Docker container", "version": "7.4"},
                     "nodes": [{
                         "name": "optilab",
                         "cpu": "8",
@@ -197,12 +197,34 @@ class ExperimentReportTest(unittest.TestCase):
                         "allocatable_memory": "30000000Ki",
                         "architecture": "amd64",
                     }],
+                    "hardware": {
+                        "cpu_model": "Example CPU",
+                        "logical_cpus": "8",
+                        "max_mhz": "3000.0000",
+                        "memory_bytes": 32 * 1024 ** 3,
+                        "frequency": {
+                            "configured_max_mhz": 2000,
+                            "hardware_max_mhz": 3000,
+                            "governors": ["ondemand"],
+                        },
+                    },
                     "workloads": {
                         "application": ["optilab"],
                         "producer": ["optilab"],
                         "stubs": ["optilab"],
                         "kafka": ["optilab"],
                         "redis": ["optilab"],
+                    },
+                    "observability": {
+                        "kubernetes": [
+                            {"name": "Prometheus", "version": "3.3.1"},
+                            {"name": "Grafana Alloy", "version": "1.5.1"},
+                        ],
+                        "docker": [
+                            {"name": "Fluent Bit", "version": "4.2.3"},
+                            {"name": "Loki", "version": "3.3.2"},
+                            {"name": "Grafana", "version": "11.6.0"},
+                        ],
                     },
                 },
             },
@@ -493,6 +515,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("internal-lab", model["environment"]["environment"])
             self.assertTrue((report_dir / "environment-topology.svg").is_file())
             ET.parse(report_dir / "environment-topology.svg")
+            environment_svg = (report_dir / "environment-topology.svg").read_text(encoding="utf-8")
+            self.assertIn("Kubernetes · K3s v1.33.0+k3s", environment_svg)
+            self.assertIn("Docker host services", environment_svg)
+            self.assertIn("CPU capped at 2 GHz", environment_svg)
+            self.assertIn("Prometheus 3.3.1", environment_svg)
+            self.assertIn("Fluent Bit 4.2.3", environment_svg)
+            self.assertIn("data:image/svg+xml;base64,", environment_svg)
+            self.assertNotRegex(environment_svg, r'<path d="M[^"]* C')
             self.assertIn("## Environment", markdown)
             self.assertIn("environment-topology.svg", markdown)
             self.assertIn("## Results", markdown)
