@@ -38,7 +38,7 @@ class RateControlledGeneratorRunner(
                 while (consumedPermits < emitCount) {
                     val result = generator.emit(clock())
                     stats.record(generator.name, result)
-                    consumedPermits += result.emittedCount.coerceAtLeast(1)
+                    consumedPermits += result.totalEmitted.coerceAtLeast(1)
                 }
                 permits -= consumedPermits
                 if (permits >= 1.0) {

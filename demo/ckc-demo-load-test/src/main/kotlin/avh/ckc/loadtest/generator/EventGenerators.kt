@@ -30,6 +30,9 @@ data class EmitResult(
     val delegated: Int = 0,
     val blocked: Boolean = false
 ) {
+    val totalEmitted: Int
+        get() = emittedCount + delegated
+
     init {
         require(emittedCount >= 0) { "emittedCount must be non-negative" }
         require(!emitted || emittedCount > 0) { "emitted results must have a positive emittedCount" }
@@ -115,7 +118,7 @@ private class DelegatingGenerationContext(
         var order = state.takeOrderForBatchAssigned()
         if (order == null) {
             val prerequisite = emitBatchCreated(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             order = state.takeOrderForBatchAssigned()
         }
@@ -130,7 +133,7 @@ private class DelegatingGenerationContext(
         var order = state.takeOrderForWaitingForBottling()
         if (order == null) {
             val prerequisite = emitBatchBrewingCompleted(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             order = state.takeOrderForWaitingForBottling()
         }
@@ -146,7 +149,7 @@ private class DelegatingGenerationContext(
         var order = state.takeOrderForCompleted()
         if (order == null) {
             val prerequisite = emitOrderWaitingForBottling(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             order = state.takeOrderForCompleted()
         }
@@ -163,7 +166,7 @@ private class DelegatingGenerationContext(
         var batch = state.createBatch(now, orderCount, brewingSteps(config, now))
         while (batch == null && delegated < orderCount) {
             val prerequisite = emitOrderCreated(now)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             batch = state.createBatch(now, orderCount, brewingSteps(config, now))
         }
         batch ?: return blocked(delegated)
@@ -192,7 +195,7 @@ private class DelegatingGenerationContext(
         var waiting = state.takeWaitingForCauldronBatch()
         if (waiting == null) {
             val prerequisite = emitBatchCauldronRequested(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             waiting = state.takeWaitingForCauldronBatch()
         }
@@ -201,7 +204,7 @@ private class DelegatingGenerationContext(
         if (assigned == null) {
             state.addWaitingForCauldronBatch(waiting)
             val prerequisite = emitBatchBrewingCompleted(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             waiting = state.takeWaitingForCauldronBatch()
             assigned = waiting?.let(state::assignCauldron)
         }
@@ -224,7 +227,7 @@ private class DelegatingGenerationContext(
         var batch = state.takeBrewingBatchForStep()
         if (batch == null) {
             val prerequisite = emitBatchBrewingStarted(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             batch = state.takeBrewingBatchForStep()
         }
@@ -245,7 +248,7 @@ private class DelegatingGenerationContext(
         var attempts = 0
         while (batch == null && attempts < config.maxBrewingSteps) {
             val prerequisite = emitBatchBrewingStepCompleted(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             batch = state.takeBrewingCompletedBatch()
             attempts++
@@ -268,12 +271,12 @@ private class DelegatingGenerationContext(
         var batch = state.takeBottlingBatchForCompleted()
         if (batch == null) {
             val prerequisite = emitBatchBottlingStarted(now, depth + 1)
-            delegated += prerequisite.totalEmitted()
+            delegated += prerequisite.totalEmitted
             if (!prerequisite.emitted) return blocked(delegated)
             repeat(config.maxOrdersPerBatch) {
                 if (batch == null) {
                     val orderCompleted = emitOrderCompleted(now, depth + 1)
-                    delegated += orderCompleted.totalEmitted()
+                    delegated += orderCompleted.totalEmitted
                     batch = state.takeBottlingBatchForCompleted()
                 }
             }
@@ -296,7 +299,7 @@ private class DelegatingGenerationContext(
         var batch = take()
         if (batch == null) {
             val prerequisiteResult = prerequisite(now, depth + 1)
-            delegated += prerequisiteResult.totalEmitted()
+            delegated += prerequisiteResult.totalEmitted
             if (!prerequisiteResult.emitted) return blocked(delegated)
             batch = take()
         }
@@ -313,7 +316,7 @@ private class DelegatingGenerationContext(
                 var delegated = 0
                 if (batch == null) {
                     val prerequisite = emitBatchBrewingStarted(now, depth + 1)
-                    delegated += prerequisite.totalEmitted()
+                    delegated += prerequisite.totalEmitted
                     if (!prerequisite.emitted) return blocked(delegated)
                     batch = state.takeActiveBatchForTelemetry()
                 }
@@ -353,7 +356,6 @@ private class DelegatingGenerationContext(
         return config.minBrewingStepBurst + ((now.toEpochMilli() / 31).floorMod(range))
     }
 
-    private fun EmitResult.totalEmitted(): Int = delegated + emittedCount
 }
 
 private fun ordersPerBatch(config: LoadTestConfig, now: Instant): Int {

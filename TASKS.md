@@ -145,6 +145,7 @@
 | [DEMO-89](#demo-89) | Reconfigure load-test Kafka producer pools during a run and emit timestamped experiment events for each change. | DONE |
 | [DEMO-90](#demo-90) | Remove runtime Kafka producer reconfiguration and return load-test producers to fixed per-run configuration. | DONE |
 | [DEMO-91](#demo-91) | Adopt the two-level Thread Stats category and group configuration in the demo application. | DONE |
+| [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -3470,3 +3471,15 @@ Window audit analysis now selects publication keys in a first pass, then analyze
 The internal-lab runner now records its bare-metal hardware, k3s version and capacity, workload placement, and host-container Kafka and Redis limits. Reports omit stale environment diagrams when evidence is absent and label lifecycle, load, and measurement-window time bases explicitly.
 
 Verification: 53 internal-lab tests, 12 audit tests, Python compilation, Bash syntax validation, and whitespace validation passed. Regenerating historical set `20260910T143304Z` confirmed zero missing terminal outcomes for all three measurement-window cohorts.
+
+<a id="demo-92"></a>
+### DEMO-92 - Account for delegated events in load rate
+
+_Date: 2026-09-11_
+
+Count prerequisite lifecycle events against the generator's permits so the actual aggregate publish rate follows the configured load profile.
+Keep prerequisite generation for valid simulated domain state while preventing it from silently raising a planned 5,000 messages/s plateau to roughly 5,320 messages/s.
+
+`EmitResult` now exposes its complete publication count and the rate controller spends permits for both the requested event and every delegated prerequisite. The real `smoke-repeat` run produced 86.6 and 87.0 messages/s against a planned 87.5 messages/s full-profile average.
+
+Verification: all `ckc-demo-load-test` tests passed from clean task execution, including a delegated-publication rate-budget regression test. Internal-lab set `20260911T045715Z` completed both targets with zero failed or missing outcomes, complete required Loki labels, live Kafka exporter metrics, and populated bare-metal environment evidence.

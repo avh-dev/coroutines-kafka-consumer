@@ -18,6 +18,12 @@ import kotlin.test.assertTrue
 
 class EventGeneratorsTest {
     @Test
+    fun `total emitted includes prerequisite publications`() {
+        assertEquals(6, EmitResult(emitted = true, emittedCount = 2, delegated = 4).totalEmitted)
+        assertEquals(3, EmitResult(emitted = false, delegated = 3, blocked = true).totalEmitted)
+    }
+
+    @Test
     fun `brewing step generator emits configured same-key burst`() {
         val publisher = RecordingPublisher()
         val generator = brewingStepGenerator(

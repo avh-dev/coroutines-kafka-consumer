@@ -104,6 +104,7 @@ class TrafficGeneratorTest {
         assertTrue(publisher.batchSent > 0)
         assertTrue(publisher.orderSent > 0)
         assertTrue(publisher.telemetryKeys.all { it.startsWith("cauldron-") })
+        assertTrue(publisher.totalSent <= 105, "Delegated publications exceeded the 100 msg/s budget: ${publisher.totalSent}")
     }
 
     @Test
@@ -162,6 +163,8 @@ class TrafficGeneratorTest {
             get() = batchCounter.get()
         val telemetrySent: Int
             get() = telemetryCounter.get()
+        val totalSent: Int
+            get() = orderSent + batchSent + telemetrySent
         val flushed: Boolean
             get() = flushedFlag.get()
 
