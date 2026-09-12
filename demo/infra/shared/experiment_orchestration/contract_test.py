@@ -22,9 +22,28 @@ def canonical_experiment() -> dict:
                 "load_profile": "0 -> (10s, smoke) -> 100 -> (10s, cool-down) -> 0",
             },
             "topics": {
-                "order": {"kafka_topic": "order.events.v1", "traffic_percent": 35, "max_e2e_latency_ms": 2000},
-                "batch": {"kafka_topic": "batch.events.v1", "traffic_percent": 25, "max_e2e_latency_ms": 2000},
-                "telemetry": {"kafka_topic": "cauldron.events.v1", "traffic_percent": 40, "max_e2e_latency_ms": 1000},
+                "order": {
+                    "kafka_topic": "order.events.v1",
+                    "traffic_percent": 35,
+                    "max_e2e_latency_ms": 2000,
+                    "contract": {"delivery": "at_least_once", "ordering": "per_key"},
+                },
+                "batch": {
+                    "kafka_topic": "batch.events.v1",
+                    "traffic_percent": 25,
+                    "max_e2e_latency_ms": 2000,
+                    "contract": {"delivery": "at_least_once", "ordering": "per_key"},
+                },
+                "telemetry": {
+                    "kafka_topic": "cauldron.events.v1",
+                    "traffic_percent": 40,
+                    "max_e2e_latency_ms": 1000,
+                    "contract": {
+                        "semantics": "freshness_first",
+                        "delivery": "not_guaranteed",
+                        "ordering": "not_guaranteed",
+                    },
+                },
             },
         },
         "targets": [{
@@ -79,6 +98,11 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual(2, resolved.targets[0].definition["application"]["replicas"])
         self.assertEqual(20, resolved.targets[0].definition["telemetry_workers"])
         self.assertEqual(4096, resolved.targets[0].definition["telemetry_queue_capacity"])
+        self.assertEqual("per_key", resolved.snapshot["workload"]["topics"]["order"]["contract"]["ordering"])
+        self.assertEqual(
+            "freshness_first",
+            resolved.snapshot["workload"]["topics"]["telemetry"]["contract"]["semantics"],
+        )
 
     def test_materialized_snapshot_keeps_explicit_target_workload(self) -> None:
         experiment = canonical_experiment()

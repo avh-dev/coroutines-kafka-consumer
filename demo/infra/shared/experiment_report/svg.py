@@ -21,6 +21,8 @@ ACTION_COLORS = {
     "degradation": "#d97706",
     "network": "#7c3aed",
     "outage": "#b91c1c",
+    "measurement": "#16a34a",
+    "diagnostic": "#0891b2",
     "chaos": "#64748b",
 }
 SERVICE_BADGES = {
@@ -29,6 +31,19 @@ SERVICE_BADGES = {
     "redis": ("redis", "R", "#dc382d"),
     "kafka": ("kafka", "K", "#231f20"),
     "audit": ("audit", "AUD", "#0f766e"),
+    "environment-kubernetes": ("kubernetes-brand", "K8S", "#326ce5"),
+    "environment-docker": ("docker", "D", "#2496ed"),
+    "application": ("ckc-demo-app", "APP", "#7c3aed"),
+    "load-generator": ("load-generator", "TPS", "#2563eb"),
+    "apache-kafka": ("apache-kafka", "K", "#231f20"),
+    "redis-service": ("redis-brand", "R", "#ff4438"),
+    "prometheus": ("prometheus", "P", "#e6522c"),
+    "alloy": ("alloy", "A", "#f46800"),
+    "fluent-bit": ("fluent-bit", "FB", "#49bda5"),
+    "loki": ("loki", "L", "#fbbf24"),
+    "grafana": ("grafana", "G", "#f46800"),
+    "kafka-exporter": ("kafka-exporter", "KE", "#e6522c"),
+    "process-exporter": ("process-exporter", "PE", "#e6522c"),
 }
 STUB_NAMES = {
     "eta": "Arcane ETA ML",
@@ -105,7 +120,7 @@ def format_tps(value: float) -> str:
 
 def environment_topology_svg(report: ExperimentReport) -> str:
     environment = report.environment if isinstance(report.environment, dict) else {}
-    width, height = 1000, 375
+    width, height = 1000, 900
     provider = str(environment.get("provider") or environment.get("environment") or "Environment")
     region = str(environment.get("region") or "")
     kubernetes = environment.get("kubernetes") if isinstance(environment.get("kubernetes"), dict) else {}
@@ -124,7 +139,7 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     )
     node_count = len(nodes) or int(worker_group.get("desired_nodes") or 0)
     node_line = " · ".join(part for part in [
-        f"{node_count} worker nodes" if node_count else "worker nodes unavailable",
+        (f"{node_count} worker node" if node_count == 1 else f"{node_count} worker nodes") if node_count else "worker nodes unavailable",
         "/".join(node_types),
         f"{total_cpu} allocatable CPU" if total_cpu else "",
         f"{total_memory_kib / (1024 * 1024):.0f} GiB allocatable" if total_memory_kib else "",
@@ -134,61 +149,182 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         node_line += f" · {disk} GiB/node disk"
     kafka = environment.get("kafka") if isinstance(environment.get("kafka"), dict) else {}
     kafka_mode = str(kafka.get("mode") or "Kafka")
-    kafka_title = "Amazon MSK" if kafka_mode == "msk" else "Kafka in Kubernetes"
+    kafka_title = {
+        "msk": "Amazon MSK",
+        "docker": "Apache Kafka host container",
+    }.get(kafka_mode, "Kafka in Kubernetes")
+    if kafka_mode == "docker" and kafka.get("kafka_version"):
+        kafka_title = f"Apache Kafka {kafka.get('kafka_version')} · host container"
+    broker_count = kafka.get("brokers")
     kafka_line = " · ".join(str(value) for value in [
-        f"{kafka.get('brokers')} brokers" if kafka.get("brokers") else "",
+        (f"{broker_count} broker" if str(broker_count) == "1" else f"{broker_count} brokers") if broker_count else "",
         kafka.get("instance_type"),
         f"{kafka.get('disk_gib')} GiB/broker" if kafka.get("disk_gib") else "",
-        kafka.get("kafka_version"),
+        f"{kafka.get('cpu_limit')} CPU limit" if kafka.get("cpu_limit") else "",
+        f"{kafka.get('memory_limit_gib')} GiB limit" if kafka.get("memory_limit_gib") else "",
+        kafka.get("kafka_version") if kafka_mode != "docker" else "",
     ] if value)
     redis = environment.get("redis") if isinstance(environment.get("redis"), dict) else {}
     workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
     hardware = environment.get("hardware") if isinstance(environment.get("hardware"), dict) else {}
+    max_mhz = hardware.get("max_mhz")
+    formatted_mhz = f"{float(max_mhz):,.0f}" if max_mhz else ""
+    frequency = hardware.get("frequency") if isinstance(hardware.get("frequency"), dict) else {}
+    configured_max_mhz = frequency.get("configured_max_mhz")
+    hardware_max_mhz = frequency.get("hardware_max_mhz") or max_mhz
+    frequency_line = " · ".join(part for part in [
+        f"CPU capped at {float(configured_max_mhz) / 1000:g} GHz" if configured_max_mhz else "",
+        f"{float(hardware_max_mhz) / 1000:g} GHz hardware max" if hardware_max_mhz else "",
+        f"governor {', '.join(str(value) for value in frequency.get('governors', []))}" if frequency.get("governors") else "",
+    ] if part)
     hardware_line = " · ".join(str(value) for value in [
         hardware.get("cpu_model"),
         f"{hardware.get('logical_cpus')} logical CPUs" if hardware.get("logical_cpus") else "",
-        f"up to {hardware.get('max_mhz')} MHz" if hardware.get("max_mhz") else "",
+        f"up to {formatted_mhz} MHz" if formatted_mhz and not frequency_line else "",
         f"{int(hardware.get('memory_bytes')) / (1024 ** 3):.0f} GiB RAM" if hardware.get("memory_bytes") else "",
     ] if value)
+
+    first_node = nodes[0] if nodes else {}
+    os_line = " · ".join(str(value) for value in [first_node.get("os_image"), first_node.get("kernel_version")] if value)
+    resources = [target.configuration.get("resources") for target in report.targets]
+    shared_resources = resources[0] if resources and all(value == resources[0] for value in resources) else {}
+    requests = shared_resources.get("requests", {}) if isinstance(shared_resources, dict) else {}
+    limits = shared_resources.get("limits", {}) if isinstance(shared_resources, dict) else {}
+    app_resources = " · ".join(part for part in [
+        f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "",
+        f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else "",
+    ] if part) or "resources vary by target"
+    app_requests = f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "resources vary by target"
+    app_limits = f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else ""
+    load_test = report.test_definition.get("load_test") if isinstance(report.test_definition.get("load_test"), dict) else {}
+    redis_title = f"Redis {redis.get('version')} · host container" if redis.get("version") else "Redis host container"
+    redis_line = " · ".join(str(value) for value in [
+        redis.get("mode"),
+        f"{redis.get('cpu_limit')} CPU limit" if redis.get("cpu_limit") else "",
+        f"{redis.get('memory_limit_gib')} GiB limit" if redis.get("memory_limit_gib") else "",
+    ] if value)
+    observability = environment.get("observability") if isinstance(environment.get("observability"), dict) else {}
+    java = environment.get("java") if isinstance(environment.get("java"), dict) else {}
+
+    def java_label(role: str) -> str:
+        version_value = java.get(role)
+        return f"Java {version_value}" if version_value else "Java version unavailable"
+    observability_components = [
+        value
+        for location in ("kubernetes", "docker")
+        for value in observability.get(location, [])
+        if isinstance(value, dict)
+    ]
+
+    def component_title(name: str) -> str:
+        component = next((value for value in observability_components if value.get("name") == name), {})
+        version_value = component.get("version")
+        return f"{name} {version_value}" if version_value else name
 
     def placement(role: str) -> str:
         names = workloads.get(role)
         return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
 
-    body = [
-        f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
-        f'<rect x="25" y="52" width="950" height="298" rx="12" fill="#f8fafc" stroke="#94a3b8"/>',
-        f'<text class="card-title" x="45" y="78">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
-        f'<text class="muted" x="45" y="96">{esc(node_line)}</text>',
-        f'<text class="muted" x="45" y="112">{esc(hardware_line)}</text>' if hardware_line else '',
-        '<rect x="45" y="120" width="190" height="108" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
-        '<text class="card-title" x="60" y="148">Producer and stubs</text>',
-        f'<text class="muted" x="60" y="171">{esc(placement("producer"))}</text>',
-        f'<text class="muted" x="60" y="191">{esc(placement("stubs"))}</text>',
-        '<rect x="310" y="120" width="190" height="108" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
-        '<text class="card-title" x="325" y="148">Application targets</text>',
-        f'<text class="muted" x="325" y="171">{esc(placement("application"))}</text>',
-        '<text class="muted" x="325" y="191">Target configuration is compared below</text>',
-        '<line x1="235" y1="174" x2="310" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-    ]
-    kafka_x = 575 if kafka_mode != "msk" else 745
-    if kafka_mode == "msk":
-        body.extend([
-            '<rect x="550" y="108" width="400" height="132" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-dasharray="5 4"/>',
-            '<text class="card-title" x="565" y="132">AWS managed services</text>',
-        ])
-    body.extend([
-        f'<rect x="{kafka_x}" y="120" width="190" height="108" rx="8" fill="#fef3c7" stroke="#d97706"/>',
-        f'<text class="card-title" x="{kafka_x+15}" y="148">{esc(kafka_title)}</text>',
-        f'<text class="muted" x="{kafka_x+15}" y="171">{esc(kafka_line or placement("kafka"))}</text>',
-        f'<text class="muted" x="{kafka_x+15}" y="191">{esc(placement("kafka")) if kafka_mode != "msk" else "outside Kubernetes"}</text>',
-        f'<line x1="500" y1="174" x2="{kafka_x}" y2="174" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-        '<rect x="310" y="260" width="190" height="58" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
-        '<text class="card-title" x="325" y="285">Redis</text>',
-        f'<text class="muted" x="325" y="305">{esc(str(redis.get("mode") or "configuration unavailable"))} · {esc(placement("redis"))}</text>',
-        '<line x1="405" y1="228" x2="405" y2="260" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-        '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>',
-    ])
+    if kafka_mode != "docker":
+        # Managed environments retain distinct Kubernetes and service boundaries.
+        body = [
+            f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
+            '<rect x="25" y="58" width="600" height="390" rx="12" fill="#f8fafc" stroke="#326ce5"/>',
+            f'<text class="card-title" x="45" y="85">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
+            f'<text class="muted" x="45" y="104">{esc(node_line)}</text>',
+            '<rect x="60" y="145" width="245" height="105" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 76, 160, 30),
+            '<text class="card-title" x="128" y="179">CKC demo app</text>',
+            f'<text class="muted" x="78" y="207">{esc(app_resources)}</text>',
+            f'<text class="muted" x="78" y="227">{esc(java_label("application"))}</text>',
+            '<rect x="350" y="145" width="235" height="105" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 366, 160, 30),
+            '<text class="card-title" x="408" y="179">CKC demo stubs</text>',
+            f'<text class="muted" x="368" y="207">{esc(placement("stubs"))}</text>',
+            f'<text class="muted" x="368" y="227">{esc(java_label("stubs"))}</text>',
+            '<rect x="680" y="110" width="270" height="120" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            f'<text class="card-title" x="700" y="142">{esc(kafka_title)}</text>',
+            f'<text class="muted" x="700" y="166">{esc(kafka_line)}</text>',
+            '<rect x="680" y="280" width="270" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            '<text class="card-title" x="700" y="312">Redis</text>',
+            f'<text class="muted" x="700" y="336">{esc(redis_line)}</text>',
+            '<line x1="680" y1="170" x2="305" y2="190" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="305" y1="205" x2="350" y2="205" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<line x1="305" y1="225" x2="680" y2="320" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        ]
+    else:
+        body = [
+            f'<text class="title" x="30" y="32">Resolved environment · {esc(provider)} host {esc(environment.get("cluster_name") or "")}</text>',
+            '<rect x="25" y="52" width="950" height="820" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="45" y="80">Physical host · {esc(environment.get("cluster_name") or "captured host")}</text>',
+            f'<text class="muted" x="45" y="100">{esc(hardware_line)}</text>',
+            f'<text class="muted" x="45" y="118">{esc(os_line)}</text>',
+            f'<text class="muted" x="45" y="136">{esc(frequency_line)}</text>' if frequency_line else '',
+            '<rect x="645" y="70" width="280" height="105" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 661, 88, 30),
+            '<text class="card-title" x="703" y="107">Load generator</text>',
+            f'<text class="muted" x="661" y="139">{esc(java_label("load_generator"))} · host process</text>',
+            f'<text class="muted" x="661" y="158">{esc(str(load_test.get("workers") or "—"))} workers · no CPU/RAM limit</text>',
+            '<rect x="45" y="205" width="545" height="605" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 222, 32),
+            f'<text class="card-title" x="108" y="242">Kubernetes · {esc(platform)} {esc(version)}</text>',
+            f'<text class="muted" x="65" y="270">{esc(node_line)}</text>',
+            '<rect x="70" y="330" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 86, 346, 30),
+            '<text class="card-title" x="128" y="365">CKC demo app</text>',
+            f'<text class="muted" x="86" y="396">1 pod per target · {esc(java_label("application"))}</text>',
+            f'<text class="muted" x="86" y="416">{esc(app_requests)}</text>',
+            f'<text class="muted" x="86" y="434">{esc(app_limits)}</text>' if app_limits else '',
+            '<rect x="330" y="330" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 346, 346, 30),
+            '<text class="card-title" x="388" y="365">CKC demo stubs</text>',
+            f'<text class="muted" x="346" y="396">1 pod · {esc(java_label("stubs"))}</text>',
+            '<text class="muted" x="346" y="416">Planned dependency latency below</text>',
+            '<rect x="70" y="530" width="485" height="250" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="88" y="557">Observability inside Kubernetes</text>',
+            '<rect x="90" y="580" width="205" height="130" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
+            service_icon("prometheus", 106, 600, 30),
+            f'<text class="card-title" x="148" y="619">{esc(component_title("Prometheus"))}</text>',
+            '<text class="muted" x="106" y="660">Metrics store</text>',
+            '<text class="muted" x="106" y="679">Scrapes apps and exporters</text>',
+            '<rect x="330" y="580" width="205" height="130" rx="7" fill="#f5f3ff" stroke="#7c3aed"/>',
+            service_icon("alloy", 346, 600, 30),
+            f'<text class="card-title" x="388" y="619">{esc(component_title("Grafana Alloy"))}</text>',
+            '<text class="muted" x="346" y="660">Kubernetes pod logs</text>',
+            '<text class="muted" x="346" y="679">Forwards to Loki</text>',
+            '<rect x="620" y="205" width="330" height="605" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
+            service_icon("environment-docker", 640, 222, 32),
+            '<text class="card-title" x="683" y="242">Docker host services</text>',
+            '<text class="muted" x="640" y="270">Containers share the physical host</text>',
+            '<rect x="645" y="330" width="280" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            service_icon("apache-kafka", 661, 346, 30),
+            f'<text class="card-title" x="703" y="365">{esc(kafka_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="394">{esc(kafka_line)}</text>',
+            f'<text class="muted" x="661" y="413">{esc(java_label("kafka"))}</text>',
+            '<rect x="645" y="455" width="280" height="82" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            service_icon("redis-service", 661, 471, 30),
+            f'<text class="card-title" x="703" y="490">{esc(redis_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="519">{esc(redis_line.replace("Docker container · ", ""))}</text>',
+            '<rect x="645" y="565" width="280" height="225" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="661" y="590">Observability inside Docker</text>',
+            service_icon("kafka-exporter", 661, 605, 24),
+            f'<text class="muted" x="692" y="621">{esc(component_title("Kafka exporter"))} · broker metrics</text>',
+            service_icon("process-exporter", 661, 640, 24),
+            f'<text class="muted" x="692" y="656">{esc(component_title("process-exporter"))} · process metrics</text>',
+            service_icon("fluent-bit", 661, 675, 24),
+            f'<text class="muted" x="692" y="691">{esc(component_title("Fluent Bit"))} · audit → file</text>',
+            service_icon("loki", 661, 710, 24),
+            f'<text class="muted" x="692" y="726">{esc(component_title("Loki"))} · log storage</text>',
+            service_icon("grafana", 661, 745, 24),
+            f'<text class="muted" x="692" y="761">{esc(component_title("Grafana"))} · dashboards</text>',
+            '<path d="M925 120 H960 V290 H880 V330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M645 371 H605 V290 H183 V330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M295 371 H330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M183 445 V496 H645" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<text class="muted" x="45" y="855">All shown components share this physical host</text>',
+            '<text class="muted" x="955" y="855" text-anchor="end">Solid arrows: experiment data flow</text>',
+        ]
+    body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     return svg_document(width, height, body, "Resolved environment topology")
 
 
@@ -284,6 +420,19 @@ def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
         symbol = (
             f'<path d="M {x+9:.1f} {y+9:.1f} A 9 9 0 1 0 {x+19:.1f} {y+9:.1f}" {common}/>'
             f'<line x1="{center_x:.1f}" y1="{y+4:.1f}" x2="{center_x:.1f}" y2="{y+14:.1f}" {common}/>'
+        )
+    elif action == "measurement":
+        symbol = (
+            f'<circle cx="{center_x:.1f}" cy="{y+16:.1f}" r="7" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{y+16:.1f}" x2="{center_x:.1f}" y2="{y+11:.1f}" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{y+16:.1f}" x2="{x+19:.1f}" y2="{y+19:.1f}" {common}/>'
+            f'<line x1="{x+12:.1f}" y1="{y+5:.1f}" x2="{x+16:.1f}" y2="{y+5:.1f}" {common}/>'
+        )
+    elif action == "diagnostic":
+        symbol = (
+            f'<rect x="{x+7:.1f}" y="{y+10:.1f}" width="14" height="10" rx="2" {common}/>'
+            f'<circle cx="{x+14:.1f}" cy="{y+15:.1f}" r="2.5" {common}/>'
+            f'<path d="M {x+10:.1f} {y+10:.1f} L {x+12:.1f} {y+7:.1f} H {x+16:.1f} L {x+18:.1f} {y+10:.1f}" {common}/>'
         )
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
@@ -423,7 +572,30 @@ def load_profile_svg(report: ExperimentReport) -> str:
         for scenario in report.test_definition.get("chaos_scenarios", [])
         if isinstance(scenario, dict)
     ]
-    chaos_scenarios = planned_chaos_scenarios
+    chaos_scenarios = list(planned_chaos_scenarios)
+    measurement_window = report.test_definition.get("measurement_window")
+    if isinstance(measurement_window, dict) and float(measurement_window.get("duration_seconds") or 0) > 0:
+        start = float(measurement_window.get("start_seconds") or 0)
+        chaos_scenarios.append({
+            "type": "measurement", "action": "measurement", "title": measurement_window.get("name") or "steady-state measurement",
+            "target": "", "at_seconds": start, "duration_seconds": float(measurement_window["duration_seconds"]),
+            "end_seconds": start + float(measurement_window["duration_seconds"]),
+        })
+    for step in report.test_definition.get("diagnostic_steps", []):
+        if not isinstance(step, dict):
+            continue
+        at_match = re.fullmatch(r"(\d+)([hms])", str(step.get("at") or "").strip())
+        duration_match = re.fullmatch(r"(\d+)([hms])", str(step.get("duration") or "").strip())
+        if not at_match or not duration_match:
+            continue
+        factor = {"h": 3600, "m": 60, "s": 1}
+        at = int(at_match.group(1)) * factor[at_match.group(2)]
+        duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
+        title = "Kafka packet capture" if step.get("type") == "tcpdump" else str(step.get("name") or "Diagnostic capture").replace("-", " ").title()
+        chaos_scenarios.append({
+            "type": "diagnostic", "action": "diagnostic", "title": title,
+            "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
+        })
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)
@@ -674,7 +846,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} on {esc(target)} at {esc(time_label)}</title>',
                 f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="#d1d5db"/>',
                 action_icon(action, action_x, icon_y),
-                service_icon(target, service_x - 1, card_y + 4, 30),
+                *( [service_icon(target, service_x - 1, card_y + 4, 30)] if target else [] ),
                 f'<text class="card-title" x="{title_x:.1f}" y="{card_y+24:.1f}">{esc(title)}</text>',
                 f'<text class="card-time" x="{time_x:.1f}" y="{card_y+24:.1f}">· {esc(time_label)}</text>',
                 *stubs_table_svg(scenario, card_x, card_y, estimated_width, color),

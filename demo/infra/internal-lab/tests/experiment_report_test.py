@@ -187,8 +187,8 @@ class ExperimentReportTest(unittest.TestCase):
                     "environment": "internal-lab",
                     "platform": "K3s",
                     "kubernetes": {"version": "v1.33.0+k3s"},
-                    "kafka": {"mode": "kubernetes", "brokers": 3},
-                    "redis": {"mode": "kubernetes"},
+                    "kafka": {"mode": "docker", "brokers": 1, "kafka_version": "4.3.1"},
+                    "redis": {"mode": "Docker container", "version": "7.4"},
                     "nodes": [{
                         "name": "optilab",
                         "cpu": "8",
@@ -197,12 +197,40 @@ class ExperimentReportTest(unittest.TestCase):
                         "allocatable_memory": "30000000Ki",
                         "architecture": "amd64",
                     }],
+                    "hardware": {
+                        "cpu_model": "Example CPU",
+                        "logical_cpus": "8",
+                        "max_mhz": "3000.0000",
+                        "memory_bytes": 32 * 1024 ** 3,
+                        "frequency": {
+                            "configured_max_mhz": 2000,
+                            "hardware_max_mhz": 3000,
+                            "governors": ["ondemand"],
+                        },
+                    },
+                    "java": {
+                        "application": "21.0.12",
+                        "stubs": "21.0.12",
+                        "load_generator": "21.0.12",
+                        "kafka": "21.0.11",
+                    },
                     "workloads": {
                         "application": ["optilab"],
                         "producer": ["optilab"],
                         "stubs": ["optilab"],
                         "kafka": ["optilab"],
                         "redis": ["optilab"],
+                    },
+                    "observability": {
+                        "kubernetes": [
+                            {"name": "Prometheus", "version": "3.3.1"},
+                            {"name": "Grafana Alloy", "version": "1.5.1"},
+                        ],
+                        "docker": [
+                            {"name": "Fluent Bit", "version": "4.2.3"},
+                            {"name": "Loki", "version": "3.3.2"},
+                            {"name": "Grafana", "version": "11.6.0"},
+                        ],
                     },
                 },
             },
@@ -493,12 +521,28 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("internal-lab", model["environment"]["environment"])
             self.assertTrue((report_dir / "environment-topology.svg").is_file())
             ET.parse(report_dir / "environment-topology.svg")
+            environment_svg = (report_dir / "environment-topology.svg").read_text(encoding="utf-8")
+            self.assertIn("Kubernetes · K3s v1.33.0+k3s", environment_svg)
+            self.assertIn("Docker host services", environment_svg)
+            self.assertIn("CPU capped at 2 GHz", environment_svg)
+            self.assertIn("Prometheus 3.3.1", environment_svg)
+            self.assertIn("Fluent Bit 4.2.3", environment_svg)
+            self.assertIn("CKC demo app", environment_svg)
+            self.assertIn("CKC demo stubs", environment_svg)
+            self.assertIn("Java 21.0.12", environment_svg)
+            self.assertIn("Java 21.0.11", environment_svg)
+            self.assertIn("Kafka exporter", environment_svg)
+            self.assertIn("process-exporter", environment_svg)
+            self.assertIn("data:image/svg+xml;base64,", environment_svg)
+            self.assertNotRegex(environment_svg, r'<path d="M[^"]* C')
             self.assertIn("## Environment", markdown)
             self.assertIn("environment-topology.svg", markdown)
             self.assertIn("## Results", markdown)
+            self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
+            self.assertIn('class="status-fail">FAIL · 2', markdown)
             self.assertIn("<thead><tr><th></th>", markdown)
             self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
             self.assertNotIn("Sync HTTP client", markdown)
@@ -515,7 +559,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("](raw/", markdown)
             self.assertIn("## Full evidence", markdown)
             self.assertIn("Evidence bundle", markdown)
-            self.assertIn("Audit archive", markdown)
+            self.assertIn("audit archive", markdown)
             self.assertNotIn("- Definition:", markdown)
             self.assertIn(">TPS</text>", svg)
             self.assertNotIn(">Load profile and planned chaos events</text>", svg)
@@ -870,6 +914,104 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("FAIL", model["targets"][0]["evaluation_status"])
             self.assertEqual(0o644, (run_dir / "audit" / "summary.yaml").stat().st_mode & 0o777)
             self.assertEqual(0o644, (run_dir / "audit" / "analyzer-progress.log").stat().st_mode & 0o777)
+
+    def test_window_report_keeps_terminal_before_publish_and_topic_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            experiment_path = root / "lab/experiments/comparison.yaml"
+            experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
+            experiment["workload"] = {
+                "topics": {
+                    "order": {
+                        "kafka_topic": "order.events.v1",
+                        "max_e2e_latency_ms": 2000,
+                        "contract": {"delivery": "at_least_once", "ordering": "per_key"},
+                    }
+                }
+            }
+            self.write_yaml(experiment_path, experiment)
+            resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
+            resolved_test["load_test"]["base_tps"] = 100
+            resolved_test["load_test"]["measurement_window"] = {
+                "name": "steady-state",
+                "start_seconds": 20,
+                "duration_seconds": 30,
+            }
+            self.write_yaml(resolved_test_path, resolved_test)
+            analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
+            analyzer_target = root / "lab/helpers/audit/analyze-audit.py"
+            analyzer_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(analyzer_source, analyzer_target)
+            run_dir = root / "results/runs/run-a"
+            published_at = round(datetime(2026, 8, 7, 10, 0, 25, tzinfo=timezone.utc).timestamp() * 1000)
+            (run_dir / "audit/audit-run-a.log").write_text(
+                f"C|1|0|1|{published_at + 500}|order-a\n"
+                f"P|1|0|1|{published_at}|{published_at}|order-a\n",
+                encoding="utf-8",
+            )
+            measurements = {
+                "throughput_average_rps": 100.0,
+                "cpu_average_cores": 1.0,
+                "broker_cpu_average_cores": 0.25,
+                "context_switches_average_per_second": 50.0,
+            }
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value=measurements):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            model = yaml.safe_load((outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8"))
+            window = model["targets"][0]
+            self.assertEqual(1, window["window_delivery"]["published"])
+            self.assertEqual(1, window["window_delivery"]["processed"])
+            self.assertEqual(0, window["window_delivery"]["missing_terminal"])
+            self.assertEqual(2000, window["window_topic_evidence"]["order.events.v1"]["e2e_latency"]["limit_ms"])
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("steady-state window · 20–50 s", markdown)
+            self.assertIn("Processed duplicates", markdown)
+            self.assertIn("Above E2E limit", markdown)
+            self.assertIn(
+                '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
+                markdown,
+            )
+            self.assertIn("E2E SLA ≤ 2,000 ms", markdown)
+            self.assertIn("Consumer contract: at-least-once delivery, per-key ordering", markdown)
+            self.assertIn("Per-key ordering requirement", markdown)
+            self.assertIn("Missing terminal outcomes", markdown)
+            self.assertIn("Failed processing", markdown)
+            self.assertIn("Processed duplicates", markdown)
+            self.assertIn("Terminal outcomes without publish", markdown)
+            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn("Delivery outcome", markdown)
+            self.assertIn('class="status-pass">PASS · 0', markdown)
+            self.assertIn('class="champion"', markdown)
+            self.assertIn(
+                '<th scope="row">Kafka broker CPU</th><td><span class="champion">0.250 cores',
+                markdown,
+            )
+            self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
+            self.assertNotIn('.champion{display:inline-block;background:', markdown)
+            self.assertIn("Context switches average", markdown)
+            self.assertIn("### Steady-state highlights", markdown)
+            self.assertIn("Audit published rate", markdown)
+
+    def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            run_metadata = root / "results/runs/run-a/run-metadata.json"
+            metadata = json.loads(run_metadata.read_text(encoding="utf-8"))
+            metadata.pop("environment_evidence")
+            self.write_json(run_metadata, metadata)
+            report_dir = root / "results/experiments/set-a/reports/comparison"
+            report_dir.mkdir(parents=True)
+            (report_dir / "environment-topology.svg").write_text("stale", encoding="utf-8")
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            self.assertFalse((report_dir / "environment-topology.svg").exists())
+            self.assertIn(
+                "Environment evidence is unavailable for this run.",
+                outputs[0].read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

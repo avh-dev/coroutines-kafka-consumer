@@ -818,6 +818,7 @@ class AuditAccumulator:
         open_record_ttl_ms: int | None,
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
+        cohort_keys: set[RecordKey] | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
         self.all = AuditStats(
@@ -836,8 +837,11 @@ class AuditAccumulator:
             for topic_id in TOPIC_NAMES
         }
         self.record_count = 0
+        self.cohort_keys = cohort_keys
 
     def add(self, record: AuditRecord) -> None:
+        if self.cohort_keys is not None and record.key not in self.cohort_keys:
+            return
         self.record_count += 1
         self.all.add(record)
         topic_stats = self.by_topic.get(record.key.topic_id)
@@ -870,6 +874,8 @@ def parse_args() -> argparse.Namespace:
         help="Enable bounded-memory matching by evicting unmatched records after this many seconds. Omit for exact offline matching.",
     )
     parser.add_argument("--require-records", action="store_true")
+    parser.add_argument("--published-from-ms", type=int)
+    parser.add_argument("--published-until-ms", type=int)
     return parser.parse_args()
 
 
@@ -1001,6 +1007,24 @@ def read_chunks(args: argparse.Namespace, accumulator: AuditAccumulator) -> None
     chunks = list_chunks(input_dir, args.glob)
     for index, path in enumerate(chunks, start=1):
         read_path(path, accumulator, index, len(chunks))
+
+
+def cohort_keys(args: argparse.Namespace) -> set[RecordKey] | None:
+    if args.published_from_ms is None:
+        return None
+    paths = [Path(value) for value in args.input_file]
+    if args.input_dir:
+        paths.extend(list_chunks(Path(args.input_dir), args.glob))
+    selected: set[RecordKey] = set()
+    for path in paths:
+        with open_text(path) as file:
+            for line in file:
+                if not line.strip() or line.startswith("S|"):
+                    continue
+                record = parse_record(line)
+                if record.record_type == "P" and args.published_from_ms <= record.audit_timestamp_ms < args.published_until_ms:
+                    selected.add(record.key)
+    return selected
 
 
 def print_analysis_progress(
@@ -1253,6 +1277,10 @@ def main() -> int:
         raise ValueError("at least one --input-file or --input-dir is required")
     if args.open_record_ttl_seconds is not None and args.open_record_ttl_seconds <= 0:
         raise ValueError("--open-record-ttl-seconds must be positive")
+    if (args.published_from_ms is None) != (args.published_until_ms is None) or (
+        args.published_from_ms is not None and args.published_until_ms <= args.published_from_ms
+    ):
+        raise ValueError("--published-from-ms and --published-until-ms must define a non-empty interval")
 
     accumulator = AuditAccumulator(
         open_record_ttl_ms=(
@@ -1262,6 +1290,7 @@ def main() -> int:
         ),
         latency_sla_rules=load_latency_sla_rules(args.sla_profile_file),
         latency_limits_ms=load_latency_limits(args.latency_limits_file),
+        cohort_keys=cohort_keys(args),
     )
     read_files(args.input_file, accumulator)
     if args.input_dir:

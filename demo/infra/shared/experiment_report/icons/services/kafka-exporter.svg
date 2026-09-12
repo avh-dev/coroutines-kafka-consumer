@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Kafka metrics exporter">
+  <g fill="none" stroke="#231f20" stroke-width="1.5">
+    <path d="M5 6h7M5 6v8M12 6v5M5 14h7"/>
+    <circle cx="5" cy="6" r="2" fill="#fff"/><circle cx="12" cy="6" r="2" fill="#fff"/><circle cx="5" cy="14" r="2" fill="#fff"/><circle cx="12" cy="14" r="2" fill="#fff"/>
+  </g>
+  <circle cx="17.5" cy="16.5" r="5.2" fill="#e6522c"/>
+  <path d="M15 17.7h5M15.7 16.4l1-1.2 1.1.8 1.4-2" fill="none" stroke="#fff" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

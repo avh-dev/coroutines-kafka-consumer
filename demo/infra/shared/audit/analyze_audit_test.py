@@ -52,6 +52,18 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_preselected_publication_cohort_keeps_terminal_seen_before_publish(self) -> None:
+        key = analyzer.RecordKey(1, 0, 7)
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None, cohort_keys={key})
+        accumulator.add(analyzer.parse_record("C|1|0|7|1500|order-a"))
+        accumulator.add(analyzer.parse_record("P|1|0|7|1000|1100|order-a"))
+        accumulator.finish()
+        totals = analyzer.summary_document(accumulator, {})["audit"]["totals"]
+        self.assertEqual(1, totals["published"])
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(0, totals["missing_terminal"])
+        self.assertEqual(500, totals["e2e_latency"]["max"])
+
     def test_reports_topic_e2e_percentiles_and_limit_exceedances(self) -> None:
         accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None, latency_limits_ms={1: 1000})
         for line in (

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="CKC demo app laboratory flask">
+  <path d="M9 2h6M10 2v6.2L4.7 18a2.7 2.7 0 0 0 2.4 4h9.8a2.7 2.7 0 0 0 2.4-4L14 8.2V2" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7.1 16.2h9.8l1.5 2.8a1.2 1.2 0 0 1-1.1 1.8H6.7A1.2 1.2 0 0 1 5.6 19l1.5-2.8Z" fill="#22c55e"/>
+  <circle cx="10" cy="18.3" r=".8" fill="#dcfce7"/>
+  <circle cx="14.3" cy="19.1" r=".6" fill="#dcfce7"/>
+</svg>

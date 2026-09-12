@@ -127,8 +127,11 @@ class CanonicalFinalizerTest(unittest.TestCase):
             )
             self.assertEqual("<svg/>\n", (published / "report/assets/load.svg").read_text(encoding="utf-8"))
             self.assertIn("assets/load.svg", (published / "report/report.md").read_text(encoding="utf-8"))
-            self.assertIn("Environment: `internal-lab`", (published / "report/report.md").read_text(encoding="utf-8"))
-            self.assertNotIn("](raw/", (published / "report/report.md").read_text(encoding="utf-8"))
+            published_report = (published / "report/report.md").read_text(encoding="utf-8")
+            self.assertIn("Environment: `internal-lab`", published_report)
+            self.assertIn(f"[Evidence bundle](../{identity}-evidence.tar.gz)", published_report)
+            self.assertIn(f"[Audit archive](../{identity}-audit.tar.gz)", published_report)
+            self.assertNotIn("](raw/", published_report)
             with tarfile.open(artifacts["audit"]) as archive:
                 audit_names = set(archive.getnames())
             self.assertIn(f"{identity}/audit/README.md", audit_names)

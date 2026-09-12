@@ -145,6 +145,7 @@
 | [DEMO-89](#demo-89) | Reconfigure load-test Kafka producer pools during a run and emit timestamped experiment events for each change. | DONE |
 | [DEMO-90](#demo-90) | Remove runtime Kafka producer reconfiguration and return load-test producers to fixed per-run configuration. | DONE |
 | [DEMO-91](#demo-91) | Adopt the two-level Thread Stats category and group configuration in the demo application. | DONE |
+| [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -299,6 +300,19 @@
 | [INFRA-154](#infra-154) | Consolidate experiment reports into one sectioned HTML comparison table with topic and complete wire-traffic metrics. | DONE |
 | [INFRA-155](#infra-155) | Capture resolved environment facts and render the experiment topology in the evidence report. | DONE |
 | [INFRA-156](#infra-156) | Show planned stub latency in the experiment report and distinguish it from application handling time. | DONE |
+| [INFRA-157](#infra-157) | Add a declared steady-state measurement window and report full-run and windowed evidence. | DONE |
+| [INFRA-158](#infra-158) | Present the steady-state measurement window as a planned timeline card. | DONE |
+| [INFRA-159](#infra-159) | Render diagnostic steps as planned timeline stages. | DONE |
+| [INFRA-160](#infra-160) | Harden windowed evidence semantics and report completeness before rerunning the comparison. | DONE |
+| [INFRA-161](#infra-161) | Refine environment topology and baseline-oriented comparison presentation. | DONE |
+| [INFRA-162](#infra-162) | Enrich the internal-lab topology with runtime boundaries, observability, icons, and the effective CPU frequency cap. | DONE |
+| [INFRA-163](#infra-163) | Add spacing and alignment to the internal-lab environment topology. | DONE |
+| [INFRA-164](#infra-164) | Polish environment service identity, icons, and Java runtime evidence. | DONE |
+| [INFRA-165](#infra-165) | Refine icon-label alignment and the Redis connector in the environment topology. | DONE |
+| [INFRA-166](#infra-166) | Unify header and detail alignment across environment topology cards. | DONE |
+| [INFRA-167](#infra-167) | Add topic contracts, ordering evidence, and restrained champion highlighting to experiment reports. | DONE |
+| [INFRA-168](#infra-168) | Add Kafka broker CPU to report highlights and soften champion styling. | DONE |
+| [INFRA-169](#infra-169) | Split consumer contract headings and audit integrity checks in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3415,3 +3429,167 @@ Show changes caused by stub-degradation scenarios on the planned timeline so rep
 The report now renders a planned dependency-stub latency SVG with p90, p95, p99, and maximum response delays for every configured stub. It appears beside the environment and planned-load diagrams, labels the values as dependency delays, and retains the existing target-level planned handling-time rows separately. Existing chaos cards continue to show stub-degradation changes on the timeline.
 
 Verification: report Python compilation, experiment-report tests (11), and whitespace validation passed.
+
+<a id="infra-157"></a>
+### INFRA-157 - Add a steady-state measurement window
+
+_Date: 2026-09-10_
+
+Allow an experiment to declare one optional window after warm-up, draw it on the planned load and chaos diagram, and label its exact boundaries.
+Report full-run evidence alongside metrics collected only inside that steady-state interval, using one common relative window for every target.
+
+The canonical workload now accepts one named measurement window and resolves it into every target. The report shades that interval on the planned load chart, separately queries Prometheus for it, and renders its throughput, resource, and delivery cohort evidence. Audit analysis now supports a publication-time cohort: terminal outcomes remain eligible after the window ends, avoiding false missing outcomes at its right boundary.
+
+The 5k/s comparison declares `steady-state` from 02:00 through 09:00. Internal-lab set `20260910T143304Z` completed all three targets and generated the full-run and steady-state report.
+
+Verification: canonical internal-lab resolution, 11 experiment-report tests, 7 contract tests, 11 audit/report tests, Python compilation, and whitespace validation passed.
+
+<a id="infra-158"></a>
+### INFRA-158 - Present the measurement window in the planned timeline
+
+_Date: 2026-09-10_
+
+Move the steady-state measurement-window annotation into the same planned-card visual language used for chaos scenarios.
+Use a stopwatch icon, an unobtrusive translucent interval overlay, and a timeline connector; start the 5k/s comparison window later in steady load.
+
+The measurement window is now rendered through the existing planned scenario-card loop as a `measurement` stage. It shares the same translucent interval overlay, boundaries, connector, card geometry, and timing label as duration-based chaos scenarios, with only a green stopwatch action icon distinguishing its purpose. The 5k/s comparison measures from 04:00 through 09:00.
+
+Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
+
+<a id="infra-159"></a>
+### INFRA-159 - Render diagnostic steps in the planned timeline
+
+_Date: 2026-09-10_
+
+Show scheduled diagnostic steps, including Kafka tcpdump, in the planned timeline using the same interval-card mechanism as chaos and measurement stages.
+
+Scheduled tcpdump steps now enter the existing planned-stage renderer as diagnostic intervals. They use a blue capture icon, translucent interval overlay, timeline connector, and the standard lower card; the 5k/s comparison therefore shows its `kafka-steady` capture at 05:00–05:15.
+
+Verification: report SVG compiled, all 11 experiment-report tests passed, and the diff passed whitespace validation.
+
+<a id="infra-160"></a>
+### INFRA-160 - Harden windowed evidence reporting
+
+_Date: 2026-09-11_
+
+Make publication-window audit analysis independent of interleaved producer and consumer record order and expose the complete topic-level window evidence.
+Clarify metric time bases, planned versus actual rates, diagnostic labels, environment-evidence failures, network comparability, and evidence links before the next 5k/s run.
+
+Window audit analysis now selects publication keys in a first pass, then analyzes every matching terminal event in a second pass. Window tables include total and per-topic delivery, duplicates, latency targets, freshness evidence, and resource metrics; traffic rows expose decoded sample sizes and explain partition-sensitive batching.
+
+The internal-lab runner now records its bare-metal hardware, k3s version and capacity, workload placement, and host-container Kafka and Redis limits. Reports omit stale environment diagrams when evidence is absent and label lifecycle, load, and measurement-window time bases explicitly.
+
+Verification: 53 internal-lab tests, 12 audit tests, Python compilation, Bash syntax validation, and whitespace validation passed. Regenerating historical set `20260910T143304Z` confirmed zero missing terminal outcomes for all three measurement-window cohorts.
+
+<a id="demo-92"></a>
+### DEMO-92 - Account for delegated events in load rate
+
+_Date: 2026-09-11_
+
+Count prerequisite lifecycle events against the generator's permits so the actual aggregate publish rate follows the configured load profile.
+Keep prerequisite generation for valid simulated domain state while preventing it from silently raising a planned 5,000 messages/s plateau to roughly 5,320 messages/s.
+
+`EmitResult` now exposes its complete publication count and the rate controller spends permits for both the requested event and every delegated prerequisite. The real `smoke-repeat` run produced 86.6 and 87.0 messages/s against a planned 87.5 messages/s full-profile average.
+
+Verification: all `ckc-demo-load-test` tests passed from clean task execution, including a delegated-publication rate-budget regression test. Internal-lab set `20260911T045715Z` completed both targets with zero failed or missing outcomes, complete required Loki labels, live Kafka exporter metrics, and populated bare-metal environment evidence.
+
+<a id="infra-161"></a>
+### INFRA-161 - Refine the comparison report
+
+_Date: 2026-09-11_
+
+Present the first target as the comparison baseline and add compact multiplicative comparisons to the most important steady-state results.
+Redraw internal-lab topology around the real host and Kubernetes boundaries, correct traffic relationships, and expose the runtime limits and versions needed to interpret shared-host measurements.
+Improve report hierarchy, evidence navigation, topic ordering, freshness visibility, and metric labels using the completed experiment data without rerunning the workload.
+Regenerated and finalized the completed comparison report from preserved evidence; verified all SVGs, archive links, and compressed bundles.
+
+<a id="infra-162"></a>
+### INFRA-162 - Enrich the internal-lab environment topology
+
+_Date: 2026-09-11_
+
+Capture the host CPU frequency limit and the resolved internal-lab observability components alongside existing environment evidence.
+Separate Kubernetes and Docker visually, add portable embedded service icons, and route primary traffic with orthogonal connectors that avoid report cards.
+Regenerate the completed comparison report from preserved evidence without rerunning the workload.
+The completed report now shows the 2 GHz configured cap against the 3 GHz hardware maximum, embeds the available brand icons, and groups the resolved metrics and logging services by runtime boundary.
+Verification: all 11 internal-lab test modules and six finalizer tests passed; the published SVG, relative archive links, and both compressed bundles were validated.
+
+<a id="infra-163"></a>
+### INFRA-163 - Space and align the environment topology
+
+_Date: 2026-09-12_
+
+Align the host load generator with Docker services, place exporters in the normal observability flow, and add vertical space around every group.
+Route experiment traffic with longer straight approaches so connector corners do not crowd arrowheads or service cards.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The published diagram is now 820 px high, aligns the load generator with the Docker cards, places exporters on their own full-width row, and gives every arrowhead a longer straight approach.
+Verification: the report-rendering tests passed, both SVG copies parse successfully, their geometry assertions pass, and the working and published files are byte-identical.
+
+<a id="infra-164"></a>
+### INFRA-164 - Polish environment service identity and runtime evidence
+
+_Date: 2026-09-12_
+
+Name the demo application and stubs after their repository projects and replace generic JDK marks with purpose-specific laboratory and load-generator artwork.
+Use the official Alloy and Loki artwork, give each exporter its own row and icon, and record the Java runtime version for every JVM component.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The completed diagram identifies CKC demo app and CKC demo stubs, uses laboratory and speedometer glyphs, and embeds official Grafana Alloy and Loki artwork plus distinct exporter glyphs.
+Captured evidence records Java 21.0.12 for the application, stubs, and load generator, and Java 21.0.11 for Kafka.
+Verification: 13 report-rendering tests and 60 update-lab build tests passed; all 18 service SVG assets and both byte-identical report SVG copies parse successfully.
+
+<a id="infra-165"></a>
+### INFRA-165 - Refine environment topology alignment
+
+_Date: 2026-09-12_
+
+Vertically center single-line labels beside their service icons.
+Lower the Kubernetes observability group and remove the small dogleg from the application-to-Redis connector.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The rendered topology now centers single-line service labels beside their icons and gives the Redis route one clean right-angle turn.
+Verification: 13 report-rendering tests and the update-lab build passed; both published SVG copies parse successfully and are byte-identical.
+
+<a id="infra-166"></a>
+### INFRA-166 - Unify environment topology card layout
+
+_Date: 2026-09-12_
+
+Use the same icon-and-title header followed by full-width detail lines for the load generator, Kubernetes, and Docker groups.
+Increase the diagram height and spacing so the unified layout remains airy.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The load generator, Kubernetes, and Docker headers now share one layout, with their detail text aligned below the icon edge.
+Verification: 13 report-rendering tests and the update-lab build passed; both 900 px-high SVG copies parse successfully and are byte-identical.
+
+<a id="infra-167"></a>
+### INFRA-167 - Add topic contracts and comparison champions
+
+_Date: 2026-09-12_
+
+Declare delivery and ordering requirements per workload topic and show them beside each topic E2E target.
+Render audit key-order evidence only as a requirement result for ordered topics, while labeling telemetry as freshness-first without delivery or ordering guarantees.
+Use restrained green highlighting for winners in comparable performance rows and regenerate the completed report from preserved evidence.
+The report now shows per-topic delivery and ordering contracts, audit ordering PASS results for order and batch over both intervals, and no ordering verdict for telemetry.
+Five lower-is-better steady-state winners receive compact green highlighting; throughput and tied correctness outcomes remain neutral.
+Verification: 53 internal-lab, 17 orchestration, 12 result-bundle, and 60 update-lab build tests passed; the report ZIP and both final archives were rebuilt and validated.
+
+<a id="infra-168"></a>
+### INFRA-168 - Highlight Kafka broker CPU
+
+_Date: 2026-09-12_
+
+Add steady-state Kafka broker CPU beside application CPU in the report highlights, including the baseline multiplier.
+Replace the green champion badge with restrained green text.
+Regenerate the completed report and downloadable report ZIP from preserved evidence.
+The highlight shows the broker at 0.468, 0.479, and 0.058 cores, making CKC 8.10× lower than the baseline from the unrounded measurements.
+Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.
+
+<a id="infra-169"></a>
+### INFRA-169 - Split consumer contract checks
+
+_Date: 2026-09-12_
+
+Render topic names separately from their E2E SLA and consumer contract descriptions.
+Replace the combined delivery outcome with individual missing, failure, duplicate, orphan-outcome, conflict, and required-ordering checks.
+Use compact green and red status text while keeping intentional freshness-first drops neutral, then rebuild the completed report artifacts.
+The completed report now presents the topic name above its E2E SLA and consumer contract, with each applicable audit check rendered independently.
+Telemetry ordering evidence is excluded from the per-key requirement because its freshness-first contract guarantees neither delivery nor ordering.
+Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.

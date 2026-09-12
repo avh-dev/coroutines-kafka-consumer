@@ -30,6 +30,25 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
+def measurement_window(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    window = require_mapping(value, "Experiment workload.measurement_window")
+    unknown = sorted(set(window) - {"name", "start", "duration"})
+    if unknown:
+        raise ValueError(f"Experiment workload.measurement_window contains unknown fields: {', '.join(unknown)}")
+    if set(window) < {"start", "duration"}:
+        raise ValueError("Experiment workload.measurement_window must define start and duration")
+    def seconds(name: str, positive: bool) -> int:
+        text = str(window[name]).strip()
+        matches = list(re.finditer(r"(\d+)\s*([hms])", text))
+        result = sum(int(match.group(1)) * {"h": 3600, "m": 60, "s": 1}[match.group(2)] for match in matches)
+        if not matches or "".join(match.group(0) for match in matches) != text.replace(" ", "") or (positive and result <= 0):
+            raise ValueError(f"Experiment workload.measurement_window.{name} must be a {'positive' if positive else 'non-negative'} duration")
+        return result
+    return {"name": str(window.get("name") or "steady-state"), "start_seconds": seconds("start", False), "duration_seconds": seconds("duration", True)}
+
+
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
     return any(key in value for key in ("schema_version", "workload", "environments"))
 
@@ -50,7 +69,7 @@ def require_list(value: Any, context: str, *, non_empty: bool = False) -> list[A
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
-    allowed = {"stubs", "load", "topics", "chaos", "diagnostics"}
+    allowed = {"stubs", "load", "topics", "chaos", "diagnostics", "measurement_window"}
     unknown = sorted(set(workload) - allowed)
     if unknown:
         raise ValueError(f"Experiment workload contains unknown fields: {', '.join(unknown)}")
@@ -65,7 +84,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
     load = require_mapping(workload.get("load"), "Experiment workload.load")
     for topic, settings in topics.items():
         item = require_mapping(settings, f"Experiment workload.topics.{topic}")
-        unknown_topic_fields = sorted(set(item) - {"kafka_topic", "traffic_percent", "max_e2e_latency_ms"})
+        unknown_topic_fields = sorted(set(item) - {"kafka_topic", "traffic_percent", "max_e2e_latency_ms", "contract"})
         if unknown_topic_fields:
             raise ValueError(f"Experiment workload.topics.{topic} contains unknown fields: {', '.join(unknown_topic_fields)}")
         kafka_topic = str(item.get("kafka_topic") or "").strip()
@@ -77,11 +96,35 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
             raise ValueError(f"Experiment workload.topics.{topic}.traffic_percent must be between 0 and 100")
         if not isinstance(max_e2e_latency_ms, (int, float)) or isinstance(max_e2e_latency_ms, bool) or max_e2e_latency_ms < 0:
             raise ValueError(f"Experiment workload.topics.{topic}.max_e2e_latency_ms must be non-negative")
-        normalized_topics[topic] = {
+        normalized_topic = {
             "kafka_topic": kafka_topic,
             "traffic_percent": traffic_percent,
             "max_e2e_latency_ms": max_e2e_latency_ms,
         }
+        if "contract" in item:
+            contract = require_mapping(item.get("contract"), f"Experiment workload.topics.{topic}.contract", non_empty=True)
+            unknown_contract_fields = sorted(set(contract) - {"delivery", "ordering", "semantics"})
+            if unknown_contract_fields:
+                raise ValueError(
+                    f"Experiment workload.topics.{topic}.contract contains unknown fields: "
+                    f"{', '.join(unknown_contract_fields)}"
+                )
+            allowed_contract_values = {
+                "delivery": {"at_least_once", "not_guaranteed"},
+                "ordering": {"per_key", "per_partition", "not_guaranteed"},
+                "semantics": {"freshness_first"},
+            }
+            for field_name, allowed_values in allowed_contract_values.items():
+                if field_name not in contract:
+                    continue
+                value = str(contract[field_name])
+                if value not in allowed_values:
+                    raise ValueError(
+                        f"Experiment workload.topics.{topic}.contract.{field_name} must be one of: "
+                        f"{', '.join(sorted(allowed_values))}"
+                    )
+            normalized_topic["contract"] = copy.deepcopy(contract)
+        normalized_topics[topic] = normalized_topic
     if sum(float(item["traffic_percent"]) for item in normalized_topics.values()) != 100:
         raise ValueError("Experiment workload topic traffic_percent values must total 100")
     load = copy.deepcopy(load)
@@ -94,6 +137,9 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         "stubs": copy.deepcopy(workload.get("stubs")),
         "load_test": load,
     }
+    window = measurement_window(workload.get("measurement_window"))
+    if window:
+        definition["load_test"]["measurement_window"] = window
     if "chaos" in workload:
         definition["chaos_steps"] = copy.deepcopy(workload["chaos"])
     if "diagnostics" in workload:
