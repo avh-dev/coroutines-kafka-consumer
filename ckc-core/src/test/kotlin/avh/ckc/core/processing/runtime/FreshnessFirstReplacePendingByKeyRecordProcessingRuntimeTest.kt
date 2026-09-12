@@ -17,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
@@ -24,6 +25,53 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class FreshnessFirstReplacePendingByKeyRecordProcessingRuntimeTest {
+    @Test
+    fun `when same key successor is queued then another worker waits for the in-flight record`() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val otherKeyProcessed = CompletableDeferred<Unit>()
+        val processedOffsets = CopyOnWriteArrayList<Long>()
+        val metrics = RecordingMetrics<String, String>()
+        val runtime = freshnessByKeyRuntime(
+            workerConcurrency = 2,
+            workChannelCapacity = 4,
+            metrics = metrics,
+            handler = KafkaRecordHandler { record ->
+                if (record.offset() == 1L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                } else if (record.offset() == 2L) {
+                    secondStarted.complete(Unit)
+                } else {
+                    otherKeyProcessed.complete(Unit)
+                }
+                if (record.key() == "hot-key") {
+                    processedOffsets += record.offset()
+                }
+            }
+        )
+
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "hot-key")))
+        withTimeout(2_000) { firstStarted.await() }
+
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, key = "hot-key")))
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 3L, key = "other-key")))
+        withTimeout(2_000) { otherKeyProcessed.await() }
+        assertFalse(secondStarted.isCompleted)
+
+        releaseFirst.complete(Unit)
+        withTimeout(2_000) { secondStarted.await() }
+        awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+            processedOffsets.takeIf { it.size == 2 }
+        }
+        runtime.stop()
+
+        assertEquals(listOf(1L, 2L), processedOffsets.toList())
+        assertTrue(metrics.dropped.isEmpty())
+    }
+
     @Test
     fun `when same key record is already queued then newer record replaces it`() = runBlocking {
         val firstStarted = CompletableDeferred<Unit>()

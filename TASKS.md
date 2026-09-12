@@ -54,6 +54,7 @@
 | [CORE-49](#core-49) | Add record-count-triggered commits alongside the existing time-based commit interval for at-least-once processing modes.                                                                                  | DONE |
 | [CORE-50](#core-50) | Compact oversized `OffsetTracker` ring buffers after transient out-of-order processing spikes.                                                                                                            | DONE |
 | [CORE-51](#core-51) | Replace record-age telemetry with successful end-to-end record processing latency.                                                                                                                       | DONE |
+| [CORE-52](#core-52) | Serialize in-flight and queued successors per key in freshness-first processing.                                                                                                                         | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -3593,3 +3594,15 @@ Use compact green and red status text while keeping intentional freshness-first 
 The completed report now presents the topic name above its E2E SLA and consumer contract, with each applicable audit check rendered independently.
 Telemetry ordering evidence is excluded from the per-key requirement because its freshness-first contract guarantees neither delivery nor ordering.
 Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.
+
+<a id="core-52"></a>
+### CORE-52 - Serialize freshness-first successors by key
+
+_Date: 2026-09-12_
+
+Prevent multiple workers from processing the in-flight record and its queued successor for the same key concurrently.
+Keep only the newest pending successor while preserving concurrency across different keys.
+Add a deterministic multi-worker regression test for the ordering inversion found in experiment audit evidence.
+The successor now enters the shared work channel only after the current handler finishes, while other keys remain concurrent.
+Verification: the regression test failed against the previous runtime and passes after the fix; all unit tests and the project check excluding integration tests passed.
+The full integration suite passed its earlier Kafka scenarios but was interrupted after an unrelated deserialization-failure test deadlocked in its nested `runBlocking` stop assertion.
