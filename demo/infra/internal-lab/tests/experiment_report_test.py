@@ -542,6 +542,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
+            self.assertIn('class="status-fail">FAIL · 2', markdown)
             self.assertIn("<thead><tr><th></th>", markdown)
             self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
             self.assertNotIn("Sync HTTP client", markdown)
@@ -968,8 +969,19 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Above E2E limit", markdown)
-            self.assertIn("delivery: at least once · ordering: per key", markdown)
-            self.assertIn("Key ordering (audit)", markdown)
+            self.assertIn(
+                '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
+                markdown,
+            )
+            self.assertIn("E2E SLA ≤ 2,000 ms", markdown)
+            self.assertIn("Consumer contract: at-least-once delivery, per-key ordering", markdown)
+            self.assertIn("Per-key ordering requirement", markdown)
+            self.assertIn("Missing terminal outcomes", markdown)
+            self.assertIn("Failed processing", markdown)
+            self.assertIn("Processed duplicates", markdown)
+            self.assertIn("Terminal outcomes without publish", markdown)
+            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn("Delivery outcome", markdown)
             self.assertIn('class="status-pass">PASS · 0', markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(

@@ -134,6 +134,53 @@ def render_markdown(report: ExperimentReport) -> str:
             cells.append(content)
         return cells
 
+    topic_contracts = report.test_definition.get("topic_contracts")
+    if not isinstance(topic_contracts, dict):
+        topic_contracts = {}
+
+    def topic_contract(topic: str) -> dict[str, Any]:
+        value = topic_contracts.get(topic, {})
+        return value if isinstance(value, dict) else {}
+
+    def contract_label(topic: str) -> str:
+        contract = topic_contract(topic)
+        if contract.get("semantics") == "freshness_first":
+            return "Consumer contract: freshness first; delivery and ordering not guaranteed"
+        guarantees = []
+        if contract.get("delivery") == "at_least_once":
+            guarantees.append("at-least-once delivery")
+        if contract.get("ordering") == "per_key":
+            guarantees.append("per-key ordering")
+        elif contract.get("ordering") == "per_partition":
+            guarantees.append("per-partition ordering")
+        return f"Consumer contract: {', '.join(guarantees)}" if guarantees else ""
+
+    def audit_status(value: Any) -> str:
+        if value is None:
+            return "—"
+        status_class = "status-pass" if int(value) == 0 else "status-fail"
+        status = "PASS" if int(value) == 0 else "FAIL"
+        return f'<span class="{status_class}">{status} · {number(value, 0)}</span>'
+
+    def without_publish_count(data: dict[str, Any]) -> int | None:
+        value = data.get("without_publish")
+        if not isinstance(value, dict):
+            return None
+        return sum(int(value.get(key) or 0) for key in ("processed", "failed", "dropped"))
+
+    def required_key_order_violations(target: TargetReport, windowed: bool) -> int | None:
+        evidence = target.window_topic_evidence if windowed else target.topic_evidence
+        values = []
+        for topic, contract in topic_contracts.items():
+            if not isinstance(contract, dict) or contract.get("ordering") != "per_key":
+                continue
+            topic_data = evidence.get(topic)
+            ordering = topic_data.get("ordering") if isinstance(topic_data, dict) else None
+            by_key = ordering.get("by_key") if isinstance(ordering, dict) else None
+            if isinstance(by_key, dict) and by_key.get("out_of_order") is not None:
+                values.append(int(by_key["out_of_order"]))
+        return sum(values) if values else None
+
     environment_block = (
         ["![Resolved environment topology](environment-topology.svg)"]
         if report.environment
@@ -174,7 +221,9 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
             'table.comparison .status-pass{color:#166534;font-weight:600}'
-            'table.comparison .status-fail{color:#b42318;font-weight:600}</style>'
+            'table.comparison .status-fail{color:#b42318;font-weight:600}'
+            'table.comparison .topic-name{font-weight:600}'
+            'table.comparison .topic-requirements{font-size:.88em;color:#57606a}</style>'
         ),
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
@@ -189,6 +238,28 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def subsection(title: str) -> None:
         lines.append(f'<tr class="subsection"><th colspan="{column_count}">{escaped(title)}</th></tr>')
+
+    def topic_subsection(topic: str, suffix: str = "") -> None:
+        limits = {
+            (evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms")
+            for target in targets
+            for evidence in (target.topic_evidence, target.window_topic_evidence)
+            if (evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms") is not None
+        }
+        requirements = []
+        if len(limits) == 1:
+            requirements.append(f"E2E SLA ≤ {number(limits.pop(), 0)} ms")
+        contract = contract_label(topic)
+        if contract:
+            requirements.append(contract)
+        if suffix:
+            requirements.append(suffix)
+        detail = " · ".join(requirements)
+        detail_html = f'<br><span class="topic-requirements">{escaped(detail)}</span>' if detail else ""
+        lines.append(
+            f'<tr class="subsection"><th colspan="{column_count}">'
+            f'<span class="topic-name">{escaped(topic)}</span>{detail_html}</th></tr>'
+        )
 
     def row(label: str, values: list[str]) -> None:
         lines.append(
@@ -220,14 +291,23 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
         row("Audit E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"))
         row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"))
+        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets])
+        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets])
         row(
-            "Delivery outcome",
-            [
-                f'{number(target.window_delivery.get("missing_terminal"), 0)} missing · '
-                f'{number(target.window_delivery.get("failed"), 0)} failed · '
-                f'{number((target.window_delivery.get("duplicates") or {}).get("processed"), 0)} duplicates'
-                for target in targets
-            ],
+            "Processed duplicates",
+            [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
+        )
+        row(
+            "Terminal outcomes without publish",
+            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
+        )
+        row(
+            "Conflicting terminal outcomes",
+            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
+        )
+        row(
+            "Per-key ordering requirement",
+            [audit_status(required_key_order_violations(target, True)) for target in targets],
         )
         lines.extend([
             "</tbody></table>",
@@ -262,46 +342,10 @@ def render_markdown(report: ExperimentReport) -> str:
         for topic in target.configuration.get("topics", []):
             if isinstance(topic, dict) and topic.get("name") not in configured_topics:
                 configured_topics.append(topic.get("name"))
-    topic_contracts = report.test_definition.get("topic_contracts")
-    if not isinstance(topic_contracts, dict):
-        topic_contracts = {}
-
-    def topic_contract(topic: str) -> dict[str, Any]:
-        value = topic_contracts.get(topic, {})
-        return value if isinstance(value, dict) else {}
-
-    def contract_label(topic: str) -> str:
-        contract = topic_contract(topic)
-        if contract.get("semantics") == "freshness_first":
-            return "freshness first · delivery/ordering not guaranteed"
-        labels = []
-        if contract.get("delivery") == "at_least_once":
-            labels.append("delivery: at least once")
-        if contract.get("ordering") == "per_key":
-            labels.append("ordering: per key")
-        elif contract.get("ordering") == "per_partition":
-            labels.append("ordering: per partition")
-        return " · ".join(labels)
-
-    def e2e_target_title(topic: str, values: list[TargetReport]) -> str:
-        limits = {
-            (target.topic_evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms")
-            for target in values
-            if (target.topic_evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms") is not None
-        }
-        title = f"{topic} · E2E target ≤ {number(limits.pop(), 0)} ms" if len(limits) == 1 else topic
-        contract = contract_label(topic)
-        return f"{title} · {contract}" if contract else title
-
-    def key_order_result(data: dict[str, Any]) -> str:
+    def key_order_value(data: dict[str, Any]) -> Any:
         ordering = data.get("ordering") if isinstance(data.get("ordering"), dict) else {}
         by_key = ordering.get("by_key") if isinstance(ordering.get("by_key"), dict) else {}
-        value = by_key.get("out_of_order")
-        if value is None:
-            return "—"
-        status_class = "status-pass" if int(value) == 0 else "status-fail"
-        status = "PASS" if int(value) == 0 else "FAIL"
-        return f'<span class="{status_class}">{status} · {number(value, 0)}</span>'
+        return by_key.get("out_of_order")
 
     for topic_name in configured_topics:
 
@@ -315,7 +359,7 @@ def render_markdown(report: ExperimentReport) -> str:
             (configured_topic(target).get("kafka_topic") for target in targets if configured_topic(target).get("kafka_topic")),
             topic_name,
         )
-        subsection(e2e_target_title(str(kafka_topic), targets))
+        topic_subsection(str(kafka_topic))
 
         row("Processing mode", [escaped(configured_topic(target).get("processing_mode")) for target in targets])
         row("Partitions", [number(configured_topic(target).get("partitions"), 0) for target in targets])
@@ -356,11 +400,23 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Published", [number(target.delivery.get("published"), 0) for target in targets])
     row("Successfully processed", [number(target.delivery.get("processed"), 0) for target in targets])
     row("Intentionally dropped", [number(target.delivery.get("dropped"), 0) for target in targets])
-    row("Failed processing", [number(target.delivery.get("failed"), 0) for target in targets])
-    row("Missing terminal outcome", [number(target.delivery.get("missing_terminal"), 0) for target in targets])
+    row("Failed processing", [audit_status(target.delivery.get("failed")) for target in targets])
+    row("Missing terminal outcomes", [audit_status(target.delivery.get("missing_terminal")) for target in targets])
     row(
         "Processed duplicates",
-        [number((target.delivery.get("duplicates") or {}).get("processed"), 0) for target in targets],
+        [audit_status((target.delivery.get("duplicates") or {}).get("processed")) for target in targets],
+    )
+    row(
+        "Terminal outcomes without publish",
+        [audit_status(without_publish_count(target.delivery)) for target in targets],
+    )
+    row(
+        "Conflicting terminal outcomes",
+        [audit_status(target.delivery.get("conflicting_terminal_outcomes")) for target in targets],
+    )
+    row(
+        "Per-key ordering requirement",
+        [audit_status(required_key_order_violations(target, False)) for target in targets],
     )
     for percentile in ("p50", "p95", "p99", "max"):
         row(
@@ -387,12 +443,24 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Prometheus processed throughput", window_measurement("throughput_average_rps", 0, " msg/s"))
         row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets])
         row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets])
-        row("Failed processing", [number(target.window_delivery.get("failed"), 0) for target in targets])
+        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets])
         row("Intentionally dropped", [number(target.window_delivery.get("dropped"), 0) for target in targets])
-        row("Missing terminal outcome", [number(target.window_delivery.get("missing_terminal"), 0) for target in targets])
+        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets])
         row(
             "Processed duplicates",
-            [number((target.window_delivery.get("duplicates") or {}).get("processed"), 0) for target in targets],
+            [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
+        )
+        row(
+            "Terminal outcomes without publish",
+            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
+        )
+        row(
+            "Conflicting terminal outcomes",
+            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
+        )
+        row(
+            "Per-key ordering requirement",
+            [audit_status(required_key_order_violations(target, True)) for target in targets],
         )
         for percentile in ("p50", "p95", "p99", "max"):
             row(f"Audit E2E latency {percentile}", ["—" if (target.window_delivery.get("e2e_latency") or {}).get(percentile) is None else number((target.window_delivery.get("e2e_latency") or {})[percentile], 0) + " ms" for target in targets])
@@ -408,18 +476,28 @@ def render_markdown(report: ExperimentReport) -> str:
         window_topics = [topic for topic in preferred_topics if topic in window_available_topics]
         window_topics.extend(sorted(window_available_topics - set(window_topics)))
         for topic in window_topics:
-            subsection(f"{e2e_target_title(topic, targets)} · measurement window")
+            topic_subsection(topic, "measurement window")
             def window_topic(target: TargetReport) -> dict[str, Any]:
                 value = target.window_topic_evidence.get(topic, {})
                 return value if isinstance(value, dict) else {}
-            for label, key in (("Published", "published"), ("Successfully processed", "processed"), ("Intentionally dropped", "dropped"), ("Failed processing", "failed"), ("Missing terminal outcome", "missing_terminal")):
+            for label, key in (("Published", "published"), ("Successfully processed", "processed"), ("Intentionally dropped", "dropped")):
                 row(label, [number(window_topic(target).get(key), 0) for target in targets])
+            row("Failed processing", [audit_status(window_topic(target).get("failed")) for target in targets])
+            row("Missing terminal outcomes", [audit_status(window_topic(target).get("missing_terminal")) for target in targets])
             row(
                 "Processed duplicates",
-                [number((window_topic(target).get("duplicates") or {}).get("processed"), 0) for target in targets],
+                [audit_status((window_topic(target).get("duplicates") or {}).get("processed")) for target in targets],
+            )
+            row(
+                "Terminal outcomes without publish",
+                [audit_status(without_publish_count(window_topic(target))) for target in targets],
+            )
+            row(
+                "Conflicting terminal outcomes",
+                [audit_status(window_topic(target).get("conflicting_terminal_outcomes")) for target in targets],
             )
             if topic_contract(topic).get("ordering") == "per_key":
-                row("Key ordering (audit)", [key_order_result(window_topic(target)) for target in targets])
+                row("Per-key ordering requirement", [audit_status(key_order_value(window_topic(target))) for target in targets])
             for percentile in ("p50", "p95", "p99", "max"):
                 row(f"Audit E2E latency {percentile}", ["—" if (window_topic(target).get("e2e_latency") or {}).get(percentile) is None else number((window_topic(target).get("e2e_latency") or {})[percentile], 0) + " ms" for target in targets])
             if any((window_topic(target).get("e2e_latency") or {}).get("limit_ms") is not None for target in targets):
@@ -481,18 +559,26 @@ def render_markdown(report: ExperimentReport) -> str:
 
     section("Topic application metrics")
     for topic in topics:
-        subsection(e2e_target_title(topic, targets))
+        topic_subsection(topic)
         row("Published", [number(topic_data(target, topic).get("published"), 0) for target in targets])
         row("Successfully processed", [number(topic_data(target, topic).get("processed"), 0) for target in targets])
         row("Intentionally dropped", [number(topic_data(target, topic).get("dropped"), 0) for target in targets])
-        row("Failed processing", [number(topic_data(target, topic).get("failed"), 0) for target in targets])
-        row("Missing terminal outcome", [number(topic_data(target, topic).get("missing_terminal"), 0) for target in targets])
+        row("Failed processing", [audit_status(topic_data(target, topic).get("failed")) for target in targets])
+        row("Missing terminal outcomes", [audit_status(topic_data(target, topic).get("missing_terminal")) for target in targets])
         row(
             "Processed duplicates",
-            [number((topic_data(target, topic).get("duplicates") or {}).get("processed"), 0) for target in targets],
+            [audit_status((topic_data(target, topic).get("duplicates") or {}).get("processed")) for target in targets],
+        )
+        row(
+            "Terminal outcomes without publish",
+            [audit_status(without_publish_count(topic_data(target, topic))) for target in targets],
+        )
+        row(
+            "Conflicting terminal outcomes",
+            [audit_status(topic_data(target, topic).get("conflicting_terminal_outcomes")) for target in targets],
         )
         if topic_contract(topic).get("ordering") == "per_key":
-            row("Key ordering (audit)", [key_order_result(topic_data(target, topic)) for target in targets])
+            row("Per-key ordering requirement", [audit_status(key_order_value(topic_data(target, topic))) for target in targets])
         for percentile in ("p50", "p95", "p99", "max"):
             row(
                 f"Audit E2E latency {percentile}",
@@ -550,7 +636,7 @@ def render_markdown(report: ExperimentReport) -> str:
 
     section("Estimated wire traffic")
     for topic in topics:
-        subsection(e2e_target_title(topic, targets))
+        topic_subsection(topic)
         row("Producer", [display_wire(bytes_per_message(target, topic, "producer")) for target in targets])
         row("Consumer", [display_wire(bytes_per_message(target, topic, "consumer")) for target in targets])
         row("Decoded producer records", [number(role_topic_wire(target, topic, "producer")[1], 0) for target in targets])

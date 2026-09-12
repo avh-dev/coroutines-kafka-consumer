@@ -312,6 +312,7 @@
 | [INFRA-166](#infra-166) | Unify header and detail alignment across environment topology cards. | DONE |
 | [INFRA-167](#infra-167) | Add topic contracts, ordering evidence, and restrained champion highlighting to experiment reports. | DONE |
 | [INFRA-168](#infra-168) | Add Kafka broker CPU to report highlights and soften champion styling. | DONE |
+| [INFRA-169](#infra-169) | Split consumer contract headings and audit integrity checks in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3579,4 +3580,16 @@ Add steady-state Kafka broker CPU beside application CPU in the report highlight
 Replace the green champion badge with restrained green text.
 Regenerate the completed report and downloadable report ZIP from preserved evidence.
 The highlight shows the broker at 0.468, 0.479, and 0.058 cores, making CKC 8.10× lower than the baseline from the unrounded measurements.
+Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.
+
+<a id="infra-169"></a>
+### INFRA-169 - Split consumer contract checks
+
+_Date: 2026-09-12_
+
+Render topic names separately from their E2E SLA and consumer contract descriptions.
+Replace the combined delivery outcome with individual missing, failure, duplicate, orphan-outcome, conflict, and required-ordering checks.
+Use compact green and red status text while keeping intentional freshness-first drops neutral, then rebuild the completed report artifacts.
+The completed report now presents the topic name above its E2E SLA and consumer contract, with each applicable audit check rendered independently.
+Telemetry ordering evidence is excluded from the per-key requirement because its freshness-first contract guarantees neither delivery nor ordering.
 Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.
