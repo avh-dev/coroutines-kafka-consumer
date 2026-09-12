@@ -306,6 +306,7 @@
 | [INFRA-160](#infra-160) | Harden windowed evidence semantics and report completeness before rerunning the comparison. | DONE |
 | [INFRA-161](#infra-161) | Refine environment topology and baseline-oriented comparison presentation. | DONE |
 | [INFRA-162](#infra-162) | Enrich the internal-lab topology with runtime boundaries, observability, icons, and the effective CPU frequency cap. | DONE |
+| [INFRA-163](#infra-163) | Add spacing and alignment to the internal-lab environment topology. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3506,3 +3507,14 @@ Separate Kubernetes and Docker visually, add portable embedded service icons, an
 Regenerate the completed comparison report from preserved evidence without rerunning the workload.
 The completed report now shows the 2 GHz configured cap against the 3 GHz hardware maximum, embeds the available brand icons, and groups the resolved metrics and logging services by runtime boundary.
 Verification: all 11 internal-lab test modules and six finalizer tests passed; the published SVG, relative archive links, and both compressed bundles were validated.
+
+<a id="infra-163"></a>
+### INFRA-163 - Space and align the environment topology
+
+_Date: 2026-09-12_
+
+Align the host load generator with Docker services, place exporters in the normal observability flow, and add vertical space around every group.
+Route experiment traffic with longer straight approaches so connector corners do not crowd arrowheads or service cards.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The published diagram is now 820 px high, aligns the load generator with the Docker cards, places exporters on their own full-width row, and gives every arrowhead a longer straight approach.
+Verification: the report-rendering tests passed, both SVG copies parse successfully, their geometry assertions pass, and the working and published files are byte-identical.
