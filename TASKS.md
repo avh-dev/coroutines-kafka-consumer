@@ -3606,3 +3606,4 @@ Add a deterministic multi-worker regression test for the ordering inversion foun
 The successor now enters the shared work channel only after the current handler finishes, while other keys remain concurrent.
 Verification: the regression test failed against the previous runtime and passes after the fix; all unit tests and the project check excluding integration tests passed.
 The full integration suite passed its earlier Kafka scenarios but was interrupted after an unrelated deserialization-failure test deadlocked in its nested `runBlocking` stop assertion.
+Internal-lab validation run `20260912T143157Z` processed 1,076,231 telemetry records with zero per-key ordering inversions; its 240–540 s steady window sustained 4,997 msg/s with clean delivery evidence across all topics.
