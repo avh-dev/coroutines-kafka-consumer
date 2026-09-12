@@ -311,6 +311,7 @@
 | [INFRA-165](#infra-165) | Refine icon-label alignment and the Redis connector in the environment topology. | DONE |
 | [INFRA-166](#infra-166) | Unify header and detail alignment across environment topology cards. | DONE |
 | [INFRA-167](#infra-167) | Add topic contracts, ordering evidence, and restrained champion highlighting to experiment reports. | DONE |
+| [INFRA-168](#infra-168) | Add Kafka broker CPU to report highlights and soften champion styling. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3568,3 +3569,14 @@ Use restrained green highlighting for winners in comparable performance rows and
 The report now shows per-topic delivery and ordering contracts, audit ordering PASS results for order and batch over both intervals, and no ordering verdict for telemetry.
 Five lower-is-better steady-state winners receive compact green highlighting; throughput and tied correctness outcomes remain neutral.
 Verification: 53 internal-lab, 17 orchestration, 12 result-bundle, and 60 update-lab build tests passed; the report ZIP and both final archives were rebuilt and validated.
+
+<a id="infra-168"></a>
+### INFRA-168 - Highlight Kafka broker CPU
+
+_Date: 2026-09-12_
+
+Add steady-state Kafka broker CPU beside application CPU in the report highlights, including the baseline multiplier.
+Replace the green champion badge with restrained green text.
+Regenerate the completed report and downloadable report ZIP from preserved evidence.
+The highlight shows the broker at 0.468, 0.479, and 0.058 cores, making CKC 8.10× lower than the baseline from the unrounded measurements.
+Verification: all 53 internal-lab tests and 60 update-lab build tests passed; the final report, full archives, and downloadable ZIP were rebuilt and validated.

@@ -171,7 +171,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}'
             'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
-            'table.comparison .champion{display:inline-block;background:#dcfce7;color:#166534;font-weight:600;border-radius:4px;padding:2px 5px}'
+            'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
             'table.comparison .status-pass{color:#166534;font-weight:600}'
             'table.comparison .status-fail{color:#b42318;font-weight:600}</style>'
@@ -215,6 +215,7 @@ def render_markdown(report: ExperimentReport) -> str:
             [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets],
         )
         row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
+        row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
         row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
         row("Context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
         row("Audit E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"))

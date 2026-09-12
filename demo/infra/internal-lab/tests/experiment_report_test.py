@@ -953,6 +953,7 @@ class ExperimentReportTest(unittest.TestCase):
             measurements = {
                 "throughput_average_rps": 100.0,
                 "cpu_average_cores": 1.0,
+                "broker_cpu_average_cores": 0.25,
                 "context_switches_average_per_second": 50.0,
             }
             with patch("experiment_report.analyze.collect_standard_measurements", return_value=measurements):
@@ -971,6 +972,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Key ordering (audit)", markdown)
             self.assertIn('class="status-pass">PASS · 0', markdown)
             self.assertIn('class="champion"', markdown)
+            self.assertIn(
+                '<th scope="row">Kafka broker CPU</th><td><span class="champion">0.250 cores',
+                markdown,
+            )
+            self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
+            self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Context switches average", markdown)
             self.assertIn("### Steady-state highlights", markdown)
             self.assertIn("Audit published rate", markdown)
