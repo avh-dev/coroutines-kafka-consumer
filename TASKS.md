@@ -309,6 +309,7 @@
 | [INFRA-163](#infra-163) | Add spacing and alignment to the internal-lab environment topology. | DONE |
 | [INFRA-164](#infra-164) | Polish environment service identity, icons, and Java runtime evidence. | DONE |
 | [INFRA-165](#infra-165) | Refine icon-label alignment and the Redis connector in the environment topology. | DONE |
+| [INFRA-166](#infra-166) | Unify header and detail alignment across environment topology cards. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3543,3 +3544,14 @@ Lower the Kubernetes observability group and remove the small dogleg from the ap
 Regenerate only the environment-topology SVG for the completed comparison report.
 The rendered topology now centers single-line service labels beside their icons and gives the Redis route one clean right-angle turn.
 Verification: 13 report-rendering tests and the update-lab build passed; both published SVG copies parse successfully and are byte-identical.
+
+<a id="infra-166"></a>
+### INFRA-166 - Unify environment topology card layout
+
+_Date: 2026-09-12_
+
+Use the same icon-and-title header followed by full-width detail lines for the load generator, Kubernetes, and Docker groups.
+Increase the diagram height and spacing so the unified layout remains airy.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The load generator, Kubernetes, and Docker headers now share one layout, with their detail text aligned below the icon edge.
+Verification: 13 report-rendering tests and the update-lab build passed; both 900 px-high SVG copies parse successfully and are byte-identical.
