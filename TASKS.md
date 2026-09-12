@@ -308,6 +308,7 @@
 | [INFRA-162](#infra-162) | Enrich the internal-lab topology with runtime boundaries, observability, icons, and the effective CPU frequency cap. | DONE |
 | [INFRA-163](#infra-163) | Add spacing and alignment to the internal-lab environment topology. | DONE |
 | [INFRA-164](#infra-164) | Polish environment service identity, icons, and Java runtime evidence. | DONE |
+| [INFRA-165](#infra-165) | Refine icon-label alignment and the Redis connector in the environment topology. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3531,3 +3532,14 @@ Regenerate only the environment-topology SVG for the completed comparison report
 The completed diagram identifies CKC demo app and CKC demo stubs, uses laboratory and speedometer glyphs, and embeds official Grafana Alloy and Loki artwork plus distinct exporter glyphs.
 Captured evidence records Java 21.0.12 for the application, stubs, and load generator, and Java 21.0.11 for Kafka.
 Verification: 13 report-rendering tests and 60 update-lab build tests passed; all 18 service SVG assets and both byte-identical report SVG copies parse successfully.
+
+<a id="infra-165"></a>
+### INFRA-165 - Refine environment topology alignment
+
+_Date: 2026-09-12_
+
+Vertically center single-line labels beside their service icons.
+Lower the Kubernetes observability group and remove the small dogleg from the application-to-Redis connector.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The rendered topology now centers single-line service labels beside their icons and gives the Redis route one clean right-angle turn.
+Verification: 13 report-rendering tests and the update-lab build passed; both published SVG copies parse successfully and are byte-identical.
