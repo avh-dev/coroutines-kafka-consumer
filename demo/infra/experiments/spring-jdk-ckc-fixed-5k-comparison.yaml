@@ -50,14 +50,24 @@ workload:
       kafka_topic: order.events.v1
       traffic_percent: 35
       max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_key
     batch:
       kafka_topic: batch.events.v1
       traffic_percent: 25
       max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_key
     telemetry:
       kafka_topic: cauldron.events.v1
       traffic_percent: 40
       max_e2e_latency_ms: 1000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
   diagnostics:
   - at: 5m
     type: tcpdump

@@ -925,6 +925,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "order": {
                         "kafka_topic": "order.events.v1",
                         "max_e2e_latency_ms": 2000,
+                        "contract": {"delivery": "at_least_once", "ordering": "per_key"},
                     }
                 }
             }
@@ -966,6 +967,10 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Above E2E limit", markdown)
+            self.assertIn("delivery: at least once · ordering: per key", markdown)
+            self.assertIn("Key ordering (audit)", markdown)
+            self.assertIn('class="status-pass">PASS · 0', markdown)
+            self.assertIn('class="champion"', markdown)
             self.assertIn("Context switches average", markdown)
             self.assertIn("### Steady-state highlights", markdown)
             self.assertIn("Audit published rate", markdown)

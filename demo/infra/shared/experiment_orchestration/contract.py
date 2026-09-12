@@ -84,7 +84,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
     load = require_mapping(workload.get("load"), "Experiment workload.load")
     for topic, settings in topics.items():
         item = require_mapping(settings, f"Experiment workload.topics.{topic}")
-        unknown_topic_fields = sorted(set(item) - {"kafka_topic", "traffic_percent", "max_e2e_latency_ms"})
+        unknown_topic_fields = sorted(set(item) - {"kafka_topic", "traffic_percent", "max_e2e_latency_ms", "contract"})
         if unknown_topic_fields:
             raise ValueError(f"Experiment workload.topics.{topic} contains unknown fields: {', '.join(unknown_topic_fields)}")
         kafka_topic = str(item.get("kafka_topic") or "").strip()
@@ -96,11 +96,35 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
             raise ValueError(f"Experiment workload.topics.{topic}.traffic_percent must be between 0 and 100")
         if not isinstance(max_e2e_latency_ms, (int, float)) or isinstance(max_e2e_latency_ms, bool) or max_e2e_latency_ms < 0:
             raise ValueError(f"Experiment workload.topics.{topic}.max_e2e_latency_ms must be non-negative")
-        normalized_topics[topic] = {
+        normalized_topic = {
             "kafka_topic": kafka_topic,
             "traffic_percent": traffic_percent,
             "max_e2e_latency_ms": max_e2e_latency_ms,
         }
+        if "contract" in item:
+            contract = require_mapping(item.get("contract"), f"Experiment workload.topics.{topic}.contract", non_empty=True)
+            unknown_contract_fields = sorted(set(contract) - {"delivery", "ordering", "semantics"})
+            if unknown_contract_fields:
+                raise ValueError(
+                    f"Experiment workload.topics.{topic}.contract contains unknown fields: "
+                    f"{', '.join(unknown_contract_fields)}"
+                )
+            allowed_contract_values = {
+                "delivery": {"at_least_once", "not_guaranteed"},
+                "ordering": {"per_key", "per_partition", "not_guaranteed"},
+                "semantics": {"freshness_first"},
+            }
+            for field_name, allowed_values in allowed_contract_values.items():
+                if field_name not in contract:
+                    continue
+                value = str(contract[field_name])
+                if value not in allowed_values:
+                    raise ValueError(
+                        f"Experiment workload.topics.{topic}.contract.{field_name} must be one of: "
+                        f"{', '.join(sorted(allowed_values))}"
+                    )
+            normalized_topic["contract"] = copy.deepcopy(contract)
+        normalized_topics[topic] = normalized_topic
     if sum(float(item["traffic_percent"]) for item in normalized_topics.values()) != 100:
         raise ValueError("Experiment workload topic traffic_percent values must total 100")
     load = copy.deepcopy(load)

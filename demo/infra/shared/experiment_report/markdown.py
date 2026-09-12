@@ -111,6 +111,8 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def compared(values: list[float | None], digits: int, suffix: str) -> list[str]:
         baseline = values[0] if values else None
+        available = [float(value) for value in values if value is not None]
+        best = min(available) if available else None
         cells = []
         for index, value in enumerate(values):
             primary = "—" if value is None else f"{number(value, digits)}{suffix}"
@@ -126,7 +128,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 note = f"{baseline / value:.2f}× lower"
             else:
                 note = f"{value / baseline:.2f}× higher"
-            cells.append(primary + (f'<br><span class="delta">{note}</span>' if note else ""))
+            content = primary + (f'<br><span class="delta">{note}</span>' if note else "")
+            if value is not None and best is not None and math.isclose(float(value), best, rel_tol=0.005):
+                content = f'<span class="champion">{content}</span>'
+            cells.append(content)
         return cells
 
     environment_block = (
@@ -165,7 +170,11 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}'
-            'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}</style>'
+            'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
+            'table.comparison .champion{display:inline-block;background:#dcfce7;color:#166534;font-weight:600;border-radius:4px;padding:2px 5px}'
+            'table.comparison .champion .delta{color:#3f6212}'
+            'table.comparison .status-pass{color:#166534;font-weight:600}'
+            'table.comparison .status-fail{color:#b42318;font-weight:600}</style>'
         ),
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
@@ -252,15 +261,46 @@ def render_markdown(report: ExperimentReport) -> str:
         for topic in target.configuration.get("topics", []):
             if isinstance(topic, dict) and topic.get("name") not in configured_topics:
                 configured_topics.append(topic.get("name"))
+    topic_contracts = report.test_definition.get("topic_contracts")
+    if not isinstance(topic_contracts, dict):
+        topic_contracts = {}
+
+    def topic_contract(topic: str) -> dict[str, Any]:
+        value = topic_contracts.get(topic, {})
+        return value if isinstance(value, dict) else {}
+
+    def contract_label(topic: str) -> str:
+        contract = topic_contract(topic)
+        if contract.get("semantics") == "freshness_first":
+            return "freshness first · delivery/ordering not guaranteed"
+        labels = []
+        if contract.get("delivery") == "at_least_once":
+            labels.append("delivery: at least once")
+        if contract.get("ordering") == "per_key":
+            labels.append("ordering: per key")
+        elif contract.get("ordering") == "per_partition":
+            labels.append("ordering: per partition")
+        return " · ".join(labels)
+
     def e2e_target_title(topic: str, values: list[TargetReport]) -> str:
         limits = {
             (target.topic_evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms")
             for target in values
             if (target.topic_evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms") is not None
         }
-        if len(limits) == 1:
-            return f"{topic} · E2E target ≤ {number(limits.pop(), 0)} ms"
-        return topic
+        title = f"{topic} · E2E target ≤ {number(limits.pop(), 0)} ms" if len(limits) == 1 else topic
+        contract = contract_label(topic)
+        return f"{title} · {contract}" if contract else title
+
+    def key_order_result(data: dict[str, Any]) -> str:
+        ordering = data.get("ordering") if isinstance(data.get("ordering"), dict) else {}
+        by_key = ordering.get("by_key") if isinstance(ordering.get("by_key"), dict) else {}
+        value = by_key.get("out_of_order")
+        if value is None:
+            return "—"
+        status_class = "status-pass" if int(value) == 0 else "status-fail"
+        status = "PASS" if int(value) == 0 else "FAIL"
+        return f'<span class="{status_class}">{status} · {number(value, 0)}</span>'
 
     for topic_name in configured_topics:
 
@@ -367,7 +407,7 @@ def render_markdown(report: ExperimentReport) -> str:
         window_topics = [topic for topic in preferred_topics if topic in window_available_topics]
         window_topics.extend(sorted(window_available_topics - set(window_topics)))
         for topic in window_topics:
-            subsection(f"{topic} · measurement window")
+            subsection(f"{e2e_target_title(topic, targets)} · measurement window")
             def window_topic(target: TargetReport) -> dict[str, Any]:
                 value = target.window_topic_evidence.get(topic, {})
                 return value if isinstance(value, dict) else {}
@@ -377,6 +417,8 @@ def render_markdown(report: ExperimentReport) -> str:
                 "Processed duplicates",
                 [number((window_topic(target).get("duplicates") or {}).get("processed"), 0) for target in targets],
             )
+            if topic_contract(topic).get("ordering") == "per_key":
+                row("Key ordering (audit)", [key_order_result(window_topic(target)) for target in targets])
             for percentile in ("p50", "p95", "p99", "max"):
                 row(f"Audit E2E latency {percentile}", ["—" if (window_topic(target).get("e2e_latency") or {}).get(percentile) is None else number((window_topic(target).get("e2e_latency") or {})[percentile], 0) + " ms" for target in targets])
             if any((window_topic(target).get("e2e_latency") or {}).get("limit_ms") is not None for target in targets):
@@ -448,6 +490,8 @@ def render_markdown(report: ExperimentReport) -> str:
             "Processed duplicates",
             [number((topic_data(target, topic).get("duplicates") or {}).get("processed"), 0) for target in targets],
         )
+        if topic_contract(topic).get("ordering") == "per_key":
+            row("Key ordering (audit)", [key_order_result(topic_data(target, topic)) for target in targets])
         for percentile in ("p50", "p95", "p99", "max"):
             row(
                 f"Audit E2E latency {percentile}",

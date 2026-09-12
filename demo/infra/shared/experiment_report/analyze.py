@@ -701,6 +701,13 @@ def analyze_experiment(
         and topic.get("kafka_topic")
         and isinstance(topic.get("max_e2e_latency_ms"), int | float)
     }
+    topic_contracts = {
+        str(topic.get("kafka_topic")): dict(topic["contract"])
+        for topic in workload_topics.values()
+        if isinstance(topic, dict)
+        and topic.get("kafka_topic")
+        and isinstance(topic.get("contract"), dict)
+    }
     chaos_scenarios = normalize_chaos_scenarios(
         test_definition.get("chaos_steps"),
         test_definition.get("stubs"),
@@ -887,6 +894,7 @@ def analyze_experiment(
             "load_test": load_test,
             "load_phases": phases,
             "load_topics": load_topics,
+            "topic_contracts": topic_contracts,
             "measurement_window": load_test.get("measurement_window"),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
