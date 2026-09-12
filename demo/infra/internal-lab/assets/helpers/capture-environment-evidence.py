@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,13 @@ def command_json(arguments: list[str]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def java_version(arguments: list[str]) -> str | None:
+    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    output = "\n".join((result.stdout, result.stderr))
+    match = re.search(r'(?:openjdk|java) version "([^"]+)"', output)
+    return match.group(1) if match else None
 
 
 def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, list[str]]]:
@@ -126,6 +134,16 @@ def main() -> int:
     host = platform.node()
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
+    java = {
+        "application": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo", "--", "java", "-version"]),
+        "stubs": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo-stubs", "--", "java", "-version"]),
+        "load_generator": java_version(["java", "-version"]),
+        "kafka": (
+            java_version(["docker", "exec", "ckc-perf-kafka", "/opt/java/openjdk/bin/java", "-version"])
+            if implementation == "apache-kafka"
+            else None
+        ),
+    }
     metadata["environment_evidence"] = {
         "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "provider": "bare metal",
@@ -134,6 +152,7 @@ def main() -> int:
         "kubernetes": kubernetes,
         "nodes": nodes,
         "hardware": hardware_evidence(),
+        "java": {key: value for key, value in java.items() if value},
         "workloads": workloads,
         "kafka": {
             "mode": "docker",

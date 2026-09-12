@@ -307,6 +307,7 @@
 | [INFRA-161](#infra-161) | Refine environment topology and baseline-oriented comparison presentation. | DONE |
 | [INFRA-162](#infra-162) | Enrich the internal-lab topology with runtime boundaries, observability, icons, and the effective CPU frequency cap. | DONE |
 | [INFRA-163](#infra-163) | Add spacing and alignment to the internal-lab environment topology. | DONE |
+| [INFRA-164](#infra-164) | Polish environment service identity, icons, and Java runtime evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3518,3 +3519,15 @@ Route experiment traffic with longer straight approaches so connector corners do
 Regenerate only the environment-topology SVG for the completed comparison report.
 The published diagram is now 820 px high, aligns the load generator with the Docker cards, places exporters on their own full-width row, and gives every arrowhead a longer straight approach.
 Verification: the report-rendering tests passed, both SVG copies parse successfully, their geometry assertions pass, and the working and published files are byte-identical.
+
+<a id="infra-164"></a>
+### INFRA-164 - Polish environment service identity and runtime evidence
+
+_Date: 2026-09-12_
+
+Name the demo application and stubs after their repository projects and replace generic JDK marks with purpose-specific laboratory and load-generator artwork.
+Use the official Alloy and Loki artwork, give each exporter its own row and icon, and record the Java runtime version for every JVM component.
+Regenerate only the environment-topology SVG for the completed comparison report.
+The completed diagram identifies CKC demo app and CKC demo stubs, uses laboratory and speedometer glyphs, and embeds official Grafana Alloy and Loki artwork plus distinct exporter glyphs.
+Captured evidence records Java 21.0.12 for the application, stubs, and load generator, and Java 21.0.11 for Kafka.
+Verification: 13 report-rendering tests and 60 update-lab build tests passed; all 18 service SVG assets and both byte-identical report SVG copies parse successfully.

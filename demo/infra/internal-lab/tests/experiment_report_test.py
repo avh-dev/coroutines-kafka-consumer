@@ -208,6 +208,12 @@ class ExperimentReportTest(unittest.TestCase):
                             "governors": ["ondemand"],
                         },
                     },
+                    "java": {
+                        "application": "21.0.12",
+                        "stubs": "21.0.12",
+                        "load_generator": "21.0.12",
+                        "kafka": "21.0.11",
+                    },
                     "workloads": {
                         "application": ["optilab"],
                         "producer": ["optilab"],
@@ -521,6 +527,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("CPU capped at 2 GHz", environment_svg)
             self.assertIn("Prometheus 3.3.1", environment_svg)
             self.assertIn("Fluent Bit 4.2.3", environment_svg)
+            self.assertIn("CKC demo app", environment_svg)
+            self.assertIn("CKC demo stubs", environment_svg)
+            self.assertIn("Java 21.0.12", environment_svg)
+            self.assertIn("Java 21.0.11", environment_svg)
+            self.assertIn("Kafka exporter", environment_svg)
+            self.assertIn("process-exporter", environment_svg)
             self.assertIn("data:image/svg+xml;base64,", environment_svg)
             self.assertNotRegex(environment_svg, r'<path d="M[^"]* C')
             self.assertIn("## Environment", markdown)
