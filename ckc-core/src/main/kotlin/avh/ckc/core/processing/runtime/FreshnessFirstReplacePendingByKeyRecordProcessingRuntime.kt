@@ -120,7 +120,9 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
             } else if (admissionBudget.tryAcquire()) {
                 val envelope = Envelope(key, record)
                 state.queued = envelope
-                envelopeToSend = envelope
+                if (!state.inFlight) {
+                    envelopeToSend = envelope
+                }
                 state
             } else {
                 dropIncoming = true
@@ -137,6 +139,10 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         }
 
         val envelope = envelopeToSend ?: return true
+        return send(envelope)
+    }
+
+    private fun send(envelope: Envelope<K, V>): Boolean {
         val result = workChannel.trySend(envelope)
         if (!result.isSuccess) {
             releaseQueuedEnvelope(envelope)
@@ -198,16 +204,17 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     }
 
     private fun finish(key: FreshnessKey) {
+        var successor: Envelope<K, V>? = null
         states.compute(key) { _, state ->
             if (state == null) {
                 null
             } else {
-                // Remove idle keys from the map. If a successor arrived while this record was in-flight,
-                // keep the state so the already-queued envelope can be claimed by a worker.
                 state.inFlight = false
-                if (state.queued == null) null else state
+                successor = state.queued
+                if (successor == null) null else state
             }
         }
+        successor?.let(::send)
     }
 
     private fun releaseQueuedEnvelope(envelope: Envelope<K, V>) {
