@@ -37,6 +37,8 @@ workload:
     diagnostics_blob_size: 64
     workers: 100
     stats_log_interval_seconds: 15
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
     consumer_drain_timeout_seconds: 300
     consumer_drain_required: true
     telemetry_settle_seconds: 65

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, ROUND_CEILING
 import copy
 import json
 import math
@@ -320,9 +321,28 @@ def work_channel_capacity(topic: str, mode: str, load_test: dict[str, Any]) -> i
     if runtime_processing_mode(mode) != FRESHNESS_BY_KEY_MODE:
         return DEFAULT_TELEMETRY_WORK_CHANNEL_CAPACITY
 
-    # The current load generator creates a fixed cauldron fleet per generator worker.
-    # Keep capacity aligned with the effective keyspace until the generator owns a
-    # single shared fleet for the whole run.
+    if str(load_test.get("telemetry_source_mode") or "") == "FLEET":
+        base_tps = load_test_int(load_test, "base_tps", 10_000)
+        workers = load_test_int(load_test, "workers", 1)
+        shards = load_test_int(load_test, "shards", 1)
+        telemetry_percent = load_test.get("cauldron_telemetry_percent", 40)
+        interval = load_test_int(load_test, "telemetry_publish_interval_seconds", 5)
+        percentages = [float(value) for value in re.findall(
+            r"(?:^|->)\s*(\d+(?:\.\d+)?)\s*(?=->|$)", str(load_test.get("load_profile") or "")
+        )]
+        peak = max(percentages, default=100.0)
+        per_shard = sum(
+            int((
+                Decimal(base_tps // workers + (1 if worker < base_tps % workers else 0))
+                * Decimal(str(telemetry_percent))
+                * Decimal(str(peak))
+                * Decimal(interval)
+                / Decimal(10_000)
+            ).to_integral_value(rounding=ROUND_CEILING))
+            for worker in range(workers)
+        )
+        return max(1, per_shard * shards)
+
     cauldron_count = load_test_int(load_test, "cauldron_count", 32)
     workers = load_test_int(load_test, "workers", 1)
     shards = load_test_int(load_test, "shards", 1)

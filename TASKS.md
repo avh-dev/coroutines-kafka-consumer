@@ -147,6 +147,7 @@
 | [DEMO-90](#demo-90) | Remove runtime Kafka producer reconfiguration and return load-test producers to fixed per-run configuration. | DONE |
 | [DEMO-91](#demo-91) | Adopt the two-level Thread Stats category and group configuration in the demo application. | DONE |
 | [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
+| [DEMO-93](#demo-93) | Generate telemetry from a pre-seeded fleet at a fixed per-key interval while scaling load through active key count. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -3607,3 +3608,15 @@ The successor now enters the shared work channel only after the current handler 
 Verification: the regression test failed against the previous runtime and passes after the fix; all unit tests and the project check excluding integration tests passed.
 The full integration suite passed its earlier Kafka scenarios but was interrupted after an unrelated deserialization-failure test deadlocked in its nested `runBlocking` stop assertion.
 Internal-lab validation run `20260912T143157Z` processed 1,076,231 telemetry records with zero per-key ordering inversions; its 240–540 s steady window sustained 4,997 msg/s with clean delivery evidence across all topics.
+
+
+<a id="demo-93"></a>
+### DEMO-93 - Add rate-scaled telemetry fleet
+
+_Date: 2026-09-12_
+
+Generate telemetry at a configurable fixed interval per key and scale throughput by changing the active fleet size.
+Prepare the isolated telemetry batch corpus directly in Redis before measured Kafka traffic begins.
+Keep ordinary batch lifecycle state separate from the telemetry corpus and document the resolved generation model visually.
+Expose the fleet source, interval, and derived peak key count in experiment reports and use the derived keyspace for freshness-channel planning.
+Internal-lab smoke experiment `20260913T021620Z` completed both targets with clean delivery and ordering; all 5,135 observed per-key gaps were at least 5,000 ms.

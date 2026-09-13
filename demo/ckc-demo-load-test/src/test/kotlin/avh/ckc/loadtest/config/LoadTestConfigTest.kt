@@ -1,5 +1,6 @@
 package avh.ckc.loadtest.config
 
+import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -42,7 +43,8 @@ class LoadTestConfigTest {
                 "MAX_BREWING_STEP_BURST" to "6",
                 "MAX_BURST" to "77",
                 "STATS_LOG_INTERVAL_SECONDS" to "9",
-                "TELEMETRY_SOURCE_MODE" to "FIXED_FLEET",
+                "TELEMETRY_SOURCE_MODE" to "FLEET",
+                "TELEMETRY_PUBLISH_INTERVAL_SECONDS" to "7",
                 "PUBLISH_ENABLED" to "false",
                 "AUDIT_TCP_HOST" to "audit-host",
                 "AUDIT_TCP_PORT" to "5511",
@@ -73,7 +75,8 @@ class LoadTestConfigTest {
         assertEquals(6, config.maxBrewingStepBurst)
         assertEquals(77, config.maxBurst)
         assertEquals(9, config.statsLogInterval.seconds)
-        assertEquals(TelemetrySourceMode.FIXED_FLEET, config.telemetrySourceMode)
+        assertEquals(TelemetrySourceMode.FLEET, config.telemetrySourceMode)
+        assertEquals(Duration.ofSeconds(7), config.telemetryPublishInterval)
         assertEquals(false, config.publishEnabled)
         assertEquals("audit-host", config.auditHost)
         assertEquals(5511, config.auditPort)

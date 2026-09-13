@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from .planner import plan_target
+from .planner import plan_target, work_channel_capacity
 from .contract import validate_canonical_experiment
 
 
@@ -27,6 +27,24 @@ def canonical_inputs(directory: Path) -> tuple[Path, Path]:
 
 
 class PlannerTest(unittest.TestCase):
+    def test_sizes_freshness_channel_from_peak_telemetry_fleet(self) -> None:
+        self.assertEqual(
+            404,
+            work_channel_capacity(
+                "telemetry",
+                "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY",
+                {
+                    "telemetry_source_mode": "FLEET",
+                    "base_tps": 101,
+                    "workers": 2,
+                    "shards": 2,
+                    "cauldron_telemetry_percent": 40,
+                    "telemetry_publish_interval_seconds": 5,
+                    "load_profile": "0 -> (1m, warmup) -> 100 -> (1m, steady) -> 100",
+                },
+            ),
+        )
+
     def test_plans_a_shared_target_without_environment_specific_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             definition_path, profiles_path = canonical_inputs(Path(directory))

@@ -1,7 +1,6 @@
 package avh.ckc.loadtest.generator
 
 import avh.ckc.loadtest.config.LoadTestConfig
-import avh.ckc.loadtest.config.TelemetrySourceMode
 import avh.ckc.loadtest.domain.LoadTestEventFactory
 import avh.ckc.loadtest.domain.SimulationState
 import avh.ckc.loadtest.kafka.LoadTestPublisher
@@ -27,7 +26,6 @@ class TrafficGenerator(
 
     suspend fun run(flushOnCompletion: Boolean = true) = coroutineScope {
         val factory = LoadTestEventFactory(identity)
-        prepareFixedFleetIfNeeded(factory)
         val startedAt = shardContext.testRunStartedAt ?: Instant.now()
         val generators = eventGenerators(config, state, factory, producers)
         val topicWeights = generators
@@ -36,14 +34,18 @@ class TrafficGenerator(
 
         val jobs = generators.map { generator ->
             launch {
-                RateControlledGeneratorRunner(
-                    generator = generator,
-                    config = config,
-                    scenario = scenario,
-                    startedAt = startedAt,
-                    topicWeightTotal = topicWeights.getValue(generator.topic),
-                    stats = stats
-                ).run()
+                if (generator is FleetTelemetryEventGenerator) {
+                    FleetTelemetryGeneratorRunner(generator, config, scenario, startedAt, stats).run()
+                } else {
+                    RateControlledGeneratorRunner(
+                        generator = generator,
+                        config = config,
+                        scenario = scenario,
+                        startedAt = startedAt,
+                        topicWeightTotal = topicWeights.getValue(generator.topic),
+                        stats = stats
+                    ).run()
+                }
             }
         }
         val logger = launch {
@@ -61,18 +63,4 @@ class TrafficGenerator(
         }
     }
 
-    private fun prepareFixedFleetIfNeeded(factory: LoadTestEventFactory) {
-        if (config.telemetrySourceMode != TelemetrySourceMode.FIXED_FLEET) {
-            return
-        }
-
-        val now = Instant.now()
-        state.fixedFleetBatches(now).forEach { batch ->
-            producers.sendBatch(batch.batchId, factory.batchCreated(batch, now))
-            producers.sendBatch(batch.batchId, factory.batchCauldronAssigned(batch, now))
-            producers.sendBatch(batch.batchId, factory.batchBrewingStarted(batch, now))
-        }
-        producers.flush()
-        producers.logSnapshot("${identity.label()} fixed-fleet-prepared cauldrons=${config.cauldronCount}")
-    }
 }

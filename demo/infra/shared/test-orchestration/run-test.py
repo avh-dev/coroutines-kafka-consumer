@@ -776,6 +776,12 @@ def reset_target_data(
         str(repo_dir / "demo/infra/shared/test-orchestration/flush-redis.py"),
         "--host", as_str(lab_context.get("redis_host"), ""),
     ])
+    run([
+        sys.executable,
+        str(repo_dir / "demo/infra/shared/experiment_orchestration/seed_telemetry_fleet.py"),
+        "--definition-path", str(definition_path),
+        "--host", as_str(lab_context.get("redis_host"), ""),
+    ])
 
 
 def require_section(root: dict[str, Any], name: str) -> dict[str, Any]:

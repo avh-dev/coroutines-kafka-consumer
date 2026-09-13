@@ -108,14 +108,14 @@ class TrafficGeneratorTest {
     }
 
     @Test
-    fun `fixed fleet telemetry prepares active batches and cycles cauldron keys`() = runBlocking {
-        val publisher = RecordingPublisher()
+    fun `fleet telemetry cycles isolated cauldron keys at a fixed cadence`() = runBlocking {
+        val publisher = RecordingPublisher(firstTelemetryDelay = Duration.ofMillis(60))
         val config = LoadTestConfig(
             bootstrapServers = "localhost:9092",
             orderEventsTopic = "order.events.v1",
             batchEventsTopic = "batch.events.v1",
             cauldronEventsTopic = "cauldron.events.v1",
-            baseTps = 120,
+            baseTps = 10,
             orderEventPercent = 0,
             batchEventPercent = 0,
             cauldronTelemetryPercent = 100,
@@ -131,7 +131,8 @@ class TrafficGeneratorTest {
             maxBurst = 100,
             statsLogInterval = Duration.ofSeconds(30),
             diagnosticsBlobSize = 8,
-            telemetrySourceMode = TelemetrySourceMode.FIXED_FLEET,
+            telemetrySourceMode = TelemetrySourceMode.FLEET,
+            telemetryPublishInterval = Duration.ofMillis(100),
             publishEnabled = true,
             auditLogEnabled = false
         )
@@ -146,16 +147,25 @@ class TrafficGeneratorTest {
         }
 
         assertTrue(publisher.telemetryKeys.isNotEmpty())
-        assertTrue(publisher.batchSent >= 12)
-        assertTrue((1..4).all { index -> "cauldron-0-0-000$index" in publisher.telemetryKeys })
+        assertTrue(publisher.batchSent == 0)
+        assertTrue(publisher.telemetryKeys.all { it.startsWith("fleet-cauldron-0-0-") })
+        val gaps = publisher.telemetrySentAtNanos.zipWithNext { first, second -> second - first }
+        assertTrue(gaps.size >= 2)
+        assertTrue(
+            gaps.all { it >= Duration.ofMillis(95).toNanos() },
+            "Telemetry cadence was shortened after a blocking send: $gaps"
+        )
     }
 
-    private class RecordingPublisher : LoadTestPublisher {
+    private class RecordingPublisher(
+        private val firstTelemetryDelay: Duration = Duration.ZERO
+    ) : LoadTestPublisher {
         private val orderCounter = AtomicInteger()
         private val batchCounter = AtomicInteger()
         private val telemetryCounter = AtomicInteger()
         private val flushedFlag = AtomicBoolean(false)
         val telemetryKeys: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        val telemetrySentAtNanos: MutableList<Long> = Collections.synchronizedList(mutableListOf())
 
         val orderSent: Int
             get() = orderCounter.get()
@@ -177,7 +187,11 @@ class TrafficGeneratorTest {
         }
 
         override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
+            if (telemetryCounter.get() == 0 && !firstTelemetryDelay.isZero) {
+                Thread.sleep(firstTelemetryDelay.toMillis())
+            }
             telemetryKeys += key
+            telemetrySentAtNanos += System.nanoTime()
             telemetryCounter.incrementAndGet()
         }
 

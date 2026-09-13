@@ -239,6 +239,11 @@ CONSUMER_GROUPS="ckc-demo" \
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
 
+python3 "${LAB_ROOT}/helpers/experiment_orchestration/seed_telemetry_fleet.py" \
+  --definition-path "${TEST_DEFINITION}" \
+  --host 127.0.0.1 \
+  --docker-container ckc-perf-redis
+
 if [[ -z "${DEPLOYMENT_PLAN_PATH}" || ! -f "${DEPLOYMENT_PLAN_PATH}" ]]; then
   echo "A generated deployment plan is required: ${DEPLOYMENT_PLAN_PATH}" >&2
   exit 1

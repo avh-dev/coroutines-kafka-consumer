@@ -1,6 +1,6 @@
 schema_version: 2
 name: telemetry-fairness-profile-comparison
-description: Compare telemetry fairness on the same fixed-fleet overload test.
+description: Compare telemetry fairness on the same rate-scaled fleet overload test.
 workload:
   stubs:
     error_rate_percent: 0
@@ -27,7 +27,8 @@ workload:
       order: 1000
       batch: 1000
       telemetry: 1000
-    telemetry_source_mode: FIXED_FLEET
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
     load_profile: 0 -> (1m, warmup) -> 100 -> (12m, telemetry-fairness) -> 100 ->
       (1m, cool-down) -> 0
     cauldron_count: 10000

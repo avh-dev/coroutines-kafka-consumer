@@ -43,10 +43,35 @@ Rules:
 - records use stable key affinity within a topic pool so scaling the producer service does not introduce generator-side same-key reordering
 - event generators use state queues when a suitable simulated entity exists and delegate prerequisite event generation while the state is warming up
 - `BREWING_STEP_BURST_EVERY`, `MIN_BREWING_STEP_BURST`, and `MAX_BREWING_STEP_BURST` emit same-key `BATCH_BREWING_STEP_COMPLETED` bursts, capped by remaining batch brewing steps, so ordered-by-key contention is observable without increasing total TPS
-- `TELEMETRY_SOURCE_MODE=FIXED_FLEET` prepares one active synthetic batch per configured cauldron and emits telemetry round-robin across the fixed cauldron fleet
+- `TELEMETRY_SOURCE_MODE=FLEET` emits each telemetry key at `TELEMETRY_PUBLISH_INTERVAL_SECONDS` and changes the active key count to follow the requested telemetry rate
 - the default `TELEMETRY_SOURCE_MODE=ACTIVE_BATCHES` keeps cauldron telemetry tied to batches that are active in the simulated business pipeline
 - `PUBLISH_ENABLED=false` keeps generation and audit output enabled but skips Kafka sends for local debugging
 - the load-test process flushes producers and exits when the profile schedule ends
+
+## Telemetry Fleet
+
+Throughput-driven experiments use a pre-seeded telemetry corpus that is separate from batches produced by the ordinary lifecycle generator. Before the measured run starts, the orchestration layer writes one `batch-state:fleet-batch-*` fixture per possible telemetry source directly to Redis. It does not publish setup events to Kafka, so corpus preparation does not affect audit totals, consumer warmup, or the measured topic mix.
+
+```mermaid
+flowchart LR
+    P[Experiment setup] -->|seed fleet batch state| R[(Redis)]
+    L[Order and batch lifecycle] -->|ordinary events| K[(Kafka)]
+    F[Telemetry fleet scheduler] -->|fleet telemetry only| K
+    K --> A[CKC demo app]
+    A --> R
+    L -. never registers keys .-> F
+```
+
+For `TELEMETRY_SOURCE_MODE=FLEET`, the fleet follows these calculations:
+
+```text
+fleet size = peak telemetry messages/second × publish interval seconds
+active keys = current telemetry messages/second × publish interval seconds
+```
+
+Every key has a stable owner worker, activation rank, and phase within the interval. Increasing load enables more keys; it does not shorten the interval for keys that are already active. A delayed scheduler skips expired ticks instead of sending a catch-up burst. Fleet identifiers use the `fleet-cauldron-*` and `fleet-batch-*` prefixes, so lifecycle batches cannot overwrite their Redis state or become accidental telemetry sources.
+
+For example, 5,000 total messages/second with 40% telemetry and a five-second interval resolves to 2,000 telemetry messages/second and 10,000 fleet keys at peak load.
 
 ## Producer Metrics
 

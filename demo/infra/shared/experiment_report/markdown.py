@@ -337,6 +337,13 @@ def render_markdown(report: ExperimentReport) -> str:
         ],
     )
     row("Dispatcher", [escaped(target.configuration.get("dispatcher")) for target in targets])
+    if any(target.test_definition.get("telemetry_source_mode") == "FLEET" for target in targets):
+        row("Telemetry source", [escaped(target.test_definition.get("telemetry_source_mode")) for target in targets])
+        row(
+            "Per-key telemetry interval",
+            [f'{number(target.test_definition.get("telemetry_publish_interval_seconds"), 0)} s' for target in targets],
+        )
+        row("Peak telemetry fleet", [number(target.test_definition.get("peak_telemetry_fleet_size"), 0) for target in targets])
     configured_topics = []
     for target in targets:
         for topic in target.configuration.get("topics", []):

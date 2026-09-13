@@ -20,6 +20,7 @@ from experiment_report.analyze import (  # noqa: E402
     latency_profile_matches,
     normalize_chaos_scenarios,
     parse_load_profile,
+    peak_telemetry_fleet_size,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import shared_freshness_cutoff  # noqa: E402
@@ -28,6 +29,22 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_peak_telemetry_fleet_size_matches_worker_partitioning(self) -> None:
+        self.assertEqual(
+            404,
+            peak_telemetry_fleet_size(
+                {
+                    "telemetry_source_mode": "FLEET",
+                    "base_tps": 101,
+                    "workers": 2,
+                    "shards": 2,
+                    "cauldron_telemetry_percent": 40,
+                    "telemetry_publish_interval_seconds": 5,
+                },
+                [{"start_percent": 0, "end_percent": 100}],
+            ),
+        )
+
     def test_freshness_cutoff_uses_the_longest_outer_tail_boundary(self) -> None:
         self.assertEqual(
             11,
