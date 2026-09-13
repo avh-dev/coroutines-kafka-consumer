@@ -364,6 +364,7 @@ def main() -> None:
         "STATS_LOG_INTERVAL_SECONDS": str(load_test.get("stats_log_interval_seconds", 30)),
         "DIAGNOSTICS_BLOB_SIZE": str(load_test.get("diagnostics_blob_size", 512)),
         "TELEMETRY_SOURCE_MODE": str(load_test.get("telemetry_source_mode", "ACTIVE_BATCHES")),
+        "TELEMETRY_PUBLISH_INTERVAL_SECONDS": str(load_test.get("telemetry_publish_interval_seconds", 5)),
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),

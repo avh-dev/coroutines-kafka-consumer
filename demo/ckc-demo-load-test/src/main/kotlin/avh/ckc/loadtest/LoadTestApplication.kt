@@ -42,6 +42,10 @@ fun main() = runBlocking {
     )
     println("workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} baseTpsPerJvm=${config.baseTps}")
     println(
+        "telemetrySource=${config.telemetrySourceMode} " +
+            "publishIntervalSeconds=${config.telemetryPublishInterval.toSeconds()}"
+    )
+    println(
         "producerPools(order=${producerPoolSizes.order},batch=${producerPoolSizes.batch},telemetry=${producerPoolSizes.cauldronTelemetry}) " +
             "tpsPerProducer(order=${config.producerCapacity.orderTps},batch=${config.producerCapacity.batchTps}," +
             "telemetry=${config.producerCapacity.cauldronTelemetryTps})"

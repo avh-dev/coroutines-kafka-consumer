@@ -18,6 +18,10 @@ interface EventGenerator {
     fun emit(now: Instant): EmitResult
 }
 
+interface FleetTelemetryEventGenerator : EventGenerator {
+    fun emitFleet(index: Int, now: Instant): EmitResult
+}
+
 enum class TrafficTopic {
     ORDER,
     BATCH,
@@ -91,8 +95,20 @@ private class DelegatingGenerationContext(
         simple("batch_brewing_completed", TrafficTopic.BATCH) { now -> emitBatchBrewingCompleted(now, depth = 0) },
         simple("batch_bottling_started", TrafficTopic.BATCH) { now -> emitBatchBottlingStarted(now, depth = 0) },
         simple("batch_bottling_completed", TrafficTopic.BATCH) { now -> emitBatchBottlingCompleted(now, depth = 0) },
-        simple("cauldron_telemetry", TrafficTopic.CAULDRON) { now -> emitCauldronTelemetry(now, depth = 0) }
+        if (config.telemetrySourceMode == TelemetrySourceMode.FLEET) fleetTelemetryGenerator()
+        else simple("cauldron_telemetry", TrafficTopic.CAULDRON) { now -> emitCauldronTelemetry(now, depth = 0) }
     )
+
+    private fun fleetTelemetryGenerator(): FleetTelemetryEventGenerator = object : FleetTelemetryEventGenerator {
+        override val name = "cauldron_telemetry"
+        override val topic = TrafficTopic.CAULDRON
+        override val weight = 1.0
+        override fun emit(now: Instant): EmitResult = emitFleet(0, now)
+        override fun emitFleet(index: Int, now: Instant): EmitResult {
+            publishTelemetry(state.fleetBatch(index, now), now)
+            return EmitResult(emitted = true)
+        }
+    }
 
     private fun simple(
         name: String,
@@ -324,7 +340,7 @@ private class DelegatingGenerationContext(
                 publishTelemetry(batch, now)
                 return EmitResult(emitted = true, delegated = delegated)
             }
-            TelemetrySourceMode.FIXED_FLEET -> state.takeFixedFleetBatchForTelemetry(now)
+            TelemetrySourceMode.FLEET -> error("Fleet telemetry uses its dedicated scheduler")
         }
         publishTelemetry(value, now)
         return EmitResult(emitted = true)
@@ -341,6 +357,7 @@ private class DelegatingGenerationContext(
             telemetrySequence = batch.telemetrySequence
         )
         publisher.sendTelemetry(active.cauldronId, telemetryFactory.create(active, now))
+        batch.telemetrySequence = active.telemetrySequence
     }
 
     private fun checkDepth(depth: Int): Unit? = Unit.takeIf { depth <= maxDelegationDepth }

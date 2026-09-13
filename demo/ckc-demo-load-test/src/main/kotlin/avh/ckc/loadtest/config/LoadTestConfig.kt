@@ -24,6 +24,7 @@ data class LoadTestConfig(
     val statsLogInterval: Duration,
     val diagnosticsBlobSize: Int,
     val telemetrySourceMode: TelemetrySourceMode,
+    val telemetryPublishInterval: Duration = Duration.ofSeconds(5),
     val publishEnabled: Boolean,
     val auditLogEnabled: Boolean,
     val auditHost: String = "127.0.0.1",
@@ -54,6 +55,9 @@ data class LoadTestConfig(
         require(maxBurst > 0) { "maxBurst must be positive" }
         require(!statsLogInterval.isNegative && !statsLogInterval.isZero) { "statsLogInterval must be positive" }
         require(diagnosticsBlobSize >= 0) { "diagnosticsBlobSize must be non-negative" }
+        require(!telemetryPublishInterval.isNegative && !telemetryPublishInterval.isZero) {
+            "telemetryPublishInterval must be positive"
+        }
         require(auditHost.isNotBlank()) { "auditHost must not be blank" }
         require(auditPort > 0) { "auditPort must be positive" }
         require(auditRunId.isNotBlank()) { "auditRunId must not be blank" }
@@ -98,6 +102,9 @@ data class LoadTestConfig(
                 telemetrySourceMode = environment["TELEMETRY_SOURCE_MODE"]
                     ?.let(TelemetrySourceMode::valueOf)
                     ?: TelemetrySourceMode.ACTIVE_BATCHES,
+                telemetryPublishInterval = Duration.ofSeconds(
+                    environment["TELEMETRY_PUBLISH_INTERVAL_SECONDS"]?.toLongOrNull() ?: 5L
+                ),
                 publishEnabled = environment["PUBLISH_ENABLED"]?.toBooleanStrictOrNull() ?: true,
                 auditLogEnabled = environment["AUDIT_LOG_ENABLED"]?.toBooleanStrictOrNull() ?: true,
                 auditHost = environment["AUDIT_TCP_HOST"] ?: "127.0.0.1",
@@ -180,7 +187,7 @@ data class TopicKafkaProducerSettings(
 
 enum class TelemetrySourceMode {
     ACTIVE_BATCHES,
-    FIXED_FLEET
+    FLEET
 }
 
 private fun defaultGeneratorWorkers(): Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)

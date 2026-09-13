@@ -66,9 +66,8 @@ class SimulationState(
 
     private val activeCauldrons = BitSet(cauldronCount)
     private val cauldronBatches = mutableMapOf<Int, SimulatedBatch>()
-    private val fixedFleetBatches = mutableListOf<SimulatedBatch>()
+    private val fleetBatches = mutableListOf<SimulatedBatch>()
     private var cauldronCursor = 0
-    private var fixedFleetCursor = 0
     private var realOrderSequence = 0L
     private var realBatchSequence = 0L
 
@@ -213,37 +212,29 @@ class SimulationState(
     }
 
     @Synchronized
-    fun fixedFleetBatches(now: Instant): List<SimulatedBatch> {
-        if (fixedFleetBatches.isEmpty()) {
-            repeat(cauldronCount) { index ->
-                val sequence = (index + 1).toLong()
-                val batchId = identity.entityId("fleet-batch", sequence, width = 8)
-                val order = PendingOrder(
-                    orderId = identity.entityId("fleet-order", sequence, width = 8),
-                    customerId = identity.entityId("fleet-customer", sequence, width = 8),
-                    potion = recipe(sequence),
-                    createdAt = now,
-                    batchId = batchId
-                )
-                fixedFleetBatches += SimulatedBatch(
-                    batchId = batchId,
-                    cauldronId = cauldronId(index),
-                    potion = order.potion,
-                    orders = listOf(order),
-                    createdAt = now,
-                    brewingStepsTotal = 1
-                )
-            }
+    fun fleetBatch(index: Int, now: Instant): SimulatedBatch {
+        require(index >= 0) { "fleet index must be non-negative" }
+        while (fleetBatches.size <= index) {
+            val fleetIndex = fleetBatches.size
+            val sequence = (fleetIndex + 1).toLong()
+            val batchId = identity.entityId("fleet-batch", sequence, width = 8)
+            val order = PendingOrder(
+                orderId = identity.entityId("fleet-order", sequence, width = 8),
+                customerId = identity.entityId("fleet-customer", sequence, width = 8),
+                potion = recipe(sequence),
+                createdAt = now,
+                batchId = batchId
+            )
+            fleetBatches += SimulatedBatch(
+                batchId = batchId,
+                cauldronId = identity.entityId("fleet-cauldron", sequence, width = 8),
+                potion = order.potion,
+                orders = listOf(order),
+                createdAt = now,
+                brewingStepsTotal = 1
+            )
         }
-        return fixedFleetBatches.toList()
-    }
-
-    @Synchronized
-    fun takeFixedFleetBatchForTelemetry(now: Instant): SimulatedBatch {
-        val fleet = fixedFleetBatches(now)
-        val batch = fleet[fixedFleetCursor]
-        fixedFleetCursor = (fixedFleetCursor + 1) % fleet.size
-        return batch
+        return fleetBatches[index]
     }
 
     @Synchronized

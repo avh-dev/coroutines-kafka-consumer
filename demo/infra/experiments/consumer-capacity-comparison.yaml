@@ -28,7 +28,8 @@ workload:
       order: 1000
       batch: 1000
       telemetry: 1000
-    telemetry_source_mode: FIXED_FLEET
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
     load_profile: 0 -> (6m, capacity) -> 100
     cauldron_count: 75
     min_orders_per_batch: 4

@@ -20,6 +20,7 @@ from experiment_report.analyze import (  # noqa: E402
     latency_profile_matches,
     normalize_chaos_scenarios,
     parse_load_profile,
+    peak_telemetry_fleet_size,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import shared_freshness_cutoff  # noqa: E402
@@ -28,6 +29,22 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_peak_telemetry_fleet_size_matches_worker_partitioning(self) -> None:
+        self.assertEqual(
+            404,
+            peak_telemetry_fleet_size(
+                {
+                    "telemetry_source_mode": "FLEET",
+                    "base_tps": 101,
+                    "workers": 2,
+                    "shards": 2,
+                    "cauldron_telemetry_percent": 40,
+                    "telemetry_publish_interval_seconds": 5,
+                },
+                [{"start_percent": 0, "end_percent": 100}],
+            ),
+        )
+
     def test_freshness_cutoff_uses_the_longest_outer_tail_boundary(self) -> None:
         self.assertEqual(
             11,
@@ -39,6 +56,9 @@ class ExperimentReportTest(unittest.TestCase):
                 ]
             ),
         )
+
+    def test_freshness_cutoff_caps_the_visible_histogram_at_thirty(self) -> None:
+        self.assertEqual(30, shared_freshness_cutoff([{0: 1000, 30: 20, 80: 1}]))
 
     def test_latency_result_must_match_resolved_profile(self) -> None:
         result = LatencySlaResult(
@@ -639,6 +659,8 @@ class ExperimentReportTest(unittest.TestCase):
             outage_action_rect = next(outage_action.iter(f"{namespace}rect"))
             action_center = float(outage_action_rect.attrib["x"]) + float(outage_action_rect.attrib["width"]) / 2
             self.assertAlmostEqual(float(interval_connector.attrib["x1"]), action_center, places=1)
+            outage_card_frame = next(outage_card.iter(f"{namespace}rect"))
+            self.assertEqual(interval_start.attrib["stroke"], outage_card_frame.attrib["stroke"])
             profile_fills = [
                 element
                 for element in root_element.iter(f"{namespace}polygon")
@@ -968,7 +990,9 @@ class ExperimentReportTest(unittest.TestCase):
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
-            self.assertIn("Above E2E limit", markdown)
+            self.assertIn("Processed within E2E limit", markdown)
+            self.assertIn("Published with on-time processed outcome", markdown)
+            self.assertIn(">100.00%<", markdown)
             self.assertIn(
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
                 markdown,
@@ -988,11 +1012,44 @@ class ExperimentReportTest(unittest.TestCase):
                 '<th scope="row">Kafka broker CPU</th><td><span class="champion">0.250 cores',
                 markdown,
             )
+            self.assertIn(
+                '<th scope="row">Application CPU average</th><td><span class="champion">1.000 cores',
+                markdown,
+            )
+            self.assertIn(
+                '<th scope="row">Execution</th><td><span class="status-pass">COMPLETED',
+                markdown,
+            )
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Context switches average", markdown)
             self.assertIn("### Steady-state highlights", markdown)
             self.assertIn("Audit published rate", markdown)
+
+    def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            audit_path = root / "results/runs/run-a/audit/summary.yaml"
+            audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit["audit"]["totals"].update({
+                "processed": 994,
+                "dropped": 6,
+                "dropped_by_reason": {
+                    "replaced_by_newer_key_record": 3,
+                    "stale_age": 2,
+                    "new_key_queue_full": 1,
+                },
+            })
+            self.write_yaml(audit_path, audit)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Dropped · all reasons", markdown)
+            self.assertIn("Replaced by newer record for key", markdown)
+            self.assertIn("Dropped as stale", markdown)
+            self.assertIn("New key rejected · queue full", markdown)
+            self.assertIn('class="status-fail">FAIL · 1', markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

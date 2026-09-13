@@ -4,6 +4,7 @@ import json
 import operator
 import re
 import subprocess
+from decimal import Decimal, ROUND_CEILING
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -124,6 +125,32 @@ def planned_load_topics(load_test: Any) -> list[dict[str, Any]]:
         if percent > 0:
             topics.append({"topic": topic, "label": label, "percent": percent})
     return topics
+
+
+def peak_telemetry_fleet_size(load_test: dict[str, Any], phases: list[dict[str, Any]]) -> int | None:
+    if str(load_test.get("telemetry_source_mode") or "") != "FLEET":
+        return None
+    try:
+        base_tps = int(load_test.get("base_tps") or 0)
+        workers = int(load_test.get("workers") or 0)
+        shards = int(load_test.get("shards") or 1)
+        interval = int(load_test.get("telemetry_publish_interval_seconds") or 5)
+        telemetry_percent = load_test.get("cauldron_telemetry_percent") or 0
+        peak = max(max(float(phase["start_percent"]), float(phase["end_percent"])) for phase in phases)
+    except (TypeError, ValueError):
+        return None
+    if base_tps <= 0 or workers <= 0 or interval <= 0:
+        return None
+    return shards * sum(
+        int((
+            Decimal(base_tps // workers + (1 if worker < base_tps % workers else 0))
+            * Decimal(str(telemetry_percent))
+            * Decimal(str(peak))
+            * Decimal(interval)
+            / Decimal(10_000)
+        ).to_integral_value(rounding=ROUND_CEILING))
+        for worker in range(workers)
+    )
 
 
 def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
@@ -850,6 +877,9 @@ def analyze_experiment(
                     "resolved_path": str(target_test_path),
                     "base_tps": target_load_test.get("base_tps"),
                     "load_profile": target_load_test.get("load_profile"),
+                    "telemetry_source_mode": target_load_test.get("telemetry_source_mode"),
+                    "telemetry_publish_interval_seconds": target_load_test.get("telemetry_publish_interval_seconds"),
+                    "peak_telemetry_fleet_size": peak_telemetry_fleet_size(target_load_test, target_phases),
                     "stubs": target_test_definition.get("stubs") or {},
                     "chaos_steps": target_test_definition.get("chaos_steps") or [],
                     "diagnostic_steps": target_test_definition.get("diagnostic_steps") or [],

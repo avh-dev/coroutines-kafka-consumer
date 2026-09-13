@@ -21,6 +21,7 @@ workload:
       delay_p100_ms: 5
   load:
     shards: 1
+    workers: 2
     base_tps: 100
     producer_capacity_tps:
       order: 1000
@@ -34,6 +35,8 @@ workload:
     min_brewing_steps: 5
     max_brewing_steps: 8
     diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
   topics:
     order:
       kafka_topic: order.events.v1

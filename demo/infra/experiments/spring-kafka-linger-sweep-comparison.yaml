@@ -28,7 +28,8 @@ workload:
       order: 5000
       batch: 5000
       telemetry: 5000
-    telemetry_source_mode: FIXED_FLEET
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
     load_profile: 0 -> (1m, warmup) -> 100 -> (3m, steady) -> 100 -> (1m, cool-down)
       -> 0
     cauldron_count: 5000
