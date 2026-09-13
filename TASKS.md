@@ -148,6 +148,7 @@
 | [DEMO-91](#demo-91) | Adopt the two-level Thread Stats category and group configuration in the demo application. | DONE |
 | [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
 | [DEMO-93](#demo-93) | Generate telemetry from a pre-seeded fleet at a fixed per-key interval while scaling load through active key count. | DONE |
+| [DEMO-94](#demo-94) | Compare Spring Kafka and CKC under ETA-model saturation during the steady measurement window. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -3620,3 +3621,14 @@ Prepare the isolated telemetry batch corpus directly in Redis before measured Ka
 Keep ordinary batch lifecycle state separate from the telemetry corpus and document the resolved generation model visually.
 Expose the fleet source, interval, and derived peak key count in experiment reports and use the derived keyspace for freshness-channel planning.
 Internal-lab smoke experiment `20260913T021620Z` completed both targets with clean delivery and ordering; all 5,135 observed per-key gaps were at least 5,000 ms.
+
+<a id="demo-94"></a>
+### DEMO-94 - Compare Spring Kafka and CKC under ETA saturation
+
+_Date: 2026-09-13_
+
+Run the established 5k/s Spring Kafka versus CKC comparison with ETA latency degradation aligned to the steady measurement window.
+Size the degraded ETA latency above the configured telemetry concurrency capacity while preserving the five-second per-key publication cadence.
+Derive the CKC freshness queue from peak fleet cardinality so new keys are not rejected by an undersized queue.
+Separate freshness drop reasons, distinguish processed- and published-cohort E2E compliance, flag queue-full admission failures, and carry baseline champion styling through detailed metrics.
+Preserve audit, metrics, logs, packet capture, and the generated experiment report for comparison.

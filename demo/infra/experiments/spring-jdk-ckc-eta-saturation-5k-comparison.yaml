@@ -1,0 +1,278 @@
+schema_version: 2
+name: spring-jdk-ckc-eta-saturation-5k-comparison
+description: Compare single-pod Spring Kafka with synchronous JDK and Armeria HTTP clients,
+  then fixed-dispatcher CKC with Armeria, while 300 ms ETA latency saturates the
+  configured telemetry concurrency during the steady measurement window at 5k/s.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      delay_p90_ms: 20
+      delay_p95_ms: 40
+      delay_p99_ms: 80
+      delay_p100_ms: 120
+    flavour:
+      delay_p90_ms: 20
+      delay_p95_ms: 40
+      delay_p99_ms: 80
+      delay_p100_ms: 120
+    registry:
+      delay_p90_ms: 2
+      delay_p95_ms: 3
+      delay_p99_ms: 4
+      delay_p100_ms: 5
+  load:
+    shards: 1
+    base_tps: 5000
+    producer_capacity_tps:
+      order: 1000
+      batch: 1000
+      telemetry: 1000
+    load_profile: 0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down)
+      -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    workers: 100
+    stats_log_interval_seconds: 15
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_timeout_seconds: 300
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: steady-state
+    start: 4m
+    duration: 5m
+  chaos:
+  - at: 5m
+    duration: 3m
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      error_rate_percent: 0
+      eta:
+        delay_p90_ms: 300
+        delay_p95_ms: 300
+        delay_p99_ms: 300
+        delay_p100_ms: 300
+      flavour:
+        delay_p90_ms: 20
+        delay_p95_ms: 40
+        delay_p99_ms: 80
+        delay_p100_ms: 120
+      registry:
+        delay_p90_ms: 2
+        delay_p95_ms: 3
+        delay_p99_ms: 4
+        delay_p100_ms: 5
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_key
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_key
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+  diagnostics:
+  - at: 6m
+    type: tcpdump
+    name: kafka-steady
+    targets:
+    - application
+    - load-test
+    duration: 15s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+targets:
+- name: spring-kafka.jdk-http
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 58
+        pollers: 58
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 41
+        pollers: 41
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 182
+        pollers: 182
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+- name: spring-kafka.armeria-http
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: ARMERIA
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 58
+        pollers: 58
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 41
+        pollers: 41
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 182
+        pollers: 182
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+- name: ckc.fixed.1
+  implementation: ckc
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    parallelism:
+    - workers
+    topics:
+      order:
+        partitions: 2
+        workers: 114
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      batch:
+        partitions: 2
+        workers: 82
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        partitions: 2
+        workers: 390
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.33'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones:
+        - eu-central-1a
+        - eu-central-1b
+        - eu-central-1c
+        private_subnets:
+        - 10.42.0.0/20
+        - 10.42.16.0/20
+        - 10.42.32.0/20
+        public_subnets:
+        - 10.42.128.0/20
+        - 10.42.144.0/20
+        - 10.42.160.0/20
+      nodes:
+        instance_types:
+        - m7i.xlarge
+        desired_size: 3
+        min_size: 3
+        max_size: 3
+        disk_size_gib: 100
+      kafka:
+        mode: msk
+        msk_version: 3.7.x
+        msk_brokers: 3
+        msk_instance_type: kafka.m5.large
+        msk_volume_size_gib: 50
+      redis:
+        mode: elasticache
+        elasticache_node_type: cache.r7g.large
+        elasticache_engine_version: '7.1'
+        elasticache_nodes: 2
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170

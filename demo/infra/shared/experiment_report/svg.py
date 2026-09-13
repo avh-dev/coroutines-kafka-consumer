@@ -798,14 +798,9 @@ def load_profile_svg(report: ExperimentReport) -> str:
         table_rows = stubs_table_rows(scenario)
         if table_rows:
             action_x = connector_x - 14
-            if connector_x + estimated_width - 19 <= width - 5:
-                card_x = max(5, connector_x - 19)
-                service_x = action_x + 34
-                title_x = action_x + 72
-            else:
-                card_x = min(width - estimated_width - 5, connector_x - estimated_width + 19)
-                service_x = action_x - 34
-                title_x = card_x + 10
+            card_x = min(max(5, connector_x - 19), width - estimated_width - 5)
+            service_x = action_x + 34
+            title_x = action_x + 72
         elif connector_x + estimated_width - 19 <= width - 5:
             card_x = max(5, connector_x - 19)
             action_x = card_x + 5
@@ -844,7 +839,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         chaos_cards.extend(
             [
                 f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} on {esc(target)} at {esc(time_label)}</title>',
-                f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="#d1d5db"/>',
+                f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="{color}" stroke-opacity="0.72"/>',
                 action_icon(action, action_x, icon_y),
                 *( [service_icon(target, service_x - 1, card_y + 4, 30)] if target else [] ),
                 f'<text class="card-title" x="{title_x:.1f}" y="{card_y+24:.1f}">{esc(title)}</text>',
