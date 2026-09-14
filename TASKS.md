@@ -319,6 +319,7 @@
 | [INFRA-170](#infra-170) | Use application-scoped Thread Stats context-switch metrics in dashboards and reports. | DONE |
 | [INFRA-171](#infra-171) | Package the latest completed experiment report for lightweight remote download. | DONE |
 | [INFRA-172](#infra-172) | Label report metric sources and present effective target and Kafka client configuration before results. | DONE |
+| [INFRA-173](#infra-173) | Add a tuned Spring Kafka comparison target while keeping producer batching consistent across targets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3676,3 +3677,13 @@ Keep execution and evaluation outcomes in the results section rather than mixing
 Render the audit, Prometheus, and capture legend as separate lines with the same colored circular badges used beside metrics, and keep aggregate Kafka traffic to one concise highlights row.
 Label the legend explicitly as metric sources and identify capture-derived values as network packet capture.
 Verification: all 59 internal-lab tests passed; the latest saved three-target experiment report was regenerated without a new run, inspected for source labels and effective Kafka settings, and packaged with all three SVG assets.
+
+<a id="infra-173"></a>
+### INFRA-173 - Add a tuned Spring Kafka comparison target
+
+_Date: 2026-09-14_
+
+Keep the JDK Spring Kafka target as the baseline and identify the Armeria target explicitly as tuned.
+Use stronger consumer fetch batching for the tuned Spring and CKC targets while preserving equivalent settings between them.
+Increase load-producer linger consistently across every target so the generated workload remains comparable.
+Verification: canonical internal-lab validation and full target materialization passed; generated deployment plans contain 8 KiB for the JDK baseline, 32 KiB for tuned Spring and CKC, and 50 ms producer linger for all targets. The installed optilab YAML matches the repository file byte for byte.
