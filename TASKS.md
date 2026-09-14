@@ -3672,4 +3672,5 @@ Add compact source badges for audit, Prometheus, and packet-capture metrics.
 Move target configuration into its own table before highlights and detailed results.
 Expose effective per-topic producer and consumer settings that materially affect the comparison.
 Record load-producer defaults in future run metadata so saved evidence remains self-describing.
+Keep execution and evaluation outcomes in the results section rather than mixing them with target inputs.
 Verification: all 59 internal-lab tests passed; the latest saved three-target experiment report was regenerated without a new run, inspected for source labels and effective Kafka settings, and packaged with all three SVG assets.

@@ -370,9 +370,6 @@ def render_markdown(report: ExperimentReport) -> str:
         values = resources.get(group) if isinstance(resources, dict) else None
         return escaped(values.get(name)) if isinstance(values, dict) else "—"
 
-    row("Execution", [evaluation_status(target.execution_status) for target in targets])
-    row("Delivery evaluation", [evaluation_status(target.delivery_evaluation_status) for target in targets])
-    row("Latency evaluation", [evaluation_status(target.latency_evaluation_status) for target in targets])
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     row("Replicas", [number(target.configuration.get("replicas"), 0) for target in targets])
@@ -502,6 +499,11 @@ def render_markdown(report: ExperimentReport) -> str:
         ) + "</tr></thead>",
         "<tbody>",
     ])
+
+    section("Run outcome")
+    row("Execution", [evaluation_status(target.execution_status) for target in targets])
+    row("Delivery evaluation", [evaluation_status(target.delivery_evaluation_status) for target in targets])
+    row("Latency evaluation", [evaluation_status(target.latency_evaluation_status) for target in targets])
 
     window = report.test_definition.get("measurement_window")
     if isinstance(window, dict):
