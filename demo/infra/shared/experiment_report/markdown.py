@@ -296,10 +296,13 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .status-neutral{color:#57606a;font-weight:600}'
             'table.comparison .topic-name{font-weight:600}'
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
-            'table.comparison .metric-source{display:inline-block;margin-left:.35em;padding:0 .32em;border:1px solid;border-radius:999px;font-size:.68em;font-weight:700;line-height:1.35;vertical-align:.12em}'
-            'table.comparison .source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
-            'table.comparison .source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'
-            'table.comparison .source-c{color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd}</style>'
+            '.metric-source{display:inline-block;box-sizing:border-box;width:1.45em;height:1.45em;margin-left:.35em;border:1px solid;border-radius:50%;font-size:.68em;font-weight:700;line-height:1.3em;text-align:center;vertical-align:.12em}'
+            '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
+            '.source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'
+            '.source-c{color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd}'
+            '.metric-source-legend{margin:.45em 0;color:#57606a}'
+            '.metric-source-legend div{margin:.18em 0}'
+            '.metric-source-legend .metric-source{margin-left:0;margin-right:.45em}</style>'
         ),
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
@@ -522,7 +525,7 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
         row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
         row("E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"), "audit")
-        row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"), "capture")
+        row("Kafka traffic", compared([all_wire(target) for target in targets], 0, " bytes/msg"), "capture")
         row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
         row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets], "audit")
         row(
@@ -554,7 +557,11 @@ def render_markdown(report: ExperimentReport) -> str:
             "</tbody></table>",
             "",
             "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
-            '<span class="metric-source source-a">A</span> Audit records · <span class="metric-source source-p">P</span> Prometheus time series · <span class="metric-source source-c">C</span> Scheduled packet capture.',
+            '<div class="metric-source-legend">'
+            '<div><span class="metric-source source-a">A</span>Audit records</div>'
+            '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
+            '<div><span class="metric-source source-c">C</span>Scheduled packet capture</div>'
+            '</div>',
             "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
             "",
             "### Detailed results",
