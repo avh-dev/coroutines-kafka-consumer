@@ -3674,4 +3674,5 @@ Expose effective per-topic producer and consumer settings that materially affect
 Record load-producer defaults in future run metadata so saved evidence remains self-describing.
 Keep execution and evaluation outcomes in the results section rather than mixing them with target inputs.
 Render the audit, Prometheus, and capture legend as separate lines with the same colored circular badges used beside metrics, and keep aggregate Kafka traffic to one concise highlights row.
+Label the legend explicitly as metric sources and identify capture-derived values as network packet capture.
 Verification: all 59 internal-lab tests passed; the latest saved three-target experiment report was regenerated without a new run, inspected for source labels and effective Kafka settings, and packaged with all three SVG assets.

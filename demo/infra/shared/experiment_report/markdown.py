@@ -344,7 +344,7 @@ def render_markdown(report: ExperimentReport) -> str:
         definitions = {
             "audit": ("A", "Audit records"),
             "prometheus": ("P", "Prometheus time series"),
-            "capture": ("C", "Scheduled packet capture"),
+            "capture": ("C", "Network packet capture"),
         }
         if source not in definitions:
             return ""
@@ -558,9 +558,10 @@ def render_markdown(report: ExperimentReport) -> str:
             "",
             "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
             '<div class="metric-source-legend">'
+            '<strong>Metric sources</strong>'
             '<div><span class="metric-source source-a">A</span>Audit records</div>'
             '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
-            '<div><span class="metric-source source-c">C</span>Scheduled packet capture</div>'
+            '<div><span class="metric-source source-c">C</span>Network packet capture</div>'
             '</div>',
             "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
             "",
