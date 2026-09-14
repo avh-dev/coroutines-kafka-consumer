@@ -3695,6 +3695,6 @@ Verification: canonical internal-lab validation and full target materialization 
 _Date: 2026-09-14_
 
 Prepare a separate no-chaos comparison with explicit per-topic producer and consumer settings.
-Budget producer linger, fetch wait, and processing against topic E2E limits.
-Increase CKC processing concurrency and document estimates pending measurement.
-Verification: canonical resolution and deployment-plan materialization passed for internal-lab and AWS; all three targets have no chaos, one producer per topic, topic-specific linger/batch settings, and CKC has 300 workers per topic. Installed YAML checksum matches the repository; both run entrypoints are executable. No workload was launched; E2E compliance and optimality remain to be measured.
+Balance producer linger and consumer fetch wait together against each topic E2E limit, and increase CKC processing concurrency.
+Harden packet-capture parsing against malformed TShark Kafka text fields so large Produce requests retain raw batch evidence.
+Verification: 8 packet-capture tests, 18 orchestration tests, and all 59 internal-lab tests pass. Internal-lab and AWS materialization preserve the intended per-topic settings; the installed YAML checksum matches the repository and both run entrypoints are executable. Reanalysis of the failed CKC producer capture reports 70,674 records in 156 batches with no warnings. No new workload was launched; E2E compliance and optimality remain to be measured.

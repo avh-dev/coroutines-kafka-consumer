@@ -39,13 +39,14 @@ and should be described as complete configurations, not isolated client effects.
 
 | Setting | Spring JDK / Armeria | CKC |
 | --- | --- | --- |
-| Order / batch producer linger | 700 ms | 1000 ms |
-| Telemetry producer linger | 250 ms | 250 ms |
+| Order / batch producer linger | 500 ms | 1000 ms |
+| Telemetry producer linger | 150 ms | 250 ms |
 | Order / batch producer batch.size | 32 KiB | 512 KiB |
 | Telemetry producer batch.size | 16 KiB | 128 KiB |
 | Order / batch consumer fetch.min.bytes | 8 KiB | 64 KiB |
-| Telemetry consumer fetch.min.bytes | 1 KiB | 16 KiB |
-| Consumer fetch.max.wait.ms | 50 ms | 50 ms |
+| Telemetry consumer fetch.min.bytes | 8 KiB | 16 KiB |
+| Order / batch consumer fetch.max.wait.ms | 250 ms | 250 ms |
+| Telemetry consumer fetch.max.wait.ms | 150 ms | 250 ms |
 | Consumer max.poll.records | 500 | 2000 |
 | Processing workers per topic | Partition listeners: 58 / 41 / 182 | 300 / 300 / 300 |
 
@@ -55,12 +56,12 @@ max.partition.fetch.bytes. The old capacity setting of 1000 TPS created two
 independent producers per topic, splitting accumulator batches further.
 Increasing max.poll.records does not itself increase fetch sizes.
 
-At peak traffic, an even-key approximation gives Spring about 21 order records
-and 21 batch records per partition over 700 ms. At the planned mean handling
-time of 25 ms, draining such a burst takes about 525 ms. Linger plus fetch wait
-plus draining is about 1275 ms, leaving roughly 725 ms against the 2 s limit.
-Telemetry produces about 2.75 records per partition over 250 ms; at 70 ms each,
-the equivalent estimate is about 493 ms against the 1 s limit. These are planning
+At peak traffic, an even-key approximation gives Spring about 15 order records
+and 15 batch records per partition over 500 ms. At the planned mean handling
+time of 25 ms, draining such a burst takes about 375 ms. Linger plus fetch wait
+plus draining is about 1125 ms, leaving roughly 875 ms against the 2 s limit.
+Telemetry produces about 1.65 records per partition over 150 ms; at 70 ms each,
+the equivalent estimate is about 416 ms against the 1 s limit. These are planning
 estimates, not latency bounds: key skew, handler tails and queues can consume
 the margin. A one-second linger on Spring would leave substantially less margin.
 
@@ -72,6 +73,14 @@ across all topics. Using 512 bytes per record as a provisional sizing allowance
 gives about 438 / 313 / 125 KiB, motivating 512 / 512 / 128 KiB batch limits.
 This allowance is not a measured maximum or per-topic percentile. Inspect actual
 batch sizes and compression after the run and revise it if necessary.
+
+The first measured candidate showed why producer and consumer waits must be
+budgeted together. A 50 ms fetch wait caused 36,600–46,000 Spring Fetch requests
+per 15 seconds, versus about 5,400 with the earlier 250 ms setting. Consumer
+traffic and CPU grew even though producer batching improved. The revised Spring
+settings retain the same nominal wait budgets: 500 + 250 ms for orders/batches
+and 150 + 150 ms for telemetry. CKC keeps 1000 + 250 ms and 250 + 250 ms because
+its measured maxima left enough room under the respective limits.
 
 The audit calculates E2E from Kafka record timestamp to completion; with
 CreateTime timestamps this includes producer linger. Keep timestamp semantics

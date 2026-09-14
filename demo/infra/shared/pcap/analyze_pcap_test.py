@@ -83,6 +83,17 @@ def kafka_bytes(value: bytes) -> bytes:
 
 
 class AnalyzePcapTest(unittest.TestCase):
+    def test_tshark_rows_avoid_unsafe_dissected_text_and_normalize_missing_columns(self) -> None:
+        self.assertNotIn("kafka.topic_name", analyze_pcap.FIELDS)
+        self.assertNotIn("_ws.col.Info", analyze_pcap.FIELDS)
+        stdout = "\t".join(analyze_pcap.FIELDS) + "\n1\n"
+        completed = analyze_pcap.subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+        with patch.object(analyze_pcap.subprocess, "run", return_value=completed):
+            rows = analyze_pcap.tshark_rows(Path("malformed-produce.pcap"), "tshark")
+        self.assertEqual("1", rows[0]["frame.number"])
+        self.assertEqual("", rows[0]["tcp.reassembled.data"])
+        self.assertEqual(b"", analyze_pcap.bytes_field(None))
+
     def test_tshark_rows_accepts_reassembled_fields_larger_than_csv_default(self) -> None:
         raw = "a" * (128 * 1024 + 1)
         columns = [""] * len(analyze_pcap.FIELDS)

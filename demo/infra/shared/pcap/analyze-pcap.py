@@ -32,9 +32,9 @@ FIELDS = [
     "ip.len", "ip.hdr_len", "ipv6.plen", "tcp.stream", "tcp.srcport", "tcp.dstport",
     "tcp.len", "tcp.hdr_len", "tcp.flags.syn", "tcp.flags.ack", "tcp.flags.fin",
     "tcp.flags.reset", "tcp.analysis.retransmission", "kafka.len", "kafka.request_key",
-    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "kafka.topic_name", "tls.record.length",
+    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "tls.record.length",
     "tcp.pdu.size", "tcp.reassembled.data", "tcp.payload", "ip.src", "ip.dst",
-    "ipv6.src", "ipv6.dst", "_ws.col.Info",
+    "ipv6.src", "ipv6.dst",
 ]
 
 
@@ -51,26 +51,26 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def integers(value: str) -> list[int]:
+def integers(value: str | None) -> list[int]:
     result = []
-    for item in value.split(","):
+    for item in (value or "").split(","):
         item = item.strip()
         if item and re.fullmatch(r"-?\d+", item):
             result.append(int(item))
     return result
 
 
-def integer(value: str, default: int = 0) -> int:
+def integer(value: str | None, default: int = 0) -> int:
     values = integers(value)
     return values[0] if values else default
 
 
-def boolean(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes"}
+def boolean(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes"}
 
 
-def bytes_field(value: str) -> bytes:
-    text = value.replace(":", "").replace(",", "").strip()
+def bytes_field(value: str | None) -> bytes:
+    text = (value or "").replace(":", "").replace(",", "").strip()
     if not text or not re.fullmatch(r"[0-9A-Fa-f]+", text) or len(text) % 2:
         return b""
     return bytes.fromhex(text)
@@ -91,7 +91,10 @@ def tshark_rows(path: Path, executable: str) -> list[dict[str, str]]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"TShark failed for {path}")
     csv.field_size_limit(sys.maxsize)
-    return list(csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"'))
+    return [
+        {field: row.get(field) or "" for field in FIELDS}
+        for row in csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"')
+    ]
 
 
 class NativeCompression:
@@ -570,7 +573,10 @@ def analyze_capture(
                     "api_key": api_key,
                     "api_version": api_version,
                     "correlation": correlation,
-                    "topics": [topic for topic in row["kafka.topic_name"].split(",") if topic],
+                    # TShark can expose binary payload as kafka.topic_name when it
+                    # mis-dissects a large Produce request. Supported Produce and
+                    # Fetch versions are associated with topics by the raw parsers.
+                    "topics": [],
                     "bytes": sum(length + 4 for length in kafka_lengths),
                     "raw": bytes_field(row["tcp.reassembled.data"]) or bytes_field(row["tcp.payload"]),
                 }
