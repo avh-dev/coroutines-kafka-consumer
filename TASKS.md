@@ -3685,5 +3685,5 @@ _Date: 2026-09-14_
 
 Keep the JDK Spring Kafka target as the baseline and identify the Armeria target explicitly as tuned.
 Use stronger consumer fetch batching for the tuned Spring and CKC targets while preserving equivalent settings between them.
-Increase load-producer linger consistently across every target so the generated workload remains comparable.
-Verification: canonical internal-lab validation and full target materialization passed; generated deployment plans contain 8 KiB for the JDK baseline, 32 KiB for tuned Spring and CKC, and 50 ms producer linger for all targets. The installed optilab YAML matches the repository file byte for byte.
+Increase load-producer linger consistently across every target so the generated workload remains comparable and low per-partition rates still form useful record batches.
+Verification: canonical internal-lab validation and full target materialization passed; generated deployment plans contain 8 KiB for the JDK baseline, 32 KiB for tuned Spring and CKC, and 500 ms producer linger for all targets. The installed optilab YAML matches the repository file byte for byte.
