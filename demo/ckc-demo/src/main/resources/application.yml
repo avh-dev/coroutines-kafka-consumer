@@ -23,6 +23,7 @@ ckc:
 thread-stats:
   enabled: ${THREAD_STATS_ENABLED:true}
   sampling-interval: ${THREAD_STATS_SAMPLING_INTERVAL:1s}
+  process-context-switches-enabled: true
   fallback-category: other
   fallback-group: other
   metrics:

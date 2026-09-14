@@ -84,8 +84,8 @@ STANDARD_MEASUREMENTS = {
         '{{job="ckc-demo", category=~"^([0-9]+\\\\. )?business$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
     "context_switches_average_per_second": (
-        "sum(increase(namedprocess_namegroup_thread_context_switches_total"
-        '{{job="ckc-host-process-exporter", groupname="ckc-demo"}}[{window}])) / {seconds}'
+        "sum(increase(thread_stats_context_switches_total"
+        '{{job="ckc-demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
 }
 

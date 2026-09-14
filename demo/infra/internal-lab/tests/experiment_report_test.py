@@ -25,10 +25,19 @@ from experiment_report.analyze import (  # noqa: E402
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import shared_freshness_cutoff  # noqa: E402
 from experiment_report.model import LatencySlaResult  # noqa: E402
+from experiment_report.prometheus import STANDARD_MEASUREMENTS  # noqa: E402
 from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
+        query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
+
+        self.assertIn("thread_stats_context_switches_total", query)
+        self.assertIn('job="ckc-demo"', query)
+        self.assertIn('pod=~"ckc-demo-.+"', query)
+        self.assertNotIn("namedprocess_", query)
+
     def test_peak_telemetry_fleet_size_matches_worker_partitioning(self) -> None:
         self.assertEqual(
             404,
@@ -1022,7 +1031,7 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
-            self.assertIn("Context switches average", markdown)
+            self.assertIn("Application context switches average", markdown)
             self.assertIn("### Steady-state highlights", markdown)
             self.assertIn("Audit published rate", markdown)
 

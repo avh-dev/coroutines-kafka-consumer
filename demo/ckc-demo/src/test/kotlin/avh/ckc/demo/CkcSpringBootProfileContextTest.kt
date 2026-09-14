@@ -120,6 +120,7 @@ class CkcSpringBootProfileContextTest(
         assertTrue(applicationContext.containsBean("threadStatsMonitor"))
         assertIs<ThreadStatsMonitor>(applicationContext.getBean(ThreadStatsMonitor::class.java))
         assertTrue(properties.isEnabled)
+        assertTrue(properties.isProcessContextSwitchesEnabled)
         assertTrue(properties.metrics.isEnabled)
         assertTrue(properties.metrics.isCategoryOrderPrefixEnabled)
         assertEquals("other", properties.fallbackCategory)

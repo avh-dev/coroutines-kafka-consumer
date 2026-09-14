@@ -116,7 +116,7 @@ def write_report(report_dir: Path, report: Any) -> None:
         comparison_bar_svg(
             report,
             "context_switches_average_per_second",
-            "Average demo process context switches",
+            "Average application process context switches",
             "switches/s",
         ),
         encoding="utf-8",

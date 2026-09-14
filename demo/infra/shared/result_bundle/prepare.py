@@ -133,7 +133,7 @@ def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
     if not source.is_file():
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text((repo_root / "demo/infra/shared/grafana/dashboards/ckc-overview.json").read_text(encoding="utf-8"), encoding="utf-8")
-    excluded_panels = {"Demo Process Context Switches"}
+    excluded_panels: set[str] = set()
     if not any(metadata.get("kafka_mode") == "msk" for metadata in metadata_values):
         excluded_panels.update({"MSK CloudWatch Time Lag", "MSK CloudWatch Offset Lag (Uncommitted)"})
     environment_options = {
