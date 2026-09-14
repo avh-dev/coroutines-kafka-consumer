@@ -996,6 +996,11 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(1, window["window_delivery"]["processed"])
             self.assertEqual(0, window["window_delivery"]["missing_terminal"])
             self.assertEqual(2000, window["window_topic_evidence"]["order.events.v1"]["e2e_latency"]["limit_ms"])
+            order_configuration = window["configuration"]["topics"][0]
+            self.assertEqual(20, order_configuration["producer"]["linger_ms"])
+            self.assertEqual(65536, order_configuration["producer"]["batch_size"])
+            self.assertEqual("lz4", order_configuration["producer"]["compression_type"])
+            self.assertEqual(33554432, order_configuration["producer"]["buffer_memory"])
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
@@ -1018,11 +1023,11 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('class="status-pass">PASS · 0', markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(
-                '<th scope="row">Kafka broker CPU</th><td><span class="champion">0.250 cores',
+                'Kafka broker CPU<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
             self.assertIn(
-                '<th scope="row">Application CPU average</th><td><span class="champion">1.000 cores',
+                'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,
             )
             self.assertIn(
@@ -1033,7 +1038,31 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Application context switches average", markdown)
             self.assertIn("### Steady-state highlights", markdown)
-            self.assertIn("Audit published rate", markdown)
+            self.assertIn("Published rate", markdown)
+            self.assertNotIn("Audit published rate", markdown)
+            self.assertNotIn("Audit E2E latency", markdown)
+            self.assertNotIn("Prometheus processed throughput", markdown)
+            self.assertIn('class="metric-source source-a"', markdown)
+            self.assertIn('class="metric-source source-p"', markdown)
+            self.assertIn('class="metric-source source-c"', markdown)
+            self.assertIn('class="metric-source-legend"', markdown)
+            self.assertIn('<strong>Metric sources</strong>', markdown)
+            self.assertIn('<div><span class="metric-source source-a">A</span>Audit records</div>', markdown)
+            self.assertIn('<div><span class="metric-source source-p">P</span>Prometheus time series</div>', markdown)
+            self.assertIn('<div><span class="metric-source source-c">C</span>Network packet capture</div>', markdown)
+            self.assertIn('title="Network packet capture">C</span>', markdown)
+            self.assertIn('<th scope="row">Kafka traffic<span class="metric-source source-c"', markdown)
+            self.assertLess(markdown.index("## Target configuration"), markdown.index("## Results"))
+            configuration_start = markdown.index("## Target configuration")
+            results_start = markdown.index("## Results")
+            execution_row = markdown.index('<th scope="row">Execution</th>')
+            self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
+            self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
+            self.assertLess(results_start, markdown.index("Run outcome"))
+            self.assertLess(markdown.index("Run outcome"), execution_row)
+            self.assertIn("Load producer linger.ms", markdown)
+            self.assertIn("Load producer batch.size", markdown)
+            self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

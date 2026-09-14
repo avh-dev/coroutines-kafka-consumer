@@ -318,6 +318,7 @@
 | [INFRA-169](#infra-169) | Split consumer contract headings and audit integrity checks in experiment reports. | DONE |
 | [INFRA-170](#infra-170) | Use application-scoped Thread Stats context-switch metrics in dashboards and reports. | DONE |
 | [INFRA-171](#infra-171) | Package the latest completed experiment report for lightweight remote download. | DONE |
+| [INFRA-172](#infra-172) | Label report metric sources and present effective target and Kafka client configuration before results. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3661,3 +3662,17 @@ Add a lightweight internal-lab command that selects the latest experiment set an
 Package each report Markdown file and its SVG assets without rebuilding the full evidence bundle.
 Print the stable archive path for a small client script to invoke remotely, download, and extract.
 Verification: all 59 internal-lab tests passed; the installed command packaged the latest real report and its three SVG assets into a readable ZIP.
+
+<a id="infra-172"></a>
+### INFRA-172 - Label report sources and target configuration
+
+_Date: 2026-09-14_
+
+Add compact source badges for audit, Prometheus, and packet-capture metrics.
+Move target configuration into its own table before highlights and detailed results.
+Expose effective per-topic producer and consumer settings that materially affect the comparison.
+Record load-producer defaults in future run metadata so saved evidence remains self-describing.
+Keep execution and evaluation outcomes in the results section rather than mixing them with target inputs.
+Render the audit, Prometheus, and capture legend as separate lines with the same colored circular badges used beside metrics, and keep aggregate Kafka traffic to one concise highlights row.
+Label the legend explicitly as metric sources and identify capture-derived values as network packet capture.
+Verification: all 59 internal-lab tests passed; the latest saved three-target experiment report was regenerated without a new run, inspected for source labels and effective Kafka settings, and packaged with all three SVG assets.
