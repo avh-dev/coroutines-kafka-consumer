@@ -165,6 +165,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 lower_is_better=False,
                 best_rel_tol=0.0,
             ),
+            "audit",
         )
         row(
             "Published with on-time processed outcome",
@@ -175,6 +176,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 lower_is_better=False,
                 best_rel_tol=0.0,
             ),
+            "audit",
         )
 
     def drop_reason(data: dict[str, Any], reason: str) -> int:
@@ -187,11 +189,13 @@ def render_markdown(report: ExperimentReport) -> str:
         row(
             "Replaced by newer record for key",
             [number(drop_reason(value, "replaced_by_newer_key_record"), 0) for value in data],
+            "audit",
         )
-        row("Dropped as stale", [number(drop_reason(value, "stale_age"), 0) for value in data])
+        row("Dropped as stale", [number(drop_reason(value, "stale_age"), 0) for value in data], "audit")
         row(
             "New key rejected · queue full",
             [audit_status(drop_reason(value, "new_key_queue_full")) for value in data],
+            "audit",
         )
 
     def evaluation_status(value: str) -> str:
@@ -274,9 +278,7 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "![Load profile](load-profile.svg)",
         "",
-        "## Results",
-        "",
-        "### Steady-state highlights" if isinstance(report.test_definition.get("measurement_window"), dict) else "### Detailed results",
+        "## Target configuration",
         "",
         (
             '<style>table.comparison{border-collapse:collapse;width:100%}'
@@ -293,7 +295,11 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .status-fail{color:#b42318;font-weight:600}'
             'table.comparison .status-neutral{color:#57606a;font-weight:600}'
             'table.comparison .topic-name{font-weight:600}'
-            'table.comparison .topic-requirements{font-size:.88em;color:#57606a}</style>'
+            'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
+            'table.comparison .metric-source{display:inline-block;margin-left:.35em;padding:0 .32em;border:1px solid;border-radius:999px;font-size:.68em;font-weight:700;line-height:1.35;vertical-align:.12em}'
+            'table.comparison .source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
+            'table.comparison .source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'
+            'table.comparison .source-c{color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd}</style>'
         ),
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
@@ -331,75 +337,49 @@ def render_markdown(report: ExperimentReport) -> str:
             f'<span class="topic-name">{escaped(topic)}</span>{detail_html}</th></tr>'
         )
 
-    def row(label: str, values: list[str]) -> None:
+    def source_badge(source: str | None) -> str:
+        definitions = {
+            "audit": ("A", "Audit records"),
+            "prometheus": ("P", "Prometheus time series"),
+            "capture": ("C", "Scheduled packet capture"),
+        }
+        if source not in definitions:
+            return ""
+        letter, title = definitions[source]
+        return f'<span class="metric-source source-{letter.lower()}" title="{title}">{letter}</span>'
+
+    def row(label: str, values: list[str], source: str | None = None) -> None:
         lines.append(
-            f'<tr><th scope="row">{escaped(label)}</th>'
+            f'<tr><th scope="row">{escaped(label)}{source_badge(source)}</th>'
             + "".join(f"<td>{value}</td>" for value in values)
             + "</tr>"
         )
 
-    window = report.test_definition.get("measurement_window")
-    if isinstance(window, dict):
-        window_duration = float(window.get("duration_seconds") or 0)
-        section(
-            f"{escaped(window.get('name') or 'Steady-state')} · "
-            f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
-        )
-        row(
-            "Audit published rate",
-            [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets],
-        )
-        row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
-        row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
-        row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
-        row("Audit E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"))
-        row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"))
-        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets])
-        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets])
-        row(
-            "New key rejected · queue full",
-            [audit_status(drop_reason(target.window_delivery, "new_key_queue_full")) for target in targets],
-        )
-        row(
-            "Processed duplicates",
-            [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
-        )
-        row(
-            "Terminal outcomes without publish",
-            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
-        )
-        row(
-            "Conflicting terminal outcomes",
-            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
-        )
-        row(
-            "Per-key ordering requirement",
-            [audit_status(required_key_order_violations(target, True)) for target in targets],
-        )
-        lines.extend([
-            "</tbody></table>",
-            "",
-            "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
-            "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
-            "",
-            "### Detailed results",
-            "",
-            '<table class="comparison">',
-            "<thead><tr><th></th>" + "".join(
-                f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
-                for index, target in enumerate(targets)
-            ) + "</tr></thead>",
-            "<tbody>",
-        ])
+    def bytes_value(value: Any) -> str:
+        if value is None:
+            return "—"
+        size = int(value)
+        if size % (1024 * 1024) == 0:
+            return f"{number(size // (1024 * 1024), 0)} MiB"
+        if size % 1024 == 0:
+            return f"{number(size // 1024, 0)} KiB"
+        return f"{number(size, 0)} bytes"
 
-    section("Target configuration")
+    def resource_value(target: TargetReport, group: str, name: str) -> str:
+        resources = target.configuration.get("resources")
+        values = resources.get(group) if isinstance(resources, dict) else None
+        return escaped(values.get(name)) if isinstance(values, dict) else "—"
+
     row("Execution", [evaluation_status(target.execution_status) for target in targets])
     row("Delivery evaluation", [evaluation_status(target.delivery_evaluation_status) for target in targets])
     row("Latency evaluation", [evaluation_status(target.latency_evaluation_status) for target in targets])
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     row("Replicas", [number(target.configuration.get("replicas"), 0) for target in targets])
+    row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
+    row("CPU limit", [resource_value(target, "limits", "cpu") for target in targets])
+    row("Memory request", [resource_value(target, "requests", "memory") for target in targets])
+    row("Memory limit", [resource_value(target, "limits", "memory") for target in targets])
     row(
         "Business logic",
         [
@@ -408,6 +388,7 @@ def render_markdown(report: ExperimentReport) -> str:
         ],
     )
     row("Dispatcher", [escaped(target.configuration.get("dispatcher")) for target in targets])
+    row("Dispatcher threads", [number(target.configuration.get("dispatcher_threads"), 0) for target in targets])
     if any(target.test_definition.get("telemetry_source_mode") == "FLEET" for target in targets):
         row("Telemetry source", [escaped(target.test_definition.get("telemetry_source_mode")) for target in targets])
         row(
@@ -468,45 +449,165 @@ def render_markdown(report: ExperimentReport) -> str:
                 for target in targets
             ],
         )
+        row(
+            "Consumer fetch.min.bytes",
+            [bytes_value((configured_topic(target).get("consumer") or {}).get("fetch_min_bytes")) for target in targets],
+        )
+        row(
+            "Consumer fetch.max.wait.ms",
+            [
+                "—" if (configured_topic(target).get("consumer") or {}).get("fetch_max_wait_ms") is None
+                else number((configured_topic(target).get("consumer") or {}).get("fetch_max_wait_ms"), 0) + " ms"
+                for target in targets
+            ],
+        )
+        row(
+            "Consumer max.poll.records",
+            [number((configured_topic(target).get("consumer") or {}).get("max_poll_records"), 0) for target in targets],
+        )
+        row(
+            "Load producer linger.ms",
+            [
+                "—" if (configured_topic(target).get("producer") or {}).get("linger_ms") is None
+                else number((configured_topic(target).get("producer") or {}).get("linger_ms"), 0) + " ms"
+                for target in targets
+            ],
+        )
+        row(
+            "Load producer batch.size",
+            [bytes_value((configured_topic(target).get("producer") or {}).get("batch_size")) for target in targets],
+        )
+        row(
+            "Load producer compression.type",
+            [escaped((configured_topic(target).get("producer") or {}).get("compression_type")) for target in targets],
+        )
+        row(
+            "Load producer buffer.memory",
+            [bytes_value((configured_topic(target).get("producer") or {}).get("buffer_memory")) for target in targets],
+        )
+
+    lines.extend([
+        "</tbody></table>",
+        "",
+        "Kafka client settings show effective values after shared defaults and per-topic overrides.",
+        "",
+        "## Results",
+        "",
+        "### Steady-state highlights" if isinstance(report.test_definition.get("measurement_window"), dict) else "### Detailed results",
+        "",
+        '<table class="comparison">',
+        "<thead><tr><th></th>" + "".join(
+            f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+            for index, target in enumerate(targets)
+        ) + "</tr></thead>",
+        "<tbody>",
+    ])
+
+    window = report.test_definition.get("measurement_window")
+    if isinstance(window, dict):
+        window_duration = float(window.get("duration_seconds") or 0)
+        section(
+            f"{escaped(window.get('name') or 'Steady-state')} · "
+            f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
+        )
+        row(
+            "Published rate",
+            [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets],
+            "audit",
+        )
+        row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+        row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
+        row("E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"), "audit")
+        row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"), "capture")
+        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
+        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets], "audit")
+        row(
+            "New key rejected · queue full",
+            [audit_status(drop_reason(target.window_delivery, "new_key_queue_full")) for target in targets],
+            "audit",
+        )
+        row(
+            "Processed duplicates",
+            [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
+            "audit",
+        )
+        row(
+            "Terminal outcomes without publish",
+            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
+            "audit",
+        )
+        row(
+            "Conflicting terminal outcomes",
+            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
+            "audit",
+        )
+        row(
+            "Per-key ordering requirement",
+            [audit_status(required_key_order_violations(target, True)) for target in targets],
+            "audit",
+        )
+        lines.extend([
+            "</tbody></table>",
+            "",
+            "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
+            '<span class="metric-source source-a">A</span> Audit records · <span class="metric-source source-p">P</span> Prometheus time series · <span class="metric-source source-c">C</span> Scheduled packet capture.',
+            "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
+            "",
+            "### Detailed results",
+            "",
+            '<table class="comparison">',
+            "<thead><tr><th></th>" + "".join(
+                f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+                for index, target in enumerate(targets)
+            ) + "</tr></thead>",
+            "<tbody>",
+        ])
 
     load_duration = sum(float(phase.get("duration_seconds") or 0) for phase in report.test_definition.get("load_phases", []))
     section(f"Full load interval metrics · {number(load_duration, 0)} s")
     row("Target lifecycle duration", [f"{number(target.duration_seconds, 0)} s" for target in targets])
     row("Planned average publish rate", [number(planned_rate(report, 0, load_duration), 0) + " msg/s" for _target in targets])
-    row("Actual publish rate over load interval", [number((target.delivery.get("published") or 0) / load_duration, 0) + " msg/s" if load_duration else "—" for target in targets])
-    row("Prometheus processed throughput", compared([target.measurements.get("throughput_average_rps") for target in targets], 0, " msg/s", lower_is_better=False))
-    row("Published", [number(target.delivery.get("published"), 0) for target in targets])
-    row("Successfully processed", [number(target.delivery.get("processed"), 0) for target in targets])
-    row("Dropped · all reasons", [number(target.delivery.get("dropped"), 0) for target in targets])
+    row("Actual publish rate over load interval", [number((target.delivery.get("published") or 0) / load_duration, 0) + " msg/s" if load_duration else "—" for target in targets], "audit")
+    row("Processed throughput", compared([target.measurements.get("throughput_average_rps") for target in targets], 0, " msg/s", lower_is_better=False), "prometheus")
+    row("Published", [number(target.delivery.get("published"), 0) for target in targets], "audit")
+    row("Successfully processed", [number(target.delivery.get("processed"), 0) for target in targets], "audit")
+    row("Dropped · all reasons", [number(target.delivery.get("dropped"), 0) for target in targets], "audit")
     drop_reason_rows([target.delivery for target in targets])
-    row("Failed processing", [audit_status(target.delivery.get("failed")) for target in targets])
-    row("Missing terminal outcomes", [audit_status(target.delivery.get("missing_terminal")) for target in targets])
+    row("Failed processing", [audit_status(target.delivery.get("failed")) for target in targets], "audit")
+    row("Missing terminal outcomes", [audit_status(target.delivery.get("missing_terminal")) for target in targets], "audit")
     row(
         "Processed duplicates",
         [audit_status((target.delivery.get("duplicates") or {}).get("processed")) for target in targets],
+        "audit",
     )
     row(
         "Terminal outcomes without publish",
         [audit_status(without_publish_count(target.delivery)) for target in targets],
+        "audit",
     )
     row(
         "Conflicting terminal outcomes",
         [audit_status(target.delivery.get("conflicting_terminal_outcomes")) for target in targets],
+        "audit",
     )
     row(
         "Per-key ordering requirement",
         [audit_status(required_key_order_violations(target, False)) for target in targets],
+        "audit",
     )
     for percentile in ("p50", "p95", "p99", "max"):
         row(
-            f"Audit E2E latency {percentile}",
+            f"E2E latency {percentile}",
             compared([
                 (target.delivery.get("e2e_latency") or {}).get(percentile) for target in targets
             ], 0, " ms"),
+            "audit",
         )
-    row("Application CPU average", compared([target.measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
-    row("Application memory average", compared([target.measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-    row("Application context switches average", compared([target.measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
+    row("Application CPU average", compared([target.measurements.get("cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    row("Application memory average", compared([target.measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+    row("Application context switches average", compared([target.measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
 
     if isinstance(window, dict):
         section(
@@ -514,40 +615,44 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + (window.get('duration_seconds') or 0), 0)} s"
         )
         row("Planned average publish rate", [number(planned_rate(report, float(window.get("start_seconds") or 0), window_duration), 0) + " msg/s" for _target in targets])
-        row("Actual published cohort rate", [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets])
-        row("Prometheus processed throughput", compared([target.window_measurements.get("throughput_average_rps") for target in targets], 0, " msg/s", lower_is_better=False))
-        row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets])
-        row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets])
-        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets])
-        row("Dropped · all reasons", [number(target.window_delivery.get("dropped"), 0) for target in targets])
+        row("Actual published cohort rate", [number((target.window_delivery.get("published") or 0) / window_duration, 0) + " msg/s" if window_duration else "—" for target in targets], "audit")
+        row("Processed throughput", compared([target.window_measurements.get("throughput_average_rps") for target in targets], 0, " msg/s", lower_is_better=False), "prometheus")
+        row("Published cohort", [number(target.window_delivery.get("published"), 0) for target in targets], "audit")
+        row("Successfully processed", [number(target.window_delivery.get("processed"), 0) for target in targets], "audit")
+        row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets], "audit")
+        row("Dropped · all reasons", [number(target.window_delivery.get("dropped"), 0) for target in targets], "audit")
         drop_reason_rows([target.window_delivery for target in targets])
-        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets])
+        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
         row(
             "Processed duplicates",
             [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
+            "audit",
         )
         row(
             "Terminal outcomes without publish",
             [audit_status(without_publish_count(target.window_delivery)) for target in targets],
+            "audit",
         )
         row(
             "Conflicting terminal outcomes",
             [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
+            "audit",
         )
         row(
             "Per-key ordering requirement",
             [audit_status(required_key_order_violations(target, True)) for target in targets],
+            "audit",
         )
         for percentile in ("p50", "p95", "p99", "max"):
-            row(f"Audit E2E latency {percentile}", compared([(target.window_delivery.get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"))
-        row("Application CPU average", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
-        row("Application memory average", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Application context switches average", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
-        row("Kafka broker CPU average", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
-        row("Kafka broker memory average", compared([target.window_measurements.get("broker_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Producer CPU average", compared([target.window_measurements.get("producer_cpu_average_cores") for target in targets], 3, " cores"))
-        row("Producer memory average", compared([target.window_measurements.get("producer_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Kafka buffer utilization maximum", compared([target.window_measurements.get("producer_buffer_utilization_max_percent") for target in targets], 1, "%"))
+            row(f"E2E latency {percentile}", compared([(target.window_delivery.get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"), "audit")
+        row("Application CPU average", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Application memory average", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+        row("Application context switches average", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
+        row("Kafka broker CPU average", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Kafka broker memory average", compared([target.window_measurements.get("broker_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+        row("Producer CPU average", compared([target.window_measurements.get("producer_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Producer memory average", compared([target.window_measurements.get("producer_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+        row("Kafka buffer utilization maximum", compared([target.window_measurements.get("producer_buffer_utilization_max_percent") for target in targets], 1, "%"), "prometheus")
         window_available_topics = {name for target in targets for name in target.window_topic_evidence}
         window_topics = [topic for topic in preferred_topics if topic in window_available_topics]
         window_topics.extend(sorted(window_available_topics - set(window_topics)))
@@ -557,26 +662,29 @@ def render_markdown(report: ExperimentReport) -> str:
                 value = target.window_topic_evidence.get(topic, {})
                 return value if isinstance(value, dict) else {}
             for label, key in (("Published", "published"), ("Successfully processed", "processed"), ("Dropped · all reasons", "dropped")):
-                row(label, [number(window_topic(target).get(key), 0) for target in targets])
+                row(label, [number(window_topic(target).get(key), 0) for target in targets], "audit")
             drop_reason_rows([window_topic(target) for target in targets])
-            row("Failed processing", [audit_status(window_topic(target).get("failed")) for target in targets])
-            row("Missing terminal outcomes", [audit_status(window_topic(target).get("missing_terminal")) for target in targets])
+            row("Failed processing", [audit_status(window_topic(target).get("failed")) for target in targets], "audit")
+            row("Missing terminal outcomes", [audit_status(window_topic(target).get("missing_terminal")) for target in targets], "audit")
             row(
                 "Processed duplicates",
                 [audit_status((window_topic(target).get("duplicates") or {}).get("processed")) for target in targets],
+                "audit",
             )
             row(
                 "Terminal outcomes without publish",
                 [audit_status(without_publish_count(window_topic(target))) for target in targets],
+                "audit",
             )
             row(
                 "Conflicting terminal outcomes",
                 [audit_status(window_topic(target).get("conflicting_terminal_outcomes")) for target in targets],
+                "audit",
             )
             if topic_contract(topic).get("ordering") == "per_key":
-                row("Per-key ordering requirement", [audit_status(key_order_value(window_topic(target))) for target in targets])
+                row("Per-key ordering requirement", [audit_status(key_order_value(window_topic(target))) for target in targets], "audit")
             for percentile in ("p50", "p95", "p99", "max"):
-                row(f"Audit E2E latency {percentile}", compared([(window_topic(target).get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"))
+                row(f"E2E latency {percentile}", compared([(window_topic(target).get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"), "audit")
             e2e_compliance_rows([window_topic(target) for target in targets])
             window_histograms = [
                 normalized_histogram(
@@ -595,10 +703,11 @@ def render_markdown(report: ExperimentReport) -> str:
                 subsection(f"{topic} · measurement-window freshness skips")
                 if window_cutoff is not None:
                     for bucket in range(window_cutoff + 1):
-                        row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms])
+                        row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms], "audit")
                     row(
                         f"Skipped >{window_cutoff}",
                         [number(sum(count for bucket, count in histogram.items() if bucket > window_cutoff), 0) for histogram in window_histograms],
+                        "audit",
                     )
                 for percentile in ("p95", "p99", "max"):
                     row(
@@ -607,16 +716,17 @@ def render_markdown(report: ExperimentReport) -> str:
                             ((window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile)
                             for target in targets
                         ], 0, " ms"),
+                        "audit",
                     )
 
     section("Producer metrics")
-    row("CPU average", compared([target.measurements.get("producer_cpu_average_cores") for target in targets], 3, " cores"))
-    row("Memory average", compared([target.measurements.get("producer_memory_average_mib") for target in targets], 0, " MiB"))
-    row("Kafka buffer utilization maximum", compared([target.measurements.get("producer_buffer_utilization_max_percent") for target in targets], 1, "%"))
+    row("CPU average", compared([target.measurements.get("producer_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    row("Memory average", compared([target.measurements.get("producer_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
+    row("Kafka buffer utilization maximum", compared([target.measurements.get("producer_buffer_utilization_max_percent") for target in targets], 1, "%"), "prometheus")
 
     section("Kafka broker metrics")
-    row("CPU average", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
-    row("Memory average", compared([target.measurements.get("broker_memory_average_mib") for target in targets], 0, " MiB"))
+    row("CPU average", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    row("Memory average", compared([target.measurements.get("broker_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
 
     def topic_data(target: TargetReport, topic: str) -> dict[str, Any]:
         value = target.topic_evidence.get(topic, {})
@@ -625,33 +735,37 @@ def render_markdown(report: ExperimentReport) -> str:
     section("Topic application metrics")
     for topic in topics:
         topic_subsection(topic)
-        row("Published", [number(topic_data(target, topic).get("published"), 0) for target in targets])
-        row("Successfully processed", [number(topic_data(target, topic).get("processed"), 0) for target in targets])
-        row("Dropped · all reasons", [number(topic_data(target, topic).get("dropped"), 0) for target in targets])
+        row("Published", [number(topic_data(target, topic).get("published"), 0) for target in targets], "audit")
+        row("Successfully processed", [number(topic_data(target, topic).get("processed"), 0) for target in targets], "audit")
+        row("Dropped · all reasons", [number(topic_data(target, topic).get("dropped"), 0) for target in targets], "audit")
         drop_reason_rows([topic_data(target, topic) for target in targets])
-        row("Failed processing", [audit_status(topic_data(target, topic).get("failed")) for target in targets])
-        row("Missing terminal outcomes", [audit_status(topic_data(target, topic).get("missing_terminal")) for target in targets])
+        row("Failed processing", [audit_status(topic_data(target, topic).get("failed")) for target in targets], "audit")
+        row("Missing terminal outcomes", [audit_status(topic_data(target, topic).get("missing_terminal")) for target in targets], "audit")
         row(
             "Processed duplicates",
             [audit_status((topic_data(target, topic).get("duplicates") or {}).get("processed")) for target in targets],
+            "audit",
         )
         row(
             "Terminal outcomes without publish",
             [audit_status(without_publish_count(topic_data(target, topic))) for target in targets],
+            "audit",
         )
         row(
             "Conflicting terminal outcomes",
             [audit_status(topic_data(target, topic).get("conflicting_terminal_outcomes")) for target in targets],
+            "audit",
         )
         if topic_contract(topic).get("ordering") == "per_key":
-            row("Per-key ordering requirement", [audit_status(key_order_value(topic_data(target, topic))) for target in targets])
+            row("Per-key ordering requirement", [audit_status(key_order_value(topic_data(target, topic))) for target in targets], "audit")
         for percentile in ("p50", "p95", "p99", "max"):
             row(
-                f"Audit E2E latency {percentile}",
+                f"E2E latency {percentile}",
                 compared([
                     (topic_data(target, topic).get("e2e_latency") or {}).get(percentile)
                     for target in targets
                 ], 0, " ms"),
+                "audit",
             )
         e2e_compliance_rows([topic_data(target, topic) for target in targets])
         histograms = [
@@ -671,10 +785,11 @@ def render_markdown(report: ExperimentReport) -> str:
             subsection(f"{topic} · consecutive freshness skips")
             if cutoff is not None:
                 for bucket in range(cutoff + 1):
-                    row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in histograms])
+                    row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in histograms], "audit")
                 row(
                     f"Skipped >{cutoff}",
                     [number(sum(count for bucket, count in histogram.items() if bucket > cutoff), 0) for histogram in histograms],
+                    "audit",
                 )
             for percentile in ("p95", "p99", "max"):
                 row(
@@ -683,15 +798,16 @@ def render_markdown(report: ExperimentReport) -> str:
                         ((topic_data(target, topic).get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile)
                         for target in targets
                     ], 0, " ms"),
+                    "audit",
                 )
 
     section("Estimated wire traffic")
     for topic in topics:
         topic_subsection(topic)
-        row("Producer", compared([bytes_per_message(target, topic, "producer") for target in targets], 0, " bytes/msg"))
-        row("Consumer", compared([bytes_per_message(target, topic, "consumer") for target in targets], 0, " bytes/msg"))
-        row("Decoded producer records", [number(role_topic_wire(target, topic, "producer")[1], 0) for target in targets])
-        row("Decoded consumer records", [number(role_topic_wire(target, topic, "consumer")[1], 0) for target in targets])
+        row("Producer", compared([bytes_per_message(target, topic, "producer") for target in targets], 0, " bytes/msg"), "capture")
+        row("Consumer", compared([bytes_per_message(target, topic, "consumer") for target in targets], 0, " bytes/msg"), "capture")
+        row("Decoded producer records", [number(role_topic_wire(target, topic, "producer")[1], 0) for target in targets], "capture")
+        row("Decoded consumer records", [number(role_topic_wire(target, topic, "consumer")[1], 0) for target in targets], "capture")
         row(
             "Total",
             compared([
@@ -699,17 +815,20 @@ def render_markdown(report: ExperimentReport) -> str:
                 else bytes_per_message(target, topic, "producer") + bytes_per_message(target, topic, "consumer")
                 for target in targets
             ], 0, " bytes/msg"),
+            "capture",
         )
     subsection("All topics")
-    row("Producer", compared([all_topic_bytes_per_message(target, "producer") for target in targets], 0, " bytes/msg"))
-    row("Consumer", compared([all_topic_bytes_per_message(target, "consumer") for target in targets], 0, " bytes/msg"))
+    row("Producer", compared([all_topic_bytes_per_message(target, "producer") for target in targets], 0, " bytes/msg"), "capture")
+    row("Consumer", compared([all_topic_bytes_per_message(target, "consumer") for target in targets], 0, " bytes/msg"), "capture")
     row(
         "Decoded producer records",
         [number(sum(role_topic_wire(target, topic, "producer")[1] for topic in topics), 0) for target in targets],
+        "capture",
     )
     row(
         "Decoded consumer records",
         [number(sum(role_topic_wire(target, topic, "consumer")[1] for topic in topics), 0) for target in targets],
+        "capture",
     )
     row(
         "Total",
@@ -718,6 +837,7 @@ def render_markdown(report: ExperimentReport) -> str:
             else all_topic_bytes_per_message(target, "producer") + all_topic_bytes_per_message(target, "consumer")
             for target in targets
         ], 0, " bytes/msg"),
+        "capture",
     )
 
     lines.extend(

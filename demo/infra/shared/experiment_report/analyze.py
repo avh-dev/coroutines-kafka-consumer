@@ -471,6 +471,29 @@ def latency_profile_matches(
 def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     application = metadata.get("application") if isinstance(metadata.get("application"), dict) else {}
     run_plan = metadata.get("run_plan") if isinstance(metadata.get("run_plan"), dict) else {}
+    kafka = metadata.get("kafka") if isinstance(metadata.get("kafka"), dict) else {}
+    load_test = metadata.get("load_test") if isinstance(metadata.get("load_test"), dict) else {}
+    common_consumer = kafka.get("consumer") if isinstance(kafka.get("consumer"), dict) else {}
+    topic_consumers = kafka.get("topic_consumers") if isinstance(kafka.get("topic_consumers"), dict) else {}
+    shared_producer = load_test.get("kafka_producer") if isinstance(load_test.get("kafka_producer"), dict) else {}
+    topic_producers = (
+        load_test.get("topic_kafka_producers")
+        if isinstance(load_test.get("topic_kafka_producers"), dict)
+        else {}
+    )
+    producer_defaults = {
+        "linger_ms": 20,
+        "batch_size": 64 * 1024,
+        "compression_type": "lz4",
+        "buffer_memory": 32 * 1024 * 1024,
+    }
+
+    def resolved_value(primary: dict[str, Any], fallback: dict[str, Any], key: str, default: Any = None) -> Any:
+        value = primary.get(key)
+        if value is not None and value != "":
+            return value
+        value = fallback.get(key)
+        return value if value is not None and value != "" else default
     profile = application.get("run_profile") or application.get("profile")
     dedicated_workers = run_plan.get("dedicated_processing_workers")
     if dedicated_workers is None:
@@ -485,9 +508,12 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     for item in run_plan.get("topics", []):
         if not isinstance(item, dict):
             continue
+        topic_name = str(item.get("name") or "")
+        consumer = topic_consumers.get(topic_name) if isinstance(topic_consumers.get(topic_name), dict) else {}
+        producer = topic_producers.get(topic_name) if isinstance(topic_producers.get(topic_name), dict) else {}
         topics.append(
             {
-                "name": item.get("name"),
+                "name": topic_name,
                 "kafka_topic": item.get("kafka_topic"),
                 "processing_mode": item.get("processing_mode"),
                 "partitions": item.get("partitions"),
@@ -496,6 +522,14 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
                 "queue_capacity": item.get("work_channel_capacity"),
                 "planning_latency_ms": item.get("average_processing_ms"),
                 "parallelism": item.get("parallelism") if isinstance(item.get("parallelism"), list) else [],
+                "consumer": {
+                    key: resolved_value(consumer, common_consumer, key)
+                    for key in ("fetch_min_bytes", "fetch_max_wait_ms", "max_poll_records")
+                },
+                "producer": {
+                    key: resolved_value(producer, shared_producer, key, producer_defaults[key])
+                    for key in producer_defaults
+                },
             }
         )
     return {
