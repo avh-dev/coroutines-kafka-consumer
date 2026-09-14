@@ -317,6 +317,7 @@
 | [INFRA-168](#infra-168) | Add Kafka broker CPU to report highlights and soften champion styling. | DONE |
 | [INFRA-169](#infra-169) | Split consumer contract headings and audit integrity checks in experiment reports. | DONE |
 | [INFRA-170](#infra-170) | Use application-scoped Thread Stats context-switch metrics in dashboards and reports. | DONE |
+| [INFRA-171](#infra-171) | Package the latest completed experiment report for lightweight remote download. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3650,3 +3651,13 @@ The sibling implementation now reads `/proc/self/task/<tid>/status`, reuses best
 After 78 sibling Thread Stats checks and the repository checks passed, smoke set `20260914T041702Z` completed both targets with exit code 0. Its runs `20260914T041713Z` and `20260914T042018Z` processed all 6,855 and 6,890 published records with zero failures, missing outcomes, duplicates, unmatched terminals, conflicts, or ordering violations; each captured 4/4 Thread Stats snapshots (100% coverage), and all 1,663 and 1,645 Loki records carried the required labels. The report records non-zero application context-switch averages of 1,332/s and 1,354/s, and live Prometheus attributes workload activity to `ckc-worker` and the other configured groups.
 The installed dashboard contains the grouped Thread Stats query and no old process context-switch query. Process exporter remains because broker, Redis, and load-generator CPU/RSS reporting still consumes its metrics; Kafka exporter exposes six current lag series.
 The Thread Stats row also includes separate smooth stacked category panels for voluntary and non-voluntary switches. Both total and per-pod PromQL variants executed successfully against live Prometheus (7 category series total and 14 category/pod series), and Grafana loaded the installed panels with normal stacking and smooth interpolation.
+
+<a id="infra-171"></a>
+### INFRA-171 - Package the latest completed experiment report
+
+_Date: 2026-09-14_
+
+Add a lightweight internal-lab command that selects the latest experiment set and refuses to fall back while its report is still being finalized.
+Package each report Markdown file and its SVG assets without rebuilding the full evidence bundle.
+Print the stable archive path for a small client script to invoke remotely, download, and extract.
+Verification: all 59 internal-lab tests passed; the installed command packaged the latest real report and its three SVG assets into a readable ZIP.
