@@ -2,6 +2,9 @@ demo:
   audit:
     enabled: false
 
+thread-stats:
+  process-context-switches-enabled: true
+
 management:
   endpoints:
     web:

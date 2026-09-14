@@ -316,6 +316,7 @@
 | [INFRA-167](#infra-167) | Add topic contracts, ordering evidence, and restrained champion highlighting to experiment reports. | DONE |
 | [INFRA-168](#infra-168) | Add Kafka broker CPU to report highlights and soften champion styling. | DONE |
 | [INFRA-169](#infra-169) | Split consumer contract headings and audit integrity checks in experiment reports. | DONE |
+| [INFRA-170](#infra-170) | Use application-scoped Thread Stats context-switch metrics in dashboards and reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3632,3 +3633,20 @@ Size the degraded ETA latency above the configured telemetry concurrency capacit
 Derive the CKC freshness queue from peak fleet cardinality so new keys are not rejected by an undersized queue.
 Separate freshness drop reasons, distinguish processed- and published-cohort E2E compliance, flag queue-full admission failures, and carry baseline champion styling through detailed metrics.
 Preserve audit, metrics, logs, packet capture, and the generated experiment report for comparison.
+
+<a id="infra-170"></a>
+### INFRA-170 - Use application-scoped Thread Stats context-switch metrics
+
+_Date: 2026-09-13_
+
+Install the sibling Thread Stats update and enable per-thread Linux context-switch sampling for the demo application.
+Replace host-derived application context-switch queries in the shared Grafana dashboard and experiment reports.
+Retain process-exporter only for the Kafka, Redis, and load-generator host-process signals that still depend on it.
+Refresh the installed internal lab and verify the new application metric through a complete experiment run.
+The lab entrypoints now install both the sibling Spring starter and Java agent before building the demo, so a clean update does not depend on a previously populated Maven cache.
+Verification: 77 sibling Thread Stats tests, all 96 demo tests, 58 internal-lab tests, 21 orchestration tests, and 13 result-bundle tests passed. The optilab rollout exposed both context-switch types with pod labels, both total and per-pod dashboard PromQL variants executed successfully, and the live Grafana API loaded the new panel.
+Smoke set `20260913T172948Z` completed both targets with clean delivery evidence, 100% Thread Stats snapshot coverage, required Loki labels, Kafka exporter lag series, and preserved report artifacts. It also exposed a sibling Thread Stats defect: every application context-switch series and both report values remained zero under load because the sampler reads `/proc/self/status`, whose counters cover only the JVM process leader, while the pod had substantial counters across `/proc/1/task/*/status`.
+The sibling implementation now reads `/proc/self/task/<tid>/status`, reuses best-effort Java/native matching, keeps native TID as the counter identity, aggregates deltas into bounded thread groups, and exports `thread_stats_context_switches_total{category,group,type}`. Disabled or unavailable sampling emits no misleading zero-only metric family.
+After 78 sibling Thread Stats checks and the repository checks passed, smoke set `20260914T041702Z` completed both targets with exit code 0. Its runs `20260914T041713Z` and `20260914T042018Z` processed all 6,855 and 6,890 published records with zero failures, missing outcomes, duplicates, unmatched terminals, conflicts, or ordering violations; each captured 4/4 Thread Stats snapshots (100% coverage), and all 1,663 and 1,645 Loki records carried the required labels. The report records non-zero application context-switch averages of 1,332/s and 1,354/s, and live Prometheus attributes workload activity to `ckc-worker` and the other configured groups.
+The installed dashboard contains the grouped Thread Stats query and no old process context-switch query. Process exporter remains because broker, Redis, and load-generator CPU/RSS reporting still consumes its metrics; Kafka exporter exposes six current lag series.
+The Thread Stats row also includes separate smooth stacked category panels for voluntary and non-voluntary switches. Both total and per-pod PromQL variants executed successfully against live Prometheus (7 category series total and 14 category/pod series), and Grafana loaded the installed panels with normal stacking and smooth interpolation.

@@ -38,6 +38,10 @@ class ThreadStatsRulesConfigurationTest {
             "true",
             loadProperties().getProperty("thread-stats.metrics.category-order-prefix-enabled"),
         )
+        assertEquals(
+            "true",
+            loadProperties().getProperty("thread-stats.process-context-switches-enabled"),
+        )
     }
 
     private fun loadConfiguredCategoryNames(): List<String> {

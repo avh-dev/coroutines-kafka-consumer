@@ -2246,7 +2246,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Voluntary and scheduler-forced context switches summed across all Linux threads in the demo JVM processes on the internal-lab host. This host process metric cannot be filtered by the pod selector.",
+          "description": "Voluntary and scheduler-forced context switches reported by Thread Stats for the selected demo application JVM processes.",
           "fieldConfig": {
             "defaults": {
               "custom": {
@@ -2330,13 +2330,13 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (ctxswitchtype) (rate(namedprocess_namegroup_thread_context_switches_total{job=\"ckc-host-process-exporter\", groupname=\"ckc-demo\"}[$__rate_interval]))",
-              "legendFormat": "{{ctxswitchtype}}",
+              "expr": "(label_join((sum by (type, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (type, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{type}} {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Demo Process Context Switches",
+          "title": "Application Context Switches",
           "type": "timeseries",
           "id": 105
         }
@@ -3197,6 +3197,64 @@
             "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
           }],
           "title": "System CPU Time Rate by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
+                "fillOpacity": 45, "showPoints": "never",
+                "stacking": {"mode": "normal", "group": "A"}
+              },
+              "unit": "ops", "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 42},
+          "id": 119,
+          "options": {
+            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "none"}
+          },
+          "targets": [{
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "editorMode": "code",
+            "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
+          }],
+          "title": "Voluntary Context Switches by Category (Smooth Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
+                "fillOpacity": 45, "showPoints": "never",
+                "stacking": {"mode": "normal", "group": "A"}
+              },
+              "unit": "ops", "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 42},
+          "id": 120,
+          "options": {
+            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "none"}
+          },
+          "targets": [{
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "editorMode": "code",
+            "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
+          }],
+          "title": "Non-voluntary Context Switches by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {

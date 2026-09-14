@@ -142,7 +142,9 @@ build_thread_stats_agent() {
 
   (
     cd "${thread_stats_repo}"
-    ./mvnw --batch-mode -pl thread-stats-agent -am package >&2
+    ./mvnw --batch-mode \
+      -pl thread-stats-agent,thread-stats-spring-boot-starter \
+      -am install >&2
   )
   find "${thread_stats_repo}/thread-stats-agent/target" \
     -maxdepth 1 \

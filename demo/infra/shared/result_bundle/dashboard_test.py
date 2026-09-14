@@ -11,6 +11,28 @@ from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
+    def test_application_context_switch_panel_uses_thread_stats_and_pod_filter(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        panels: list[dict] = []
+
+        def collect(items: list[dict]) -> None:
+            for panel in items:
+                if panel.get("id") == 105:
+                    panels.append(panel)
+                collect(panel.get("panels", []))
+
+        collect(dashboard["panels"])
+        self.assertEqual(1, len(panels))
+        self.assertEqual("Application Context Switches", panels[0]["title"])
+        target = panels[0]["targets"][0]
+        self.assertIn("thread_stats_context_switches_total", target["expr"])
+        self.assertIn('job="ckc-demo"', target["expr"])
+        self.assertIn('pod=~"$pod"', target["expr"])
+        self.assertIn("sum by (type, ${pod_grouping})", target["expr"])
+        self.assertEqual("{{type}} {{pod_legend}}", target["legendFormat"])
+        self.assertNotIn("namedprocess_", target["expr"])
+
     def test_thread_stats_category_panels_use_explicit_category_labels(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
@@ -41,6 +63,36 @@ class DashboardTest(unittest.TestCase):
                 target["legendFormat"],
             )
             self.assertEqual("A", target["refId"])
+
+    def test_thread_stats_context_switch_panels_are_split_smooth_and_stacked(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        panels: dict[int, dict] = {}
+
+        def collect(items: list[dict]) -> None:
+            for panel in items:
+                if panel.get("id") in {119, 120}:
+                    panels[panel["id"]] = panel
+                collect(panel.get("panels", []))
+
+        collect(dashboard["panels"])
+        self.assertEqual({119, 120}, set(panels))
+        expectations = {
+            119: ("Voluntary Context Switches by Category (Smooth Stacked)", "voluntary"),
+            120: ("Non-voluntary Context Switches by Category (Smooth Stacked)", "involuntary"),
+        }
+        for panel_id, (title, switch_type) in expectations.items():
+            panel = panels[panel_id]
+            self.assertEqual(title, panel["title"])
+            custom = panel["fieldConfig"]["defaults"]["custom"]
+            self.assertEqual("smooth", custom["lineInterpolation"])
+            self.assertEqual("normal", custom["stacking"]["mode"])
+            target = panel["targets"][0]
+            self.assertIn("thread_stats_context_switches_total", target["expr"])
+            self.assertIn(f'type="{switch_type}"', target["expr"])
+            self.assertIn("sum by (category, ${pod_grouping})", target["expr"])
+            self.assertIn('pod=~"$pod"', target["expr"])
+            self.assertEqual("{{category}} {{pod_legend}}", target["legendFormat"])
 
     def test_thread_stats_detail_panels_preserve_category_and_group(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"

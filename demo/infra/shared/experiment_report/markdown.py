@@ -352,7 +352,7 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
         row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
         row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
+        row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
         row("Audit E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"))
         row("Total Kafka wire traffic · all topics", compared([all_wire(target) for target in targets], 0, " bytes/msg"))
         row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets])
@@ -506,7 +506,7 @@ def render_markdown(report: ExperimentReport) -> str:
         )
     row("Application CPU average", compared([target.measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
     row("Application memory average", compared([target.measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-    row("Context switches average", compared([target.measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
+    row("Application context switches average", compared([target.measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
 
     if isinstance(window, dict):
         section(
@@ -542,7 +542,7 @@ def render_markdown(report: ExperimentReport) -> str:
             row(f"Audit E2E latency {percentile}", compared([(target.window_delivery.get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"))
         row("Application CPU average", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"))
         row("Application memory average", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"))
-        row("Context switches average", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
+        row("Application context switches average", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"))
         row("Kafka broker CPU average", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"))
         row("Kafka broker memory average", compared([target.window_measurements.get("broker_memory_average_mib") for target in targets], 0, " MiB"))
         row("Producer CPU average", compared([target.window_measurements.get("producer_cpu_average_cores") for target in targets], 3, " cores"))
