@@ -320,6 +320,7 @@
 | [INFRA-171](#infra-171) | Package the latest completed experiment report for lightweight remote download. | DONE |
 | [INFRA-172](#infra-172) | Label report metric sources and present effective target and Kafka client configuration before results. | DONE |
 | [INFRA-173](#infra-173) | Add a tuned Spring Kafka comparison target while keeping producer batching consistent across targets. | DONE |
+| [INFRA-174](#infra-174) | Prepare per-target Kafka batching and concurrency tuning without chaos within topic E2E budgets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3687,3 +3688,13 @@ Keep the JDK Spring Kafka target as the baseline and identify the Armeria target
 Use stronger consumer fetch batching for the tuned Spring and CKC targets while preserving equivalent settings between them.
 Increase load-producer linger consistently across every target so the generated workload remains comparable and low per-partition rates still form useful record batches.
 Verification: canonical internal-lab validation and full target materialization passed; generated deployment plans contain 8 KiB for the JDK baseline, 32 KiB for tuned Spring and CKC, and 500 ms producer linger for all targets. The installed optilab YAML matches the repository file byte for byte.
+
+<a id="infra-174"></a>
+### INFRA-174 - Tune batching without chaos
+
+_Date: 2026-09-14_
+
+Prepare a separate no-chaos comparison with explicit per-topic producer and consumer settings.
+Budget producer linger, fetch wait, and processing against topic E2E limits.
+Increase CKC processing concurrency and document estimates pending measurement.
+Verification: canonical resolution and deployment-plan materialization passed for internal-lab and AWS; all three targets have no chaos, one producer per topic, topic-specific linger/batch settings, and CKC has 300 workers per topic. Installed YAML checksum matches the repository; both run entrypoints are executable. No workload was launched; E2E compliance and optimality remain to be measured.
