@@ -72,6 +72,18 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --experiment <experiment
 The default export location is
 `/opt/ckc-lab/results/exports/<experiment>-<UTC timestamp>`.
 
+To download only the latest experiment's Markdown report and its SVG assets,
+create a small ZIP without recollecting Prometheus, Loki, or audit data:
+
+```bash
+/opt/ckc-lab/bin/package-latest-report.sh
+```
+
+The command prints the resulting archive path,
+`/opt/ckc-lab/results/exports/latest-report.zip`.
+It exits with an error instead of returning an older report if the latest
+experiment is still finalizing its report.
+
 ## Offline restore
 
 The evidence archive uses pinned Grafana, Loki, and Prometheus images:
