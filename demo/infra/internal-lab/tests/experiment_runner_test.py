@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import importlib.util
+import argparse
 import copy
+import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -22,6 +24,49 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_report_only_run_notifies_after_generation_and_skips_archive_work(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            experiment_dir = root / "experiments"
+            experiment_dir.mkdir()
+            (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
+            report = root / "reports/comparison/report.md"
+            args = argparse.Namespace(
+                experiments=["comparison"],
+                all=False,
+                env=[],
+                lab_root=str(root),
+                run_test=str(root / "run-test.sh"),
+                experiment_dir=str(experiment_dir),
+                result_dir=str(root / "results"),
+                prometheus_url="http://prometheus",
+                notify_hook="",
+                skip_archives=True,
+            )
+            completed = {
+                "experiment": "comparison",
+                "targets": [],
+                "exit_code": 0,
+            }
+            with (
+                patch.object(RUNNER, "parse_args", return_value=args),
+                patch.object(RUNNER, "selected_experiment_env", return_value={}),
+                patch.object(RUNNER, "interactive_global_env", return_value={}),
+                patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
+                patch.object(RUNNER, "run_experiment", return_value=completed),
+                patch.object(RUNNER, "generate_experiment_reports", return_value=[report]),
+                patch.object(RUNNER, "notify") as notify,
+                patch.object(RUNNER, "collect_evidence", side_effect=AssertionError("collection must be skipped")),
+                patch.object(RUNNER, "finalize_artifacts", side_effect=AssertionError("finalization must be skipped")),
+            ):
+                self.assertEqual(0, RUNNER.main())
+
+            ready = [call for call in notify.call_args_list if call.args[1] == "report_ready"]
+            self.assertEqual(1, len(ready))
+            self.assertEqual([str(report)], ready[0].args[2]["reports"])
+            summary = next((root / "results").glob("*/summary.json"))
+            self.assertEqual(["evidence", "audit"], json.loads(summary.read_text())["archives_skipped"])
+
     def test_generated_deployment_plan_owns_stub_replicas(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/bin/run-test.sh"),

@@ -24,6 +24,7 @@ DEFAULT_EVENTS = {
     "audit_analysis_finished",
     "experiment_finished",
     "experiment_failed",
+    "report_ready",
 }
 
 
@@ -67,6 +68,10 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         targets = payload.get("targets", [])
         status = short_status(payload)
         return f"CKC experiment {event.removeprefix('experiment_')}: {experiment}\ntargets={len(targets)} {status}"
+    if event == "report_ready":
+        reports = payload.get("reports", [])
+        report = reports[0] if reports else "unknown"
+        return f"CKC report ready: {experiment}\n{report}"
     return f"CKC event: {event}\n{json.dumps(payload, ensure_ascii=False, indent=2)[:3000]}"
 
 

@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
     parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
+    parser.add_argument(
+        "--skip-archives",
+        action="store_true",
+        help="Keep generated reports but skip evidence collection and evidence/audit archives.",
+    )
     return parser.parse_args()
 
 
@@ -1046,9 +1051,32 @@ def main() -> int:
     except Exception as error:
         document["report_generation_error"] = str(error)
     document["reports"] = [str(path) for path in reports]
+    if document.get("report_generation_error") and document["exit_code"] == 0:
+        document["exit_code"] = 1
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     for report in reports:
         print(f"Experiment report: {report}")
+    if reports:
+        notify(
+            hook,
+            "report_ready",
+            {
+                "experiment": ", ".join(
+                    str(summary.get("experiment"))
+                    for summary in summaries
+                    if summary.get("experiment")
+                ) or experiment_set_id,
+                "experiment_set_id": experiment_set_id,
+                "reports": [str(path) for path in reports],
+                "exit_code": document["exit_code"],
+            },
+            log_dir,
+        )
+    if args.skip_archives:
+        document["archives_skipped"] = ["evidence", "audit"]
+        summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        print("Evidence and audit archives skipped.")
+        return int(document["exit_code"])
     evidence_runs = [
         Path(str(target["run_dir"]))
         for summary in summaries
@@ -1064,7 +1092,7 @@ def main() -> int:
         loki_url="http://127.0.0.1:3100",
     )
     document["collection"] = collection
-    if (collection["errors"] or document.get("report_generation_error")) and document["exit_code"] == 0:
+    if collection["errors"] and document["exit_code"] == 0:
         document["exit_code"] = 1
     if dashboard_source.is_file():
         dashboard_target = log_dir / "config/ckc-overview.json"

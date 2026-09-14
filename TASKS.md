@@ -321,6 +321,7 @@
 | [INFRA-172](#infra-172) | Label report metric sources and present effective target and Kafka client configuration before results. | DONE |
 | [INFRA-173](#infra-173) | Add a tuned Spring Kafka comparison target while keeping producer batching consistent across targets. | DONE |
 | [INFRA-174](#infra-174) | Prepare per-target Kafka batching and concurrency tuning without chaos within topic E2E budgets. | DONE |
+| [INFRA-175](#infra-175) | Notify when a report is ready and allow iterative runs to skip evidence and audit archives. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3698,3 +3699,14 @@ Prepare a separate no-chaos comparison with explicit per-topic producer and cons
 Balance producer linger and consumer fetch wait together against each topic E2E limit, and increase CKC processing concurrency.
 Harden packet-capture parsing against malformed TShark Kafka text fields so large Produce requests retain raw batch evidence.
 Verification: 8 packet-capture tests, 18 orchestration tests, and all 59 internal-lab tests pass. Internal-lab and AWS materialization preserve fetch waits 100 ms above their matching producer linger. Reanalysis of the failed CKC producer capture reports 70,674 records in 156 batches with no warnings. The installed YAML checksum matches the repository and both run entrypoints are executable; no workload was launched automatically.
+
+
+<a id="infra-175"></a>
+### INFRA-175 - Notify on report readiness and skip archives
+
+_Date: 2026-09-14_
+
+Emit a Telegram-hook event only after generated experiment reports are ready.
+Add an explicit fast-iteration option that retains reports while skipping evidence collection and both artifact archives.
+Keep the complete evidence contract as the default for ordinary experiment runs.
+Verification: all 61 internal-lab tests pass. The installed runner exposes `--skip-archives`, the installed Telegram hook enables `report_ready` by default, and installed file checksums match the repository. The lab was updated without launching an experiment.
