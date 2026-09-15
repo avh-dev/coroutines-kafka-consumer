@@ -60,14 +60,29 @@ environments:
   internal-lab:
     lab:
       profile: installed
-      kafka_topology: cluster
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi
 ```
 
 The cluster exposes host bootstrap addresses `9092`, `9093`, and `9094`. Its
 three broker/controller containers have one persistent data volume each; user
-topics use replication factor 3 and `min.insync.replicas=2`. A one-off manual
-run may select the same topology with `--kafka-topology cluster`, but canonical
-experiments should own the setting above.
+topics and broker defaults use the configured replication factor and minimum ISR.
+The installed lab currently accepts exactly one broker for `single` and three
+brokers for `cluster`; replication cannot exceed that broker count, and minimum
+ISR cannot exceed replication. Memory and heap values use `Mi` or `Gi`.
+
+The legacy `kafka_topology: single|cluster` field and the one-off
+`--kafka-topology` flag remain available, but canonical experiments should own
+the complete fixed Kafka setting above. Use separate experiment files when Kafka
+resources differ so all targets within a comparison run against the same lab.
 
 Kafka chaos steps accept `params.broker_id` values 1 through 3. A pause models
 an unresponsive process, while a crash stops the container and starts the same

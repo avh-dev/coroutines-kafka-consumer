@@ -30,6 +30,14 @@ def java_version(arguments: list[str]) -> str | None:
     return match.group(1) if match else None
 
 
+def memory_gib(value: str) -> float:
+    match = re.fullmatch(r"([1-9][0-9]*)(Mi|Gi)", value)
+    if not match:
+        return 0
+    amount = float(match.group(1))
+    return amount if match.group(2) == "Gi" else amount / 1024
+
+
 def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, list[str]]]:
     version = command_json(["kubectl", "version", "--output=json"])
     server = version.get("serverVersion") if isinstance(version.get("serverVersion"), dict) else {}
@@ -135,6 +143,11 @@ def main() -> int:
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
     topology = str((metadata.get("kafka") or {}).get("topology") or "single")
+    kafka_metadata = metadata.get("kafka") or {}
+    broker_count = int(kafka_metadata.get("brokers") or (3 if topology == "cluster" else 1))
+    resources = kafka_metadata.get("resources") or {}
+    memory_per_broker = str(resources.get("memory_per_broker") or ("2Gi" if topology == "cluster" else "4Gi"))
+    memory_per_broker_gib = memory_gib(memory_per_broker)
     kafka_containers = (
         ["ckc-perf-kafka-1", "ckc-perf-kafka-2", "ckc-perf-kafka-3"]
         if implementation == "apache-kafka" and topology == "cluster"
@@ -161,15 +174,18 @@ def main() -> int:
         "workloads": workloads,
         "kafka": {
             "mode": "docker",
-            "brokers": 3 if topology == "cluster" else 1,
+            "brokers": broker_count,
             "topology": topology,
             "containers": kafka_containers if implementation == "apache-kafka" else ["ckc-perf-redpanda"],
             "implementation": implementation,
             "kafka_version": "4.3.1" if implementation == "apache-kafka" else "25.1.3",
-            "cpu_limit": 3 if topology == "cluster" else 2,
-            "memory_limit_gib": 6 if topology == "cluster" else 4,
-            "cpu_limit_per_broker": 1 if topology == "cluster" else 2,
-            "memory_limit_gib_per_broker": 2 if topology == "cluster" else 4,
+            "replication_factor": kafka_metadata.get("replication_factor"),
+            "min_insync_replicas": kafka_metadata.get("min_insync_replicas"),
+            "cpu_limit": float(resources.get("cpu_per_broker") or (1 if topology == "cluster" else 2)) * broker_count,
+            "memory_limit_gib": memory_per_broker_gib * broker_count,
+            "heap_per_broker": resources.get("heap_per_broker") or ("1Gi" if topology == "cluster" else "2Gi"),
+            "cpu_limit_per_broker": resources.get("cpu_per_broker") or (1 if topology == "cluster" else 2),
+            "memory_limit_gib_per_broker": memory_per_broker_gib,
         },
         "redis": {"mode": "Docker container", "version": "7.4", "cpu_limit": 1, "memory_limit_gib": 2},
         "observability": {

@@ -91,6 +91,25 @@ class ExperimentRunnerTest(unittest.TestCase):
         self.assertIn("--kafka-topology", command)
         self.assertEqual("cluster", command[command.index("--kafka-topology") + 1])
 
+    def test_kafka_cluster_configuration_becomes_fixed_runner_environment(self) -> None:
+        kafka, environment = RUNNER.kafka_lab_environment({"kafka": {
+            "implementation": "apache-kafka",
+            "topology": "cluster",
+            "brokers": 3,
+            "replication_factor": 2,
+            "min_insync_replicas": 2,
+            "resources": {"cpu_per_broker": 0.5, "memory_per_broker": "1536Mi", "heap_per_broker": "1Gi"},
+        }})
+
+        self.assertEqual(2, kafka["replication_factor"])
+        self.assertEqual("3", environment["LAB_KAFKA_BROKER_COUNT"])
+        self.assertEqual("0.5", environment["LAB_KAFKA_CPU_PER_BROKER"])
+        self.assertEqual("1536Mi", environment["LAB_KAFKA_MEMORY_PER_BROKER"])
+        self.assertEqual("1Gi", environment["LAB_KAFKA_HEAP_PER_BROKER"])
+
+        _, legacy_environment = RUNNER.kafka_lab_environment({"kafka_topology": "single"})
+        self.assertEqual({"LAB_KAFKA_TOPOLOGY": "single"}, legacy_environment)
+
     def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/bin/run-test.sh"),
@@ -121,7 +140,13 @@ class ExperimentRunnerTest(unittest.TestCase):
                 (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
             )
             source["name"] = "comparison"
-            source["environments"] = {"internal-lab": {"lab": {"profile": "installed", "kafka_topology": "cluster"}}}
+            source["environments"] = {"internal-lab": {"lab": {"profile": "installed", "kafka": {
+                "topology": "cluster",
+                "brokers": 3,
+                "replication_factor": 2,
+                "min_insync_replicas": 2,
+                "resources": {"cpu_per_broker": 0.5, "memory_per_broker": "1536Mi", "heap_per_broker": "1Gi"},
+            }}}}
             source["workload"]["load"].update({"base_tps": 1000, "workers": 4})
             baseline = copy.deepcopy(source["targets"][0])
             baseline["name"] = "baseline"
@@ -165,7 +190,10 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             self.assertEqual([1000, 2000], [call["base_tps"] for call in calls])
             self.assertEqual(["cluster", "cluster"], [env["LAB_KAFKA_TOPOLOGY"] for env in global_envs])
+            self.assertEqual(["2", "2"], [env["LAB_KAFKA_REPLICATION_FACTOR"] for env in global_envs])
+            self.assertEqual(["0.5", "0.5"], [env["LAB_KAFKA_CPU_PER_BROKER"] for env in global_envs])
             self.assertEqual("cluster", summary["kafka_topology"])
+            self.assertEqual(2, summary["kafka"]["replication_factor"])
             self.assertNotEqual(calls[0]["resolved_test_path"], calls[1]["resolved_test_path"])
             self.assertEqual(4, yaml.safe_load(Path(calls[0]["resolved_test_path"]).read_text())["load_test"]["workers"])
             self.assertEqual(20, yaml.safe_load(Path(calls[1]["resolved_test_path"]).read_text())["load_test"]["workers"])

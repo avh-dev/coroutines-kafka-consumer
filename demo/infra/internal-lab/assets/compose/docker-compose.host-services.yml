@@ -47,8 +47,8 @@ services:
     profiles:
       - apache-kafka
     restart: unless-stopped
-    cpus: "2.0"
-    mem_limit: 4g
+    cpus: "${LAB_KAFKA_CPU_PER_BROKER:-2.0}"
+    mem_limit: "${LAB_KAFKA_MEMORY_RUNTIME:-4g}"
     environment:
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
       KAFKA_NODE_ID: "0"
@@ -61,15 +61,17 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_GROUP_COORDINATOR_REBALANCE_PROTOCOLS: classic,consumer,streams,share
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-1}"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-1}"
       KAFKA_NUM_PARTITIONS: "4"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-1}"
+      KAFKA_MIN_INSYNC_REPLICAS: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-1}"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-1}"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-1}"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-1}"
       KAFKA_LOG_RETENTION_MS: "300000"
       KAFKA_LOG_SEGMENT_MS: "60000"
-      KAFKA_HEAP_OPTS: "-Xms2g -Xmx2g"
+      KAFKA_HEAP_OPTS: "-Xms${LAB_KAFKA_HEAP_RUNTIME:-2g} -Xmx${LAB_KAFKA_HEAP_RUNTIME:-2g}"
       KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
     ports:
       - "0.0.0.0:9092:9092"
@@ -87,8 +89,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4G
+          cpus: "${LAB_KAFKA_CPU_PER_BROKER:-2.0}"
+          memory: "${LAB_KAFKA_MEMORY_RUNTIME:-4g}"
     healthcheck:
       test: ["CMD-SHELL", "env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 10s
@@ -102,8 +104,8 @@ services:
     profiles:
       - apache-kafka-cluster
     restart: unless-stopped
-    cpus: "1.0"
-    mem_limit: 2g
+    cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+    mem_limit: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     environment: &apache-kafka-cluster-environment
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
       KAFKA_PROCESS_ROLES: broker,controller
@@ -114,18 +116,18 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_GROUP_COORDINATOR_REBALANCE_PROTOCOLS: classic,consumer,streams,share
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "3"
-      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "2"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-3}"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-2}"
       KAFKA_NUM_PARTITIONS: "4"
-      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
-      KAFKA_MIN_INSYNC_REPLICAS: "2"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-3}"
+      KAFKA_MIN_INSYNC_REPLICAS: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-2}"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-3}"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "${LAB_KAFKA_REPLICATION_FACTOR:-3}"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "${LAB_KAFKA_MIN_INSYNC_REPLICAS:-2}"
       KAFKA_LOG_RETENTION_MS: "300000"
       KAFKA_LOG_SEGMENT_MS: "60000"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_HEAP_OPTS: "-Xms1g -Xmx1g"
+      KAFKA_HEAP_OPTS: "-Xms${LAB_KAFKA_HEAP_RUNTIME:-1g} -Xmx${LAB_KAFKA_HEAP_RUNTIME:-1g}"
       KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
       KAFKA_NODE_ID: "1"
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-1:29092,EXTERNAL://${LAB_NODE_IP}:9092
@@ -143,8 +145,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 2G
+          cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+          memory: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     healthcheck: &apache-kafka-cluster-healthcheck
       test: ["CMD-SHELL", "env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 10s
@@ -158,8 +160,8 @@ services:
     profiles:
       - apache-kafka-cluster
     restart: unless-stopped
-    cpus: "1.0"
-    mem_limit: 2g
+    cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+    mem_limit: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     environment:
       <<: *apache-kafka-cluster-environment
       KAFKA_NODE_ID: "2"
@@ -174,8 +176,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 2G
+          cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+          memory: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     healthcheck: *apache-kafka-cluster-healthcheck
 
   apache-kafka-3:
@@ -185,8 +187,8 @@ services:
     profiles:
       - apache-kafka-cluster
     restart: unless-stopped
-    cpus: "1.0"
-    mem_limit: 2g
+    cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+    mem_limit: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     environment:
       <<: *apache-kafka-cluster-environment
       KAFKA_NODE_ID: "3"
@@ -201,8 +203,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 2G
+          cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
+          memory: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     healthcheck: *apache-kafka-cluster-healthcheck
 
   redis:

@@ -328,6 +328,7 @@
 | [INFRA-179](#infra-179) | Make Telegram experiment progress notifications concise and visually scannable. | DONE |
 | [INFRA-180](#infra-180) | Prepare a two-target 5k/s comparison with all downstream tail latency degraded to 500-2000 ms. | DONE |
 | [INFRA-181](#infra-181) | Add a selectable three-node KRaft Kafka cluster and broker-aware failure scenarios to the internal lab. | DONE |
+| [INFRA-182](#infra-182) | Configure the internal-lab Kafka cluster shape and resources from the experiment definition. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3779,3 +3780,13 @@ Use replicated topics and durable per-node storage so one broker can fail and re
 Make bootstrap discovery, administration, observability, evidence, and chaos operations aware of the selected topology and individual broker identities.
 Cover broker pause, crash/restart, and recovery behavior without automatically launching a workload experiment.
 Verification: all 68 internal-lab and 24 experiment-orchestration tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace validation pass. The installed optilab cluster formed a three-voter quorum, exposed three healthy Thread Stats targets, retained `acks=all` writes with RF=3/min ISR=2 while broker 1 was paused, and recovered broker 2 after a hard crash with zero follower lag. Installed helper and experiment checksums match the repository; no workload experiment was launched.
+
+<a id="infra-182"></a>
+### INFRA-182 - Configure Kafka clusters per experiment
+
+_Date: 2026-09-15_
+
+Move the internal-lab Kafka topology, broker count, topic replication settings, and per-broker resource limits into one validated experiment-owned configuration.
+Materialize the resolved settings through Compose, topic preparation, run metadata, and evidence while preserving the existing single-node defaults.
+Keep broker-specific chaos steps in the workload scenario and reject configurations that the installed lab cannot safely realize.
+Verification: all 25 experiment-orchestration and 69 internal-lab tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace checks pass. Installed assets match repository checksums. The resolved three-node configuration produced three healthy brokers with 1 CPU, 2 GiB memory, 1 GiB heap, RF=3, min ISR=2, a three-voter quorum, and zero follower lag; no workload experiment was launched.

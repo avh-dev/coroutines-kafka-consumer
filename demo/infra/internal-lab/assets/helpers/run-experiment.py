@@ -49,6 +49,17 @@ LEGACY_ENV_ARGS = {
     "WORKER_DISPATCHER_THREADS": "--worker-dispatcher-threads",
 }
 
+KAFKA_LAB_ENV_KEYS = {
+    "LAB_KAFKA_IMPLEMENTATION",
+    "LAB_KAFKA_TOPOLOGY",
+    "LAB_KAFKA_BROKER_COUNT",
+    "LAB_KAFKA_REPLICATION_FACTOR",
+    "LAB_KAFKA_MIN_INSYNC_REPLICAS",
+    "LAB_KAFKA_CPU_PER_BROKER",
+    "LAB_KAFKA_MEMORY_PER_BROKER",
+    "LAB_KAFKA_HEAP_PER_BROKER",
+}
+
 
 def parse_args() -> argparse.Namespace:
     lab_root = os.environ.get("LAB_ROOT", "/opt/ckc-lab")
@@ -76,6 +87,37 @@ def load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"YAML document must be an object: {path}")
     return data
+
+
+def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    kafka = lab.get("kafka")
+    if not isinstance(kafka, dict):
+        topology = str(lab.get("kafka_topology") or "single")
+        kafka = {
+            "implementation": "apache-kafka",
+            "topology": topology,
+            "brokers": 3 if topology == "cluster" else 1,
+            "replication_factor": 3 if topology == "cluster" else 1,
+            "min_insync_replicas": 2 if topology == "cluster" else 1,
+            "resources": {
+                "cpu_per_broker": 1 if topology == "cluster" else 2,
+                "memory_per_broker": "2Gi" if topology == "cluster" else "4Gi",
+                "heap_per_broker": "1Gi" if topology == "cluster" else "2Gi",
+            },
+        }
+        return kafka, {"LAB_KAFKA_TOPOLOGY": topology}
+    resources = kafka["resources"]
+    environment = {
+        "LAB_KAFKA_IMPLEMENTATION": str(kafka["implementation"]),
+        "LAB_KAFKA_TOPOLOGY": str(kafka["topology"]),
+        "LAB_KAFKA_BROKER_COUNT": str(kafka["brokers"]),
+        "LAB_KAFKA_REPLICATION_FACTOR": str(kafka["replication_factor"]),
+        "LAB_KAFKA_MIN_INSYNC_REPLICAS": str(kafka["min_insync_replicas"]),
+        "LAB_KAFKA_CPU_PER_BROKER": str(resources["cpu_per_broker"]),
+        "LAB_KAFKA_MEMORY_PER_BROKER": str(resources["memory_per_broker"]),
+        "LAB_KAFKA_HEAP_PER_BROKER": str(resources["heap_per_broker"]),
+    }
+    return kafka, environment
 
 
 def experiment_files(experiment_dir: Path) -> list[Path]:
@@ -661,8 +703,9 @@ def run_one(
     test_definition = str(test["test_definition"])
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
-    if "LAB_KAFKA_TOPOLOGY" in global_env:
-        env["LAB_KAFKA_TOPOLOGY"] = global_env["LAB_KAFKA_TOPOLOGY"]
+    for key in KAFKA_LAB_ENV_KEYS:
+        if key in global_env:
+            env[key] = global_env[key]
     env.setdefault("EXPERIMENT_TARGET_NAME", name)
     env.setdefault("EXPERIMENT_NAME", experiment_name)
     env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
@@ -847,10 +890,11 @@ def run_experiment(
     lab_configuration = (resolved_experiment.environment_definition or {}).get("lab") or {}
     if not isinstance(lab_configuration, dict):
         raise ValueError("Internal-lab environment lab configuration must be an object")
-    kafka_topology = str(lab_configuration.get("kafka_topology") or "single")
-    if kafka_topology not in {"single", "cluster"}:
-        raise ValueError(f"Unsupported internal-lab Kafka topology: {kafka_topology}")
-    experiment_env = {**global_env, "LAB_KAFKA_TOPOLOGY": kafka_topology}
+    kafka_configuration, kafka_environment = kafka_lab_environment(lab_configuration)
+    if "kafka" not in lab_configuration and "LAB_KAFKA_IMPLEMENTATION" in global_env:
+        kafka_configuration["implementation"] = global_env["LAB_KAFKA_IMPLEMENTATION"]
+    kafka_topology = str(kafka_configuration["topology"])
+    experiment_env = {**global_env, **kafka_environment}
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
@@ -994,6 +1038,7 @@ def run_experiment(
         "resolved_test_path": str(resolved_test_path),
         "base_tps": base_tps,
         "kafka_topology": kafka_topology,
+        "kafka": kafka_configuration,
         "experiment_file": str(experiment_path),
         "resolved_experiment_path": str(materialized_dir / "resolved-experiment.yaml"),
         "latency_limits_file": str(latency_limits_file),
