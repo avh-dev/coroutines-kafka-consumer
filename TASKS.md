@@ -325,6 +325,7 @@
 | [INFRA-176](#infra-176) | Make steady-state report highlights topic-specific and use direct delivery-result labels. | DONE |
 | [INFRA-177](#infra-177) | Refine comparison report structure and prepare lower-latency CKC tuning. | DONE |
 | [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
+| [INFRA-179](#infra-179) | Make Telegram experiment progress notifications concise and visually scannable. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3745,3 +3746,13 @@ Give steady-state and full-run results the same summary-then-topic structure, wi
 Keep Kafka broker and network evidence after interval results.
 Extend packet-capture summaries with per-topic payload, encoded-record, and batch-compression measurements.
 Verification: all 62 internal-lab tests and 30 focused pcap/orchestration tests pass. All three saved runs from `20260914T181947Z` were reanalyzed successfully from retained pcaps. The installed report shows exact topic names, symmetric steady/full sections, and per-topic payload, record-size, and LZ4 compression evidence; `latest-report.zip` was refreshed without launching a workload.
+
+<a id="infra-179"></a>
+### INFRA-179 - Compact Telegram progress notifications
+
+_Date: 2026-09-15_
+
+Keep experiment-start and report-ready notifications detailed and identifiable.
+Reduce intermediate experiment progress notifications to one-line phase transitions.
+Use stable icons and explicit `started`, `completed`, and `failed` wording for quick scanning.
+Verification: all 65 internal-lab tests pass, both modified Python files compile, and the installed Telegram hook matches the repository checksum. The lab assets were updated without rebuilding images, restarting deployments, or launching an experiment.
