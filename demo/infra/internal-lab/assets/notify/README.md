@@ -98,6 +98,9 @@ chmod 0750 /opt/ckc-lab/notify/notify.sh
 ```
 
 By default, the Telegram example sends only high-signal experiment-level events.
+The experiment start and report-ready messages include identifying details. Progress
+events are one-line phase transitions with stable status icons and explicit
+`started`, `completed`, or `failed` wording.
 Override this with a comma-separated allowlist:
 
 ```sh

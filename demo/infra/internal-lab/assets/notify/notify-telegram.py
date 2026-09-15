@@ -42,37 +42,47 @@ def load_payload(path: str) -> dict[str, Any]:
     return value
 
 
-def short_status(payload: dict[str, Any]) -> str:
+def completion_message(phase: str, payload: dict[str, Any]) -> str:
     exit_code = payload.get("exit_code")
-    if exit_code is None:
-        return ""
-    return "ok" if exit_code == 0 else f"failed exit_code={exit_code}"
+    if exit_code in (None, 0):
+        return f"✅ {phase} completed"
+    return f"❌ {phase} failed · exit {exit_code}"
 
 
 def message_for(event: str, payload: dict[str, Any]) -> str:
     experiment = payload.get("experiment") or payload.get("name") or "ckc experiment"
     if event == "experiment_started":
-        return f"CKC experiment started: {experiment}\ntargets={payload.get('targets', '?')}"
+        return f"🚀 CKC experiment started: {experiment}\nTargets: {payload.get('targets', '?')}"
+    if event == "test_started":
+        return "▶️ Test started"
+    if event == "test_finished":
+        return completion_message("Test", payload)
     if event == "experiment_runs_finished":
-        return (
-            f"CKC experiment load phases finished: {experiment}\n"
-            f"runs={payload.get('runs', '?')} auditable_runs={payload.get('auditable_runs', '?')}"
-        )
+        return "✅ Load runs completed"
     if event == "audit_analysis_started":
-        return f"CKC audit analysis started: {experiment}\nauditable_runs={payload.get('auditable_runs', '?')}"
+        return "🔍 Audit analysis started"
     if event == "audit_analysis_finished":
-        analysis = payload.get("analysis", [])
-        failures = sum(1 for item in analysis if isinstance(item, dict) and item.get("exit_code") != 0)
-        return f"CKC audit analysis finished: {experiment}\nanalyses={len(analysis)} failures={failures}"
-    if event in {"experiment_finished", "experiment_failed"}:
-        targets = payload.get("targets", [])
-        status = short_status(payload)
-        return f"CKC experiment {event.removeprefix('experiment_')}: {experiment}\ntargets={len(targets)} {status}"
+        failures = [
+            item
+            for item in payload.get("analysis", [])
+            if isinstance(item, dict) and item.get("exit_code") != 0
+        ]
+        return "❌ Audit analysis failed" if failures else "✅ Audit analysis completed"
+    if event == "audit_run_analysis_started":
+        return "🔍 Audit run analysis started"
+    if event == "audit_run_analysis_finished":
+        return completion_message("Audit run analysis", payload)
+    if event == "experiment_finished":
+        return "🏁 Experiment completed"
+    if event == "experiment_failed":
+        exit_code = payload.get("exit_code")
+        suffix = "" if exit_code is None else f" · exit {exit_code}"
+        return f"❌ Experiment failed{suffix}"
     if event == "report_ready":
         reports = payload.get("reports", [])
         report = reports[0] if reports else "unknown"
-        return f"CKC report ready: {experiment}\n{report}"
-    return f"CKC event: {event}\n{json.dumps(payload, ensure_ascii=False, indent=2)[:3000]}"
+        return f"📊 CKC report ready: {experiment}\n{report}"
+    return f"ℹ️ {event.replace('_', ' ').capitalize()}"
 
 
 def send_telegram(text: str) -> None:
