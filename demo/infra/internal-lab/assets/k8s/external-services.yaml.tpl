@@ -8,6 +8,12 @@ spec:
     - name: kafka
       port: 9092
       targetPort: 9092
+    - name: kafka-2
+      port: 9093
+      targetPort: 9093
+    - name: kafka-3
+      port: 9094
+      targetPort: 9094
 ---
 apiVersion: v1
 kind: Endpoints
@@ -20,6 +26,10 @@ subsets:
     ports:
       - name: kafka
         port: 9092
+      - name: kafka-2
+        port: 9093
+      - name: kafka-3
+        port: 9094
 ---
 apiVersion: v1
 kind: Service
@@ -31,6 +41,12 @@ spec:
     - name: metrics
       port: 9404
       targetPort: 9404
+    - name: metrics-2
+      port: 9405
+      targetPort: 9405
+    - name: metrics-3
+      port: 9406
+      targetPort: 9406
 ---
 apiVersion: v1
 kind: Endpoints
@@ -43,6 +59,10 @@ subsets:
     ports:
       - name: metrics
         port: 9404
+      - name: metrics-2
+        port: 9405
+      - name: metrics-3
+        port: 9406
 ---
 apiVersion: v1
 kind: Service

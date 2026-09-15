@@ -160,5 +160,15 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown target implementations: missing"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
+    def test_internal_lab_kafka_topology_is_normalized_and_validated(self) -> None:
+        experiment = canonical_experiment()
+        experiment["environments"]["internal-lab"]["lab"]["kafka_topology"] = "cluster"
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+        self.assertEqual("cluster", snapshot["environment"]["configuration"]["lab"]["kafka_topology"])
+
+        experiment["environments"]["internal-lab"]["lab"]["kafka_topology"] = "five-node"
+        with self.assertRaisesRegex(ValueError, "kafka_topology"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,7 @@ PLAN_MANUAL_ARGS=()
 PLAN_HELM_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
+LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
 PROCESSING_DISPATCHER_TYPE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
@@ -77,6 +78,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--order-processing-mode mode] [--batch-processing-mode mode]
           [--telemetry-processing-mode mode] [--dry-run-plan]
           [--kafka-implementation redpanda|apache-kafka]
+          [--kafka-topology single|cluster]
           [--processing-dispatcher-type DEFAULT|FIXED|IO|VIRTUAL]
           [--order-queue-capacity count] [--batch-queue-capacity count]
           [--telemetry-queue-capacity count]
@@ -131,6 +133,7 @@ Options:
   --hpa-*          Override generated application autoscaling values.
   --kafka-implementation
                     Select the host Kafka API broker implementation.
+  --kafka-topology  Select the single-node or three-node cluster topology.
   --processing-dispatcher-type
                     Select the coroutine processing dispatcher when the profile supports it.
   --processing-enabled
@@ -232,6 +235,10 @@ while [ "$#" -gt 0 ]; do
       LAB_KAFKA_IMPLEMENTATION="${2:?--kafka-implementation requires redpanda or apache-kafka}"
       shift 2
       ;;
+    --kafka-topology)
+      LAB_KAFKA_TOPOLOGY="${2:?--kafka-topology requires single or cluster}"
+      shift 2
+      ;;
     --processing-dispatcher-type)
       PROCESSING_DISPATCHER_TYPE="${2:?--processing-dispatcher-type requires DEFAULT, FIXED, IO, or VIRTUAL}"
       shift 2
@@ -296,12 +303,15 @@ if [ ! -f "${LAB_ENV}" ]; then
 fi
 
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
+REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
+LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-}}"
 
 CURRENT_APP_PROFILE=""
 CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
+CURRENT_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-single}"
 CURRENT_PROCESSING_ENABLED="true"
 CURRENT_AUDIT_LOG_ENABLED="true"
 CURRENT_METRICS_IMPLEMENTATION="MICROMETER"
@@ -331,6 +341,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   REQUESTED_PROCESSING_ENABLED="${PROCESSING_ENABLED}"
   REQUESTED_PROCESSING_DISPATCHER_TYPE="${PROCESSING_DISPATCHER_TYPE}"
   REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
+  REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
   REQUESTED_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}"
   REQUESTED_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION}"
   REQUESTED_LETTUCE_METRICS_ENABLED="${LETTUCE_METRICS_ENABLED}"
@@ -341,6 +352,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   . "${CURRENT_DEPLOYMENT_PATH}"
   CURRENT_APP_PROFILE="${APP_PROFILE:-}"
   CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
+  CURRENT_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-single}"
   CURRENT_PROCESSING_ENABLED="${PROCESSING_ENABLED:-true}"
   CURRENT_AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED:-true}"
   CURRENT_METRICS_IMPLEMENTATION="${METRICS_IMPLEMENTATION:-MICROMETER}"
@@ -369,6 +381,7 @@ if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
   PROCESSING_ENABLED="${REQUESTED_PROCESSING_ENABLED}"
   PROCESSING_DISPATCHER_TYPE="${REQUESTED_PROCESSING_DISPATCHER_TYPE}"
   LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION}"
+  LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY}"
   AUDIT_LOG_ENABLED="${REQUESTED_AUDIT_LOG_ENABLED}"
   METRICS_IMPLEMENTATION="${REQUESTED_METRICS_IMPLEMENTATION}"
   LETTUCE_METRICS_ENABLED="${REQUESTED_LETTUCE_METRICS_ENABLED}"
@@ -385,6 +398,14 @@ normalize_kafka_implementation() {
       echo "kafka-implementation must be redpanda or apache-kafka: $1" >&2
       exit 1
       ;;
+  esac
+}
+
+normalize_kafka_topology() {
+  case "$1" in
+    single) printf "%s\n" "single" ;;
+    cluster|three-node) printf "%s\n" "cluster" ;;
+    *) echo "kafka-topology must be single or cluster: $1" >&2; exit 1 ;;
   esac
 }
 
@@ -667,6 +688,25 @@ if [ -z "${LAB_KAFKA_IMPLEMENTATION}" ]; then
   fi
 fi
 LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
+if [ -z "${LAB_KAFKA_TOPOLOGY}" ]; then
+  if [ ! -t 0 ] || [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+    LAB_KAFKA_TOPOLOGY="${CURRENT_KAFKA_TOPOLOGY}"
+  else
+    LAB_KAFKA_TOPOLOGY="$(select_value "Kafka topology" "${CURRENT_KAFKA_TOPOLOGY}" single cluster)"
+  fi
+fi
+LAB_KAFKA_TOPOLOGY="$(normalize_kafka_topology "${LAB_KAFKA_TOPOLOGY}")"
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
+  echo "kafka-topology cluster requires apache-kafka." >&2
+  exit 1
+fi
+if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+  KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
+  APACHE_KAFKA_ADMIN_CONTAINER="ckc-perf-kafka-1"
+else
+  KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092"
+  APACHE_KAFKA_ADMIN_CONTAINER="ckc-perf-kafka"
+fi
 
 if [ -z "${PROCESSING_ENABLED}" ]; then
   if [ ! -t 0 ]; then
@@ -972,6 +1012,7 @@ else
   echo "Deployment profile: $(basename "${DEPLOYMENT_PROFILE}" .yaml)"
 fi
 echo "Kafka broker implementation: ${LAB_KAFKA_IMPLEMENTATION}"
+echo "Kafka topology: ${LAB_KAFKA_TOPOLOGY}"
 echo "Processing enabled: ${PROCESSING_ENABLED}"
 echo "Audit logging enabled: ${AUDIT_LOG_ENABLED}"
 echo "Consumer metrics implementation: ${METRICS_IMPLEMENTATION}"
@@ -1152,6 +1193,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
     "${LETTUCE_METRICS_ENABLED}"
     --kafka-implementation
     "${LAB_KAFKA_IMPLEMENTATION}"
+    --kafka-topology
+    "${LAB_KAFKA_TOPOLOGY}"
   )
   if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
     PREPARE_ARGS+=(--deployment-plan "${DEPLOYMENT_PLAN_PATH}")
@@ -1172,6 +1215,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
       "${LETTUCE_METRICS_ENABLED}"
       --kafka-implementation
       "${LAB_KAFKA_IMPLEMENTATION}"
+      --kafka-topology
+      "${LAB_KAFKA_TOPOLOGY}"
     )
     if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then
       PREPARE_ARGS+=(--deployment-plan "${DEPLOYMENT_PLAN_PATH}")
@@ -1235,7 +1280,7 @@ KAFKA_PRODUCER_BUFFER_MEMORY="${KAFKA_PRODUCER_BUFFER_MEMORY:-33554432}"
 
 write_run_metadata() {
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
-  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED JDK_HTTP_CLIENT_EXECUTOR MODEL_SYNC_HTTP_CLIENT WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
+  export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION LAB_KAFKA_TOPOLOGY KAFKA_BOOTSTRAP_HOST PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED JDK_HTTP_CLIENT_EXECUTOR MODEL_SYNC_HTTP_CLIENT WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
   export RUN_PROFILE RUN_PLAN_PATH REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export ORDER_TPS_PER_PRODUCER BATCH_TPS_PER_PRODUCER CAULDRON_TELEMETRY_TPS_PER_PRODUCER LOAD_TEST_METRICS_PORT
@@ -1336,7 +1381,8 @@ metadata = {
     },
     "kafka": {
         "implementation": env("LAB_KAFKA_IMPLEMENTATION", "apache-kafka"),
-        "bootstrap_servers": "127.0.0.1:9092",
+        "topology": env("LAB_KAFKA_TOPOLOGY", "single"),
+        "bootstrap_servers": env("KAFKA_BOOTSTRAP_HOST", "127.0.0.1:9092"),
         "topics": topic_specs(env("TOPIC_SPECS")),
         "consumer": {
             "fetch_min_bytes": env_int("KAFKA_CONSUMER_FETCH_MIN_BYTES"),
@@ -1479,7 +1525,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
 fi
 
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
-BOOTSTRAP_SERVERS="127.0.0.1:9092" \
+BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_HOST}" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
 JOB_COMPLETION_INDEX="${JOB_COMPLETION_INDEX:-0}" \
 TEST_RUN_ID="${RUN_ID}" \
@@ -1546,6 +1592,7 @@ CHAOS_PID=""
 if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   mkdir -p "${RUN_LOG_DIR}"
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON}" \
+  LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}" \
   TEST_RUN_ID="${RUN_ID}" EXPERIMENT_EVENTS_FILE="${RUN_EVENTS_FILE}" \
   EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED}" \
   EXPERIMENT_GRAFANA_URL="${EXPERIMENT_GRAFANA_URL:-http://127.0.0.1:3000}" \
@@ -1561,7 +1608,7 @@ DIAGNOSTICS_PID=""
 if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
   resolve_kafka_capture_interface() {
     case "${LAB_KAFKA_IMPLEMENTATION}" in
-      apache-kafka) kafka_container="ckc-perf-kafka" ;;
+      apache-kafka) kafka_container="${APACHE_KAFKA_ADMIN_CONTAINER}" ;;
       redpanda) kafka_container="ckc-perf-redpanda" ;;
       *) echo "Unsupported Kafka implementation for packet capture: ${LAB_KAFKA_IMPLEMENTATION}" >&2; return 1 ;;
     esac
@@ -1634,8 +1681,9 @@ if [ "${THREAD_STATS_SNAPSHOT_ENABLED}" = "true" ]; then
   echo "  thread_stats=${RUN_THREAD_STATS_DIR}"
 fi
 echo "  pid_file=${PID_PATH}"
-echo "  bootstrap=127.0.0.1:9092"
+echo "  bootstrap=${KAFKA_BOOTSTRAP_HOST}"
 echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
+echo "  kafka_topology=${LAB_KAFKA_TOPOLOGY}"
 echo "  test_definition=$(basename "${TEST_DEFINITION}")"
 if [ -n "${CHAOS_PID}" ]; then
   echo "  chaos_pid=${CHAOS_PID}"
@@ -1795,6 +1843,7 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
   python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
     --kafka-implementation "${LAB_KAFKA_IMPLEMENTATION}" \
+    --apache-kafka-container "${APACHE_KAFKA_ADMIN_CONTAINER}" \
     --groups "ckc-demo" \
     --timeout-seconds "${CONSUMER_DRAIN_TIMEOUT_SECONDS}" \
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \

@@ -327,6 +327,7 @@
 | [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
 | [INFRA-179](#infra-179) | Make Telegram experiment progress notifications concise and visually scannable. | DONE |
 | [INFRA-180](#infra-180) | Prepare a two-target 5k/s comparison with all downstream tail latency degraded to 500-2000 ms. | DONE |
+| [INFRA-181](#infra-181) | Add a selectable three-node KRaft Kafka cluster and broker-aware failure scenarios to the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3767,3 +3768,14 @@ Derive a two-target experiment from the latest no-chaos Spring JDK and CKC tunin
 Degrade ETA, flavour, and registry together from 05:00 through 08:00 by setting p99 to 500 ms and p100 to 2000 ms, affecting the slowest 5% of calls while preserving all other workload, target, and environment settings.
 Add a structural regression test that detects drift from the source experiment outside the intended target removal and chaos addition.
 Verification: all 23 experiment-orchestration tests and all 65 internal-lab tests pass. The installed definition checksum matches the repository; optilab was updated without launching an experiment.
+
+<a id="infra-181"></a>
+### INFRA-181 - Add a three-node Kafka cluster
+
+_Date: 2026-09-15_
+
+Add an internal-lab topology option that runs three Apache Kafka broker/controller nodes in one KRaft quorum while retaining the lightweight single-node topology.
+Use replicated topics and durable per-node storage so one broker can fail and recover without discarding the cluster state.
+Make bootstrap discovery, administration, observability, evidence, and chaos operations aware of the selected topology and individual broker identities.
+Cover broker pause, crash/restart, and recovery behavior without automatically launching a workload experiment.
+Verification: all 68 internal-lab and 24 experiment-orchestration tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace validation pass. The installed optilab cluster formed a three-voter quorum, exposed three healthy Thread Stats targets, retained `acks=all` writes with RF=3/min ISR=2 while broker 1 was paused, and recovered broker 2 after a hard crash with zero follower lag. Installed helper and experiment checksums match the repository; no workload experiment was launched.

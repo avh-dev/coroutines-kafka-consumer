@@ -39,6 +39,7 @@ except ImportError as error:
 
 LEGACY_ENV_ARGS = {
     "LAB_KAFKA_IMPLEMENTATION": "--kafka-implementation",
+    "LAB_KAFKA_TOPOLOGY": "--kafka-topology",
     "PROCESSING_DISPATCHER_TYPE": "--processing-dispatcher-type",
     "PROCESSING_ENABLED": "--processing-enabled",
     "AUDIT_LOG_ENABLED": "--audit-log-enabled",
@@ -660,6 +661,8 @@ def run_one(
     test_definition = str(test["test_definition"])
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
+    if "LAB_KAFKA_TOPOLOGY" in global_env:
+        env["LAB_KAFKA_TOPOLOGY"] = global_env["LAB_KAFKA_TOPOLOGY"]
     env.setdefault("EXPERIMENT_TARGET_NAME", name)
     env.setdefault("EXPERIMENT_NAME", experiment_name)
     env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
@@ -841,6 +844,13 @@ def run_experiment(
         environment="internal-lab",
     )
     experiment = resolved_experiment.definition
+    lab_configuration = (resolved_experiment.environment_definition or {}).get("lab") or {}
+    if not isinstance(lab_configuration, dict):
+        raise ValueError("Internal-lab environment lab configuration must be an object")
+    kafka_topology = str(lab_configuration.get("kafka_topology") or "single")
+    if kafka_topology not in {"single", "cluster"}:
+        raise ValueError(f"Unsupported internal-lab Kafka topology: {kafka_topology}")
+    experiment_env = {**global_env, "LAB_KAFKA_TOPOLOGY": kafka_topology}
     defaults = experiment.get("defaults", {})
     if defaults in ("", None):
         defaults = {}
@@ -937,7 +947,7 @@ def run_experiment(
                 run_test,
                 lab_root,
                 defaults,
-                global_env,
+                experiment_env,
                 target_run,
                 index,
                 len(targets),
@@ -983,6 +993,7 @@ def run_experiment(
         "test_definition": test_definition,
         "resolved_test_path": str(resolved_test_path),
         "base_tps": base_tps,
+        "kafka_topology": kafka_topology,
         "experiment_file": str(experiment_path),
         "resolved_experiment_path": str(materialized_dir / "resolved-experiment.yaml"),
         "latency_limits_file": str(latency_limits_file),

@@ -49,6 +49,51 @@ An experiment contains:
 Changing paid or fixed lab capacity between targets is intentionally unsupported.
 Use separate experiment files when Kafka, Redis, or node capacity differs.
 
+## Kafka topology and broker failures
+
+The default `single` topology keeps one combined Apache Kafka KRaft
+broker/controller for lightweight tests. Select the three-node quorum as fixed
+experiment configuration:
+
+```yaml
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka_topology: cluster
+```
+
+The cluster exposes host bootstrap addresses `9092`, `9093`, and `9094`. Its
+three broker/controller containers have one persistent data volume each; user
+topics use replication factor 3 and `min.insync.replicas=2`. A one-off manual
+run may select the same topology with `--kafka-topology cluster`, but canonical
+experiments should own the setting above.
+
+Kafka chaos steps accept `params.broker_id` values 1 through 3. A pause models
+an unresponsive process, while a crash stops the container and starts the same
+container and data volume after the configured duration:
+
+```yaml
+workload:
+  chaos:
+  - at: 5m
+    duration: 45s
+    type: service_outage
+    target: kafka
+    params:
+      broker_id: 1
+  - at: 7m
+    duration: 30s
+    type: service_crash
+    target: kafka
+    params:
+      broker_id: 2
+```
+
+`service_restart` and `network_degradation` also accept `broker_id`. Do not
+overlap failure intervals for the same broker; failures of different brokers
+may overlap intentionally when testing loss of quorum.
+
 ## Results
 
 Every experiment finalizes the same named result layout as AWS:

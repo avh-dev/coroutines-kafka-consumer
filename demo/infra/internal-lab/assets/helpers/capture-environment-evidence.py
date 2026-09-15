@@ -134,14 +134,19 @@ def main() -> int:
     host = platform.node()
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
+    topology = str((metadata.get("kafka") or {}).get("topology") or "single")
+    kafka_containers = (
+        ["ckc-perf-kafka-1", "ckc-perf-kafka-2", "ckc-perf-kafka-3"]
+        if implementation == "apache-kafka" and topology == "cluster"
+        else ["ckc-perf-kafka"]
+    )
     java = {
         "application": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo", "--", "java", "-version"]),
         "stubs": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo-stubs", "--", "java", "-version"]),
         "load_generator": java_version(["java", "-version"]),
         "kafka": (
-            java_version(["docker", "exec", "ckc-perf-kafka", "/opt/java/openjdk/bin/java", "-version"])
-            if implementation == "apache-kafka"
-            else None
+            java_version(["docker", "exec", kafka_containers[0], "/opt/java/openjdk/bin/java", "-version"])
+            if implementation == "apache-kafka" else None
         ),
     }
     metadata["environment_evidence"] = {
@@ -156,11 +161,15 @@ def main() -> int:
         "workloads": workloads,
         "kafka": {
             "mode": "docker",
-            "brokers": 1,
+            "brokers": 3 if topology == "cluster" else 1,
+            "topology": topology,
+            "containers": kafka_containers if implementation == "apache-kafka" else ["ckc-perf-redpanda"],
             "implementation": implementation,
             "kafka_version": "4.3.1" if implementation == "apache-kafka" else "25.1.3",
-            "cpu_limit": 2,
-            "memory_limit_gib": 4,
+            "cpu_limit": 3 if topology == "cluster" else 2,
+            "memory_limit_gib": 6 if topology == "cluster" else 4,
+            "cpu_limit_per_broker": 1 if topology == "cluster" else 2,
+            "memory_limit_gib_per_broker": 2 if topology == "cluster" else 4,
         },
         "redis": {"mode": "Docker container", "version": "7.4", "cpu_limit": 1, "memory_limit_gib": 2},
         "observability": {

@@ -59,7 +59,7 @@ SERVICE_TARGETS = {
 }
 
 INSTANT_SCENARIO_TYPES = {"pod_delete", "pod_crash", "service_restart"}
-DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage"}
+DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
 
 
 def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -68,7 +68,21 @@ def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         raise ValueError(f"Unsupported service target: {target!r}")
     config = dict(SERVICE_TARGETS[target])
     if target == "kafka" and kafka_implementation() == "apache-kafka":
-        config["container"] = "ckc-perf-kafka"
+        broker_id = int(params.get("brokerId", 1))
+        if broker_id not in {1, 2, 3}:
+            raise ValueError(f"Kafka brokerId must be 1, 2, or 3: {broker_id}")
+        if kafka_topology() == "cluster":
+            config["container"] = f"ckc-perf-kafka-{broker_id}"
+            config["ports"] = [9091 + broker_id]
+            config["mark"] = 6501 if broker_id == 1 else 6510 + broker_id
+            config["band"] = 10 if broker_id == 1 else 11 + broker_id
+            config["handle"] = 110 if broker_id == 1 else 111 + broker_id
+        elif broker_id == 1:
+            config["container"] = "ckc-perf-kafka"
+        else:
+            raise ValueError(f"Kafka brokerId {broker_id} requires LAB_KAFKA_TOPOLOGY=cluster")
+    elif target == "kafka" and int(params.get("brokerId", 1)) != 1:
+        raise ValueError("Kafka brokerId greater than 1 requires the Apache Kafka cluster topology")
     return target, config
 
 
@@ -77,6 +91,11 @@ def kafka_implementation() -> str:
     if value in {"apache-kafka", "apache", "kafka"}:
         return "apache-kafka"
     return "redpanda"
+
+
+def kafka_topology() -> str:
+    value = os.environ.get("LAB_KAFKA_TOPOLOGY", "single").strip().lower()
+    return "cluster" if value in {"cluster", "three-node"} else "single"
 
 
 def tc_classid(handle: int, band: int) -> str:
@@ -172,11 +191,11 @@ def reset_all_service_netem(*, dry_run: bool) -> None:
         seen.add(dev)
         if subprocess.run(["ip", "link", "show", dev], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
             continue
-        for target, config in SERVICE_TARGETS.items():
-            params = {"target": target, "dev": dev}
-            reset_service_netem(params, dry_run=dry_run)
-            for port in config["ports"]:
-                delete_iptables_rule(dev, int(port), int(config["mark"]), target, dry_run=dry_run)
+        for target in SERVICE_TARGETS:
+            broker_ids = (1, 2, 3) if target == "kafka" and kafka_topology() == "cluster" else (1,)
+            for broker_id in broker_ids:
+                params = {"target": target, "dev": dev, "brokerId": broker_id}
+                reset_service_netem(params, dry_run=dry_run)
         if dry_run:
             log(f"dry-run: would delete root qdisc dev={dev}")
         else:
@@ -185,7 +204,10 @@ def reset_all_service_netem(*, dry_run: bool) -> None:
 
 def reset_all_service_outages(*, dry_run: bool) -> None:
     for target in SERVICE_TARGETS:
-        docker_service({"target": target}, "unpause", dry_run=dry_run, check=False)
+        broker_ids = (1, 2, 3) if target == "kafka" and kafka_topology() == "cluster" else (1,)
+        for broker_id in broker_ids:
+            docker_service({"target": target, "brokerId": broker_id}, "unpause", dry_run=dry_run, check=False)
+            docker_service({"target": target, "brokerId": broker_id}, "start", dry_run=dry_run, check=False)
 
 
 def set_service_netem(params: dict[str, Any], *, dry_run: bool) -> None:
@@ -448,6 +470,8 @@ def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: b
         set_service_netem(params, dry_run=dry_run)
     elif scenario_type == "service_outage":
         docker_service(params, "pause", dry_run=dry_run)
+    elif scenario_type == "service_crash":
+        docker_service(params, "kill", dry_run=dry_run)
     elif scenario_type == "service_restart":
         docker_service(params, "restart", dry_run=dry_run)
     else:
@@ -475,6 +499,8 @@ def recover_scenario(
         reset_service_netem(params, dry_run=dry_run)
     elif scenario_type == "service_outage":
         docker_service(params, "unpause", dry_run=dry_run, check=not best_effort)
+    elif scenario_type == "service_crash":
+        docker_service(params, "start", dry_run=dry_run, check=not best_effort)
     else:
         raise ValueError(f"Chaos scenario is not duration-based: {scenario_type}")
 
@@ -500,7 +526,11 @@ def cleanup_scenarios(
     for scenario in reversed(scenarios):
         if scenario.get("type") not in DURATION_SCENARIO_TYPES:
             continue
-        key = (str(scenario["type"]), str(scenario.get("target", "")))
+        params = scenario_params(scenario)
+        target_key = str(scenario.get("target", ""))
+        if params.get("brokerId") is not None:
+            target_key = f"{target_key}:{params['brokerId']}"
+        key = (str(scenario["type"]), target_key)
         if key in recovered:
             continue
         recovered.add(key)

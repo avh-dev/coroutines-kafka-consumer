@@ -13,6 +13,7 @@ TOPIC_RETENTION_MS="${TOPIC_RETENTION_MS:-300000}"
 TOPIC_SEGMENT_MS="${TOPIC_SEGMENT_MS:-60000}"
 TOPIC_RETENTION_BYTES="${TOPIC_RETENTION_BYTES:-}"
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
+REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}"
 
 if [ -f "${LAB_ENV}" ]; then
@@ -20,6 +21,7 @@ if [ -f "${LAB_ENV}" ]; then
   . "${LAB_ENV}"
 fi
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
+LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-single}}"
 if [ -z "${LAB_NODE_IP:-}" ]; then
   echo "LAB_NODE_IP is required in ${LAB_ENV}." >&2
   exit 1
@@ -38,7 +40,29 @@ normalize_kafka_implementation() {
 }
 
 LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
-KAFKA_SERVICE="${LAB_KAFKA_IMPLEMENTATION}"
+case "${LAB_KAFKA_TOPOLOGY}" in
+  single) ;;
+  cluster|three-node) LAB_KAFKA_TOPOLOGY="cluster" ;;
+  *) echo "Expected LAB_KAFKA_TOPOLOGY to be single or cluster: ${LAB_KAFKA_TOPOLOGY}" >&2; exit 1 ;;
+esac
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
+  echo "LAB_KAFKA_TOPOLOGY=cluster requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
+  exit 1
+fi
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+  KAFKA_SERVICES="redpanda"
+  KAFKA_TOPIC_REPLICATION_FACTOR=1
+  KAFKA_TOPIC_MIN_ISR=1
+elif [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+  KAFKA_SERVICES="apache-kafka-1 apache-kafka-2 apache-kafka-3"
+  APACHE_KAFKA_CONTAINER="ckc-perf-kafka-1"
+  KAFKA_TOPIC_REPLICATION_FACTOR=3
+  KAFKA_TOPIC_MIN_ISR=2
+else
+  KAFKA_SERVICES="apache-kafka"
+  KAFKA_TOPIC_REPLICATION_FACTOR=1
+  KAFKA_TOPIC_MIN_ISR=1
+fi
 
 rpk() {
   docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" "$@"
@@ -93,24 +117,26 @@ create_topic() {
   case "${LAB_KAFKA_IMPLEMENTATION}" in
     redpanda)
       if [ -n "${TOPIC_RETENTION_BYTES}" ]; then
-        rpk topic create "${topic}" -p "${partitions}" -r 1 \
+        rpk topic create "${topic}" -p "${partitions}" -r "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
           -c "retention.ms=${TOPIC_RETENTION_MS}" \
           -c "segment.ms=${TOPIC_SEGMENT_MS}" \
           -c "retention.bytes=${TOPIC_RETENTION_BYTES}"
       else
-        rpk topic create "${topic}" -p "${partitions}" -r 1 \
+        rpk topic create "${topic}" -p "${partitions}" -r "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
           -c "retention.ms=${TOPIC_RETENTION_MS}" \
           -c "segment.ms=${TOPIC_SEGMENT_MS}"
       fi
       ;;
     apache-kafka)
       if [ -n "${TOPIC_RETENTION_BYTES}" ]; then
-        apache_kafka_topics --create --topic "${topic}" --partitions "${partitions}" --replication-factor 1 \
+        apache_kafka_topics --create --topic "${topic}" --partitions "${partitions}" --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+          --config "min.insync.replicas=${KAFKA_TOPIC_MIN_ISR}" \
           --config "retention.ms=${TOPIC_RETENTION_MS}" \
           --config "segment.ms=${TOPIC_SEGMENT_MS}" \
           --config "retention.bytes=${TOPIC_RETENTION_BYTES}"
       else
-        apache_kafka_topics --create --topic "${topic}" --partitions "${partitions}" --replication-factor 1 \
+        apache_kafka_topics --create --topic "${topic}" --partitions "${partitions}" --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+          --config "min.insync.replicas=${KAFKA_TOPIC_MIN_ISR}" \
           --config "retention.ms=${TOPIC_RETENTION_MS}" \
           --config "segment.ms=${TOPIC_SEGMENT_MS}"
       fi
@@ -146,7 +172,9 @@ write_topic_metadata() {
     description="$(topic_description "${topic}")"
     topic_id="$(printf '%s\n' "${description}" | sed -n 's/.*TopicId: \([^[:space:]]*\).*/\1/p' | head -n 1)"
     actual_partitions="$(printf '%s\n' "${description}" | sed -n 's/.*PartitionCount: \([0-9][0-9]*\).*/\1/p' | head -n 1)"
-    printf '%s|%s|%s\n' "${topic}" "${topic_id}" "${actual_partitions:-${expected_partitions}}" >> "${records_file}"
+    actual_replication_factor="$(printf '%s\n' "${description}" | sed -n 's/.*ReplicationFactor: \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+    actual_min_isr="$(printf '%s\n' "${description}" | sed -n 's/.*min\.insync\.replicas=\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+    printf '%s|%s|%s|%s|%s\n' "${topic}" "${topic_id}" "${actual_partitions:-${expected_partitions}}" "${actual_replication_factor:-${KAFKA_TOPIC_REPLICATION_FACTOR}}" "${actual_min_isr:-${KAFKA_TOPIC_MIN_ISR}}" >> "${records_file}"
   done
   IFS="${previous_ifs}"
   KAFKA_TOPIC_METADATA_RECORDS="${records_file}" KAFKA_TOPIC_METADATA_OUTPUT="${KAFKA_TOPIC_METADATA_FILE}" python3 - <<'PY'
@@ -157,8 +185,14 @@ from pathlib import Path
 
 records = []
 for line in Path(os.environ["KAFKA_TOPIC_METADATA_RECORDS"]).read_text(encoding="utf-8").splitlines():
-    name, topic_id, partitions = line.split("|", 2)
-    records.append({"name": name, "id": topic_id or None, "partitions": int(partitions)})
+    name, topic_id, partitions, replication_factor, min_isr = line.split("|", 4)
+    records.append({
+        "name": name,
+        "id": topic_id or None,
+        "partitions": int(partitions),
+        "replication_factor": int(replication_factor),
+        "min_insync_replicas": int(min_isr),
+    })
 Path(os.environ["KAFKA_TOPIC_METADATA_OUTPUT"]).write_text(
     json.dumps({"schema_version": 1, "captured_at": datetime.now(timezone.utc).isoformat(), "topics": records}, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
@@ -167,12 +201,17 @@ PY
   rm -f "${records_file}"
 }
 
-if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
-  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
 else
   docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
+  if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+  else
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
+  fi
 fi
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait "${KAFKA_SERVICE}" redis
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis
 LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
 docker exec ckc-perf-redis redis-cli FLUSHALL
 

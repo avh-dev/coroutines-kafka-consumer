@@ -87,6 +87,16 @@ data:
         static_configs:
           - targets:
               - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9404
+            labels:
+              broker_id: "1"
+          - targets:
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9405
+            labels:
+              broker_id: "2"
+          - targets:
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9406
+            labels:
+              broker_id: "3"
 
       - job_name: ckc-redpanda-public-metrics
         metrics_path: /public_metrics

@@ -81,6 +81,16 @@ class ExperimentRunnerTest(unittest.TestCase):
 
         self.assertNotIn("--stub-replicas", command)
 
+    def test_kafka_topology_is_passed_as_a_runner_flag(self) -> None:
+        command = RUNNER.command_for_run(
+            Path("/opt/ckc-lab/bin/run-test.sh"),
+            {"deployment": "ckc.yaml"},
+            "smoke.yaml",
+            {"LAB_KAFKA_TOPOLOGY": "cluster"},
+        )
+        self.assertIn("--kafka-topology", command)
+        self.assertEqual("cluster", command[command.index("--kafka-topology") + 1])
+
     def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/bin/run-test.sh"),
@@ -111,7 +121,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                 (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
             )
             source["name"] = "comparison"
-            source["environments"] = {"internal-lab": {"lab": {"profile": "installed"}}}
+            source["environments"] = {"internal-lab": {"lab": {"profile": "installed", "kafka_topology": "cluster"}}}
             source["workload"]["load"].update({"base_tps": 1000, "workers": 4})
             baseline = copy.deepcopy(source["targets"][0])
             baseline["name"] = "baseline"
@@ -124,8 +134,10 @@ class ExperimentRunnerTest(unittest.TestCase):
             experiment = root / "comparison.yaml"
             experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
             calls: list[dict] = []
+            global_envs: list[dict] = []
 
             def run_one(*args, **kwargs):
+                global_envs.append(args[3])
                 target = args[4]
                 calls.append(target)
                 return {
@@ -152,6 +164,8 @@ class ExperimentRunnerTest(unittest.TestCase):
                 )
 
             self.assertEqual([1000, 2000], [call["base_tps"] for call in calls])
+            self.assertEqual(["cluster", "cluster"], [env["LAB_KAFKA_TOPOLOGY"] for env in global_envs])
+            self.assertEqual("cluster", summary["kafka_topology"])
             self.assertNotEqual(calls[0]["resolved_test_path"], calls[1]["resolved_test_path"])
             self.assertEqual(4, yaml.safe_load(Path(calls[0]["resolved_test_path"]).read_text())["load_test"]["workers"])
             self.assertEqual(20, yaml.safe_load(Path(calls[1]["resolved_test_path"]).read_text())["load_test"]["workers"])

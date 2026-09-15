@@ -18,6 +18,7 @@ REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
 KAFKA_THREAD_STATS_JOB="ckc-kafka-thread-stats"
 LOAD_TEST_METRICS_JOB="ckc-load-test"
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
+LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-single}"
 
 normalize_kafka_implementation() {
   case "$1" in
@@ -32,7 +33,33 @@ normalize_kafka_implementation() {
 }
 
 LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
-KAFKA_SERVICE="${LAB_KAFKA_IMPLEMENTATION}"
+case "${LAB_KAFKA_TOPOLOGY}" in
+  single) ;;
+  cluster|three-node) LAB_KAFKA_TOPOLOGY="cluster" ;;
+  *)
+    echo "Unsupported LAB_KAFKA_TOPOLOGY: ${LAB_KAFKA_TOPOLOGY}" >&2
+    echo "Expected single or cluster." >&2
+    exit 1
+    ;;
+esac
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
+  echo "LAB_KAFKA_TOPOLOGY=cluster requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
+  exit 1
+fi
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+  KAFKA_SERVICES="redpanda"
+  KAFKA_CONTAINERS="ckc-perf-redpanda"
+  KAFKA_BOOTSTRAP="${LAB_NODE_IP}:9092"
+elif [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+  KAFKA_SERVICES="apache-kafka-1 apache-kafka-2 apache-kafka-3"
+  KAFKA_CONTAINERS="ckc-perf-kafka-1 ckc-perf-kafka-2 ckc-perf-kafka-3"
+  KAFKA_BOOTSTRAP="${LAB_NODE_IP}:9092,${LAB_NODE_IP}:9093,${LAB_NODE_IP}:9094"
+else
+  KAFKA_SERVICES="apache-kafka"
+  KAFKA_CONTAINERS="ckc-perf-kafka"
+  KAFKA_BOOTSTRAP="${LAB_NODE_IP}:9092"
+fi
+KAFKA_PROCESS_GROUP="${LAB_KAFKA_IMPLEMENTATION}"
 
 prometheus_target_exists() {
   curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
@@ -86,7 +113,7 @@ sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
 cp "${GRAFANA_DIR}/templates/provisioning/datasources/loki.yml" \
   "${GRAFANA_DIR}/provisioning/datasources/loki.yml"
 
-for container in ckc-perf-kafka ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-loki ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
+for container in ckc-perf-kafka ckc-perf-kafka-1 ckc-perf-kafka-2 ckc-perf-kafka-3 ckc-perf-redpanda ckc-perf-redis ckc-internal-fluent-bit ckc-internal-loki ckc-internal-grafana ckc-internal-kafka-exporter ckc-internal-cadvisor ckc-internal-process-exporter; do
   project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "${container}" 2>/dev/null || true)"
   if [ -n "${project}" ] && [ "${project}" != "ckc-internal-lab" ]; then
     docker rm -f "${container}" >/dev/null
@@ -95,24 +122,35 @@ done
 
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
-if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
-  docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+  docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
 else
   if [ ! -f "${LAB_ROOT}/thread-stats/thread-stats-agent.jar" ]; then
     echo "Thread Stats agent jar is missing: ${LAB_ROOT}/thread-stats/thread-stats-agent.jar" >&2
     exit 1
   fi
   docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
+  if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+    docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+  else
+    docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
+  fi
 fi
 
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 180 --remove-orphans "${KAFKA_SERVICE}" redis fluent-bit loki grafana process-exporter
-if [ "${KAFKA_SERVICE}" = "apache-kafka" ]; then
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 240 --remove-orphans ${KAFKA_SERVICES} redis fluent-bit loki grafana process-exporter
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ] && [ "${LAB_KAFKA_TOPOLOGY}" = "single" ]; then
   docker restart ckc-perf-kafka >/dev/null
 fi
-if [ "${KAFKA_SERVICE}" = "apache-kafka" ] && ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9404/prometheus' >/dev/null 2>&1; do sleep 2; done"; then
-  echo "Kafka Thread Stats agent endpoint did not become ready." >&2
-  docker logs --tail 80 ckc-perf-kafka >&2 || true
-  exit 1
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
+  KAFKA_METRICS_PORTS="9404"
+  [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ] && KAFKA_METRICS_PORTS="9404 9405 9406"
+  for port in ${KAFKA_METRICS_PORTS}; do
+    if ! timeout 45 sh -c "until curl -fsS 'http://127.0.0.1:${port}/prometheus' >/dev/null 2>&1; do sleep 2; done"; then
+      echo "Kafka Thread Stats agent endpoint did not become ready on port ${port}." >&2
+      for container in ${KAFKA_CONTAINERS}; do docker logs --tail 80 "${container}" >&2 || true; done
+      exit 1
+    fi
+  done
 fi
 docker restart ckc-internal-grafana >/dev/null
 if ! timeout 60 sh -c "until curl -fsS 'http://127.0.0.1:3000/api/health' >/dev/null 2>&1; do sleep 2; done"; then
@@ -120,13 +158,13 @@ if ! timeout 60 sh -c "until curl -fsS 'http://127.0.0.1:3000/api/health' >/dev/
   docker logs --tail 50 ckc-internal-grafana >&2 || true
   exit 1
 fi
-if [ "${KAFKA_SERVICE}" = "redpanda" ]; then
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
   docker exec ckc-perf-redpanda rpk cluster config set enable_consumer_group_metrics '["group","partition","consumer_lag"]' >/dev/null
   docker exec ckc-perf-redpanda rpk cluster config set consumer_group_lag_collection_interval_sec 5 >/dev/null
 fi
 docker restart ckc-internal-process-exporter >/dev/null
-if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/null | grep -F 'namedprocess_namegroup_num_procs{groupname=\"${KAFKA_SERVICE}\"}' >/dev/null 2>&1; do sleep 2; done"; then
-  echo "Process exporter did not expose the ${KAFKA_SERVICE} process group within 30 seconds; continuing because it is observability-only." >&2
+if ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:9256/metrics' 2>/dev/null | grep -F 'namedprocess_namegroup_num_procs{groupname=\"${KAFKA_PROCESS_GROUP}\"}' >/dev/null 2>&1; do sleep 2; done"; then
+  echo "Process exporter did not expose the ${KAFKA_PROCESS_GROUP} process group within 30 seconds; continuing because it is observability-only." >&2
   docker logs --tail 50 ckc-internal-process-exporter >&2 || true
 fi
 LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --no-deps kafka-exporter
@@ -153,6 +191,6 @@ echo "  app:        http://${LAB_HOST}:30080"
 echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  loki:       http://${LAB_HOST}:3100"
-echo "  kafka:      ${LAB_NODE_IP}:9092 (${LAB_KAFKA_IMPLEMENTATION})"
+echo "  kafka:      ${KAFKA_BOOTSTRAP} (${LAB_KAFKA_IMPLEMENTATION}, ${LAB_KAFKA_TOPOLOGY})"
 echo "  redis:      ${LAB_NODE_IP}:6379"
 echo "  audit-tcp:  ${LAB_NODE_IP}:5170"

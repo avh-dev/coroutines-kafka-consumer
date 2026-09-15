@@ -15,9 +15,11 @@ if [[ ! -f "${LAB_ENV}" ]]; then
 fi
 
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
+REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
 # shellcheck disable=SC1090
 source "${LAB_ENV}"
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
+LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-single}}"
 
 DEPLOYMENT_PROFILE=""
 TEST_DEFINITION=""
@@ -39,6 +41,10 @@ while [[ "$#" -gt 0 ]]; do
       LAB_KAFKA_IMPLEMENTATION="${2:?--kafka-implementation requires redpanda or apache-kafka}"
       shift 2
       ;;
+    --kafka-topology)
+      LAB_KAFKA_TOPOLOGY="${2:?--kafka-topology requires single or cluster}"
+      shift 2
+      ;;
     --env)
       ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
       shift 2
@@ -56,7 +62,7 @@ while [[ "$#" -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+      echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--kafka-topology single|cluster] [--env KEY=VALUE ...]" >&2
       exit 0
       ;;
     *)
@@ -74,7 +80,7 @@ METRICS_IMPLEMENTATION="${POSITIONAL_ARGS[4]:-${METRICS_IMPLEMENTATION}}"
 WORKER_DISPATCHER_THREADS="${POSITIONAL_ARGS[5]:-${WORKER_DISPATCHER_THREADS}}"
 
 if [[ -z "${DEPLOYMENT_PROFILE}" || -z "${TEST_DEFINITION}" ]]; then
-  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--env KEY=VALUE ...]" >&2
+  echo "Usage: $0 deployment-profile test-definition [processing-enabled] [audit-log-enabled] [metrics-implementation] [worker-dispatcher-threads] [--lettuce-metrics true|false] [--stub-replicas count] [--kafka-implementation redpanda|apache-kafka] [--kafka-topology single|cluster] [--env KEY=VALUE ...]" >&2
   exit 1
 fi
 case "${LAB_KAFKA_IMPLEMENTATION}" in
@@ -85,6 +91,20 @@ case "${LAB_KAFKA_IMPLEMENTATION}" in
     exit 1
     ;;
 esac
+case "${LAB_KAFKA_TOPOLOGY}" in
+  single) ;;
+  cluster|three-node) LAB_KAFKA_TOPOLOGY="cluster" ;;
+  *) echo "kafka-topology must be single or cluster: ${LAB_KAFKA_TOPOLOGY}" >&2; exit 1 ;;
+esac
+if [[ "${LAB_KAFKA_IMPLEMENTATION}" == "redpanda" && "${LAB_KAFKA_TOPOLOGY}" != "single" ]]; then
+  echo "kafka-topology cluster requires apache-kafka." >&2
+  exit 1
+fi
+if [[ "${LAB_KAFKA_TOPOLOGY}" == "cluster" ]]; then
+  KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092,ckc-external-kafka.ckc-perf.svc.cluster.local:9093,ckc-external-kafka.ckc-perf.svc.cluster.local:9094"
+else
+  KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092"
+fi
 if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
   echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
   exit 1
@@ -234,6 +254,7 @@ fi
 
 LAB_ROOT="${LAB_ROOT}" \
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
+LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="ckc-demo" \
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
@@ -260,7 +281,7 @@ RENDER_ARGS=(
   --application-image docker.io/ckc-perf/demo:latest
   --stubs-image docker.io/ckc-perf/demo-stubs:latest
   --load-test-image docker.io/ckc-perf/load-test:latest
-  --kafka-bootstrap ckc-external-kafka.ckc-perf.svc.cluster.local:9092
+  --kafka-bootstrap "${KAFKA_BOOTSTRAP_K8S}"
   --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
   --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
   --namespace ckc-perf
@@ -289,6 +310,7 @@ RUN_PROFILE='${RUN_PROFILE:-}'
 RUN_PLAN_PATH='${RUN_PLAN_PATH:-}'
 PROCESSING_DISPATCHER_TYPE='${PROCESSING_DISPATCHER_TYPE:-}'
 LAB_KAFKA_IMPLEMENTATION='${LAB_KAFKA_IMPLEMENTATION}'
+LAB_KAFKA_TOPOLOGY='${LAB_KAFKA_TOPOLOGY}'
 PROCESSING_ENABLED='${PROCESSING_ENABLED}'
 AUDIT_LOG_ENABLED='${AUDIT_LOG_ENABLED}'
 METRICS_IMPLEMENTATION='${METRICS_IMPLEMENTATION}'
@@ -312,6 +334,7 @@ EOF
 echo "Lab test is prepared."
 echo "  app_profile=${APP_PROFILE}"
 echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
+echo "  kafka_topology=${LAB_KAFKA_TOPOLOGY}"
 echo "  processing_enabled=${PROCESSING_ENABLED}"
 echo "  audit_log_enabled=${AUDIT_LOG_ENABLED}"
 echo "  metrics_implementation=${METRICS_IMPLEMENTATION}"

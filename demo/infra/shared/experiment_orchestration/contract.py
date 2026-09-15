@@ -23,6 +23,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.pod_crash",
         "chaos.pod_delete",
         "chaos.service_outage",
+        "chaos.service_crash",
         "chaos.service_restart",
         "chaos.stubs_degradation",
     }),
@@ -464,6 +465,17 @@ def validate_canonical_experiment(
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
+    if environment_name == "internal-lab":
+        lab = require_mapping(environment_definition.get("lab"), "Experiment environments.internal-lab.lab")
+        unknown_lab = sorted(set(lab) - {"profile", "kafka_topology"})
+        if unknown_lab:
+            raise ValueError(
+                "Experiment environments.internal-lab.lab contains unknown fields: " + ", ".join(unknown_lab)
+            )
+        topology = str(lab.get("kafka_topology") or "single")
+        if topology not in {"single", "cluster"}:
+            raise ValueError("Experiment environments.internal-lab.lab.kafka_topology must be single or cluster")
+        lab["kafka_topology"] = topology
     return {
         "schema_version": SCHEMA_VERSION,
         "name": name,
