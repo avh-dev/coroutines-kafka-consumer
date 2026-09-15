@@ -241,6 +241,10 @@ def render_markdown(report: ExperimentReport) -> str:
             return None
         return sum(int(value.get(key) or 0) for key in ("processed", "failed", "dropped"))
 
+    def integrity_row(label: str, values: list[int | None]) -> None:
+        if any(value not in (None, 0) for value in values):
+            row(label, [audit_status(value) for value in values], "audit")
+
     def required_key_order_violations(target: TargetReport, windowed: bool) -> int | None:
         evidence = target.window_topic_evidence if windowed else target.topic_evidence
         values = []
@@ -524,13 +528,41 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
         row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
         row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
-        row("E2E latency p95 · all topics", compared([(target.window_delivery.get("e2e_latency") or {}).get("p95") for target in targets], 0, " ms"), "audit")
+        topic_labels = {
+            "order.events.v1": "Order",
+            "batch.events.v1": "Batch",
+            "cauldron.events.v1": "Telemetry",
+        }
+        highlighted_topics = {
+            topic
+            for target in targets
+            for topic in target.window_topic_evidence
+        }
+        ordered_highlighted_topics = [
+            topic for topic in preferred_topics if topic in highlighted_topics
+        ]
+        ordered_highlighted_topics.extend(sorted(highlighted_topics - set(preferred_topics)))
+        for topic in ordered_highlighted_topics:
+            topic_values = [
+                target.window_topic_evidence.get(topic, {})
+                for target in targets
+            ]
+            if any(isinstance(value, dict) and value.get("e2e_latency") for value in topic_values):
+                row(
+                    f"{topic_labels.get(topic, topic)} E2E latency p99",
+                    compared([
+                        (value.get("e2e_latency") or {}).get("p99")
+                        if isinstance(value, dict) else None
+                        for value in topic_values
+                    ], 0, " ms"),
+                    "audit",
+                )
         row("Kafka traffic", compared([all_wire(target) for target in targets], 0, " bytes/msg"), "capture")
-        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
+        row("Lost messages", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
         row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets], "audit")
         row(
-            "New key rejected · queue full",
-            [audit_status(drop_reason(target.window_delivery, "new_key_queue_full")) for target in targets],
+            "Intentionally dropped",
+            [number(target.window_delivery.get("dropped"), 0) for target in targets],
             "audit",
         )
         row(
@@ -538,18 +570,16 @@ def render_markdown(report: ExperimentReport) -> str:
             [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
             "audit",
         )
-        row(
+        integrity_row(
             "Terminal outcomes without publish",
-            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
-            "audit",
+            [without_publish_count(target.window_delivery) for target in targets],
         )
-        row(
+        integrity_row(
             "Conflicting terminal outcomes",
-            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
-            "audit",
+            [target.window_delivery.get("conflicting_terminal_outcomes") for target in targets],
         )
         row(
-            "Per-key ordering requirement",
+            "Per-key ordering violations",
             [audit_status(required_key_order_violations(target, True)) for target in targets],
             "audit",
         )
@@ -586,24 +616,22 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Dropped · all reasons", [number(target.delivery.get("dropped"), 0) for target in targets], "audit")
     drop_reason_rows([target.delivery for target in targets])
     row("Failed processing", [audit_status(target.delivery.get("failed")) for target in targets], "audit")
-    row("Missing terminal outcomes", [audit_status(target.delivery.get("missing_terminal")) for target in targets], "audit")
+    row("Lost messages", [audit_status(target.delivery.get("missing_terminal")) for target in targets], "audit")
     row(
         "Processed duplicates",
         [audit_status((target.delivery.get("duplicates") or {}).get("processed")) for target in targets],
         "audit",
     )
-    row(
+    integrity_row(
         "Terminal outcomes without publish",
-        [audit_status(without_publish_count(target.delivery)) for target in targets],
-        "audit",
+        [without_publish_count(target.delivery) for target in targets],
     )
-    row(
+    integrity_row(
         "Conflicting terminal outcomes",
-        [audit_status(target.delivery.get("conflicting_terminal_outcomes")) for target in targets],
-        "audit",
+        [target.delivery.get("conflicting_terminal_outcomes") for target in targets],
     )
     row(
-        "Per-key ordering requirement",
+        "Per-key ordering violations",
         [audit_status(required_key_order_violations(target, False)) for target in targets],
         "audit",
     )
@@ -632,24 +660,22 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Failed processing", [audit_status(target.window_delivery.get("failed")) for target in targets], "audit")
         row("Dropped · all reasons", [number(target.window_delivery.get("dropped"), 0) for target in targets], "audit")
         drop_reason_rows([target.window_delivery for target in targets])
-        row("Missing terminal outcomes", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
+        row("Lost messages", [audit_status(target.window_delivery.get("missing_terminal")) for target in targets], "audit")
         row(
             "Processed duplicates",
             [audit_status((target.window_delivery.get("duplicates") or {}).get("processed")) for target in targets],
             "audit",
         )
-        row(
+        integrity_row(
             "Terminal outcomes without publish",
-            [audit_status(without_publish_count(target.window_delivery)) for target in targets],
-            "audit",
+            [without_publish_count(target.window_delivery) for target in targets],
         )
-        row(
+        integrity_row(
             "Conflicting terminal outcomes",
-            [audit_status(target.window_delivery.get("conflicting_terminal_outcomes")) for target in targets],
-            "audit",
+            [target.window_delivery.get("conflicting_terminal_outcomes") for target in targets],
         )
         row(
-            "Per-key ordering requirement",
+            "Per-key ordering violations",
             [audit_status(required_key_order_violations(target, True)) for target in targets],
             "audit",
         )
@@ -675,24 +701,22 @@ def render_markdown(report: ExperimentReport) -> str:
                 row(label, [number(window_topic(target).get(key), 0) for target in targets], "audit")
             drop_reason_rows([window_topic(target) for target in targets])
             row("Failed processing", [audit_status(window_topic(target).get("failed")) for target in targets], "audit")
-            row("Missing terminal outcomes", [audit_status(window_topic(target).get("missing_terminal")) for target in targets], "audit")
+            row("Lost messages", [audit_status(window_topic(target).get("missing_terminal")) for target in targets], "audit")
             row(
                 "Processed duplicates",
                 [audit_status((window_topic(target).get("duplicates") or {}).get("processed")) for target in targets],
                 "audit",
             )
-            row(
+            integrity_row(
                 "Terminal outcomes without publish",
-                [audit_status(without_publish_count(window_topic(target))) for target in targets],
-                "audit",
+                [without_publish_count(window_topic(target)) for target in targets],
             )
-            row(
+            integrity_row(
                 "Conflicting terminal outcomes",
-                [audit_status(window_topic(target).get("conflicting_terminal_outcomes")) for target in targets],
-                "audit",
+                [window_topic(target).get("conflicting_terminal_outcomes") for target in targets],
             )
             if topic_contract(topic).get("ordering") == "per_key":
-                row("Per-key ordering requirement", [audit_status(key_order_value(window_topic(target))) for target in targets], "audit")
+                row("Per-key ordering violations", [audit_status(key_order_value(window_topic(target))) for target in targets], "audit")
             for percentile in ("p50", "p95", "p99", "max"):
                 row(f"E2E latency {percentile}", compared([(window_topic(target).get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"), "audit")
             e2e_compliance_rows([window_topic(target) for target in targets])
@@ -750,24 +774,22 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Dropped · all reasons", [number(topic_data(target, topic).get("dropped"), 0) for target in targets], "audit")
         drop_reason_rows([topic_data(target, topic) for target in targets])
         row("Failed processing", [audit_status(topic_data(target, topic).get("failed")) for target in targets], "audit")
-        row("Missing terminal outcomes", [audit_status(topic_data(target, topic).get("missing_terminal")) for target in targets], "audit")
+        row("Lost messages", [audit_status(topic_data(target, topic).get("missing_terminal")) for target in targets], "audit")
         row(
             "Processed duplicates",
             [audit_status((topic_data(target, topic).get("duplicates") or {}).get("processed")) for target in targets],
             "audit",
         )
-        row(
+        integrity_row(
             "Terminal outcomes without publish",
-            [audit_status(without_publish_count(topic_data(target, topic))) for target in targets],
-            "audit",
+            [without_publish_count(topic_data(target, topic)) for target in targets],
         )
-        row(
+        integrity_row(
             "Conflicting terminal outcomes",
-            [audit_status(topic_data(target, topic).get("conflicting_terminal_outcomes")) for target in targets],
-            "audit",
+            [topic_data(target, topic).get("conflicting_terminal_outcomes") for target in targets],
         )
         if topic_contract(topic).get("ordering") == "per_key":
-            row("Per-key ordering requirement", [audit_status(key_order_value(topic_data(target, topic))) for target in targets], "audit")
+            row("Per-key ordering violations", [audit_status(key_order_value(topic_data(target, topic))) for target in targets], "audit")
         for percentile in ("p50", "p95", "p99", "max"):
             row(
                 f"E2E latency {percentile}",

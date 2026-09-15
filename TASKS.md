@@ -322,6 +322,7 @@
 | [INFRA-173](#infra-173) | Add a tuned Spring Kafka comparison target while keeping producer batching consistent across targets. | DONE |
 | [INFRA-174](#infra-174) | Prepare per-target Kafka batching and concurrency tuning without chaos within topic E2E budgets. | DONE |
 | [INFRA-175](#infra-175) | Notify when a report is ready and allow iterative runs to skip evidence and audit archives. | DONE |
+| [INFRA-176](#infra-176) | Make steady-state report highlights topic-specific and use direct delivery-result labels. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3710,3 +3711,13 @@ Emit a Telegram-hook event only after generated experiment reports are ready.
 Add an explicit fast-iteration option that retains reports while skipping evidence collection and both artifact archives.
 Keep the complete evidence contract as the default for ordinary experiment runs.
 Verification: all 61 internal-lab tests pass. The installed runner exposes `--skip-archives`, the installed Telegram hook enables `report_ready` by default, and installed file checksums match the repository. The lab was updated without launching an experiment.
+
+<a id="infra-176"></a>
+### INFRA-176 - Clarify steady-state report highlights
+
+_Date: 2026-09-15_
+
+Replace the all-topic latency aggregate with one p99 row per topic.
+Use direct labels for lost, intentionally dropped, and per-key ordering violation counts.
+Hide zero-valued internal audit integrity checks while retaining visible failures.
+Verification: all 62 internal-lab tests pass. The installed report generator rebuilt the latest saved experiment with all three topic p99 rows and the new delivery labels; obsolete highlight rows are absent. The lightweight latest-report archive was refreshed without launching a workload.

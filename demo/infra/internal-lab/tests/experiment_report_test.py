@@ -1013,12 +1013,15 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn("E2E SLA ≤ 2,000 ms", markdown)
             self.assertIn("Consumer contract: at-least-once delivery, per-key ordering", markdown)
-            self.assertIn("Per-key ordering requirement", markdown)
-            self.assertIn("Missing terminal outcomes", markdown)
+            self.assertIn("Per-key ordering violations", markdown)
+            self.assertIn("Lost messages", markdown)
             self.assertIn("Failed processing", markdown)
             self.assertIn("Processed duplicates", markdown)
-            self.assertIn("Terminal outcomes without publish", markdown)
-            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn("Terminal outcomes without publish", markdown)
+            self.assertNotIn("Conflicting terminal outcomes", markdown)
+            self.assertIn("Order E2E latency p99", markdown)
+            self.assertNotIn("E2E latency p95 · all topics", markdown)
+            self.assertIn("Intentionally dropped", markdown)
             self.assertNotIn("Delivery outcome", markdown)
             self.assertIn('class="status-pass">PASS · 0', markdown)
             self.assertIn('class="champion"', markdown)
@@ -1088,6 +1091,25 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
             self.assertIn('class="status-fail">FAIL · 1', markdown)
+
+    def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            audit_path = root / "results/runs/run-a/audit/summary.yaml"
+            audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit["audit"]["totals"].update({
+                "without_publish": {"processed": 1, "failed": 0, "dropped": 0},
+                "conflicting_terminal_outcomes": 2,
+            })
+            self.write_yaml(audit_path, audit)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Terminal outcomes without publish", markdown)
+            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertIn('class="status-fail">FAIL · 1', markdown)
+            self.assertIn('class="status-fail">FAIL · 2', markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
