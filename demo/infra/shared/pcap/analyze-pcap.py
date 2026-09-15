@@ -32,9 +32,9 @@ FIELDS = [
     "ip.len", "ip.hdr_len", "ipv6.plen", "tcp.stream", "tcp.srcport", "tcp.dstport",
     "tcp.len", "tcp.hdr_len", "tcp.flags.syn", "tcp.flags.ack", "tcp.flags.fin",
     "tcp.flags.reset", "tcp.analysis.retransmission", "kafka.len", "kafka.request_key",
-    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "kafka.topic_name", "tls.record.length",
+    "kafka.response_key", "kafka.api_version", "kafka.correlation_id", "tls.record.length",
     "tcp.pdu.size", "tcp.reassembled.data", "tcp.payload", "ip.src", "ip.dst",
-    "ipv6.src", "ipv6.dst", "_ws.col.Info",
+    "ipv6.src", "ipv6.dst",
 ]
 
 
@@ -51,26 +51,26 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def integers(value: str) -> list[int]:
+def integers(value: str | None) -> list[int]:
     result = []
-    for item in value.split(","):
+    for item in (value or "").split(","):
         item = item.strip()
         if item and re.fullmatch(r"-?\d+", item):
             result.append(int(item))
     return result
 
 
-def integer(value: str, default: int = 0) -> int:
+def integer(value: str | None, default: int = 0) -> int:
     values = integers(value)
     return values[0] if values else default
 
 
-def boolean(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes"}
+def boolean(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes"}
 
 
-def bytes_field(value: str) -> bytes:
-    text = value.replace(":", "").replace(",", "").strip()
+def bytes_field(value: str | None) -> bytes:
+    text = (value or "").replace(":", "").replace(",", "").strip()
     if not text or not re.fullmatch(r"[0-9A-Fa-f]+", text) or len(text) % 2:
         return b""
     return bytes.fromhex(text)
@@ -91,7 +91,10 @@ def tshark_rows(path: Path, executable: str) -> list[dict[str, str]]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"TShark failed for {path}")
     csv.field_size_limit(sys.maxsize)
-    return list(csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"'))
+    return [
+        {field: row.get(field) or "" for field in FIELDS}
+        for row in csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"')
+    ]
 
 
 class NativeCompression:
@@ -570,7 +573,10 @@ def analyze_capture(
                     "api_key": api_key,
                     "api_version": api_version,
                     "correlation": correlation,
-                    "topics": [topic for topic in row["kafka.topic_name"].split(",") if topic],
+                    # TShark can expose binary payload as kafka.topic_name when it
+                    # mis-dissects a large Produce request. Supported Produce and
+                    # Fetch versions are associated with topics by the raw parsers.
+                    "topics": [],
                     "bytes": sum(length + 4 for length in kafka_lengths),
                     "raw": bytes_field(row["tcp.reassembled.data"]) or bytes_field(row["tcp.payload"]),
                 }
@@ -646,7 +652,24 @@ def analyze_capture(
         "record_overhead_bytes": 0, "decompression_unavailable_batches": 0,
     }
     codecs: Counter[str] = Counter()
-    topic_batches: dict[str, dict[str, int]] = defaultdict(lambda: {"records": 0, "wire_bytes": 0})
+    topic_batches: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "batches": 0,
+            "records": 0,
+            "wire_bytes": 0,
+            "batch_header_bytes": 0,
+            "compressed_record_bytes": 0,
+            "uncompressed_record_bytes": 0,
+            "compression_savings_bytes": 0,
+            "parsed_records": 0,
+            "key_bytes": 0,
+            "value_bytes": 0,
+            "header_bytes": 0,
+            "record_overhead_bytes": 0,
+            "decompression_unavailable_batches": 0,
+            "codecs": {},
+        }
+    )
     unknown_topic_batches = 0
     batch_keys = [
         "records", "batch_wire_bytes", "batch_header_bytes", "compressed_record_bytes",
@@ -661,8 +684,14 @@ def analyze_capture(
         if batch["decompression_status"] == "unavailable":
             batch_totals["decompression_unavailable_batches"] += 1
         if topic:
-            topic_batches[topic]["records"] += int(batch["records"])
-            topic_batches[topic]["wire_bytes"] += int(batch["batch_wire_bytes"])
+            topic_values = topic_batches[topic]
+            topic_values["batches"] += 1
+            topic_values["wire_bytes"] += int(batch["batch_wire_bytes"])
+            add_numbers(topic_values, batch, batch_keys)
+            topic_codecs = topic_values["codecs"]
+            topic_codecs[batch["codec"]] = topic_codecs.get(batch["codec"], 0) + 1
+            if batch["decompression_status"] == "unavailable":
+                topic_values["decompression_unavailable_batches"] += 1
         else:
             unknown_topic_batches += 1
 
@@ -710,6 +739,17 @@ def analyze_capture(
     compressed = batch_totals["compressed_record_bytes"]
     batch_totals["compression_ratio_percent"] = round(compressed * 100 / known_uncompressed, 3) if known_uncompressed else None
     batch_totals["space_saving_percent"] = round(batch_totals["compression_savings_bytes"] * 100 / known_uncompressed, 3) if known_uncompressed else None
+    for values in topic_batches.values():
+        topic_uncompressed = values["uncompressed_record_bytes"]
+        values["compression_ratio_percent"] = (
+            round(values["compressed_record_bytes"] * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["space_saving_percent"] = (
+            round(values["compression_savings_bytes"] * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["codecs"] = dict(sorted(values["codecs"].items()))
     kafka_bytes = sum(message["bytes"] for message in selected_messages)
     topic_batch_bytes = sum(values["wire_bytes"] for values in topic_batches.values())
     # TCP frames contain Kafka envelopes and acknowledgements that cannot be assigned to
@@ -820,10 +860,14 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
         codecs = target_batches.setdefault("codecs", {})
         add_numbers(codecs, batches.get("codecs", {}), list(batches.get("codecs", {})))
         for topic, values in protocol.get("topics", {}).items():
-            target_topic = result["protocol"]["topics"].setdefault(
-                topic, {"records": 0, "wire_bytes": 0, "captured_wire_bytes": 0}
+            target_topic = result["protocol"]["topics"].setdefault(topic, {})
+            add_numbers(
+                target_topic,
+                values,
+                [key for key, value in values.items() if isinstance(value, int)],
             )
-            add_numbers(target_topic, values, ["records", "wire_bytes", "captured_wire_bytes"])
+            topic_codecs = target_topic.setdefault("codecs", {})
+            add_numbers(topic_codecs, values.get("codecs", {}), list(values.get("codecs", {})))
     network = result["network"]
     network["network_overhead_percent"] = round(network.get("network_header_bytes", 0) * 100 / network.get("captured_wire_bytes", 0), 3) if network.get("captured_wire_bytes") else None
     batches = result["protocol"]["record_batches"]
@@ -831,6 +875,16 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
     compressed = batches.get("compressed_record_bytes", 0)
     batches["compression_ratio_percent"] = round(compressed * 100 / uncompressed, 3) if uncompressed else None
     batches["space_saving_percent"] = round(batches.get("compression_savings_bytes", 0) * 100 / uncompressed, 3) if uncompressed else None
+    for values in result["protocol"]["topics"].values():
+        topic_uncompressed = values.get("uncompressed_record_bytes", 0)
+        values["compression_ratio_percent"] = (
+            round(values.get("compressed_record_bytes", 0) * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["space_saving_percent"] = (
+            round(values.get("compression_savings_bytes", 0) * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
     return result
 
 

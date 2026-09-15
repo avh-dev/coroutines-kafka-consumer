@@ -330,11 +330,12 @@ class ExperimentReportTest(unittest.TestCase):
             "diagnostics completed\n", encoding="utf-8"
         )
         pcap_roles = {}
+        pcap_captures = []
         for role, wire_bytes, messages, batches, records in (
             ("producer", 20_000, 16, 8, 79),
             ("consumer", 24_000, 108, 6, 55),
         ):
-            pcap_roles[role] = {
+            role_summary = {
                 "capture_count": 1,
                 "connections": {"observed": 3},
                 "network": {
@@ -351,11 +352,41 @@ class ExperimentReportTest(unittest.TestCase):
                         "batch_header_bytes": 488, "compressed_record_bytes": 7_512,
                         "compression_ratio_percent": 24.0, "space_saving_percent": 76.0,
                     },
+                    "topics": {
+                        "order.events.v1": {
+                            "records": 10,
+                            "parsed_records": 10 if role == "producer" else 0,
+                            "wire_bytes": 3_000,
+                            "captured_wire_bytes": 4_000,
+                            "value_bytes": 2_000 if role == "producer" else 0,
+                            "uncompressed_record_bytes": 2_500 if role == "producer" else 0,
+                            "compressed_record_bytes": 1_000 if role == "producer" else 0,
+                            "codecs": {"lz4": 1} if role == "producer" else {},
+                        },
+                        "cauldron.events.v1": {
+                            "records": 10,
+                            "parsed_records": 10 if role == "producer" else 0,
+                            "wire_bytes": 3_000,
+                            "captured_wire_bytes": 4_000,
+                            "value_bytes": 2_000 if role == "producer" else 0,
+                            "uncompressed_record_bytes": 2_500 if role == "producer" else 0,
+                            "compressed_record_bytes": 1_000 if role == "producer" else 0,
+                            "codecs": {"lz4": 1} if role == "producer" else {},
+                        },
+                    },
                 },
             }
+            pcap_roles[role] = role_summary
+            pcap_captures.append({"role": role, "status": "success", **role_summary})
         self.write_json(
             run_dir / "diagnostics" / "pcap-analysis" / "summary.json",
-            {"status": "success", "tshark_version": "TShark test", "roles": pcap_roles, "warnings": []},
+            {
+                "status": "success",
+                "tshark_version": "TShark test",
+                "captures": pcap_captures,
+                "roles": pcap_roles,
+                "warnings": [],
+            },
         )
         (run_dir / "diagnostics" / "pcap-analysis" / "summary.txt").write_text(
             "Kafka packet capture analysis\n", encoding="utf-8"
@@ -571,7 +602,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
-            self.assertIn('class="status-fail">FAIL · 2', markdown)
+            self.assertNotIn('class="status-fail"', markdown)
             self.assertIn("<thead><tr><th></th>", markdown)
             self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
             self.assertNotIn("Sync HTTP client", markdown)
@@ -1013,27 +1044,32 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn("E2E SLA ≤ 2,000 ms", markdown)
             self.assertIn("Consumer contract: at-least-once delivery, per-key ordering", markdown)
-            self.assertIn("Per-key ordering requirement", markdown)
-            self.assertIn("Missing terminal outcomes", markdown)
+            self.assertIn("Per-key ordering violations", markdown)
+            self.assertIn("Lost messages", markdown)
             self.assertIn("Failed processing", markdown)
             self.assertIn("Processed duplicates", markdown)
-            self.assertIn("Terminal outcomes without publish", markdown)
-            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn("Terminal outcomes without publish", markdown)
+            self.assertNotIn("Conflicting terminal outcomes", markdown)
+            self.assertIn("order.events.v1 E2E latency p99", markdown)
+            self.assertNotIn("Order E2E latency p99", markdown)
+            self.assertNotIn("E2E latency p95 · all topics", markdown)
+            self.assertIn("Intentionally dropped", markdown)
             self.assertNotIn("Delivery outcome", markdown)
-            self.assertIn('class="status-pass">PASS · 0', markdown)
+            self.assertNotIn("PASS ·", markdown)
+            self.assertNotIn("FAIL ·", markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(
-                'Kafka broker CPU<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
+                'CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
             self.assertIn(
                 'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,
             )
-            self.assertIn(
-                '<th scope="row">Execution</th><td><span class="status-pass">COMPLETED',
-                markdown,
-            )
+            self.assertNotIn('<th scope="row">Execution</th>', markdown)
+            self.assertNotIn("Run outcome", markdown)
+            self.assertNotIn("Delivery evaluation", markdown)
+            self.assertNotIn("Latency evaluation", markdown)
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Application context switches average", markdown)
@@ -1055,11 +1091,18 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertLess(markdown.index("## Target configuration"), markdown.index("## Results"))
             configuration_start = markdown.index("## Target configuration")
             results_start = markdown.index("## Results")
-            execution_row = markdown.index('<th scope="row">Execution</th>')
             self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
             self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
-            self.assertLess(results_start, markdown.index("Run outcome"))
-            self.assertLess(markdown.index("Run outcome"), execution_row)
+            steady_start = markdown.index("steady-state window · 20–50 s")
+            full_start = markdown.index("Full run · 80 s")
+            broker_start = markdown.index("Kafka broker metrics")
+            wire_start = markdown.index("Kafka wire traffic")
+            self.assertLess(steady_start, full_start)
+            self.assertLess(full_start, broker_start)
+            self.assertLess(broker_start, wire_start)
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Resource usage</th></tr>'))
+            self.assertNotIn("Kafka broker memory", markdown)
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)
             self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
@@ -1079,15 +1122,47 @@ class ExperimentReportTest(unittest.TestCase):
                     "new_key_queue_full": 1,
                 },
             })
+            audit["audit"]["topics"] = {
+                "cauldron.events.v1": dict(audit["audit"]["totals"]),
+            }
             self.write_yaml(audit_path, audit)
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn("Dropped · all reasons", markdown)
+            self.assertIn("Intentionally dropped", markdown)
+            self.assertIn("6 · 0.600%", markdown)
             self.assertIn("Replaced by newer record for key", markdown)
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
-            self.assertIn('class="status-fail">FAIL · 1', markdown)
+            self.assertNotIn("FAIL ·", markdown)
+            self.assertIn("Message payload average", markdown)
+            self.assertIn("200 bytes/msg", markdown)
+            self.assertIn("Kafka record average before compression", markdown)
+            self.assertIn("250 bytes/msg", markdown)
+            self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
+
+    def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            audit_path = root / "results/runs/run-a/audit/summary.yaml"
+            audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit["audit"]["totals"].update({
+                "without_publish": {"processed": 1, "failed": 0, "dropped": 0},
+                "conflicting_terminal_outcomes": 2,
+            })
+            audit["audit"]["topics"] = {
+                "order.events.v1": dict(audit["audit"]["totals"]),
+            }
+            self.write_yaml(audit_path, audit)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Terminal outcomes without publish", markdown)
+            self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertIn('class="audit-anomaly">1</span>', markdown)
+            self.assertIn('class="audit-anomaly">2</span>', markdown)
+            self.assertNotIn("FAIL ·", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

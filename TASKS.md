@@ -319,6 +319,12 @@
 | [INFRA-170](#infra-170) | Use application-scoped Thread Stats context-switch metrics in dashboards and reports. | DONE |
 | [INFRA-171](#infra-171) | Package the latest completed experiment report for lightweight remote download. | DONE |
 | [INFRA-172](#infra-172) | Label report metric sources and present effective target and Kafka client configuration before results. | DONE |
+| [INFRA-173](#infra-173) | Add a tuned Spring Kafka comparison target while keeping producer batching consistent across targets. | DONE |
+| [INFRA-174](#infra-174) | Prepare per-target Kafka batching and concurrency tuning without chaos within topic E2E budgets. | DONE |
+| [INFRA-175](#infra-175) | Notify when a report is ready and allow iterative runs to skip evidence and audit archives. | DONE |
+| [INFRA-176](#infra-176) | Make steady-state report highlights topic-specific and use direct delivery-result labels. | DONE |
+| [INFRA-177](#infra-177) | Refine comparison report structure and prepare lower-latency CKC tuning. | DONE |
+| [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3676,3 +3682,66 @@ Keep execution and evaluation outcomes in the results section rather than mixing
 Render the audit, Prometheus, and capture legend as separate lines with the same colored circular badges used beside metrics, and keep aggregate Kafka traffic to one concise highlights row.
 Label the legend explicitly as metric sources and identify capture-derived values as network packet capture.
 Verification: all 59 internal-lab tests passed; the latest saved three-target experiment report was regenerated without a new run, inspected for source labels and effective Kafka settings, and packaged with all three SVG assets.
+
+<a id="infra-173"></a>
+### INFRA-173 - Add a tuned Spring Kafka comparison target
+
+_Date: 2026-09-14_
+
+Keep the JDK Spring Kafka target as the baseline and identify the Armeria target explicitly as tuned.
+Use stronger consumer fetch batching for the tuned Spring and CKC targets while preserving equivalent settings between them.
+Increase load-producer linger consistently across every target so the generated workload remains comparable and low per-partition rates still form useful record batches.
+Verification: canonical internal-lab validation and full target materialization passed; generated deployment plans contain 8 KiB for the JDK baseline, 32 KiB for tuned Spring and CKC, and 500 ms producer linger for all targets. The installed optilab YAML matches the repository file byte for byte.
+
+<a id="infra-174"></a>
+### INFRA-174 - Tune batching without chaos
+
+_Date: 2026-09-14_
+
+Prepare a separate no-chaos comparison with explicit per-topic producer and consumer settings.
+Balance producer linger and consumer fetch wait together against each topic E2E limit, and increase CKC processing concurrency.
+Harden packet-capture parsing against malformed TShark Kafka text fields so large Produce requests retain raw batch evidence.
+Verification: 8 packet-capture tests, 18 orchestration tests, and all 59 internal-lab tests pass. Internal-lab and AWS materialization preserve fetch waits 100 ms above their matching producer linger. Reanalysis of the failed CKC producer capture reports 70,674 records in 156 batches with no warnings. The installed YAML checksum matches the repository and both run entrypoints are executable; no workload was launched automatically.
+
+
+<a id="infra-175"></a>
+### INFRA-175 - Notify on report readiness and skip archives
+
+_Date: 2026-09-14_
+
+Emit a Telegram-hook event only after generated experiment reports are ready.
+Add an explicit fast-iteration option that retains reports while skipping evidence collection and both artifact archives.
+Keep the complete evidence contract as the default for ordinary experiment runs.
+Verification: all 61 internal-lab tests pass. The installed runner exposes `--skip-archives`, the installed Telegram hook enables `report_ready` by default, and installed file checksums match the repository. The lab was updated without launching an experiment.
+
+<a id="infra-176"></a>
+### INFRA-176 - Clarify steady-state report highlights
+
+_Date: 2026-09-15_
+
+Replace the all-topic latency aggregate with one p99 row per topic.
+Use direct labels for lost, intentionally dropped, and per-key ordering violation counts.
+Hide zero-valued internal audit integrity checks while retaining visible failures.
+Verification: all 62 internal-lab tests pass. The installed report generator rebuilt the latest saved experiment with all three topic p99 rows and the new delivery labels; obsolete highlight rows are absent. The lightweight latest-report archive was refreshed without launching a workload.
+
+<a id="infra-177"></a>
+### INFRA-177 - Refine comparison report and CKC tuning
+
+_Date: 2026-09-15_
+
+Focus highlights on comparable numeric results, baseline deltas, and champions without status labels.
+Reorganize detailed results around full-run and steady-state topic evidence, followed by resources and Kafka wire traffic.
+Present intentional freshness drops as counts and published shares while keeping nonzero audit-integrity anomalies conspicuous.
+Prepare the CKC target with 300 ms producer linger, 350 ms consumer fetch wait, and 500 processing workers per topic.
+Verification: all 62 internal-lab tests and all 22 experiment-orchestration tests pass, including internal-lab and AWS materialization checks. The installed report generator and experiment definition match the repository checksums. The saved `20260914T181947Z` report and `latest-report.zip` were rebuilt without launching a workload.
+
+<a id="infra-178"></a>
+### INFRA-178 - Align report intervals and topic compression evidence
+
+_Date: 2026-09-15_
+
+Use exact Kafka topic names in latency highlights.
+Give steady-state and full-run results the same summary-then-topic structure, with steady-state first.
+Keep Kafka broker and network evidence after interval results.
+Extend packet-capture summaries with per-topic payload, encoded-record, and batch-compression measurements.
+Verification: all 62 internal-lab tests and 30 focused pcap/orchestration tests pass. All three saved runs from `20260914T181947Z` were reanalyzed successfully from retained pcaps. The installed report shows exact topic names, symmetric steady/full sections, and per-topic payload, record-size, and LZ4 compression evidence; `latest-report.zip` was refreshed without launching a workload.

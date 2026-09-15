@@ -29,6 +29,17 @@ Common event names:
 - `audit_run_analysis_finished`
 - `experiment_finished`
 - `experiment_failed`
+- `report_ready` — emitted after `report.md` has been written
+
+For quick tuning iterations, retain the generated report while skipping evidence
+collection and both final archives:
+
+```sh
+/opt/ckc-lab/bin/run-experiment.sh --skip-archives EXPERIMENT
+```
+
+Without `--skip-archives`, evidence collection and archive generation retain their
+existing behavior.
 
 ## Telegram Example
 

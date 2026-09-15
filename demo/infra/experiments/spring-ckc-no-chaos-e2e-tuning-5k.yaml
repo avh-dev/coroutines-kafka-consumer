@@ -1,9 +1,8 @@
 schema_version: 2
-name: spring-jdk-ckc-eta-saturation-5k-comparison
-description: Compare single-pod Spring Kafka with the baseline JDK HTTP client,
-  tuned Spring Kafka with Armeria, and fixed-dispatcher CKC with the same Kafka
-  fetch batching, while 300 ms ETA latency saturates the configured telemetry
-  concurrency during the steady measurement window at 5k/s.
+name: spring-ckc-no-chaos-e2e-tuning-5k
+description: 'No-chaos tuning candidate at 5k/s: per-target Kafka batching
+  within topic E2E budgets, one producer per topic, and 500 CKC workers per topic.
+  Settings require measured validation; not an isolated HTTP-client comparison.'
 workload:
   stubs:
     error_rate_percent: 0
@@ -26,9 +25,9 @@ workload:
     shards: 1
     base_tps: 5000
     producer_capacity_tps:
-      order: 1000
-      batch: 1000
-      telemetry: 1000
+      order: 5000
+      batch: 5000
+      telemetry: 5000
     load_profile: 0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down)
       -> 0
     cauldron_count: 32
@@ -46,32 +45,15 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    telemetry_kafka_producer_linger_ms: 150
+    telemetry_kafka_producer_batch_size: 16384
   measurement_window:
     name: steady-state
     start: 4m
     duration: 5m
-  chaos:
-  - at: 5m
-    duration: 3m
-    type: stubs_degradation
-    target: demo-stubs
-    params:
-      error_rate_percent: 0
-      eta:
-        delay_p90_ms: 300
-        delay_p95_ms: 300
-        delay_p99_ms: 300
-        delay_p100_ms: 300
-      flavour:
-        delay_p90_ms: 20
-        delay_p95_ms: 40
-        delay_p99_ms: 80
-        delay_p100_ms: 120
-      registry:
-        delay_p90_ms: 2
-        delay_p95_ms: 3
-        delay_p99_ms: 4
-        delay_p100_ms: 5
   topics:
     order:
       kafka_topic: order.events.v1
@@ -109,7 +91,7 @@ workload:
       filter: tcp port 9092
       max_file_size: 128Mi
 targets:
-- name: spring-kafka.jdk-http
+- name: spring-kafka.jdk-tuned
   implementation: spring-kafka
   application:
     replicas: 1
@@ -130,6 +112,12 @@ targets:
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
       MODEL_SYNC_HTTP_CLIENT: JDK
       KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
     planning_latency:
       order_ms: 25
       batch_ms: 25
@@ -170,7 +158,13 @@ targets:
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
       MODEL_SYNC_HTTP_CLIENT: ARMERIA
-      KAFKA_CONSUMER_FETCH_MIN_BYTES: 32768
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
     planning_latency:
       order_ms: 25
       batch_ms: 25
@@ -191,7 +185,7 @@ targets:
         partitions: 182
         pollers: 182
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-- name: ckc.fixed.1
+- name: ckc.fixed.1-tuned
   implementation: ckc
   application:
     replicas: 1
@@ -213,7 +207,13 @@ targets:
       MODEL_SYNC_HTTP_CLIENT: ARMERIA
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
-      KAFKA_CONSUMER_FETCH_MIN_BYTES: 32768
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
     planning_latency:
       order_ms: 50
       batch_ms: 50
@@ -223,18 +223,25 @@ targets:
     topics:
       order:
         partitions: 2
-        workers: 114
+        workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         partitions: 2
-        workers: 82
+        workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
         partitions: 2
-        workers: 390
+        workers: 500
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+  workload:
+    load:
+      kafka_producer_linger_ms: 300
+      telemetry_kafka_producer_linger_ms: 300
+      order_kafka_producer_batch_size: 524288
+      batch_kafka_producer_batch_size: 524288
+      telemetry_kafka_producer_batch_size: 131072
 environments:
   internal-lab:
     lab:
