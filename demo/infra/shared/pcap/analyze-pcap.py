@@ -652,7 +652,24 @@ def analyze_capture(
         "record_overhead_bytes": 0, "decompression_unavailable_batches": 0,
     }
     codecs: Counter[str] = Counter()
-    topic_batches: dict[str, dict[str, int]] = defaultdict(lambda: {"records": 0, "wire_bytes": 0})
+    topic_batches: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "batches": 0,
+            "records": 0,
+            "wire_bytes": 0,
+            "batch_header_bytes": 0,
+            "compressed_record_bytes": 0,
+            "uncompressed_record_bytes": 0,
+            "compression_savings_bytes": 0,
+            "parsed_records": 0,
+            "key_bytes": 0,
+            "value_bytes": 0,
+            "header_bytes": 0,
+            "record_overhead_bytes": 0,
+            "decompression_unavailable_batches": 0,
+            "codecs": {},
+        }
+    )
     unknown_topic_batches = 0
     batch_keys = [
         "records", "batch_wire_bytes", "batch_header_bytes", "compressed_record_bytes",
@@ -667,8 +684,14 @@ def analyze_capture(
         if batch["decompression_status"] == "unavailable":
             batch_totals["decompression_unavailable_batches"] += 1
         if topic:
-            topic_batches[topic]["records"] += int(batch["records"])
-            topic_batches[topic]["wire_bytes"] += int(batch["batch_wire_bytes"])
+            topic_values = topic_batches[topic]
+            topic_values["batches"] += 1
+            topic_values["wire_bytes"] += int(batch["batch_wire_bytes"])
+            add_numbers(topic_values, batch, batch_keys)
+            topic_codecs = topic_values["codecs"]
+            topic_codecs[batch["codec"]] = topic_codecs.get(batch["codec"], 0) + 1
+            if batch["decompression_status"] == "unavailable":
+                topic_values["decompression_unavailable_batches"] += 1
         else:
             unknown_topic_batches += 1
 
@@ -716,6 +739,17 @@ def analyze_capture(
     compressed = batch_totals["compressed_record_bytes"]
     batch_totals["compression_ratio_percent"] = round(compressed * 100 / known_uncompressed, 3) if known_uncompressed else None
     batch_totals["space_saving_percent"] = round(batch_totals["compression_savings_bytes"] * 100 / known_uncompressed, 3) if known_uncompressed else None
+    for values in topic_batches.values():
+        topic_uncompressed = values["uncompressed_record_bytes"]
+        values["compression_ratio_percent"] = (
+            round(values["compressed_record_bytes"] * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["space_saving_percent"] = (
+            round(values["compression_savings_bytes"] * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["codecs"] = dict(sorted(values["codecs"].items()))
     kafka_bytes = sum(message["bytes"] for message in selected_messages)
     topic_batch_bytes = sum(values["wire_bytes"] for values in topic_batches.values())
     # TCP frames contain Kafka envelopes and acknowledgements that cannot be assigned to
@@ -826,10 +860,14 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
         codecs = target_batches.setdefault("codecs", {})
         add_numbers(codecs, batches.get("codecs", {}), list(batches.get("codecs", {})))
         for topic, values in protocol.get("topics", {}).items():
-            target_topic = result["protocol"]["topics"].setdefault(
-                topic, {"records": 0, "wire_bytes": 0, "captured_wire_bytes": 0}
+            target_topic = result["protocol"]["topics"].setdefault(topic, {})
+            add_numbers(
+                target_topic,
+                values,
+                [key for key, value in values.items() if isinstance(value, int)],
             )
-            add_numbers(target_topic, values, ["records", "wire_bytes", "captured_wire_bytes"])
+            topic_codecs = target_topic.setdefault("codecs", {})
+            add_numbers(topic_codecs, values.get("codecs", {}), list(values.get("codecs", {})))
     network = result["network"]
     network["network_overhead_percent"] = round(network.get("network_header_bytes", 0) * 100 / network.get("captured_wire_bytes", 0), 3) if network.get("captured_wire_bytes") else None
     batches = result["protocol"]["record_batches"]
@@ -837,6 +875,16 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
     compressed = batches.get("compressed_record_bytes", 0)
     batches["compression_ratio_percent"] = round(compressed * 100 / uncompressed, 3) if uncompressed else None
     batches["space_saving_percent"] = round(batches.get("compression_savings_bytes", 0) * 100 / uncompressed, 3) if uncompressed else None
+    for values in result["protocol"]["topics"].values():
+        topic_uncompressed = values.get("uncompressed_record_bytes", 0)
+        values["compression_ratio_percent"] = (
+            round(values.get("compressed_record_bytes", 0) * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
+        values["space_saving_percent"] = (
+            round(values.get("compression_savings_bytes", 0) * 100 / topic_uncompressed, 3)
+            if topic_uncompressed else None
+        )
     return result
 
 

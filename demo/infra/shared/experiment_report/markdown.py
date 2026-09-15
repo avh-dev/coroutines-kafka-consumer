@@ -89,6 +89,46 @@ def render_markdown(report: ExperimentReport) -> str:
                 records += int(values.get("records") or 0)
         return total_bytes, records
 
+    def role_topic_batch_evidence(target: TargetReport, topic: str, role: str) -> dict[str, Any]:
+        totals: dict[str, Any] = {
+            "parsed_records": 0,
+            "value_bytes": 0,
+            "uncompressed_record_bytes": 0,
+            "compressed_record_bytes": 0,
+            "codecs": {},
+        }
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict) or capture.get("role") != role:
+                continue
+            protocol = capture.get("protocol", {})
+            capture_topics = protocol.get("topics", {}) if isinstance(protocol, dict) else {}
+            values = capture_topics.get(topic, {}) if isinstance(capture_topics, dict) else {}
+            if not isinstance(values, dict):
+                continue
+            for key in ("parsed_records", "value_bytes", "uncompressed_record_bytes", "compressed_record_bytes"):
+                totals[key] += int(values.get(key) or 0)
+            codecs = values.get("codecs")
+            if isinstance(codecs, dict):
+                for codec, count in codecs.items():
+                    totals["codecs"][str(codec)] = totals["codecs"].get(str(codec), 0) + int(count or 0)
+        return totals
+
+    def topic_record_average(target: TargetReport, topic: str, field: str) -> float | None:
+        evidence = role_topic_batch_evidence(target, topic, "producer")
+        records = int(evidence.get("parsed_records") or 0)
+        return float(evidence.get(field) or 0) / records if records else None
+
+    def topic_compression(target: TargetReport, topic: str) -> tuple[float | None, str]:
+        evidence = role_topic_batch_evidence(target, topic, "producer")
+        uncompressed = int(evidence.get("uncompressed_record_bytes") or 0)
+        compressed = int(evidence.get("compressed_record_bytes") or 0)
+        if not uncompressed or not compressed:
+            return None, "—"
+        saving = 100 * (uncompressed - compressed) / uncompressed
+        codecs = list(evidence.get("codecs", {}))
+        codec = codecs[0] if len(codecs) == 1 else "/".join(sorted(codecs)) or "unknown"
+        return saving, f"{escaped(codec)} · {uncompressed / compressed:.2f}× · {saving:.1f}% saved"
+
     def bytes_per_message(target: TargetReport, topic: str, role: str) -> float | None:
         total_bytes, records = role_topic_wire(target, topic, role)
         return total_bytes / records if records else None
@@ -551,11 +591,6 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
         row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
         row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
-        topic_labels = {
-            "order.events.v1": "Order",
-            "batch.events.v1": "Batch",
-            "cauldron.events.v1": "Telemetry",
-        }
         highlighted_topics = {
             topic
             for target in targets
@@ -572,7 +607,7 @@ def render_markdown(report: ExperimentReport) -> str:
             ]
             if any(isinstance(value, dict) and value.get("e2e_latency") for value in topic_values):
                 row(
-                    f"{topic_labels.get(topic, topic)} E2E latency p99",
+                    f"{topic} E2E latency p99",
                     compared([
                         (value.get("e2e_latency") or {}).get("p99")
                         if isinstance(value, dict) else None
@@ -629,134 +664,128 @@ def render_markdown(report: ExperimentReport) -> str:
         ])
 
     load_duration = sum(float(phase.get("duration_seconds") or 0) for phase in report.test_definition.get("load_phases", []))
-    def topic_data(target: TargetReport, topic: str) -> dict[str, Any]:
-        value = target.topic_evidence.get(topic, {})
-        return value if isinstance(value, dict) else {}
 
-    section(f"Full-run topic details · {number(load_duration, 0)} s")
-    for topic in topics:
-        topic_subsection(topic, "full load interval")
-        full_topic_values = [topic_data(target, topic) for target in targets]
-        row("Published", counts([value.get("published") for value in full_topic_values], lower_is_better=False), "audit")
-        row("Successfully processed", counts([value.get("processed") for value in full_topic_values], lower_is_better=False), "audit")
-        row("Intentionally dropped", dropped_values(full_topic_values), "audit")
-        drop_reason_rows(full_topic_values)
-        row("Failed processing", counts([value.get("failed") for value in full_topic_values]), "audit")
-        row("Lost messages", counts([value.get("missing_terminal") for value in full_topic_values]), "audit")
-        row("Processed duplicates", counts([(value.get("duplicates") or {}).get("processed") for value in full_topic_values]), "audit")
-        integrity_row("Terminal outcomes without publish", [without_publish_count(value) for value in full_topic_values])
-        integrity_row("Conflicting terminal outcomes", [value.get("conflicting_terminal_outcomes") for value in full_topic_values])
-        if topic_contract(topic).get("ordering") == "per_key":
-            row("Per-key ordering violations", counts([key_order_value(value) for value in full_topic_values]), "audit")
-        for percentile in ("p50", "p95", "p99", "max"):
-            row(f"E2E latency {percentile}", compared([(value.get("e2e_latency") or {}).get(percentile) for value in full_topic_values], 0, " ms"), "audit")
-        e2e_compliance_rows(full_topic_values)
-        histograms = [
-            normalized_histogram((value.get("key_fairness") or {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}))
-            for value in full_topic_values
-        ]
-        cutoff = shared_freshness_cutoff(histograms)
-        has_processed_gaps = any((value.get("key_fairness") or {}).get("processed_max_gap_ms") for value in full_topic_values)
-        if cutoff is not None or has_processed_gaps:
-            subsection(f"{topic} · consecutive freshness skips")
-            if cutoff is not None:
-                for bucket in range(cutoff + 1):
-                    row(f"Skipped {bucket}", counts([histogram.get(bucket, 0) for histogram in histograms]), "audit")
-                row(f"Skipped >{cutoff}", counts([sum(count for bucket, count in histogram.items() if bucket > cutoff) for histogram in histograms]), "audit")
-            for percentile in ("p95", "p99", "max"):
-                row(
-                    f"Time between processed updates {percentile}",
-                    compared([((value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile) for value in full_topic_values], 0, " ms"),
-                    "audit",
-                )
-
-    if isinstance(window, dict):
-        section(
-            f"{escaped(window.get('name') or 'Steady-state')} topic details · "
-            f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + (window.get('duration_seconds') or 0), 0)} s"
+    def render_interval(
+        title: str,
+        start: float,
+        duration: float,
+        deliveries: list[dict[str, Any]],
+        measurements: list[dict[str, Any]],
+        evidence: list[dict[str, Any]],
+    ) -> None:
+        section(title)
+        subsection("Run summary")
+        row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
+        row(
+            "Actual publish rate",
+            compared(
+                [(delivery.get("published") or 0) / duration if duration else None for delivery in deliveries],
+                0,
+                " msg/s",
+                lower_is_better=False,
+            ),
+            "audit",
         )
-        window_available_topics = {name for target in targets for name in target.window_topic_evidence}
-        window_topics = [topic for topic in preferred_topics if topic in window_available_topics]
-        window_topics.extend(sorted(window_available_topics - set(window_topics)))
-        for topic in window_topics:
-            topic_subsection(topic, "measurement window")
-            def window_topic(target: TargetReport) -> dict[str, Any]:
-                value = target.window_topic_evidence.get(topic, {})
-                return value if isinstance(value, dict) else {}
-            window_topic_values = [window_topic(target) for target in targets]
-            row("Published", counts([value.get("published") for value in window_topic_values], lower_is_better=False), "audit")
-            row("Successfully processed", counts([value.get("processed") for value in window_topic_values], lower_is_better=False), "audit")
-            row("Intentionally dropped", dropped_values(window_topic_values), "audit")
-            drop_reason_rows(window_topic_values)
-            row("Failed processing", counts([value.get("failed") for value in window_topic_values]), "audit")
-            row("Lost messages", counts([value.get("missing_terminal") for value in window_topic_values]), "audit")
-            row(
-                "Processed duplicates",
-                counts([(value.get("duplicates") or {}).get("processed") for value in window_topic_values]),
-                "audit",
-            )
-            integrity_row(
-                "Terminal outcomes without publish",
-                [without_publish_count(window_topic(target)) for target in targets],
-            )
-            integrity_row(
-                "Conflicting terminal outcomes",
-                [window_topic(target).get("conflicting_terminal_outcomes") for target in targets],
-            )
-            if topic_contract(topic).get("ordering") == "per_key":
-                row("Per-key ordering violations", counts([key_order_value(value) for value in window_topic_values]), "audit")
-            for percentile in ("p50", "p95", "p99", "max"):
-                row(f"E2E latency {percentile}", compared([(window_topic(target).get("e2e_latency") or {}).get(percentile) for target in targets], 0, " ms"), "audit")
-            e2e_compliance_rows([window_topic(target) for target in targets])
-            window_histograms = [
-                normalized_histogram(
-                    (window_topic(target).get("key_fairness") or {})
-                    .get("freshness_gap", {})
-                    .get("dropped_before_processed_histogram", {})
-                )
-                for target in targets
+        row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
+        subsection("Resource usage")
+        row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Application context switches average", compared([value.get("context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
+        row("Producer CPU average", compared([value.get("producer_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Producer memory average", compared([value.get("producer_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Producer Kafka buffer utilization maximum", compared([value.get("producer_buffer_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        available = {name for target_evidence in evidence for name in target_evidence}
+        interval_topics = [topic for topic in preferred_topics if topic in available]
+        interval_topics.extend(sorted(available - set(interval_topics)))
+        for topic in interval_topics:
+            topic_subsection(topic)
+            values = [
+                target_evidence.get(topic, {}) if isinstance(target_evidence.get(topic), dict) else {}
+                for target_evidence in evidence
             ]
-            window_cutoff = shared_freshness_cutoff(window_histograms)
-            has_processed_gaps = any(
-                (window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms")
-                for target in targets
-            )
-            if window_cutoff is not None or has_processed_gaps:
-                subsection(f"{topic} · measurement-window freshness skips")
-                if window_cutoff is not None:
-                    for bucket in range(window_cutoff + 1):
-                        row(f"Skipped {bucket}", [number(histogram.get(bucket, 0), 0) for histogram in window_histograms], "audit")
-                    row(
-                        f"Skipped >{window_cutoff}",
-                        [number(sum(count for bucket, count in histogram.items() if bucket > window_cutoff), 0) for histogram in window_histograms],
-                        "audit",
-                    )
+            row("Published", counts([value.get("published") for value in values], lower_is_better=False), "audit")
+            row("Successfully processed", counts([value.get("processed") for value in values], lower_is_better=False), "audit")
+            row("Intentionally dropped", dropped_values(values), "audit")
+            drop_reason_rows(values)
+            row("Failed processing", counts([value.get("failed") for value in values]), "audit")
+            row("Lost messages", counts([value.get("missing_terminal") for value in values]), "audit")
+            row("Processed duplicates", counts([(value.get("duplicates") or {}).get("processed") for value in values]), "audit")
+            integrity_row("Terminal outcomes without publish", [without_publish_count(value) for value in values])
+            integrity_row("Conflicting terminal outcomes", [value.get("conflicting_terminal_outcomes") for value in values])
+            if topic_contract(topic).get("ordering") == "per_key":
+                row("Per-key ordering violations", counts([key_order_value(value) for value in values]), "audit")
+            for percentile in ("p50", "p95", "p99", "max"):
+                row(f"E2E latency {percentile}", compared([(value.get("e2e_latency") or {}).get(percentile) for value in values], 0, " ms"), "audit")
+            e2e_compliance_rows(values)
+            histograms = [
+                normalized_histogram((value.get("key_fairness") or {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}))
+                for value in values
+            ]
+            cutoff = shared_freshness_cutoff(histograms)
+            has_processed_gaps = any((value.get("key_fairness") or {}).get("processed_max_gap_ms") for value in values)
+            if cutoff is not None or has_processed_gaps:
+                subsection(f"{topic} · consecutive freshness skips")
+                if cutoff is not None:
+                    for bucket in range(cutoff + 1):
+                        row(f"Skipped {bucket}", counts([histogram.get(bucket, 0) for histogram in histograms]), "audit")
+                    row(f"Skipped >{cutoff}", counts([sum(count for bucket, count in histogram.items() if bucket > cutoff) for histogram in histograms]), "audit")
                 for percentile in ("p95", "p99", "max"):
                     row(
                         f"Time between processed updates {percentile}",
-                        compared([
-                            ((window_topic(target).get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile)
-                            for target in targets
-                        ], 0, " ms"),
+                        compared([((value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile) for value in values], 0, " ms"),
                         "audit",
                     )
 
-    def resource_measurements(target: TargetReport) -> dict[str, Any]:
-        return target.window_measurements if isinstance(window, dict) else target.measurements
+    if isinstance(window, dict):
+        window_start = float(window.get("start_seconds") or 0)
+        render_interval(
+            f"{escaped(window.get('name') or 'Steady-state')} window · {number(window_start, 0)}–{number(window_start + window_duration, 0)} s",
+            window_start,
+            window_duration,
+            [target.window_delivery for target in targets],
+            [target.window_measurements for target in targets],
+            [target.window_topic_evidence for target in targets],
+        )
+    render_interval(
+        f"Full run · {number(load_duration, 0)} s",
+        0,
+        load_duration,
+        [target.delivery for target in targets],
+        [target.measurements for target in targets],
+        [target.topic_evidence for target in targets],
+    )
 
-    resource_suffix = "steady-state window" if isinstance(window, dict) else "full load interval"
-    section(f"Resource usage · {resource_suffix}")
-    row("Application CPU average", compared([resource_measurements(target).get("cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
-    row("Application memory average", compared([resource_measurements(target).get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
-    row("Application context switches average", compared([resource_measurements(target).get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
-    row("Producer CPU average", compared([resource_measurements(target).get("producer_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
-    row("Producer memory average", compared([resource_measurements(target).get("producer_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
-    row("Producer Kafka buffer utilization maximum", compared([resource_measurements(target).get("producer_buffer_utilization_max_percent") for target in targets], 1, "%"), "prometheus")
-    row("Kafka broker CPU average", compared([resource_measurements(target).get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    section("Kafka broker metrics")
+    if isinstance(window, dict):
+        row("CPU average · steady-state window", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    row("CPU average · full run", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
 
     section("Kafka wire traffic")
     for topic in topics:
         topic_subsection(topic)
+        row(
+            "Message payload average",
+            compared([topic_record_average(target, topic, "value_bytes") for target in targets], 0, " bytes/msg"),
+            "capture",
+        )
+        row(
+            "Kafka record average before compression",
+            compared([topic_record_average(target, topic, "uncompressed_record_bytes") for target in targets], 0, " bytes/msg"),
+            "capture",
+        )
+        compression = [topic_compression(target, topic) for target in targets]
+        row(
+            "Batch compression",
+            compared(
+                [value[0] for value in compression],
+                1,
+                "%",
+                lower_is_better=False,
+                best_rel_tol=0.0,
+                primary_values=[value[1] for value in compression],
+            ),
+            "capture",
+        )
         row("Producer", compared([bytes_per_message(target, topic, "producer") for target in targets], 0, " bytes/msg"), "capture")
         row("Consumer", compared([bytes_per_message(target, topic, "consumer") for target in targets], 0, " bytes/msg"), "capture")
         row("Decoded producer records", [number(role_topic_wire(target, topic, "producer")[1], 0) for target in targets], "capture")
@@ -797,7 +826,7 @@ def render_markdown(report: ExperimentReport) -> str:
         [
             "</tbody></table>",
             "",
-            "Wire traffic is a rounded estimate from the scheduled packet-capture window. It includes Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
+            "Wire traffic is a rounded estimate from the scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
             "## Full evidence",
             "",

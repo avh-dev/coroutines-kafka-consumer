@@ -152,19 +152,36 @@ class AnalyzePcapTest(unittest.TestCase):
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))
         self.assertEqual("consumer", analyze_pcap.expected_role(Path("sample-consumer.pcap")))
 
-    def test_role_aggregation_preserves_topic_captured_wire_bytes(self) -> None:
+    def test_role_aggregation_preserves_topic_record_and_compression_evidence(self) -> None:
         capture = {
             "role": "producer", "status": "success", "connections": {},
             "network": {"captured_wire_bytes": 1000},
             "protocol": {
                 "tls_detected": False, "api_types": {}, "record_batches": {},
-                "topics": {"order.events.v1": {"records": 4, "wire_bytes": 200, "captured_wire_bytes": 600}},
+                "topics": {"order.events.v1": {
+                    "records": 4,
+                    "parsed_records": 4,
+                    "wire_bytes": 200,
+                    "captured_wire_bytes": 600,
+                    "compressed_record_bytes": 100,
+                    "uncompressed_record_bytes": 250,
+                    "compression_savings_bytes": 150,
+                    "value_bytes": 180,
+                    "key_bytes": 20,
+                    "header_bytes": 10,
+                    "record_overhead_bytes": 40,
+                    "codecs": {"lz4": 1},
+                }},
             },
         }
         summary = analyze_pcap.aggregate_role([capture], "producer")
         topic = summary["protocol"]["topics"]["order.events.v1"]
         self.assertEqual(4, topic["records"])
         self.assertEqual(600, topic["captured_wire_bytes"])
+        self.assertEqual(180, topic["value_bytes"])
+        self.assertEqual(40.0, topic["compression_ratio_percent"])
+        self.assertEqual(60.0, topic["space_saving_percent"])
+        self.assertEqual({"lz4": 1}, topic["codecs"])
 
 
 if __name__ == "__main__":

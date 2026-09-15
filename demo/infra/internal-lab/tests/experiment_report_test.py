@@ -330,11 +330,12 @@ class ExperimentReportTest(unittest.TestCase):
             "diagnostics completed\n", encoding="utf-8"
         )
         pcap_roles = {}
+        pcap_captures = []
         for role, wire_bytes, messages, batches, records in (
             ("producer", 20_000, 16, 8, 79),
             ("consumer", 24_000, 108, 6, 55),
         ):
-            pcap_roles[role] = {
+            role_summary = {
                 "capture_count": 1,
                 "connections": {"observed": 3},
                 "network": {
@@ -351,11 +352,41 @@ class ExperimentReportTest(unittest.TestCase):
                         "batch_header_bytes": 488, "compressed_record_bytes": 7_512,
                         "compression_ratio_percent": 24.0, "space_saving_percent": 76.0,
                     },
+                    "topics": {
+                        "order.events.v1": {
+                            "records": 10,
+                            "parsed_records": 10 if role == "producer" else 0,
+                            "wire_bytes": 3_000,
+                            "captured_wire_bytes": 4_000,
+                            "value_bytes": 2_000 if role == "producer" else 0,
+                            "uncompressed_record_bytes": 2_500 if role == "producer" else 0,
+                            "compressed_record_bytes": 1_000 if role == "producer" else 0,
+                            "codecs": {"lz4": 1} if role == "producer" else {},
+                        },
+                        "cauldron.events.v1": {
+                            "records": 10,
+                            "parsed_records": 10 if role == "producer" else 0,
+                            "wire_bytes": 3_000,
+                            "captured_wire_bytes": 4_000,
+                            "value_bytes": 2_000 if role == "producer" else 0,
+                            "uncompressed_record_bytes": 2_500 if role == "producer" else 0,
+                            "compressed_record_bytes": 1_000 if role == "producer" else 0,
+                            "codecs": {"lz4": 1} if role == "producer" else {},
+                        },
+                    },
                 },
             }
+            pcap_roles[role] = role_summary
+            pcap_captures.append({"role": role, "status": "success", **role_summary})
         self.write_json(
             run_dir / "diagnostics" / "pcap-analysis" / "summary.json",
-            {"status": "success", "tshark_version": "TShark test", "roles": pcap_roles, "warnings": []},
+            {
+                "status": "success",
+                "tshark_version": "TShark test",
+                "captures": pcap_captures,
+                "roles": pcap_roles,
+                "warnings": [],
+            },
         )
         (run_dir / "diagnostics" / "pcap-analysis" / "summary.txt").write_text(
             "Kafka packet capture analysis\n", encoding="utf-8"
@@ -1002,7 +1033,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("lz4", order_configuration["producer"]["compression_type"])
             self.assertEqual(33554432, order_configuration["producer"]["buffer_memory"])
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn("steady-state topic details · 20–50 s", markdown)
+            self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
             self.assertIn("Published with on-time processed outcome", markdown)
@@ -1019,7 +1050,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Processed duplicates", markdown)
             self.assertNotIn("Terminal outcomes without publish", markdown)
             self.assertNotIn("Conflicting terminal outcomes", markdown)
-            self.assertIn("Order E2E latency p99", markdown)
+            self.assertIn("order.events.v1 E2E latency p99", markdown)
+            self.assertNotIn("Order E2E latency p99", markdown)
             self.assertNotIn("E2E latency p95 · all topics", markdown)
             self.assertIn("Intentionally dropped", markdown)
             self.assertNotIn("Delivery outcome", markdown)
@@ -1027,7 +1059,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("FAIL ·", markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(
-                'Kafka broker CPU<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
+                'CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
             self.assertIn(
@@ -1061,9 +1093,15 @@ class ExperimentReportTest(unittest.TestCase):
             results_start = markdown.index("## Results")
             self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
             self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
-            self.assertLess(markdown.index("Full-run topic details"), markdown.index("steady-state topic details"))
-            self.assertLess(markdown.index("steady-state topic details"), markdown.index("Resource usage"))
-            self.assertLess(markdown.index("Resource usage"), markdown.index("Kafka wire traffic"))
+            steady_start = markdown.index("steady-state window · 20–50 s")
+            full_start = markdown.index("Full run · 80 s")
+            broker_start = markdown.index("Kafka broker metrics")
+            wire_start = markdown.index("Kafka wire traffic")
+            self.assertLess(steady_start, full_start)
+            self.assertLess(full_start, broker_start)
+            self.assertLess(broker_start, wire_start)
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Resource usage</th></tr>'))
             self.assertNotIn("Kafka broker memory", markdown)
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)
@@ -1097,6 +1135,11 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
             self.assertNotIn("FAIL ·", markdown)
+            self.assertIn("Message payload average", markdown)
+            self.assertIn("200 bytes/msg", markdown)
+            self.assertIn("Kafka record average before compression", markdown)
+            self.assertIn("250 bytes/msg", markdown)
+            self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

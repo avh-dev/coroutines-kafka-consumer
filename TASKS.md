@@ -324,6 +324,7 @@
 | [INFRA-175](#infra-175) | Notify when a report is ready and allow iterative runs to skip evidence and audit archives. | DONE |
 | [INFRA-176](#infra-176) | Make steady-state report highlights topic-specific and use direct delivery-result labels. | DONE |
 | [INFRA-177](#infra-177) | Refine comparison report structure and prepare lower-latency CKC tuning. | DONE |
+| [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3733,3 +3734,14 @@ Reorganize detailed results around full-run and steady-state topic evidence, fol
 Present intentional freshness drops as counts and published shares while keeping nonzero audit-integrity anomalies conspicuous.
 Prepare the CKC target with 300 ms producer linger, 350 ms consumer fetch wait, and 500 processing workers per topic.
 Verification: all 62 internal-lab tests and all 22 experiment-orchestration tests pass, including internal-lab and AWS materialization checks. The installed report generator and experiment definition match the repository checksums. The saved `20260914T181947Z` report and `latest-report.zip` were rebuilt without launching a workload.
+
+<a id="infra-178"></a>
+### INFRA-178 - Align report intervals and topic compression evidence
+
+_Date: 2026-09-15_
+
+Use exact Kafka topic names in latency highlights.
+Give steady-state and full-run results the same summary-then-topic structure, with steady-state first.
+Keep Kafka broker and network evidence after interval results.
+Extend packet-capture summaries with per-topic payload, encoded-record, and batch-compression measurements.
+Verification: all 62 internal-lab tests and 30 focused pcap/orchestration tests pass. All three saved runs from `20260914T181947Z` were reanalyzed successfully from retained pcaps. The installed report shows exact topic names, symmetric steady/full sections, and per-topic payload, record-size, and LZ4 compression evidence; `latest-report.zip` was refreshed without launching a workload.

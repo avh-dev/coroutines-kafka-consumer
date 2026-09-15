@@ -28,6 +28,13 @@ The byte categories are exhaustive for the captured Kafka TCP streams:
   compression ratio is compressed divided by uncompressed size; 100% therefore
   means no size reduction, while `space_saving_percent` is the reduction.
 
+When a Produce or Fetch payload can be associated with a canonical topic, the
+same batch and decoded-record counters are also accumulated under
+`protocol.topics.<topic>`. This includes `value_bytes`, `key_bytes`, record
+metadata, compressed and uncompressed record bytes, and codecs. Reports use the
+producer capture to show average message payload, average encoded Kafka record
+before compression, and the effective batch-compression factor for each topic.
+
 Connection counts describe the capture window: `observed` includes every TCP
 stream, `opened_during_capture` requires an observed initial SYN, and
 `active_at_capture_start` covers streams whose SYN preceded the capture. TLS
