@@ -326,6 +326,7 @@
 | [INFRA-177](#infra-177) | Refine comparison report structure and prepare lower-latency CKC tuning. | DONE |
 | [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
 | [INFRA-179](#infra-179) | Make Telegram experiment progress notifications concise and visually scannable. | DONE |
+| [INFRA-180](#infra-180) | Prepare a two-target 5k/s comparison with all downstream tail latency degraded to 500-2000 ms. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3756,3 +3757,13 @@ Keep experiment-start and report-ready notifications detailed and identifiable.
 Reduce intermediate experiment progress notifications to one-line phase transitions.
 Use stable icons and explicit `started`, `completed`, and `failed` wording for quick scanning.
 Verification: all 65 internal-lab tests pass, both modified Python files compile, and the installed Telegram hook matches the repository checksum. The lab assets were updated without rebuilding images, restarting deployments, or launching an experiment.
+
+<a id="infra-180"></a>
+### INFRA-180 - Compare degraded downstream tail latency
+
+_Date: 2026-09-15_
+
+Derive a two-target experiment from the latest no-chaos Spring JDK and CKC tuning comparison, removing only the Spring Armeria target.
+Degrade ETA, flavour, and registry together from 05:00 through 08:00 by setting p99 to 500 ms and p100 to 2000 ms, affecting the slowest 5% of calls while preserving all other workload, target, and environment settings.
+Add a structural regression test that detects drift from the source experiment outside the intended target removal and chaos addition.
+Verification: all 23 experiment-orchestration tests and all 65 internal-lab tests pass. The installed definition checksum matches the repository; optilab was updated without launching an experiment.
