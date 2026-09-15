@@ -323,6 +323,7 @@
 | [INFRA-174](#infra-174) | Prepare per-target Kafka batching and concurrency tuning without chaos within topic E2E budgets. | DONE |
 | [INFRA-175](#infra-175) | Notify when a report is ready and allow iterative runs to skip evidence and audit archives. | DONE |
 | [INFRA-176](#infra-176) | Make steady-state report highlights topic-specific and use direct delivery-result labels. | DONE |
+| [INFRA-177](#infra-177) | Refine comparison report structure and prepare lower-latency CKC tuning. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3721,3 +3722,14 @@ Replace the all-topic latency aggregate with one p99 row per topic.
 Use direct labels for lost, intentionally dropped, and per-key ordering violation counts.
 Hide zero-valued internal audit integrity checks while retaining visible failures.
 Verification: all 62 internal-lab tests pass. The installed report generator rebuilt the latest saved experiment with all three topic p99 rows and the new delivery labels; obsolete highlight rows are absent. The lightweight latest-report archive was refreshed without launching a workload.
+
+<a id="infra-177"></a>
+### INFRA-177 - Refine comparison report and CKC tuning
+
+_Date: 2026-09-15_
+
+Focus highlights on comparable numeric results, baseline deltas, and champions without status labels.
+Reorganize detailed results around full-run and steady-state topic evidence, followed by resources and Kafka wire traffic.
+Present intentional freshness drops as counts and published shares while keeping nonzero audit-integrity anomalies conspicuous.
+Prepare the CKC target with 300 ms producer linger, 350 ms consumer fetch wait, and 500 processing workers per topic.
+Verification: all 62 internal-lab tests and all 22 experiment-orchestration tests pass, including internal-lab and AWS materialization checks. The installed report generator and experiment definition match the repository checksums. The saved `20260914T181947Z` report and `latest-report.zip` were rebuilt without launching a workload.

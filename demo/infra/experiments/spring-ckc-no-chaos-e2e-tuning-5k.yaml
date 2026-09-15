@@ -1,7 +1,7 @@
 schema_version: 2
 name: spring-ckc-no-chaos-e2e-tuning-5k
-description: 'Initial no-chaos tuning candidate at 5k/s: per-target Kafka batching
-  within topic E2E budgets, one producer per topic, and 300 CKC workers per topic.
+description: 'No-chaos tuning candidate at 5k/s: per-target Kafka batching
+  within topic E2E budgets, one producer per topic, and 500 CKC workers per topic.
   Settings require measured validation; not an isolated HTTP-client comparison.'
 workload:
   stubs:
@@ -208,7 +208,7 @@ targets:
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
       KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
-      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 1100
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
       KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
       KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
       KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
@@ -223,22 +223,22 @@ targets:
     topics:
       order:
         partitions: 2
-        workers: 300
+        workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         partitions: 2
-        workers: 300
+        workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
         partitions: 2
-        workers: 300
+        workers: 500
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
   workload:
     load:
-      kafka_producer_linger_ms: 1000
-      telemetry_kafka_producer_linger_ms: 250
+      kafka_producer_linger_ms: 300
+      telemetry_kafka_producer_linger_ms: 300
       order_kafka_producer_batch_size: 524288
       batch_kafka_producer_batch_size: 524288
       telemetry_kafka_producer_batch_size: 131072

@@ -39,16 +39,16 @@ and should be described as complete configurations, not isolated client effects.
 
 | Setting | Spring JDK / Armeria | CKC |
 | --- | --- | --- |
-| Order / batch producer linger | 500 ms | 1000 ms |
-| Telemetry producer linger | 150 ms | 250 ms |
+| Order / batch producer linger | 500 ms | 300 ms |
+| Telemetry producer linger | 150 ms | 300 ms |
 | Order / batch producer batch.size | 32 KiB | 512 KiB |
 | Telemetry producer batch.size | 16 KiB | 128 KiB |
 | Order / batch consumer fetch.min.bytes | 8 KiB | 64 KiB |
 | Telemetry consumer fetch.min.bytes | 8 KiB | 16 KiB |
-| Order / batch consumer fetch.max.wait.ms | 600 ms | 1100 ms |
+| Order / batch consumer fetch.max.wait.ms | 600 ms | 350 ms |
 | Telemetry consumer fetch.max.wait.ms | 250 ms | 350 ms |
 | Consumer max.poll.records | 500 | 2000 |
-| Processing workers per topic | Partition listeners: 58 / 41 / 182 | 300 / 300 / 300 |
+| Processing workers per topic | Partition listeners: 58 / 41 / 182 | 500 / 500 / 500 |
 
 All targets use one producer per topic (capacity setting 5000 TPS), LZ4,
 64 MiB buffer.memory per producer, 50 MiB fetch.max.bytes, and 1 MiB
@@ -65,22 +65,30 @@ tails and queues can consume the remaining margin. A one-second linger on Spring
 would leave substantially less margin.
 
 CKC has two partitions per topic: before batch-size limits, one producer can
-accumulate approximately 875 order, 625 batch, and 250 telemetry records per
-partition over their respective linger intervals. The prior capture at
+accumulate approximately 263 order, 188 batch, and 300 telemetry records per
+partition over the shared 300 ms linger interval. The prior capture at
 `20260914T115237Z` contains about 332 uncompressed bytes per record averaged
 across all topics. Using 512 bytes per record as a provisional sizing allowance
-gives about 438 / 313 / 125 KiB, motivating 512 / 512 / 128 KiB batch limits.
-This allowance is not a measured maximum or per-topic percentile. Inspect actual
-batch sizes and compression after the run and revise it if necessary.
+gives about 131 / 94 / 150 KiB at the new linger. The existing 512 KiB order and
+batch limits leave ample headroom; the 128 KiB telemetry limit remains above the
+rough 97 KiB estimate from the measured average record size. Neither estimate is
+a measured maximum or per-topic percentile. Inspect actual batch sizes and
+compression after the run and revise the limits if necessary.
 
 The measured candidates showed why producer and consumer waits must be aligned.
 A 50 ms fetch wait caused 36,600–46,000 Spring Fetch requests per 15 seconds.
 Raising it only to 250 ms still produced 20,911–21,591 requests while producers
 used about 15,000 record batches. Consumer traffic remained roughly twice the
 producer traffic. A pending Fetch normally overlaps producer accumulation, so
-its maximum wait is not an additional delay after linger. Each revised fetch
-wait is 100 ms longer than the corresponding producer linger; this lets the
-pending request receive the next batch instead of timing out just before it.
+its maximum wait is not an additional delay after linger. Spring fetch waits
+remain 100 ms above their corresponding producer linger; CKC uses a 350 ms fetch
+wait for every topic, 50 ms above its shared 300 ms producer linger.
+
+The latest comparison still showed higher Spring consumer traffic than producer
+traffic: 281 pollers formed only about 4.7 records per batch, while CKC used
+three poll loops and about 470 records per batch. A later tuning iteration should
+first increase Spring producer `batch.size`, then measure whether fewer partitions
+and pollers preserve latency while reducing consumer wire traffic.
 
 The audit calculates E2E from Kafka record timestamp to completion; with
 CreateTime timestamps this includes producer linger. Keep timestamp semantics

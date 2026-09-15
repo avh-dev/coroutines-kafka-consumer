@@ -571,7 +571,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Application CPU average", markdown)
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
-            self.assertIn('class="status-fail">FAIL · 2', markdown)
+            self.assertNotIn('class="status-fail"', markdown)
             self.assertIn("<thead><tr><th></th>", markdown)
             self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
             self.assertNotIn("Sync HTTP client", markdown)
@@ -1002,7 +1002,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("lz4", order_configuration["producer"]["compression_type"])
             self.assertEqual(33554432, order_configuration["producer"]["buffer_memory"])
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn("steady-state window · 20–50 s", markdown)
+            self.assertIn("steady-state topic details · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
             self.assertIn("Published with on-time processed outcome", markdown)
@@ -1023,7 +1023,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("E2E latency p95 · all topics", markdown)
             self.assertIn("Intentionally dropped", markdown)
             self.assertNotIn("Delivery outcome", markdown)
-            self.assertIn('class="status-pass">PASS · 0', markdown)
+            self.assertNotIn("PASS ·", markdown)
+            self.assertNotIn("FAIL ·", markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(
                 'Kafka broker CPU<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
@@ -1033,10 +1034,10 @@ class ExperimentReportTest(unittest.TestCase):
                 'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,
             )
-            self.assertIn(
-                '<th scope="row">Execution</th><td><span class="status-pass">COMPLETED',
-                markdown,
-            )
+            self.assertNotIn('<th scope="row">Execution</th>', markdown)
+            self.assertNotIn("Run outcome", markdown)
+            self.assertNotIn("Delivery evaluation", markdown)
+            self.assertNotIn("Latency evaluation", markdown)
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Application context switches average", markdown)
@@ -1058,11 +1059,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertLess(markdown.index("## Target configuration"), markdown.index("## Results"))
             configuration_start = markdown.index("## Target configuration")
             results_start = markdown.index("## Results")
-            execution_row = markdown.index('<th scope="row">Execution</th>')
             self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
             self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
-            self.assertLess(results_start, markdown.index("Run outcome"))
-            self.assertLess(markdown.index("Run outcome"), execution_row)
+            self.assertLess(markdown.index("Full-run topic details"), markdown.index("steady-state topic details"))
+            self.assertLess(markdown.index("steady-state topic details"), markdown.index("Resource usage"))
+            self.assertLess(markdown.index("Resource usage"), markdown.index("Kafka wire traffic"))
+            self.assertNotIn("Kafka broker memory", markdown)
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)
             self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
@@ -1082,15 +1084,19 @@ class ExperimentReportTest(unittest.TestCase):
                     "new_key_queue_full": 1,
                 },
             })
+            audit["audit"]["topics"] = {
+                "cauldron.events.v1": dict(audit["audit"]["totals"]),
+            }
             self.write_yaml(audit_path, audit)
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn("Dropped · all reasons", markdown)
+            self.assertIn("Intentionally dropped", markdown)
+            self.assertIn("6 · 0.600%", markdown)
             self.assertIn("Replaced by newer record for key", markdown)
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
-            self.assertIn('class="status-fail">FAIL · 1', markdown)
+            self.assertNotIn("FAIL ·", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1102,14 +1108,18 @@ class ExperimentReportTest(unittest.TestCase):
                 "without_publish": {"processed": 1, "failed": 0, "dropped": 0},
                 "conflicting_terminal_outcomes": 2,
             })
+            audit["audit"]["topics"] = {
+                "order.events.v1": dict(audit["audit"]["totals"]),
+            }
             self.write_yaml(audit_path, audit)
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("Terminal outcomes without publish", markdown)
             self.assertIn("Conflicting terminal outcomes", markdown)
-            self.assertIn('class="status-fail">FAIL · 1', markdown)
-            self.assertIn('class="status-fail">FAIL · 2', markdown)
+            self.assertIn('class="audit-anomaly">1</span>', markdown)
+            self.assertIn('class="audit-anomaly">2</span>', markdown)
+            self.assertNotIn("FAIL ·", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
