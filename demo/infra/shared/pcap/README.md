@@ -28,6 +28,11 @@ The byte categories are exhaustive for the captured Kafka TCP streams:
   compression ratio is compressed divided by uncompressed size; 100% therefore
   means no size reduction, while `space_saving_percent` is the reduction.
 
+`protocol.api_types` also records request and response counts and Kafka PDU
+bytes for every decoded API. Experiment reports use the `Fetch` and `Produce`
+entries to show request rates, average request and response sizes, and decoded
+records per data-carrying exchange. These PDU sizes exclude network headers.
+
 When a Produce or Fetch payload can be associated with a canonical topic, the
 same batch and decoded-record counters are also accumulated under
 `protocol.topics.<topic>`. This includes `value_bytes`, `key_bytes`, record

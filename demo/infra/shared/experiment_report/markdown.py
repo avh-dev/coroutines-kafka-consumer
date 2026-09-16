@@ -146,6 +146,52 @@ def render_markdown(report: ExperimentReport) -> str:
         consumer = all_topic_bytes_per_message(target, "consumer")
         return None if producer is None or consumer is None else producer + consumer
 
+    def kafka_api(target: TargetReport, role: str, api_name: str) -> dict[str, Any] | None:
+        roles = target.pcap_analysis.get("roles", {})
+        role_data = roles.get(role, {}) if isinstance(roles, dict) else {}
+        protocol = role_data.get("protocol", {}) if isinstance(role_data, dict) else {}
+        api_types = protocol.get("api_types", {}) if isinstance(protocol, dict) else {}
+        values = api_types.get(api_name) if isinstance(api_types, dict) else None
+        return values if isinstance(values, dict) else None
+
+    def kafka_api_count(target: TargetReport, role: str, api_name: str, direction: str) -> int | None:
+        values = kafka_api(target, role, api_name)
+        return int(values.get(f"{direction}s") or 0) if values is not None else None
+
+    def kafka_api_average_bytes(target: TargetReport, role: str, api_name: str, direction: str) -> float | None:
+        values = kafka_api(target, role, api_name)
+        if values is None:
+            return None
+        count = int(values.get(f"{direction}s") or 0)
+        return float(values.get(f"{direction}_bytes") or 0) / count if count else None
+
+    def capture_duration_seconds(target: TargetReport, role: str) -> float | None:
+        duration = 0.0
+        found = False
+        for capture in target.pcap_analysis.get("captures", []):
+            if not isinstance(capture, dict) or capture.get("role") != role or capture.get("status") == "failed":
+                continue
+            metadata = capture.get("capture", {})
+            seconds = metadata.get("duration_seconds") if isinstance(metadata, dict) else None
+            if seconds is not None and float(seconds) > 0:
+                duration += float(seconds)
+                found = True
+        return duration if found else None
+
+    def kafka_api_rate(target: TargetReport, role: str, api_name: str) -> float | None:
+        requests = kafka_api_count(target, role, api_name, "request")
+        duration = capture_duration_seconds(target, role)
+        return requests / duration if requests is not None and duration else None
+
+    def decoded_records_per_exchange(target: TargetReport, role: str, api_name: str, direction: str) -> float | None:
+        exchanges = kafka_api_count(target, role, api_name, direction)
+        roles = target.pcap_analysis.get("roles", {})
+        role_data = roles.get(role, {}) if isinstance(roles, dict) else {}
+        protocol = role_data.get("protocol", {}) if isinstance(role_data, dict) else {}
+        batches = protocol.get("record_batches", {}) if isinstance(protocol, dict) else {}
+        records = int(batches.get("records") or 0) if isinstance(batches, dict) else 0
+        return records / exchanges if exchanges else None
+
     def compared(
         values: list[float | None],
         digits: int,
@@ -191,6 +237,9 @@ def render_markdown(report: ExperimentReport) -> str:
             lower_is_better=lower_is_better,
             best_rel_tol=0.0,
         )
+
+    def formatted(values: list[float | None], digits: int, suffix: str) -> list[str]:
+        return ["—" if value is None else f"{number(value, digits)}{suffix}" for value in values]
 
     def dropped_share(data: dict[str, Any]) -> float | None:
         published = int(data.get("published") or 0)
@@ -760,6 +809,72 @@ def render_markdown(report: ExperimentReport) -> str:
         row("CPU average · steady-state window", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
     row("CPU average · full run", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
 
+    section("Kafka request efficiency")
+    subsection("Consumer Fetch")
+    row("Requests", counts([kafka_api_count(target, "consumer", "Fetch", "request") for target in targets]), "capture")
+    row("Request rate", compared([kafka_api_rate(target, "consumer", "Fetch") for target in targets], 2, " requests/s"), "capture")
+    row(
+        "Average request PDU",
+        formatted(
+            [kafka_api_average_bytes(target, "consumer", "Fetch", "request") for target in targets],
+            0,
+            " bytes",
+        ),
+        "capture",
+    )
+    row(
+        "Average response PDU",
+        compared(
+            [kafka_api_average_bytes(target, "consumer", "Fetch", "response") for target in targets],
+            0,
+            " bytes",
+            lower_is_better=False,
+        ),
+        "capture",
+    )
+    row(
+        "Decoded records per response",
+        compared(
+            [decoded_records_per_exchange(target, "consumer", "Fetch", "response") for target in targets],
+            2,
+            " records",
+            lower_is_better=False,
+        ),
+        "capture",
+    )
+    subsection("Producer Produce")
+    row("Requests", counts([kafka_api_count(target, "producer", "Produce", "request") for target in targets]), "capture")
+    row("Request rate", compared([kafka_api_rate(target, "producer", "Produce") for target in targets], 2, " requests/s"), "capture")
+    row(
+        "Average request PDU",
+        compared(
+            [kafka_api_average_bytes(target, "producer", "Produce", "request") for target in targets],
+            0,
+            " bytes",
+            lower_is_better=False,
+        ),
+        "capture",
+    )
+    row(
+        "Average response PDU",
+        formatted(
+            [kafka_api_average_bytes(target, "producer", "Produce", "response") for target in targets],
+            0,
+            " bytes",
+        ),
+        "capture",
+    )
+    row(
+        "Decoded records per request",
+        compared(
+            [decoded_records_per_exchange(target, "producer", "Produce", "request") for target in targets],
+            2,
+            " records",
+            lower_is_better=False,
+        ),
+        "capture",
+    )
+
     section("Kafka wire traffic")
     for topic in topics:
         topic_subsection(topic)
@@ -825,6 +940,8 @@ def render_markdown(report: ExperimentReport) -> str:
     lines.extend(
         [
             "</tbody></table>",
+            "",
+            "Kafka request efficiency is calculated from decoded Kafka protocol messages within the packet-capture windows. PDU sizes exclude TCP/IP and link-layer headers; rates use the sum of the scheduled capture durations. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
             "",
             "Wire traffic is a rounded estimate from the scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",

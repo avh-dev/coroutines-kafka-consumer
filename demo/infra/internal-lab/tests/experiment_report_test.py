@@ -347,6 +347,14 @@ class ExperimentReportTest(unittest.TestCase):
                 "protocol": {
                     "kafka_messages": messages,
                     "kafka_pdu_bytes": 12_000,
+                    "api_types": {
+                        "Produce" if role == "producer" else "Fetch": {
+                            "requests": 4 if role == "producer" else 12,
+                            "responses": 4 if role == "producer" else 12,
+                            "request_bytes": 8_000 if role == "producer" else 1_200,
+                            "response_bytes": 400 if role == "producer" else 9_600,
+                        },
+                    },
                     "record_batches": {
                         "batches": batches, "records": records, "batch_wire_bytes": 8_000,
                         "batch_header_bytes": 488, "compressed_record_bytes": 7_512,
@@ -377,7 +385,12 @@ class ExperimentReportTest(unittest.TestCase):
                 },
             }
             pcap_roles[role] = role_summary
-            pcap_captures.append({"role": role, "status": "success", **role_summary})
+            pcap_captures.append({
+                "role": role,
+                "status": "success",
+                "capture": {"name": "kafka-steady", "duration_seconds": 5},
+                **role_summary,
+            })
         self.write_json(
             run_dir / "diagnostics" / "pcap-analysis" / "summary.json",
             {
@@ -1140,6 +1153,16 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Kafka record average before compression", markdown)
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
+            self.assertIn("Kafka request efficiency", markdown)
+            self.assertIn("Consumer Fetch", markdown)
+            self.assertIn("2.40 requests/s", markdown)
+            self.assertIn("800 bytes", markdown)
+            self.assertIn("4.58 records", markdown)
+            self.assertIn("Producer Produce", markdown)
+            self.assertIn("0.80 requests/s", markdown)
+            self.assertIn("2,000 bytes", markdown)
+            self.assertIn("19.75 records", markdown)
+            self.assertIn("PDU sizes exclude TCP/IP and link-layer headers", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
