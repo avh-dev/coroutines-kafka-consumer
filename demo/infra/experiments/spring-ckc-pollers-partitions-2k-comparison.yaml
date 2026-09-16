@@ -1,8 +1,8 @@
 schema_version: 2
-name: spring-ckc-pollers-partitions-5k-comparison
+name: spring-ckc-pollers-partitions-2k-comparison
 description: 'Compare the tuned Spring Kafka JDK baseline with fixed-one CKC
   variants that separate Spring-sized partition counts from poll-loop concurrency,
-  plus a minimal three-partition CKC target, at 5k/s without chaos.'
+  plus a minimal three-partition CKC target, at 2k/s without chaos.'
 workload:
   stubs:
     error_rate_percent: 0
@@ -23,11 +23,11 @@ workload:
       delay_p100_ms: 5
   load:
     shards: 1
-    base_tps: 5000
+    base_tps: 2000
     producer_capacity_tps:
-      order: 5000
-      batch: 5000
-      telemetry: 5000
+      order: 2000
+      batch: 2000
+      telemetry: 2000
     load_profile: 0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down)
       -> 0
     cauldron_count: 32
@@ -127,16 +127,16 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 58
-        pollers: 58
+        partitions: 24
+        pollers: 24
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 41
-        pollers: 41
+        partitions: 18
+        pollers: 18
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 182
-        pollers: 182
+        partitions: 75
+        pollers: 75
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 - name: ckc.fixed.1.spring-partitions.per-partition-pollers
   implementation: ckc
@@ -177,21 +177,21 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 58
+        partitions: 24
         workers: 500
-        pollers: 58
+        pollers: 24
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
-        partitions: 41
+        partitions: 18
         workers: 500
-        pollers: 41
+        pollers: 18
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
-        partitions: 182
+        partitions: 75
         workers: 500
-        pollers: 182
+        pollers: 75
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
   workload:
     load:
@@ -239,19 +239,19 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 58
+        partitions: 24
         workers: 500
         pollers: 1
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
-        partitions: 41
+        partitions: 18
         workers: 500
         pollers: 1
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
-        partitions: 182
+        partitions: 75
         workers: 500
         pollers: 1
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY

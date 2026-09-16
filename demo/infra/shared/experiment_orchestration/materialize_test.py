@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
-    def test_materializes_ckc_poller_and_partition_comparison_at_5k(self) -> None:
+    def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
                 encoding="utf-8"
@@ -22,12 +22,23 @@ class MaterializeTest(unittest.TestCase):
         )
         source = (
             REPO_ROOT
-            / "demo/infra/experiments/spring-ckc-pollers-partitions-5k-comparison.yaml"
+            / "demo/infra/experiments/spring-ckc-pollers-partitions-2k-comparison.yaml"
         )
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
 
-        self.assertEqual(baseline["workload"], candidate["workload"])
-        self.assertEqual(baseline["targets"][0], candidate["targets"][0])
+        expected_workload = baseline["workload"]
+        expected_workload["load"]["base_tps"] = 2000
+        expected_workload["load"]["producer_capacity_tps"] = {
+            "order": 2000,
+            "batch": 2000,
+            "telemetry": 2000,
+        }
+        self.assertEqual(expected_workload, candidate["workload"])
+        expected_spring = baseline["targets"][0]
+        for topic, partitions in {"order": 24, "batch": 18, "telemetry": 75}.items():
+            expected_spring["runtime"]["topics"][topic]["partitions"] = partitions
+            expected_spring["runtime"]["topics"][topic]["pollers"] = partitions
+        self.assertEqual(expected_spring, candidate["targets"][0])
         self.assertNotIn("chaos", candidate["workload"])
         self.assertEqual(
             {
@@ -47,17 +58,17 @@ class MaterializeTest(unittest.TestCase):
 
         expected = {
             "spring-kafka.jdk-tuned": (
-                [58, 41, 182],
-                [58, 41, 182],
+                [24, 18, 75],
+                [24, 18, 75],
                 [1, 1, 1],
             ),
             "ckc.fixed.1.spring-partitions.per-partition-pollers": (
-                [58, 41, 182],
-                [58, 41, 182],
+                [24, 18, 75],
+                [24, 18, 75],
                 [500, 500, 500],
             ),
             "ckc.fixed.1.spring-partitions.single-poller": (
-                [58, 41, 182],
+                [24, 18, 75],
                 [1, 1, 1],
                 [500, 500, 500],
             ),
@@ -85,7 +96,7 @@ class MaterializeTest(unittest.TestCase):
                         [topic["worker_concurrency"] for topic in topics],
                     )
 
-                self.assertEqual(5000, definition["load_test"]["base_tps"])
+                self.assertEqual(2000, definition["load_test"]["base_tps"])
                 self.assertEqual(expected, actual)
 
     def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
