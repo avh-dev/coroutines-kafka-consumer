@@ -329,6 +329,7 @@
 | [INFRA-180](#infra-180) | Prepare a two-target 5k/s comparison with all downstream tail latency degraded to 500-2000 ms. | DONE |
 | [INFRA-181](#infra-181) | Add a selectable three-node KRaft Kafka cluster and broker-aware failure scenarios to the internal lab. | DONE |
 | [INFRA-182](#infra-182) | Configure the internal-lab Kafka cluster shape and resources from the experiment definition. | DONE |
+| [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3790,3 +3791,13 @@ Move the internal-lab Kafka topology, broker count, topic replication settings, 
 Materialize the resolved settings through Compose, topic preparation, run metadata, and evidence while preserving the existing single-node defaults.
 Keep broker-specific chaos steps in the workload scenario and reject configurations that the installed lab cannot safely realize.
 Verification: all 25 experiment-orchestration and 69 internal-lab tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace checks pass. Installed assets match repository checksums. The resolved three-node configuration produced three healthy brokers with 1 CPU, 2 GiB memory, 1 GiB heap, RF=3, min ISR=2, a three-voter quorum, and zero follower lag; no workload experiment was launched.
+
+<a id="infra-183"></a>
+### INFRA-183 - Separate Kafka Thread Stats ports
+
+_Date: 2026-09-16_
+
+Move the internal-lab Kafka Thread Stats host endpoints away from the load-test metrics port.
+Keep broker identity labels and Kubernetes/Prometheus discovery aligned with the new dedicated port range.
+Prevent a three-node Kafka cluster from causing the load generator to fail at startup with an address-in-use error.
+Verification: all 25 experiment-orchestration and 70 internal-lab tests pass; Bash, POSIX shell, Compose, and whitespace checks pass. The installed three-node cluster exposes healthy Thread Stats endpoints on ports 9414-9416, all three Prometheus targets are up with their broker labels, and load-test port 9405 is free. Installed asset checksums match the repository; no workload experiment was launched automatically.

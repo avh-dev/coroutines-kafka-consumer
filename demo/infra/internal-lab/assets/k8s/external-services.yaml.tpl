@@ -39,14 +39,14 @@ metadata:
 spec:
   ports:
     - name: metrics
-      port: 9404
-      targetPort: 9404
+      port: 9414
+      targetPort: 9414
     - name: metrics-2
-      port: 9405
-      targetPort: 9405
+      port: 9415
+      targetPort: 9415
     - name: metrics-3
-      port: 9406
-      targetPort: 9406
+      port: 9416
+      targetPort: 9416
 ---
 apiVersion: v1
 kind: Endpoints
@@ -58,11 +58,11 @@ subsets:
       - ip: __LAB_NODE_IP__
     ports:
       - name: metrics
-        port: 9404
+        port: 9414
       - name: metrics-2
-        port: 9405
+        port: 9415
       - name: metrics-3
-        port: 9406
+        port: 9416
 ---
 apiVersion: v1
 kind: Service

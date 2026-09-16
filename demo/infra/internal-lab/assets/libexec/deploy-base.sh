@@ -99,8 +99,8 @@ if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "$
   if ! curl -fsS -X POST "http://127.0.0.1:30090/-/reload" >/dev/null 2>&1; then
     echo "Prometheus config changed but reload failed; restarting deployment." >&2
     restart_prometheus
-  elif ! timeout 30 sh -c "until curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"' >/dev/null 2>&1 && curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${KAFKA_THREAD_STATS_JOB}\"' >/dev/null 2>&1 && curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null | grep -F '\"job\":\"${LOAD_TEST_METRICS_JOB}\"' >/dev/null 2>&1; do sleep 2; done"; then
-    echo "Prometheus reloaded but expected host-service targets did not appear; restarting deployment." >&2
+  elif ! timeout 30 sh -c "until targets=\$(curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null) && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${KAFKA_THREAD_STATS_JOB}\"' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9414/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9415/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9416/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${LOAD_TEST_METRICS_JOB}\"' >/dev/null 2>&1; do sleep 2; done"; then
+    echo "Prometheus reloaded without the expected host-service target addresses; restarting deployment." >&2
     restart_prometheus
   fi
 fi
@@ -142,8 +142,8 @@ if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ] && [ "${LAB_KAFKA_TOPOLOGY
   docker restart ckc-perf-kafka >/dev/null
 fi
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
-  KAFKA_METRICS_PORTS="9404"
-  [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ] && KAFKA_METRICS_PORTS="9404 9405 9406"
+  KAFKA_METRICS_PORTS="9414"
+  [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ] && KAFKA_METRICS_PORTS="9414 9415 9416"
   for port in ${KAFKA_METRICS_PORTS}; do
     if ! timeout 45 sh -c "until curl -fsS 'http://127.0.0.1:${port}/prometheus' >/dev/null 2>&1; do sleep 2; done"; then
       echo "Kafka Thread Stats agent endpoint did not become ready on port ${port}." >&2

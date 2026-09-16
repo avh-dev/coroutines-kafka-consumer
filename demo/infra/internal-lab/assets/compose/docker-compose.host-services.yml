@@ -75,7 +75,7 @@ services:
       KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
     ports:
       - "0.0.0.0:9092:9092"
-      - "0.0.0.0:9404:9404"
+      - "0.0.0.0:9414:9404"
     volumes:
       - ${LAB_ROOT}/thread-stats/thread-stats-agent.jar:/opt/thread-stats/thread-stats-agent.jar:ro
       - ${LAB_ROOT}/docker/compose/thread-stats-kafka-agent.properties:/opt/thread-stats/kafka-agent.properties:ro
@@ -133,7 +133,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-1:29092,EXTERNAL://${LAB_NODE_IP}:9092
     ports:
       - "0.0.0.0:9092:9092"
-      - "0.0.0.0:9404:9404"
+      - "0.0.0.0:9414:9404"
     volumes:
       - apache-kafka-1-data:/var/lib/kafka/data
       - ${LAB_ROOT}/thread-stats/thread-stats-agent.jar:/opt/thread-stats/thread-stats-agent.jar:ro
@@ -168,7 +168,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-2:29092,EXTERNAL://${LAB_NODE_IP}:9093
     ports:
       - "0.0.0.0:9093:9092"
-      - "0.0.0.0:9405:9404"
+      - "0.0.0.0:9415:9404"
     volumes:
       - apache-kafka-2-data:/var/lib/kafka/data
       - ${LAB_ROOT}/thread-stats/thread-stats-agent.jar:/opt/thread-stats/thread-stats-agent.jar:ro
@@ -195,7 +195,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-3:29092,EXTERNAL://${LAB_NODE_IP}:9094
     ports:
       - "0.0.0.0:9094:9092"
-      - "0.0.0.0:9406:9404"
+      - "0.0.0.0:9416:9404"
     volumes:
       - apache-kafka-3-data:/var/lib/kafka/data
       - ${LAB_ROOT}/thread-stats/thread-stats-agent.jar:/opt/thread-stats/thread-stats-agent.jar:ro

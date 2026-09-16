@@ -176,10 +176,10 @@ curl -fsS "http://${LAB_HOST}:3000/api/health" >/dev/null
 curl -fsS "http://${LAB_HOST}:30090/-/ready" >/dev/null
 curl -fsS "http://${LAB_HOST}:3100/ready" >/dev/null
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9092"
-timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9404"
+timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/9414"
 timeout 5 bash -c "cat < /dev/null > /dev/tcp/${LAB_HOST}/6379"
 ssh "root@${LAB_HOST}" "docker exec ckc-perf-kafka env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null"
-curl -fsS "http://${LAB_HOST}:9404/prometheus" >/dev/null
+curl -fsS "http://${LAB_HOST}:9414/prometheus" >/dev/null
 
 echo "Internal lab is installed."
 echo "  state:      ${STATE_DIR}"
@@ -188,4 +188,4 @@ echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${LAB_HOST}:9092"
-echo "  kafka thread stats: http://${LAB_HOST}:9404/prometheus"
+echo "  kafka thread stats: http://${LAB_HOST}:9414/prometheus"

@@ -86,15 +86,15 @@ data:
         metrics_path: /prometheus
         static_configs:
           - targets:
-              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9404
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9414
             labels:
               broker_id: "1"
           - targets:
-              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9405
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9415
             labels:
               broker_id: "2"
           - targets:
-              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9406
+              - ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9416
             labels:
               broker_id: "3"
 

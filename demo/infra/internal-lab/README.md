@@ -75,6 +75,8 @@ environments:
 The cluster exposes host bootstrap addresses `9092`, `9093`, and `9094`. Its
 three broker/controller containers have one persistent data volume each; user
 topics and broker defaults use the configured replication factor and minimum ISR.
+Kafka Thread Stats use dedicated host ports `9414`, `9415`, and `9416`; port
+`9405` remains reserved for load-test metrics.
 The installed lab currently accepts exactly one broker for `single` and three
 brokers for `cluster`; replication cannot exceed that broker count, and minimum
 ISR cannot exceed replication. Memory and heap values use `Mi` or `Gi`.
