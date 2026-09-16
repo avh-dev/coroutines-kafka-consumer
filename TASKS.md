@@ -3820,6 +3820,7 @@ Verification: demo and load-test Gradle tests pass, all 71 internal-lab tests pa
 _Date: 2026-09-16_
 
 Run CKC and Spring Kafka targets against the same three-broker cluster, load profile, and broker pause/crash schedule at a shared 2,000 TPS.
+Run Spring Kafka first as the comparison baseline, followed by CKC.
 Use three partitions per CKC topic so each broker can lead one partition, and provision Spring Kafka with 30 percent parallelism headroom rounded up to broker-aligned multiples of three.
 Keep replication factor three and minimum ISR two fixed for both targets so the run exposes their failover detection, interruption, recovery, and drain behavior.
 Verification: the focused materialization contract, all 26 experiment-orchestration tests, and all 71 internal-lab tests pass. The installed lab contains only the renamed 2k comparison definition with the resolved 3/3/3 and 24/18/75 partition counts; no workload experiment was launched automatically.

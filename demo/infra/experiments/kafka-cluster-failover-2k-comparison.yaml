@@ -90,6 +90,53 @@ workload:
         delivery: not_guaranteed
         ordering: not_guaranteed
 targets:
+- name: spring-kafka.jdk-cluster-failover
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 24
+        pollers: 24
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 18
+        pollers: 18
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 75
+        pollers: 75
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 - name: ckc.fixed.1-cluster-failover
   implementation: ckc
   application:
@@ -140,53 +187,6 @@ targets:
         partitions: 3
         workers: 500
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-- name: spring-kafka.jdk-cluster-failover
-  implementation: spring-kafka
-  application:
-    replicas: 1
-    resources:
-      requests:
-        cpu: '1'
-        memory: 1Gi
-      limits:
-        cpu: '4'
-        memory: 3Gi
-    hpa:
-      enabled: false
-  runtime:
-    env:
-      PROCESSING_ENABLED: true
-      AUDIT_LOG_ENABLED: true
-      METRICS_IMPLEMENTATION: MICROMETER
-      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
-      MODEL_SYNC_HTTP_CLIENT: JDK
-      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
-      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
-      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
-      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
-      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
-      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
-      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
-    planning_latency:
-      order_ms: 25
-      batch_ms: 25
-      telemetry_ms: 70
-    parallelism:
-    - partitions
-    - pollers
-    topics:
-      order:
-        partitions: 24
-        pollers: 24
-        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
-      batch:
-        partitions: 18
-        pollers: 18
-        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
-      telemetry:
-        partitions: 75
-        pollers: 75
-        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   internal-lab:
     lab:

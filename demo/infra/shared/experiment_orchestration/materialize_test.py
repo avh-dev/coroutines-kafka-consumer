@@ -29,8 +29,8 @@ class MaterializeTest(unittest.TestCase):
             }
 
         self.assertEqual(
-            {"ckc.fixed.1-cluster-failover", "spring-kafka.jdk-cluster-failover"},
-            set(definitions),
+            ["spring-kafka.jdk-cluster-failover", "ckc.fixed.1-cluster-failover"],
+            [target.target.name for target in materialized],
         )
         self.assertEqual(
             {2000},
