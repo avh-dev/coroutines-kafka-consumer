@@ -49,6 +49,68 @@ An experiment contains:
 Changing paid or fixed lab capacity between targets is intentionally unsupported.
 Use separate experiment files when Kafka, Redis, or node capacity differs.
 
+## Kafka topology and broker failures
+
+The default `single` topology keeps one combined Apache Kafka KRaft
+broker/controller for lightweight tests. Select the three-node quorum as fixed
+experiment configuration:
+
+```yaml
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi
+```
+
+The cluster exposes host bootstrap addresses `9092`, `9093`, and `9094`. Its
+three broker/controller containers have one persistent data volume each; user
+topics and broker defaults use the configured replication factor and minimum ISR.
+Kafka Thread Stats use dedicated host ports `9414`, `9415`, and `9416`; port
+`9405` remains reserved for load-test metrics.
+The installed lab currently accepts exactly one broker for `single` and three
+brokers for `cluster`; replication cannot exceed that broker count, and minimum
+ISR cannot exceed replication. Memory and heap values use `Mi` or `Gi`.
+
+The legacy `kafka_topology: single|cluster` field and the one-off
+`--kafka-topology` flag remain available, but canonical experiments should own
+the complete fixed Kafka setting above. Use separate experiment files when Kafka
+resources differ so all targets within a comparison run against the same lab.
+
+Kafka chaos steps accept `params.broker_id` values 1 through 3. A pause models
+an unresponsive process, while a crash stops the container and starts the same
+container and data volume after the configured duration:
+
+```yaml
+workload:
+  chaos:
+  - at: 5m
+    duration: 45s
+    type: service_outage
+    target: kafka
+    params:
+      broker_id: 1
+  - at: 7m
+    duration: 30s
+    type: service_crash
+    target: kafka
+    params:
+      broker_id: 2
+```
+
+`service_restart` and `network_degradation` also accept `broker_id`. Do not
+overlap failure intervals for the same broker; failures of different brokers
+may overlap intentionally when testing loss of quorum.
+
 ## Results
 
 Every experiment finalizes the same named result layout as AWS:

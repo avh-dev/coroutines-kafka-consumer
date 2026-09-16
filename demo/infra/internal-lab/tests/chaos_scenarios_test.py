@@ -154,6 +154,36 @@ class ChaosScenariosTest(unittest.TestCase):
             check=True,
         )
 
+        crash = {"type": "service_crash", "target": "kafka", "params": {"brokerId": 2}}
+        with patch.object(chaos_runner, "docker_service") as docker_service:
+            chaos_runner.recover_scenario(crash, "/configure-stubs", dry_run=False)
+        docker_service.assert_called_once_with(
+            {"target": "kafka", "brokerId": 2},
+            "start",
+            dry_run=False,
+            check=True,
+        )
+
+    def test_cluster_kafka_scenarios_address_individual_brokers(self) -> None:
+        scenarios = self.normalize(
+            [
+                {"at": "10s", "duration": "20s", "type": "service_outage", "target": "kafka", "params": {"broker_id": 1}},
+                {"at": "10s", "duration": "20s", "type": "service_crash", "target": "kafka", "params": {"broker_id": 2}},
+                {"at": "10s", "type": "service_restart", "target": "kafka", "params": {"broker_id": 3}},
+            ]
+        )
+        self.assertEqual([1, 2, 3], [scenario["params"]["brokerId"] for scenario in scenarios])
+
+        with patch.dict("os.environ", {"LAB_KAFKA_IMPLEMENTATION": "apache-kafka", "LAB_KAFKA_TOPOLOGY": "cluster"}):
+            self.assertEqual("ckc-perf-kafka-2", chaos_runner.service_target(scenarios[1]["params"] | {"target": "kafka"})[1]["container"])
+            self.assertEqual([9093], chaos_runner.service_target(scenarios[1]["params"] | {"target": "kafka"})[1]["ports"])
+
+    def test_invalid_kafka_broker_id_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "broker_id"):
+            self.normalize(
+                [{"at": "10s", "type": "service_restart", "target": "kafka", "params": {"broker_id": 4}}]
+            )
+
     def test_all_current_chaos_definitions_use_new_contract(self) -> None:
         definitions = Path(__file__).resolve().parents[2] / "shared" / "workloads" / "test-definitions"
         for path in sorted(definitions.glob("*.yaml")):

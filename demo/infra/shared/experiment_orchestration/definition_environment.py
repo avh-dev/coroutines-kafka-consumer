@@ -160,7 +160,7 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
         raise ValueError(f"Test definition chaos_steps must be a list: {definition_path}")
 
     instant_types = {"pod_delete", "pod_crash", "service_restart"}
-    duration_types = {"stubs_degradation", "network_degradation", "service_outage"}
+    duration_types = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
     supported_types = instant_types | duration_types
     service_targets = {"kafka", "redis", "audit"}
     result: list[dict[str, Any]] = []
@@ -221,13 +221,18 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
                 "settings": stub_settings_from_definition(params, definition_path, f"chaos_steps[{index}].params"),
                 "baselineSettings": baseline_stubs,
             }
-        elif step_type in {"network_degradation", "service_outage", "service_restart"}:
+        elif step_type in {"network_degradation", "service_outage", "service_restart", "service_crash"}:
             context = f"chaos_steps[{index}]"
             target = str(raw_step.get("target", "")).strip().lower()
             if target not in service_targets:
                 raise ValueError(f"{context}.target must be one of {sorted(service_targets)}: {definition_path}")
             normalized["target"] = target
             normalized["params"] = {}
+            if target == "kafka":
+                broker_id = int(params.get("broker_id", 1))
+                if broker_id not in {1, 2, 3}:
+                    raise ValueError(f"{context}.params.broker_id must be 1, 2, or 3: {definition_path}")
+                normalized["params"]["brokerId"] = broker_id
             if step_type == "network_degradation":
                 normalized["params"].update(
                     {
@@ -247,13 +252,15 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
 
         if duration_seconds is not None:
             target = str(normalized["target"])
+            broker_id = normalized.get("params", {}).get("brokerId")
+            interval_target = f"{target}:{broker_id}" if broker_id is not None else target
             end_seconds = at_seconds + duration_seconds
-            for other_start, other_end, other_index in intervals_by_target.get(target, []):
+            for other_start, other_end, other_index in intervals_by_target.get(interval_target, []):
                 if at_seconds < other_end and other_start < end_seconds:
                     raise ValueError(
                         f"chaos_steps[{index}] overlaps chaos_steps[{other_index}] for target {target!r}: {definition_path}"
                     )
-            intervals_by_target.setdefault(target, []).append((at_seconds, end_seconds, index))
+            intervals_by_target.setdefault(interval_target, []).append((at_seconds, end_seconds, index))
 
         result.append(normalized)
 

@@ -23,6 +23,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.pod_crash",
         "chaos.pod_delete",
         "chaos.service_outage",
+        "chaos.service_crash",
         "chaos.service_restart",
         "chaos.stubs_degradation",
     }),
@@ -65,6 +66,79 @@ def require_list(value: Any, context: str, *, non_empty: bool = False) -> list[A
         qualifier = "a non-empty list" if non_empty else "a list"
         raise ValueError(f"{context} must be {qualifier}")
     return value
+
+
+def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
+    context = "Experiment environments.internal-lab.lab.kafka"
+    kafka = require_mapping(value, context)
+    unknown = sorted(set(kafka) - {
+        "implementation", "topology", "brokers", "replication_factor", "min_insync_replicas", "resources"
+    })
+    if unknown:
+        raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
+
+    implementation = str(kafka.get("implementation") or "apache-kafka")
+    if implementation != "apache-kafka":
+        raise ValueError(f"{context}.implementation must be apache-kafka")
+    topology = str(kafka.get("topology") or "single")
+    if topology not in {"single", "cluster"}:
+        raise ValueError(f"{context}.topology must be single or cluster")
+
+    expected_brokers = 3 if topology == "cluster" else 1
+    brokers = kafka.get("brokers", expected_brokers)
+    if isinstance(brokers, bool) or not isinstance(brokers, int) or brokers != expected_brokers:
+        raise ValueError(f"{context}.brokers must be {expected_brokers} for topology {topology}")
+
+    default_replication = 3 if topology == "cluster" else 1
+    default_min_isr = 2 if topology == "cluster" else 1
+    replication_factor = kafka.get("replication_factor", default_replication)
+    min_insync_replicas = kafka.get("min_insync_replicas", default_min_isr)
+    for name, setting in (("replication_factor", replication_factor), ("min_insync_replicas", min_insync_replicas)):
+        if isinstance(setting, bool) or not isinstance(setting, int) or setting < 1:
+            raise ValueError(f"{context}.{name} must be a positive integer")
+    if replication_factor > brokers:
+        raise ValueError(f"{context}.replication_factor must not exceed brokers")
+    if min_insync_replicas > replication_factor:
+        raise ValueError(f"{context}.min_insync_replicas must not exceed replication_factor")
+
+    resource_defaults = (
+        {"cpu_per_broker": 1, "memory_per_broker": "2Gi", "heap_per_broker": "1Gi"}
+        if topology == "cluster"
+        else {"cpu_per_broker": 2, "memory_per_broker": "4Gi", "heap_per_broker": "2Gi"}
+    )
+    resources = require_mapping(kafka.get("resources") or {}, f"{context}.resources")
+    unknown_resources = sorted(set(resources) - set(resource_defaults))
+    if unknown_resources:
+        raise ValueError(f"{context}.resources contains unknown fields: {', '.join(unknown_resources)}")
+    cpu = resources.get("cpu_per_broker", resource_defaults["cpu_per_broker"])
+    if isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or cpu <= 0:
+        raise ValueError(f"{context}.resources.cpu_per_broker must be a positive number")
+
+    def memory(name: str) -> tuple[str, int]:
+        setting = str(resources.get(name, resource_defaults[name]))
+        match = re.fullmatch(r"([1-9][0-9]*)(Mi|Gi)", setting)
+        if not match:
+            raise ValueError(f"{context}.resources.{name} must use Mi or Gi, for example 1024Mi or 2Gi")
+        multiplier = 1024 if match.group(2) == "Gi" else 1
+        return setting, int(match.group(1)) * multiplier
+
+    memory_per_broker, memory_mib = memory("memory_per_broker")
+    heap_per_broker, heap_mib = memory("heap_per_broker")
+    if heap_mib > memory_mib:
+        raise ValueError(f"{context}.resources.heap_per_broker must not exceed memory_per_broker")
+
+    return {
+        "implementation": implementation,
+        "topology": topology,
+        "brokers": brokers,
+        "replication_factor": replication_factor,
+        "min_insync_replicas": min_insync_replicas,
+        "resources": {
+            "cpu_per_broker": cpu,
+            "memory_per_broker": memory_per_broker,
+            "heap_per_broker": heap_per_broker,
+        },
+    }
 
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
@@ -464,6 +538,22 @@ def validate_canonical_experiment(
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
+    if environment_name == "internal-lab":
+        lab = require_mapping(environment_definition.get("lab"), "Experiment environments.internal-lab.lab")
+        unknown_lab = sorted(set(lab) - {"profile", "kafka_topology", "kafka"})
+        if unknown_lab:
+            raise ValueError(
+                "Experiment environments.internal-lab.lab contains unknown fields: " + ", ".join(unknown_lab)
+            )
+        if "kafka" in lab and "kafka_topology" in lab:
+            raise ValueError("Experiment environments.internal-lab.lab must not combine kafka and kafka_topology")
+        if "kafka" in lab:
+            lab["kafka"] = normalize_internal_lab_kafka(lab["kafka"])
+        else:
+            topology = str(lab.get("kafka_topology") or "single")
+            if topology not in {"single", "cluster"}:
+                raise ValueError("Experiment environments.internal-lab.lab.kafka_topology must be single or cluster")
+            lab["kafka_topology"] = topology
     return {
         "schema_version": SCHEMA_VERSION,
         "name": name,

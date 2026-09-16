@@ -149,6 +149,7 @@
 | [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
 | [DEMO-93](#demo-93) | Generate telemetry from a pre-seeded fleet at a fixed per-key interval while scaling load through active key count. | DONE |
 | [DEMO-94](#demo-94) | Compare Spring Kafka and CKC under ETA-model saturation during the steady measurement window. | DONE |
+| [DEMO-95](#demo-95) | Increase producer and consumer audit appender capacity for broker-failover acknowledgement bursts. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -327,6 +328,10 @@
 | [INFRA-178](#infra-178) | Align steady/full report sections and add per-topic Kafka record compression evidence. | DONE |
 | [INFRA-179](#infra-179) | Make Telegram experiment progress notifications concise and visually scannable. | DONE |
 | [INFRA-180](#infra-180) | Prepare a two-target 5k/s comparison with all downstream tail latency degraded to 500-2000 ms. | DONE |
+| [INFRA-181](#infra-181) | Add a selectable three-node KRaft Kafka cluster and broker-aware failure scenarios to the internal lab. | DONE |
+| [INFRA-182](#infra-182) | Configure the internal-lab Kafka cluster shape and resources from the experiment definition. | DONE |
+| [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
+| [INFRA-184](#infra-184) | Compare CKC and Spring Kafka under identical 2k/s three-broker failover conditions with broker-balanced partition counts. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3767,3 +3772,55 @@ Derive a two-target experiment from the latest no-chaos Spring JDK and CKC tunin
 Degrade ETA, flavour, and registry together from 05:00 through 08:00 by setting p99 to 500 ms and p100 to 2000 ms, affecting the slowest 5% of calls while preserving all other workload, target, and environment settings.
 Add a structural regression test that detects drift from the source experiment outside the intended target removal and chaos addition.
 Verification: all 23 experiment-orchestration tests and all 65 internal-lab tests pass. The installed definition checksum matches the repository; optilab was updated without launching an experiment.
+
+<a id="infra-181"></a>
+### INFRA-181 - Add a three-node Kafka cluster
+
+_Date: 2026-09-15_
+
+Add an internal-lab topology option that runs three Apache Kafka broker/controller nodes in one KRaft quorum while retaining the lightweight single-node topology.
+Use replicated topics and durable per-node storage so one broker can fail and recover without discarding the cluster state.
+Make bootstrap discovery, administration, observability, evidence, and chaos operations aware of the selected topology and individual broker identities.
+Cover broker pause, crash/restart, and recovery behavior without automatically launching a workload experiment.
+Verification: all 68 internal-lab and 24 experiment-orchestration tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace validation pass. The installed optilab cluster formed a three-voter quorum, exposed three healthy Thread Stats targets, retained `acks=all` writes with RF=3/min ISR=2 while broker 1 was paused, and recovered broker 2 after a hard crash with zero follower lag. Installed helper and experiment checksums match the repository; no workload experiment was launched.
+
+<a id="infra-182"></a>
+### INFRA-182 - Configure Kafka clusters per experiment
+
+_Date: 2026-09-15_
+
+Move the internal-lab Kafka topology, broker count, topic replication settings, and per-broker resource limits into one validated experiment-owned configuration.
+Materialize the resolved settings through Compose, topic preparation, run metadata, and evidence while preserving the existing single-node defaults.
+Keep broker-specific chaos steps in the workload scenario and reject configurations that the installed lab cannot safely realize.
+Verification: all 25 experiment-orchestration and 69 internal-lab tests pass; Python, Bash, POSIX shell, Compose, canonical experiment, and whitespace checks pass. Installed assets match repository checksums. The resolved three-node configuration produced three healthy brokers with 1 CPU, 2 GiB memory, 1 GiB heap, RF=3, min ISR=2, a three-voter quorum, and zero follower lag; no workload experiment was launched.
+
+<a id="infra-183"></a>
+### INFRA-183 - Separate Kafka Thread Stats ports
+
+_Date: 2026-09-16_
+
+Move the internal-lab Kafka Thread Stats host endpoints away from the load-test metrics port.
+Keep broker identity labels and Kubernetes/Prometheus discovery aligned with the new dedicated port range.
+Prevent a three-node Kafka cluster from causing the load generator to fail at startup with an address-in-use error.
+Verification: all 25 experiment-orchestration and 70 internal-lab tests pass; Bash, POSIX shell, Compose, and whitespace checks pass. The installed three-node cluster exposes healthy Thread Stats endpoints on ports 9414-9416, all three Prometheus targets are up with their broker labels, and load-test port 9405 is free. Installed asset checksums match the repository; no workload experiment was launched automatically.
+
+<a id="demo-95"></a>
+### DEMO-95 - Expand audit appender buffers
+
+_Date: 2026-09-16_
+
+Increase the asynchronous audit event ring and TCP write buffers consistently in the demo consumer and load-test producer.
+Absorb callback bursts after Kafka leader failover without blocking Kafka network or application processing threads.
+Cover both runtime logging configurations with one contract test so producer and consumer capacity cannot drift.
+Verification: demo and load-test Gradle tests pass, all 71 internal-lab tests pass, and the installed consumer image and load-test runtime contain the 65,536-event ring and 65,536-byte write-buffer settings. The consumer deployment rolled out successfully; no workload experiment was launched automatically.
+
+<a id="infra-184"></a>
+### INFRA-184 - Compare Kafka client failover at 2k/s
+
+_Date: 2026-09-16_
+
+Run CKC and Spring Kafka targets against the same three-broker cluster, load profile, and broker pause/crash schedule at a shared 2,000 TPS.
+Run Spring Kafka first as the comparison baseline, followed by CKC.
+Use three partitions per CKC topic so each broker can lead one partition, and provision Spring Kafka with 30 percent parallelism headroom rounded up to broker-aligned multiples of three.
+Keep replication factor three and minimum ISR two fixed for both targets so the run exposes their failover detection, interruption, recovery, and drain behavior.
+Verification: the focused materialization contract, all 26 experiment-orchestration tests, and all 71 internal-lab tests pass. The installed lab contains only the renamed 2k comparison definition with the resolved 3/3/3 and 24/18/75 partition counts; no workload experiment was launched automatically.

@@ -10,7 +10,8 @@
         <destination>${auditTcpHost}:${auditTcpPort}</destination>
         <reconnectionDelay>1 second</reconnectionDelay>
         <connectionTimeout>5 seconds</connectionTimeout>
-        <writeBufferSize>8192</writeBufferSize>
+        <ringBufferSize>65536</ringBufferSize>
+        <writeBufferSize>65536</writeBufferSize>
         <writeTimeout>5 seconds</writeTimeout>
         <keepAliveDuration>30 seconds</keepAliveDuration>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">

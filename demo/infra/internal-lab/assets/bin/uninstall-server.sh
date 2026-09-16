@@ -24,11 +24,14 @@ fi
 echo "Removing internal lab Docker containers and images."
 if command -v docker >/dev/null 2>&1; then
   if [ -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" ]; then
-    LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP:-127.0.0.1}" LAB_HOST="${LAB_HOST:-localhost}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" down --remove-orphans >/dev/null 2>&1 || true
+    LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP:-127.0.0.1}" LAB_HOST="${LAB_HOST:-localhost}" docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
 
   docker rm -f \
     ckc-perf-kafka \
+    ckc-perf-kafka-1 \
+    ckc-perf-kafka-2 \
+    ckc-perf-kafka-3 \
     ckc-perf-redpanda \
     ckc-perf-redis \
     ckc-perf-demo-stubs \
