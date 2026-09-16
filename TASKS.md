@@ -149,6 +149,7 @@
 | [DEMO-92](#demo-92) | Account for delegated lifecycle publications in the configured load rate. | DONE |
 | [DEMO-93](#demo-93) | Generate telemetry from a pre-seeded fleet at a fixed per-key interval while scaling load through active key count. | DONE |
 | [DEMO-94](#demo-94) | Compare Spring Kafka and CKC under ETA-model saturation during the steady measurement window. | DONE |
+| [DEMO-95](#demo-95) | Increase producer and consumer audit appender capacity for broker-failover acknowledgement bursts. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -3801,3 +3802,13 @@ Move the internal-lab Kafka Thread Stats host endpoints away from the load-test 
 Keep broker identity labels and Kubernetes/Prometheus discovery aligned with the new dedicated port range.
 Prevent a three-node Kafka cluster from causing the load generator to fail at startup with an address-in-use error.
 Verification: all 25 experiment-orchestration and 70 internal-lab tests pass; Bash, POSIX shell, Compose, and whitespace checks pass. The installed three-node cluster exposes healthy Thread Stats endpoints on ports 9414-9416, all three Prometheus targets are up with their broker labels, and load-test port 9405 is free. Installed asset checksums match the repository; no workload experiment was launched automatically.
+
+<a id="demo-95"></a>
+### DEMO-95 - Expand audit appender buffers
+
+_Date: 2026-09-16_
+
+Increase the asynchronous audit event ring and TCP write buffers consistently in the demo consumer and load-test producer.
+Absorb callback bursts after Kafka leader failover without blocking Kafka network or application processing threads.
+Cover both runtime logging configurations with one contract test so producer and consumer capacity cannot drift.
+Verification: demo and load-test Gradle tests pass, all 71 internal-lab tests pass, and the installed consumer image and load-test runtime contain the 65,536-event ring and 65,536-byte write-buffer settings. The consumer deployment rolled out successfully; no workload experiment was launched automatically.
