@@ -332,6 +332,7 @@
 | [INFRA-182](#infra-182) | Configure the internal-lab Kafka cluster shape and resources from the experiment definition. | DONE |
 | [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
 | [INFRA-184](#infra-184) | Compare CKC and Spring Kafka under identical 2k/s three-broker failover conditions with broker-balanced partition counts. | DONE |
+| [INFRA-185](#infra-185) | Compare CKC poll-loop concurrency and partition counts at 2k/s on a three-broker Kafka cluster. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3824,3 +3825,13 @@ Run Spring Kafka first as the comparison baseline, followed by CKC.
 Use three partitions per CKC topic so each broker can lead one partition, and provision Spring Kafka with 30 percent parallelism headroom rounded up to broker-aligned multiples of three.
 Keep replication factor three and minimum ISR two fixed for both targets so the run exposes their failover detection, interruption, recovery, and drain behavior.
 Verification: the focused materialization contract, all 26 experiment-orchestration tests, and all 71 internal-lab tests pass. The installed lab contains only the renamed 2k comparison definition with the resolved 3/3/3 and 24/18/75 partition counts; no workload experiment was launched automatically.
+
+<a id="infra-185"></a>
+### INFRA-185 - Compare CKC pollers and partitions at 2k/s
+
+_Date: 2026-09-16_
+
+Derive a new experiment from the no-chaos comparison and replace its Spring Armeria target with CKC fixed-one variants that isolate Spring-sized partition counts from poll-loop concurrency at 2k/s.
+Keep the Spring JDK baseline, compare one CKC poller per partition with one poller per topic, and retain a minimal CKC target with three partitions per topic.
+Run every target against the same three-broker Kafka cluster with replicated topics, without adding broker failures or other chaos.
+Verification: all 27 experiment-orchestration tests and all 71 internal-lab tests pass; the 2k definition validates and materializes with 24/18/75 Spring-sized partitions and 3/3/3 minimal CKC partitions for internal-lab and AWS. The installed optilab definition matches the repository checksum, the locally built demo image is restored in k3s, and the demo deployment is healthy; no replacement workload experiment was launched automatically.

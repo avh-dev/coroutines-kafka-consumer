@@ -14,6 +14,91 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
+    def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
+        baseline = yaml.safe_load(
+            (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        source = (
+            REPO_ROOT
+            / "demo/infra/experiments/spring-ckc-pollers-partitions-2k-comparison.yaml"
+        )
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+
+        expected_workload = baseline["workload"]
+        expected_workload["load"]["base_tps"] = 2000
+        expected_workload["load"]["producer_capacity_tps"] = {
+            "order": 2000,
+            "batch": 2000,
+            "telemetry": 2000,
+        }
+        self.assertEqual(expected_workload, candidate["workload"])
+        expected_spring = baseline["targets"][0]
+        for topic, partitions in {"order": 24, "batch": 18, "telemetry": 75}.items():
+            expected_spring["runtime"]["topics"][topic]["partitions"] = partitions
+            expected_spring["runtime"]["topics"][topic]["pollers"] = partitions
+        self.assertEqual(expected_spring, candidate["targets"][0])
+        self.assertNotIn("chaos", candidate["workload"])
+        self.assertEqual(
+            {
+                "implementation": "apache-kafka",
+                "topology": "cluster",
+                "brokers": 3,
+                "replication_factor": 3,
+                "min_insync_replicas": 2,
+                "resources": {
+                    "cpu_per_broker": 1,
+                    "memory_per_broker": "2Gi",
+                    "heap_per_broker": "1Gi",
+                },
+            },
+            candidate["environments"]["internal-lab"]["lab"]["kafka"],
+        )
+
+        expected = {
+            "spring-kafka.jdk-tuned": (
+                [24, 18, 75],
+                [24, 18, 75],
+                [1, 1, 1],
+            ),
+            "ckc.fixed.1.spring-partitions.per-partition-pollers": (
+                [24, 18, 75],
+                [24, 18, 75],
+                [500, 500, 500],
+            ),
+            "ckc.fixed.1.spring-partitions.single-poller": (
+                [24, 18, 75],
+                [1, 1, 1],
+                [500, 500, 500],
+            ),
+            "ckc.fixed.1.min-partitions.single-poller": (
+                [3, 3, 3],
+                [1, 1, 1],
+                [500, 500, 500],
+            ),
+        }
+        for environment in ("internal-lab", "aws"):
+            with self.subTest(environment=environment), tempfile.TemporaryDirectory() as directory:
+                experiment = resolve_experiment_definition(source, environment=environment)
+                materialized = materialize_experiment(
+                    experiment,
+                    output_dir=Path(directory) / "out",
+                    repo_dir=REPO_ROOT,
+                )
+                actual = {}
+                for target in materialized:
+                    definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                    topics = definition["deployment"]["run_plan"]["topics"]
+                    actual[target.target.name] = (
+                        [topic["partitions"] for topic in topics],
+                        [topic["poll_loop_concurrency"] for topic in topics],
+                        [topic["worker_concurrency"] for topic in topics],
+                    )
+
+                self.assertEqual(2000, definition["load_test"]["base_tps"])
+                self.assertEqual(expected, actual)
+
     def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-2k-comparison.yaml"
         with tempfile.TemporaryDirectory() as directory:
