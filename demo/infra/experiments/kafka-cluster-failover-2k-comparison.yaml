@@ -1,6 +1,6 @@
 schema_version: 2
-name: ckc-kafka-cluster-failover-5k
-description: Exercise CKC at 5k/s while individual brokers in a three-node KRaft cluster pause and crash.
+name: kafka-cluster-failover-2k-comparison
+description: Compare CKC and Spring Kafka at 2k/s while individual brokers in a three-node KRaft cluster pause and crash.
 workload:
   stubs:
     error_rate_percent: 0
@@ -21,11 +21,11 @@ workload:
       delay_p100_ms: 5
   load:
     shards: 1
-    base_tps: 5000
+    base_tps: 2000
     producer_capacity_tps:
-      order: 5000
-      batch: 5000
-      telemetry: 5000
+      order: 2000
+      batch: 2000
+      telemetry: 2000
     load_profile: 0 -> (60s, warmup) -> 100 -> (480s, broker-failover) -> 100 -> (60s, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
@@ -127,19 +127,66 @@ targets:
     - workers
     topics:
       order:
-        partitions: 2
+        partitions: 3
         workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
-        partitions: 2
+        partitions: 3
         workers: 500
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
-        partitions: 2
+        partitions: 3
         workers: 500
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: spring-kafka.jdk-cluster-failover
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 25
+      batch_ms: 25
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 24
+        pollers: 24
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 18
+        pollers: 18
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 75
+        pollers: 75
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   internal-lab:
     lab:

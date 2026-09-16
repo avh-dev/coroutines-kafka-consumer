@@ -331,6 +331,7 @@
 | [INFRA-181](#infra-181) | Add a selectable three-node KRaft Kafka cluster and broker-aware failure scenarios to the internal lab. | DONE |
 | [INFRA-182](#infra-182) | Configure the internal-lab Kafka cluster shape and resources from the experiment definition. | DONE |
 | [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
+| [INFRA-184](#infra-184) | Compare CKC and Spring Kafka under identical 2k/s three-broker failover conditions with broker-balanced partition counts. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3812,3 +3813,13 @@ Increase the asynchronous audit event ring and TCP write buffers consistently in
 Absorb callback bursts after Kafka leader failover without blocking Kafka network or application processing threads.
 Cover both runtime logging configurations with one contract test so producer and consumer capacity cannot drift.
 Verification: demo and load-test Gradle tests pass, all 71 internal-lab tests pass, and the installed consumer image and load-test runtime contain the 65,536-event ring and 65,536-byte write-buffer settings. The consumer deployment rolled out successfully; no workload experiment was launched automatically.
+
+<a id="infra-184"></a>
+### INFRA-184 - Compare Kafka client failover at 2k/s
+
+_Date: 2026-09-16_
+
+Run CKC and Spring Kafka targets against the same three-broker cluster, load profile, and broker pause/crash schedule at a shared 2,000 TPS.
+Use three partitions per CKC topic so each broker can lead one partition, and provision Spring Kafka with 30 percent parallelism headroom rounded up to broker-aligned multiples of three.
+Keep replication factor three and minimum ISR two fixed for both targets so the run exposes their failover detection, interruption, recovery, and drain behavior.
+Verification: the focused materialization contract, all 26 experiment-orchestration tests, and all 71 internal-lab tests pass. The installed lab contains only the renamed 2k comparison definition with the resolved 3/3/3 and 24/18/75 partition counts; no workload experiment was launched automatically.

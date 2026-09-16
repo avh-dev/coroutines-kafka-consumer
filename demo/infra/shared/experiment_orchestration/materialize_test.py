@@ -14,6 +14,36 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
+    def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-2k-comparison.yaml"
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        self.assertEqual(
+            {"ckc.fixed.1-cluster-failover", "spring-kafka.jdk-cluster-failover"},
+            set(definitions),
+        )
+        self.assertEqual(
+            {2000},
+            {definition["load_test"]["base_tps"] for definition in definitions.values()},
+        )
+        partitions = {
+            name: [topic["partitions"] for topic in definition["deployment"]["run_plan"]["topics"]]
+            for name, definition in definitions.items()
+        }
+        self.assertEqual([3, 3, 3], partitions["ckc.fixed.1-cluster-failover"])
+        self.assertEqual([24, 18, 75], partitions["spring-kafka.jdk-cluster-failover"])
+        self.assertTrue(all(value % 3 == 0 for values in partitions.values() for value in values))
+
     def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
         with tempfile.TemporaryDirectory() as directory:
