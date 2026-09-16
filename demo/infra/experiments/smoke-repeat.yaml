@@ -50,6 +50,20 @@ workload:
       kafka_topic: cauldron.events.v1
       traffic_percent: 40
       max_e2e_latency_ms: 1000
+  diagnostics:
+  - at: 30s
+    type: tcpdump
+    name: kafka-steady
+    targets:
+    - application
+    - load-test
+    duration: 15s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+    required: true
 targets:
 - name: ckc-smoke-1
   implementation: ckc

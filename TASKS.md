@@ -333,6 +333,7 @@
 | [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
 | [INFRA-184](#infra-184) | Compare CKC and Spring Kafka under identical 2k/s three-broker failover conditions with broker-balanced partition counts. | DONE |
 | [INFRA-185](#infra-185) | Compare CKC poll-loop concurrency and partition counts at 2k/s on a three-broker Kafka cluster. | DONE |
+| [INFRA-187](#infra-187) | Add Kafka packet capture to the repeatable internal-lab smoke experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3835,3 +3836,13 @@ Derive a new experiment from the no-chaos comparison and replace its Spring Arme
 Keep the Spring JDK baseline, compare one CKC poller per partition with one poller per topic, and retain a minimal CKC target with three partitions per topic.
 Run every target against the same three-broker Kafka cluster with replicated topics, without adding broker failures or other chaos.
 Verification: all 27 experiment-orchestration tests and all 71 internal-lab tests pass; the 2k definition validates and materializes with 24/18/75 Spring-sized partitions and 3/3/3 minimal CKC partitions for internal-lab and AWS. The installed optilab definition matches the repository checksum, the locally built demo image is restored in k3s, and the demo deployment is healthy; no replacement workload experiment was launched automatically.
+
+<a id="infra-187"></a>
+### INFRA-187 - Add packet capture to smoke-repeat
+
+_Date: 2026-09-16_
+
+Capture Kafka traffic from the application and load-test producer during the repeatable smoke experiment.
+Place the bounded capture inside the stable smoke phase so generated reports contain consumer Fetch and producer Produce evidence.
+Synchronize the updated experiment definition to the installed internal lab without launching it automatically.
+Verification: the canonical experiment validates for internal-lab, all 27 experiment-orchestration tests and all 71 internal-lab tests pass, and whitespace validation passes. The installed definition checksum matches the repository, with both tcpdump and tshark available; no smoke experiment was launched automatically.
