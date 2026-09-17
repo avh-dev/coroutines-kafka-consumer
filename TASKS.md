@@ -339,6 +339,7 @@
 | [INFRA-189](#infra-189) | Refine Fetch topic attribution and extend the smoke measurement window. | DONE |
 | [INFRA-190](#infra-190) | Unify per-topic Kafka request and wire metrics into one importance-ordered network table. | DONE |
 | [INFRA-191](#infra-191) | Show average messages per Kafka record batch before topic compression results. | DONE |
+| [INFRA-192](#infra-192) | Refine downstream planning, delivery percentages, and freshness presentation in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3901,3 +3902,13 @@ Calculate average producer messages per topic-level Kafka record batch from pack
 Place the batching result immediately before compression so partitioning and producer linger effects remain visible.
 Treat fuller record batches as a comparable efficiency outcome and highlight the highest value.
 Verification: all 20 experiment-report and all 73 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository; no smoke experiment was launched automatically.
+
+<a id="infra-192"></a>
+### INFRA-192 - Refine experiment report semantics
+
+_Date: 2026-09-17_
+
+Replace the dependency-latency SVG with an explicit HTTP downstream planning table including topic usage, invocation share, and errors.
+Make publish volume diagnostic, compare successful processing by its share of published records, and scope freshness-only outcomes to freshness-first topics.
+Normalize displayed processing modes and render freshness histograms without comparative deltas, highlighting each target's trailing zero region.
+Verification: all 21 experiment-report and all 74 internal-lab tests pass; modified Python files compile and whitespace validation passes. Installed Markdown, SVG, and report-generation helpers match repository checksums; no experiment was launched automatically.

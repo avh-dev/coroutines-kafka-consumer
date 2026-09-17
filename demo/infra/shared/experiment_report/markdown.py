@@ -27,6 +27,14 @@ def normalized_histogram(raw: Any) -> dict[int, int]:
     return {int(bucket): int(count or 0) for bucket, count in raw.items()}
 
 
+def is_freshness_zero_tail(histogram: dict[int, int], bucket: int) -> bool:
+    return (
+        bool(histogram)
+        and histogram.get(bucket, 0) == 0
+        and not any(count > 0 for key, count in histogram.items() if key > bucket)
+    )
+
+
 def shared_freshness_cutoff(histograms: list[dict[int, int]]) -> int | None:
     """Choose one outer-tail boundary shared by all comparison series."""
     cutoffs: list[int] = []
@@ -300,6 +308,26 @@ def render_markdown(report: ExperimentReport) -> str:
         ]
         return compared(shares, 3, "%", best_rel_tol=0.0, primary_values=displays)
 
+    def successfully_processed_values(data: list[dict[str, Any]]) -> list[str]:
+        shares = [
+            100 * int(value.get("processed") or 0) / int(value.get("published") or 0)
+            if int(value.get("published") or 0) > 0 else None
+            for value in data
+        ]
+        displays = [
+            f'{number(value.get("processed"), 0)} · {number(share, 3)}% of published'
+            if share is not None else f'{number(value.get("processed"), 0)} · —'
+            for value, share in zip(data, shares)
+        ]
+        return compared(
+            shares,
+            3,
+            "%",
+            lower_is_better=False,
+            best_rel_tol=0.0,
+            primary_values=displays,
+        )
+
     def within_e2e_percent(data: dict[str, Any], denominator: str) -> float | None:
         e2e = data.get("e2e_latency")
         if not isinstance(e2e, dict):
@@ -311,7 +339,7 @@ def render_markdown(report: ExperimentReport) -> str:
             return None
         return 100 * max(0, measured - exceeded) / total
 
-    def e2e_compliance_rows(data: list[dict[str, Any]]) -> None:
+    def e2e_compliance_rows(data: list[dict[str, Any]], *, freshness_first: bool) -> None:
         if not any(
             isinstance(value.get("e2e_latency"), dict)
             and value["e2e_latency"].get("limit_ms") is not None
@@ -329,17 +357,18 @@ def render_markdown(report: ExperimentReport) -> str:
             ),
             "audit",
         )
-        row(
-            "Published with on-time processed outcome",
-            compared(
-                [within_e2e_percent(value, "published") for value in data],
-                2,
-                "%",
-                lower_is_better=False,
-                best_rel_tol=0.0,
-            ),
-            "audit",
-        )
+        if freshness_first:
+            row(
+                "Published with on-time processed outcome",
+                compared(
+                    [within_e2e_percent(value, "published") for value in data],
+                    2,
+                    "%",
+                    lower_is_better=False,
+                    best_rel_tol=0.0,
+                ),
+                "audit",
+            )
 
     def drop_reason(data: dict[str, Any], reason: str) -> int:
         reasons = data.get("dropped_by_reason")
@@ -367,6 +396,20 @@ def render_markdown(report: ExperimentReport) -> str:
     def topic_contract(topic: str) -> dict[str, Any]:
         value = topic_contracts.get(topic, {})
         return value if isinstance(value, dict) else {}
+
+    freshness_first_topics = {
+        topic
+        for topic, contract in topic_contracts.items()
+        if isinstance(contract, dict) and contract.get("semantics") == "freshness_first"
+    }
+
+    def freshness_delivery(target: TargetReport, *, windowed: bool) -> dict[str, int]:
+        evidence = target.window_topic_evidence if windowed else target.topic_evidence
+        values = [evidence.get(topic, {}) for topic in freshness_first_topics]
+        return {
+            "published": sum(int(value.get("published") or 0) for value in values if isinstance(value, dict)),
+            "dropped": sum(int(value.get("dropped") or 0) for value in values if isinstance(value, dict)),
+        }
 
     def contract_label(topic: str) -> str:
         contract = topic_contract(topic)
@@ -401,6 +444,54 @@ def render_markdown(report: ExperimentReport) -> str:
                 "audit",
             )
 
+    def downstream_share(stream: str) -> str:
+        if stream == "eta":
+            return "100%"
+        if stream == "flavour":
+            return "1 of 4 · 25%"
+        load_test = report.test_definition.get("load_test")
+        if stream != "registry" or not isinstance(load_test, dict):
+            return "—"
+        minimum = load_test.get("min_brewing_steps")
+        maximum = load_test.get("max_brewing_steps")
+        if not isinstance(minimum, int) or not isinstance(maximum, int) or minimum <= 0 or maximum < minimum:
+            return "—"
+        shares = [100 * steps / (steps + 9) for steps in range(minimum, maximum + 1)]
+        average = sum(shares) / len(shares)
+        return f"≈{number(average, 1)}% · {minimum}–{maximum} of {minimum + 9}–{maximum + 9}"
+
+    stubs = report.test_definition.get("stubs")
+    stubs = stubs if isinstance(stubs, dict) else {}
+    downstream_definitions = (
+        ("eta", "Arcane ETA ML", "cauldron.events.v1", "Every eligible telemetry event"),
+        ("flavour", "Order flavour ML", "order.events.v1", "ORDER_CREATED"),
+        ("registry", "Legacy brewing registry", "batch.events.v1", "BATCH_BREWING_STEP_COMPLETED"),
+    )
+    downstream_rows = []
+    for stream, name, topic, invocation in downstream_definitions:
+        latency = stubs.get(stream)
+        if not isinstance(latency, dict):
+            continue
+        downstream_rows.append(
+            "| " + " | ".join([
+                name,
+                f"`{topic}`",
+                f"`{invocation}`" if invocation.isupper() else invocation,
+                downstream_share(stream),
+                f'{number(stubs.get("error_rate_percent"), 1)}%',
+                *[f'{number(latency.get(f"delay_{percentile}_ms"), 0)} ms' for percentile in ("p90", "p95", "p99", "p100")],
+            ]) + " |"
+        )
+    downstream_table = [
+        "### Planned HTTP downstream behavior",
+        "",
+        "| HTTP downstream | Kafka topic | Invocation | Topic messages invoking it | Error rate | p90 | p95 | p99 | max |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        *downstream_rows,
+        "",
+        "Configured response delays and error rates; separate from application message-handling time below.",
+    ]
+
     def required_key_order_violations(target: TargetReport, windowed: bool) -> int | None:
         evidence = target.window_topic_evidence if windowed else target.topic_evidence
         values = []
@@ -430,9 +521,7 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "## Experiment setup",
         "",
-        "### Planned dependency latency",
-        "",
-        "![Planned dependency-stub latency](stub-latency.svg)",
+        *downstream_table,
         "",
         "### Planned load and experiment stages",
         "",
@@ -451,6 +540,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
             'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
+            'table.comparison .freshness-zero-tail{color:#15803d;font-weight:600}'
             'table.comparison .audit-anomaly{color:#b42318;font-weight:700}'
             'table.comparison .topic-name{font-weight:600}'
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
@@ -578,7 +668,13 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         topic_subsection(str(kafka_topic))
 
-        row("Processing mode", [escaped(configured_topic(target).get("processing_mode")) for target in targets])
+        row(
+            "Processing mode",
+            [
+                escaped(str(configured_topic(target).get("processing_mode") or "").lower().replace("_", "-"))
+                for target in targets
+            ],
+        )
         row("Partitions", [number(configured_topic(target).get("partitions"), 0) for target in targets])
         row("Poll/listener concurrency", [number(configured_topic(target).get("pollers"), 0) for target in targets])
         row(
@@ -672,7 +768,7 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         row(
             "Published rate",
-            compared(
+            formatted(
                 [
                     (target.window_delivery.get("published") or 0) / window_duration
                     if window_duration else None
@@ -680,7 +776,6 @@ def render_markdown(report: ExperimentReport) -> str:
                 ],
                 0,
                 " msg/s",
-                lower_is_better=False,
             ),
             "audit",
         )
@@ -714,11 +809,12 @@ def render_markdown(report: ExperimentReport) -> str:
                 )
         row("Lost messages", counts([target.window_delivery.get("missing_terminal") for target in targets]), "audit")
         row("Failed processing", counts([target.window_delivery.get("failed") for target in targets]), "audit")
-        row(
-            "Intentionally dropped",
-            dropped_values([target.window_delivery for target in targets]),
-            "audit",
-        )
+        if freshness_first_topics:
+            row(
+                "Intentionally dropped · freshness-first topics",
+                dropped_values([freshness_delivery(target, windowed=True) for target in targets]),
+                "audit",
+            )
         row(
             "Processed duplicates",
             counts([(target.window_delivery.get("duplicates") or {}).get("processed") for target in targets]),
@@ -768,11 +864,10 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
         row(
             "Actual publish rate",
-            compared(
+            formatted(
                 [(delivery.get("published") or 0) / duration if duration else None for delivery in deliveries],
                 0,
                 " msg/s",
-                lower_is_better=False,
             ),
             "audit",
         )
@@ -793,10 +888,12 @@ def render_markdown(report: ExperimentReport) -> str:
                 target_evidence.get(topic, {}) if isinstance(target_evidence.get(topic), dict) else {}
                 for target_evidence in evidence
             ]
-            row("Published", counts([value.get("published") for value in values], lower_is_better=False), "audit")
-            row("Successfully processed", counts([value.get("processed") for value in values], lower_is_better=False), "audit")
-            row("Intentionally dropped", dropped_values(values), "audit")
-            drop_reason_rows(values)
+            freshness_first = topic_contract(topic).get("semantics") == "freshness_first"
+            row("Published", [number(value.get("published"), 0) for value in values], "audit")
+            row("Successfully processed", successfully_processed_values(values), "audit")
+            if freshness_first:
+                row("Intentionally dropped", dropped_values(values), "audit")
+                drop_reason_rows(values)
             row("Failed processing", counts([value.get("failed") for value in values]), "audit")
             row("Lost messages", counts([value.get("missing_terminal") for value in values]), "audit")
             row("Processed duplicates", counts([(value.get("duplicates") or {}).get("processed") for value in values]), "audit")
@@ -806,19 +903,39 @@ def render_markdown(report: ExperimentReport) -> str:
                 row("Per-key ordering violations", counts([key_order_value(value) for value in values]), "audit")
             for percentile in ("p50", "p95", "p99", "max"):
                 row(f"E2E latency {percentile}", compared([(value.get("e2e_latency") or {}).get(percentile) for value in values], 0, " ms"), "audit")
-            e2e_compliance_rows(values)
+            e2e_compliance_rows(values, freshness_first=freshness_first)
             histograms = [
                 normalized_histogram((value.get("key_fairness") or {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}))
                 for value in values
             ]
             cutoff = shared_freshness_cutoff(histograms)
+            has_skips = any(
+                count > 0
+                for histogram in histograms
+                for bucket, count in histogram.items()
+                if bucket > 0
+            )
             has_processed_gaps = any((value.get("key_fairness") or {}).get("processed_max_gap_ms") for value in values)
-            if cutoff is not None or has_processed_gaps:
+            if has_skips or has_processed_gaps:
                 subsection(f"{topic} · consecutive freshness skips")
-                if cutoff is not None:
+                if has_skips and cutoff is not None:
                     for bucket in range(cutoff + 1):
-                        row(f"Skipped {bucket}", counts([histogram.get(bucket, 0) for histogram in histograms]), "audit")
-                    row(f"Skipped >{cutoff}", counts([sum(count for bucket, count in histogram.items() if bucket > cutoff) for histogram in histograms]), "audit")
+                        cells = []
+                        for histogram in histograms:
+                            count = histogram.get(bucket, 0)
+                            trailing_zero = is_freshness_zero_tail(histogram, bucket)
+                            value = number(count, 0)
+                            cells.append(f'<span class="freshness-zero-tail">{value}</span>' if trailing_zero else value)
+                        row(f"Skipped {bucket}", cells, "audit")
+                    tail_cells = []
+                    for histogram in histograms:
+                        count = sum(value for bucket, value in histogram.items() if bucket > cutoff)
+                        value = number(count, 0)
+                        tail_cells.append(
+                            f'<span class="freshness-zero-tail">{value}</span>'
+                            if histogram and count == 0 else value
+                        )
+                    row(f"Skipped >{cutoff}", tail_cells, "audit")
                 for percentile in ("p95", "p99", "max"):
                     row(
                         f"Time between processed updates {percentile}",

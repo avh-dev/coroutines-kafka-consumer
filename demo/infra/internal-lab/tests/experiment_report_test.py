@@ -23,7 +23,7 @@ from experiment_report.analyze import (  # noqa: E402
     peak_telemetry_fleet_size,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
-from experiment_report.markdown import shared_freshness_cutoff  # noqa: E402
+from experiment_report.markdown import is_freshness_zero_tail, shared_freshness_cutoff  # noqa: E402
 from experiment_report.model import LatencySlaResult  # noqa: E402
 from experiment_report.prometheus import STANDARD_MEASUREMENTS  # noqa: E402
 from experiment_report import svg as svg_renderer  # noqa: E402
@@ -68,6 +68,13 @@ class ExperimentReportTest(unittest.TestCase):
 
     def test_freshness_cutoff_caps_the_visible_histogram_at_thirty(self) -> None:
         self.assertEqual(30, shared_freshness_cutoff([{0: 1000, 30: 20, 80: 1}]))
+
+    def test_freshness_zero_tail_starts_after_the_last_nonzero_bucket(self) -> None:
+        histogram = {0: 100, 1: 0, 2: 4, 3: 0, 4: 0}
+        self.assertFalse(is_freshness_zero_tail(histogram, 1))
+        self.assertTrue(is_freshness_zero_tail(histogram, 3))
+        self.assertTrue(is_freshness_zero_tail(histogram, 4))
+        self.assertFalse(is_freshness_zero_tail({}, 0))
 
     def test_latency_result_must_match_resolved_profile(self) -> None:
         result = LatencySlaResult(
@@ -152,12 +159,20 @@ class ExperimentReportTest(unittest.TestCase):
                         "delay_p99_ms": 8,
                         "delay_p100_ms": 50,
                     },
+                    "registry": {
+                        "delay_p90_ms": 2,
+                        "delay_p95_ms": 3,
+                        "delay_p99_ms": 4,
+                        "delay_p100_ms": 5,
+                    },
                 },
                 "load_test": {
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
                     "order_event_percent": 60,
                     "batch_event_percent": 40,
                     "cauldron_telemetry_percent": 0,
+                    "min_brewing_steps": 5,
+                    "max_brewing_steps": 8,
                 },
                 "chaos_steps": [
                     {"at": "20s", "type": "pod_delete", "target": "ckc-demo"},
@@ -654,6 +669,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotRegex(environment_svg, r'<path d="M[^"]* C')
             self.assertIn("## Environment", markdown)
             self.assertIn("environment-topology.svg", markdown)
+            self.assertIn("### Planned HTTP downstream behavior", markdown)
+            self.assertIn("| HTTP downstream | Kafka topic | Invocation | Topic messages invoking it | Error rate |", markdown)
+            self.assertIn("| Arcane ETA ML | `cauldron.events.v1` | Every eligible telemetry event | 100% | 0% |", markdown)
+            self.assertIn("| Order flavour ML | `order.events.v1` | `ORDER_CREATED` | 1 of 4 · 25% | 0% |", markdown)
+            self.assertIn("| Legacy brewing registry | `batch.events.v1` | `BATCH_BREWING_STEP_COMPLETED` | ≈41.6% · 5–8 of 14–17 | 0% |", markdown)
+            self.assertFalse((report_dir / "stub-latency.svg").exists())
             self.assertIn("## Results", markdown)
             self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
@@ -666,6 +687,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("<th scope=\"row\">Business logic</th><td>Non-blocking</td>", markdown)
             self.assertNotIn("Processing architecture", markdown)
             self.assertIn("<th scope=\"row\">Dedicated processing workers</th><td>8</td>", markdown)
+            self.assertIn("<th scope=\"row\">Processing mode</th><td>at-least-once-key-ordering</td>", markdown)
             self.assertNotIn("Control-plane network", markdown)
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-summary.json").is_file())
             self.assertTrue((report_dir / "raw" / "run-a-tcpdump-index.jsonl").is_file())
@@ -1093,8 +1115,21 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("steady-state window · 20–50 s", markdown)
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
-            self.assertIn("Published with on-time processed outcome", markdown)
+            self.assertNotIn("Published with on-time processed outcome", markdown)
             self.assertIn(">100.00%<", markdown)
+            self.assertIn(
+                'Published<span class="metric-source source-a" title="Audit records">A</span></th><td>1</td>',
+                markdown,
+            )
+            self.assertIn("1 · 100.000% of published", markdown)
+            self.assertIn(
+                'Published rate<span class="metric-source source-a" title="Audit records">A</span></th><td>0 msg/s</td>',
+                markdown,
+            )
+            self.assertIn(
+                'Actual publish rate<span class="metric-source source-a" title="Audit records">A</span></th><td>12 msg/s</td>',
+                markdown,
+            )
             self.assertIn(
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
                 markdown,
@@ -1110,7 +1145,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("order.events.v1 E2E latency p99", markdown)
             self.assertNotIn("Order E2E latency p99", markdown)
             self.assertNotIn("E2E latency p95 · all topics", markdown)
-            self.assertIn("Intentionally dropped", markdown)
+            self.assertNotIn("Intentionally dropped", markdown)
+            self.assertNotIn("Skipped 0", markdown)
             self.assertNotIn("Delivery outcome", markdown)
             self.assertNotIn("PASS ·", markdown)
             self.assertNotIn("FAIL ·", markdown)
@@ -1168,6 +1204,17 @@ class ExperimentReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
+            experiment_path = root / "lab/experiments/comparison.yaml"
+            experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
+            experiment["workload"] = {
+                "topics": {
+                    "telemetry": {
+                        "kafka_topic": "cauldron.events.v1",
+                        "contract": {"semantics": "freshness_first"},
+                    }
+                }
+            }
+            self.write_yaml(experiment_path, experiment)
             audit_path = root / "results/runs/run-a/audit/summary.yaml"
             audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
             audit["audit"]["totals"].update({
@@ -1180,7 +1227,23 @@ class ExperimentReportTest(unittest.TestCase):
                 },
             })
             audit["audit"]["topics"] = {
-                "cauldron.events.v1": dict(audit["audit"]["totals"]),
+                "cauldron.events.v1": {
+                    **audit["audit"]["totals"],
+                    "e2e_latency": {
+                        "count": 994,
+                        "exceeded": 4,
+                        "limit_ms": 1000,
+                        "p50": 100,
+                        "p95": 200,
+                        "p99": 300,
+                        "max": 400,
+                    },
+                    "key_fairness": {
+                        "freshness_gap": {
+                            "dropped_before_processed_histogram": {0: 990, 1: 0, 2: 4},
+                        }
+                    },
+                },
             }
             self.write_yaml(audit_path, audit)
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
@@ -1191,6 +1254,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Replaced by newer record for key", markdown)
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
+            self.assertIn("Successfully processed", markdown)
+            self.assertIn("994 · 99.400% of published", markdown)
+            self.assertIn("Published with on-time processed outcome", markdown)
+            self.assertIn("99.00%", markdown)
+            self.assertIn("Skipped 1", markdown)
+            self.assertNotIn('Skipped 1<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
+            self.assertIn('Skipped &gt;2<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
+            self.assertNotIn('Skipped 1<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="champion">', markdown)
             self.assertNotIn("FAIL ·", markdown)
             self.assertIn("Message payload average", markdown)
             self.assertIn("200 bytes/msg", markdown)
