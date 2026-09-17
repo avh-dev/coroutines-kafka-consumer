@@ -335,6 +335,7 @@
 | [INFRA-185](#infra-185) | Compare CKC poll-loop concurrency and partition counts at 2k/s on a three-broker Kafka cluster. | DONE |
 | [INFRA-186](#infra-186) | Add Kafka Fetch and Produce request-efficiency evidence to experiment reports. | DONE |
 | [INFRA-187](#infra-187) | Add Kafka packet capture to the repeatable internal-lab smoke experiment. | DONE |
+| [INFRA-188](#infra-188) | Group Kafka network analysis by named packet capture and topic. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3857,3 +3858,13 @@ Capture Kafka traffic from the application and load-test producer during the rep
 Place the bounded capture inside the stable smoke phase so generated reports contain consumer Fetch and producer Produce evidence.
 Synchronize the updated experiment definition to the installed internal lab without launching it automatically.
 Verification: the canonical experiment validates for internal-lab, all 27 experiment-orchestration tests and all 71 internal-lab tests pass, and whitespace validation passes. The installed definition checksum matches the repository, with both tcpdump and tshark available; no smoke experiment was launched automatically.
+
+<a id="infra-188"></a>
+### INFRA-188 - Group network analysis by capture and topic
+
+_Date: 2026-09-17_
+
+Render one Kafka network analysis section per explicitly named tcpdump step and omit network sections when none were configured.
+Group request efficiency and wire evidence by topic while preserving multi-topic Kafka exchanges in an explicit shared bucket.
+Show capture names in load-profile annotations and rename the smoke capture to describe its max-load window.
+Verification: all 9 packet-capture analyzer, 20 experiment-report, 27 experiment-orchestration, and 73 internal-lab tests pass; the modified Python files compile, the smoke definition validates, and whitespace validation passes. Installed smoke, analyzer, Markdown renderer, and SVG renderer checksums match the repository; no experiment was launched automatically.

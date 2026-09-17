@@ -591,7 +591,8 @@ def load_profile_svg(report: ExperimentReport) -> str:
         factor = {"h": 3600, "m": 60, "s": 1}
         at = int(at_match.group(1)) * factor[at_match.group(2)]
         duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
-        title = "Kafka packet capture" if step.get("type") == "tcpdump" else str(step.get("name") or "Diagnostic capture").replace("-", " ").title()
+        step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
+        title = f"Kafka network packet capture • {step_title}" if step.get("type") == "tcpdump" else step_title
         chaos_scenarios.append({
             "type": "diagnostic", "action": "diagnostic", "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,

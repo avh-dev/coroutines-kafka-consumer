@@ -53,7 +53,7 @@ workload:
   diagnostics:
   - at: 30s
     type: tcpdump
-    name: kafka-steady
+    name: max-load
     targets:
     - application
     - load-test
