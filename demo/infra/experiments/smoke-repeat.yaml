@@ -22,7 +22,7 @@ workload:
   load:
     shards: 1
     workers: 2
-    base_tps: 100
+    base_tps: 1000
     producer_capacity_tps:
       order: 1000
       batch: 1000
@@ -39,8 +39,8 @@ workload:
     telemetry_publish_interval_seconds: 5
   measurement_window:
     name: max-load
-    start: 30s
-    duration: 1s
+    start: 20s
+    duration: 30s
   topics:
     order:
       kafka_topic: order.events.v1
@@ -61,7 +61,7 @@ workload:
     targets:
     - application
     - load-test
-    duration: 1s
+    duration: 10s
     params:
       interface: auto
       snaplen: 0
