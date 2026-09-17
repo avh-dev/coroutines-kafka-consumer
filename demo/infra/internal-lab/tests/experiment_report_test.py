@@ -179,6 +179,13 @@ class ExperimentReportTest(unittest.TestCase):
                         },
                     },
                 ],
+                "diagnostic_steps": [{
+                    "at": "30s",
+                    "duration": "5s",
+                    "type": "tcpdump",
+                    "name": "max-load",
+                    "targets": ["application", "load-test"],
+                }],
             },
         )
         run_dir = root / "results" / "runs" / "run-a"
@@ -347,6 +354,48 @@ class ExperimentReportTest(unittest.TestCase):
                 "protocol": {
                     "kafka_messages": messages,
                     "kafka_pdu_bytes": 12_000,
+                    "api_types": {
+                        "Produce" if role == "producer" else "Fetch": {
+                            "requests": 4 if role == "producer" else 12,
+                            "responses": 4 if role == "producer" else 12,
+                            "request_bytes": 8_000 if role == "producer" else 1_200,
+                            "response_bytes": 400 if role == "producer" else 9_600,
+                        },
+                    },
+                    "topic_api_types": {
+                        "order.events.v1": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 3 if role == "producer" else 8,
+                                "responses": 3 if role == "producer" else 8,
+                                "request_bytes": 6_000 if role == "producer" else 800,
+                                "response_bytes": 300 if role == "producer" else 6_400,
+                            },
+                        },
+                        "cauldron.events.v1": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 1 if role == "producer" else 4,
+                                "responses": 1 if role == "producer" else 4,
+                                "request_bytes": 2_000 if role == "producer" else 400,
+                                "response_bytes": 100 if role == "producer" else 3_200,
+                            },
+                        },
+                        "__multiple_topics__": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 1,
+                                "responses": 1,
+                                "request_bytes": 250 if role == "producer" else 110,
+                                "response_bytes": 25 if role == "producer" else 21,
+                            },
+                        },
+                        "__unattributed__": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 1,
+                                "responses": 1,
+                                "request_bytes": 250 if role == "producer" else 110,
+                                "response_bytes": 25 if role == "producer" else 21,
+                            },
+                        },
+                    },
                     "record_batches": {
                         "batches": batches, "records": records, "batch_wire_bytes": 8_000,
                         "batch_header_bytes": 488, "compressed_record_bytes": 7_512,
@@ -354,6 +403,7 @@ class ExperimentReportTest(unittest.TestCase):
                     },
                     "topics": {
                         "order.events.v1": {
+                            "batches": 2,
                             "records": 10,
                             "parsed_records": 10 if role == "producer" else 0,
                             "wire_bytes": 3_000,
@@ -364,6 +414,7 @@ class ExperimentReportTest(unittest.TestCase):
                             "codecs": {"lz4": 1} if role == "producer" else {},
                         },
                         "cauldron.events.v1": {
+                            "batches": 2,
                             "records": 10,
                             "parsed_records": 10 if role == "producer" else 0,
                             "wire_bytes": 3_000,
@@ -377,7 +428,12 @@ class ExperimentReportTest(unittest.TestCase):
                 },
             }
             pcap_roles[role] = role_summary
-            pcap_captures.append({"role": role, "status": "success", **role_summary})
+            pcap_captures.append({
+                "role": role,
+                "status": "success",
+                "capture": {"name": "max-load", "duration_seconds": 5},
+                **role_summary,
+            })
         self.write_json(
             run_dir / "diagnostics" / "pcap-analysis" / "summary.json",
             {
@@ -540,6 +596,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
             svg = svg_renderer.load_profile_svg(report)
             self.assertIn("Planned time from workload start", svg)
+            self.assertIn("Kafka network packet capture • Max load", svg)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -727,7 +784,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(1, len(topic_boundaries))
             self.assertEqual("1", topic_boundaries[0].attrib["stroke-width"])
             self.assertEqual(
-                4,
+                5,
                 len(
                     [
                         element
@@ -1087,7 +1144,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('<div><span class="metric-source source-p">P</span>Prometheus time series</div>', markdown)
             self.assertIn('<div><span class="metric-source source-c">C</span>Network packet capture</div>', markdown)
             self.assertIn('title="Network packet capture">C</span>', markdown)
-            self.assertIn('<th scope="row">Kafka traffic<span class="metric-source source-c"', markdown)
+            self.assertNotIn('<th scope="row">Kafka traffic<span class="metric-source source-c"', markdown)
             self.assertLess(markdown.index("## Target configuration"), markdown.index("## Results"))
             configuration_start = markdown.index("## Target configuration")
             results_start = markdown.index("## Results")
@@ -1096,7 +1153,7 @@ class ExperimentReportTest(unittest.TestCase):
             steady_start = markdown.index("steady-state window · 20–50 s")
             full_start = markdown.index("Full run · 80 s")
             broker_start = markdown.index("Kafka broker metrics")
-            wire_start = markdown.index("Kafka wire traffic")
+            wire_start = markdown.index("Kafka network traffic analysis • Max load")
             self.assertLess(steady_start, full_start)
             self.assertLess(full_start, broker_start)
             self.assertLess(broker_start, wire_start)
@@ -1140,6 +1197,54 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Kafka record average before compression", markdown)
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
+            self.assertIn("Kafka network traffic analysis • Max load", markdown)
+            self.assertIn("1.60 requests/s", markdown)
+            self.assertIn("800 bytes", markdown)
+            self.assertIn("1.25 records", markdown)
+            self.assertIn("0.60 requests/s", markdown)
+            self.assertIn("2,000 bytes", markdown)
+            self.assertIn("3.33 records", markdown)
+            self.assertNotIn("Request efficiency ·", markdown)
+            self.assertNotIn('<tr class="detail-subsection">', markdown)
+            network_start = markdown.index("Kafka network traffic analysis • Max load")
+            ordered_metrics = [
+                "Decoded producer records",
+                "Decoded consumer records",
+                "Message payload average",
+                "Kafka record average before compression",
+                "Producer requests",
+                "Producer request rate",
+                "Producer records per request",
+                "Producer request average",
+                "Producer response average",
+                "Consumer fetch requests",
+                "Consumer fetch request rate",
+                "Consumer fetch records per response",
+                "Consumer fetch request average",
+                "Consumer fetch response average",
+                "Messages per Kafka record batch",
+                "Batch compression",
+                "Producer wire bytes per message",
+                "Consumer wire bytes per message",
+                "Total wire bytes per message",
+            ]
+            metric_positions = [markdown.index(metric, network_start) for metric in ordered_metrics]
+            self.assertEqual(sorted(metric_positions), metric_positions)
+            self.assertIn(
+                'Message payload average<span class="metric-source source-c" title="Network packet capture">C</span></th><td>200 bytes/msg</td>',
+                markdown,
+            )
+            self.assertIn(
+                'Producer records per request<span class="metric-source source-c" title="Network packet capture">C</span></th><td>10.00 records</td>',
+                markdown,
+            )
+            self.assertIn(
+                'Messages per Kafka record batch<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">5.00 messages/batch',
+                markdown,
+            )
+            self.assertIn("Multiple topics", markdown)
+            self.assertIn("Unattributed / capture boundary", markdown)
+            self.assertIn("Request and response sizes exclude TCP/IP and link-layer headers", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1163,6 +1268,50 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('class="audit-anomaly">1</span>', markdown)
             self.assertIn('class="audit-anomaly">2</span>', markdown)
             self.assertNotIn("FAIL ·", markdown)
+
+    def test_report_omits_network_analysis_without_configured_capture_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            definition_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+            definition.pop("diagnostic_steps")
+            self.write_yaml(definition_path, definition)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertNotIn("Kafka network traffic analysis", markdown)
+            self.assertNotIn("Kafka request efficiency is calculated", markdown)
+            self.assertIn('class="metric-source-legend"', markdown)
+            self.assertIn("Metric sources", markdown)
+
+    def test_report_renders_each_named_capture_as_a_separate_network_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            definition_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            definition = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
+            definition["diagnostic_steps"].append({
+                "at": "50s",
+                "duration": "5s",
+                "type": "tcpdump",
+                "name": "after-load",
+                "targets": ["application", "load-test"],
+            })
+            self.write_yaml(definition_path, definition)
+            analysis_path = root / "results/runs/run-a/diagnostics/pcap-analysis/summary.json"
+            analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+            extra_captures = json.loads(json.dumps(analysis["captures"]))
+            for capture in extra_captures:
+                capture["capture"]["name"] = "after-load"
+            analysis["captures"].extend(extra_captures)
+            self.write_json(analysis_path, analysis)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertEqual(2, markdown.count("Kafka network traffic analysis •"))
+            self.assertIn("Kafka network traffic analysis • Max load", markdown)
+            self.assertIn("Kafka network traffic analysis • After load", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -333,6 +333,12 @@
 | [INFRA-183](#infra-183) | Separate Kafka Thread Stats endpoints from the load-test metrics port in the internal lab. | DONE |
 | [INFRA-184](#infra-184) | Compare CKC and Spring Kafka under identical 2k/s three-broker failover conditions with broker-balanced partition counts. | DONE |
 | [INFRA-185](#infra-185) | Compare CKC poll-loop concurrency and partition counts at 2k/s on a three-broker Kafka cluster. | DONE |
+| [INFRA-186](#infra-186) | Add Kafka Fetch and Produce request-efficiency evidence to experiment reports. | DONE |
+| [INFRA-187](#infra-187) | Add Kafka packet capture to the repeatable internal-lab smoke experiment. | DONE |
+| [INFRA-188](#infra-188) | Group Kafka network analysis by named packet capture and topic. | DONE |
+| [INFRA-189](#infra-189) | Refine Fetch topic attribution and extend the smoke measurement window. | DONE |
+| [INFRA-190](#infra-190) | Unify per-topic Kafka request and wire metrics into one importance-ordered network table. | DONE |
+| [INFRA-191](#infra-191) | Show average messages per Kafka record batch before topic compression results. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3835,3 +3841,63 @@ Derive a new experiment from the no-chaos comparison and replace its Spring Arme
 Keep the Spring JDK baseline, compare one CKC poller per partition with one poller per topic, and retain a minimal CKC target with three partitions per topic.
 Run every target against the same three-broker Kafka cluster with replicated topics, without adding broker failures or other chaos.
 Verification: all 27 experiment-orchestration tests and all 71 internal-lab tests pass; the 2k definition validates and materializes with 24/18/75 Spring-sized partitions and 3/3/3 minimal CKC partitions for internal-lab and AWS. The installed optilab definition matches the repository checksum, the locally built demo image is restored in k3s, and the demo deployment is healthy; no replacement workload experiment was launched automatically.
+
+<a id="infra-186"></a>
+### INFRA-186 - Add Kafka request efficiency evidence
+
+_Date: 2026-09-16_
+
+Expose Fetch and Produce request counts, rates, and average request and response sizes from packet-capture analysis in the experiment report.
+Make consumer fragmentation and producer batching efficiency directly comparable across targets.
+Keep Kafka protocol-message measurements distinct from the existing full-wire traffic accounting.
+Verification: all 8 packet-capture analyzer tests and all 71 internal-lab tests pass; the modified Python sources compile and whitespace validation passes. No experiment was launched.
+
+<a id="infra-187"></a>
+### INFRA-187 - Add packet capture to smoke-repeat
+
+_Date: 2026-09-16_
+
+Capture Kafka traffic from the application and load-test producer during the repeatable smoke experiment.
+Place the bounded capture inside the stable smoke phase so generated reports contain consumer Fetch and producer Produce evidence.
+Synchronize the updated experiment definition to the installed internal lab without launching it automatically.
+Verification: the canonical experiment validates for internal-lab, all 27 experiment-orchestration tests and all 71 internal-lab tests pass, and whitespace validation passes. The installed definition checksum matches the repository, with both tcpdump and tshark available; no smoke experiment was launched automatically.
+
+<a id="infra-188"></a>
+### INFRA-188 - Group network analysis by capture and topic
+
+_Date: 2026-09-17_
+
+Render one Kafka network analysis section per explicitly named tcpdump step and omit network sections when none were configured.
+Group request efficiency and wire evidence by topic while preserving multi-topic Kafka exchanges in an explicit shared bucket.
+Show capture names in load-profile annotations and rename the smoke capture to describe its max-load window.
+Verification: all 9 packet-capture analyzer, 20 experiment-report, 27 experiment-orchestration, and 73 internal-lab tests pass; the modified Python files compile, the smoke definition validates, and whitespace validation passes. Installed smoke, analyzer, Markdown renderer, and SVG renderer checksums match the repository; no experiment was launched automatically.
+
+<a id="infra-189"></a>
+### INFRA-189 - Refine Fetch attribution and smoke measurement
+
+_Date: 2026-09-17_
+
+Separate genuinely multi-topic Kafka exchanges from unattributed capture-boundary traffic and infer empty incremental Fetch exchanges from unambiguous TCP streams.
+Extend smoke-repeat to five minutes with 30-second warmup and cooldown phases, a final one-minute max-load measurement window, and a centered packet capture.
+Keep the metric-source legend visible in reports that do not define a measurement window.
+Verification: all 9 packet-capture analyzer, 20 experiment-report, 28 experiment-orchestration, and 73 internal-lab tests pass; modified Python files compile, the five-minute smoke definition validates, and whitespace validation passes. Installed smoke, analyzer, and report renderer checksums match the repository. Reanalysis of the latest real smoke capture attributed every formerly shared Fetch exchange to one topic, leaving no multi-topic or unattributed bucket; no new experiment was launched automatically.
+
+<a id="infra-190"></a>
+### INFRA-190 - Unify per-topic Kafka network metrics
+
+_Date: 2026-09-17_
+
+Combine request-efficiency and wire-traffic evidence into one uninterrupted table for each captured topic.
+Order rows from decoded-record diagnostics and traffic shape through request batching and compression to the final wire cost.
+Keep characteristic traffic values unranked and reserve comparison emphasis for efficiency outcomes.
+Verification: all 20 experiment-report and all 73 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository; no smoke experiment was launched automatically.
+
+<a id="infra-191"></a>
+### INFRA-191 - Report messages per Kafka record batch
+
+_Date: 2026-09-17_
+
+Calculate average producer messages per topic-level Kafka record batch from packet-capture evidence.
+Place the batching result immediately before compression so partitioning and producer linger effects remain visible.
+Treat fuller record batches as a comparable efficiency outcome and highlight the highest value.
+Verification: all 20 experiment-report and all 73 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository; no smoke experiment was launched automatically.

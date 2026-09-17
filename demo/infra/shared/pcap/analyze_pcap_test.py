@@ -152,12 +152,70 @@ class AnalyzePcapTest(unittest.TestCase):
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))
         self.assertEqual("consumer", analyze_pcap.expected_role(Path("sample-consumer.pcap")))
 
+    def test_api_exchanges_use_topic_stream_inference_and_explicit_fallback_buckets(self) -> None:
+        def row(direction: str, correlation: int, stream: int) -> dict[str, str]:
+            values = {field: "" for field in analyze_pcap.FIELDS}
+            values.update({
+                "frame.protocols": "eth:ip:tcp:kafka",
+                "frame.len": "120",
+                "frame.cap_len": "120",
+                "ip.len": "106",
+                "ip.hdr_len": "20",
+                "tcp.stream": str(stream),
+                "tcp.len": "66",
+                "tcp.hdr_len": "20",
+                "tcp.dstport": "9092" if direction == "request" else "40000",
+                "kafka.request_key": "0" if direction == "request" else "",
+                "kafka.response_key": "" if direction == "request" else "0",
+                "kafka.api_version": "9" if direction == "request" else "",
+                "kafka.correlation_id": str(correlation),
+                "kafka.len": "96" if direction == "request" else "12",
+                "tcp.payload": "00",
+            })
+            return values
+
+        rows = [
+            row(direction, correlation, stream)
+            for stream, correlation in ((1, 7), (1, 8), (2, 9), (3, 10))
+            for direction in ("request", "response")
+        ]
+        parsed = [
+            [{"topic": "order.events.v1", "records": b""}],
+            [],
+            [
+                {"topic": "order.events.v1", "records": b""},
+                {"topic": "batch.events.v1", "records": b""},
+            ],
+            [],
+        ]
+        with (
+            patch.object(analyze_pcap, "tshark_rows", return_value=rows),
+            patch.object(analyze_pcap, "parse_produce_request_v9", side_effect=parsed),
+            patch.object(analyze_pcap, "find_record_batches", return_value=[]),
+        ):
+            summary = analyze_pcap.analyze_capture(
+                Path("load-test-producer.pcap"), "tshark", analyze_pcap.NativeCompression(), {}
+            )
+        by_topic = summary["protocol"]["topic_api_types"]
+        self.assertEqual(2, by_topic["order.events.v1"]["Produce"]["requests"])
+        self.assertEqual(2, by_topic["order.events.v1"]["Produce"]["responses"])
+        self.assertEqual(1, by_topic["__multiple_topics__"]["Produce"]["requests"])
+        self.assertEqual(1, by_topic["__multiple_topics__"]["Produce"]["responses"])
+        self.assertEqual(1, by_topic["__unattributed__"]["Produce"]["requests"])
+        self.assertEqual(1, by_topic["__unattributed__"]["Produce"]["responses"])
+
     def test_role_aggregation_preserves_topic_record_and_compression_evidence(self) -> None:
         capture = {
             "role": "producer", "status": "success", "connections": {},
             "network": {"captured_wire_bytes": 1000},
             "protocol": {
-                "tls_detected": False, "api_types": {}, "record_batches": {},
+                "tls_detected": False,
+                "api_types": {"Produce": {"requests": 3, "request_bytes": 900}},
+                "topic_api_types": {
+                    "order.events.v1": {"Produce": {"requests": 2, "request_bytes": 800}},
+                    "__unattributed__": {"Produce": {"requests": 1, "request_bytes": 100}},
+                },
+                "record_batches": {},
                 "topics": {"order.events.v1": {
                     "records": 4,
                     "parsed_records": 4,
@@ -177,11 +235,18 @@ class AnalyzePcapTest(unittest.TestCase):
         summary = analyze_pcap.aggregate_role([capture], "producer")
         topic = summary["protocol"]["topics"]["order.events.v1"]
         self.assertEqual(4, topic["records"])
-        self.assertEqual(600, topic["captured_wire_bytes"])
         self.assertEqual(180, topic["value_bytes"])
         self.assertEqual(40.0, topic["compression_ratio_percent"])
         self.assertEqual(60.0, topic["space_saving_percent"])
         self.assertEqual({"lz4": 1}, topic["codecs"])
+        self.assertEqual(
+            {"requests": 2, "request_bytes": 800},
+            summary["protocol"]["topic_api_types"]["order.events.v1"]["Produce"],
+        )
+        self.assertEqual(
+            {"requests": 1, "request_bytes": 100},
+            summary["protocol"]["topic_api_types"]["__unattributed__"]["Produce"],
+        )
 
 
 if __name__ == "__main__":

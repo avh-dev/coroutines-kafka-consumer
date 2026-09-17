@@ -25,6 +25,8 @@ API_NAMES = {
     9: "OffsetFetch", 10: "FindCoordinator", 11: "JoinGroup", 12: "Heartbeat",
     13: "LeaveGroup", 14: "SyncGroup", 18: "ApiVersions", 32: "DescribeConfigs",
 }
+MULTIPLE_TOPICS_BUCKET = "__multiple_topics__"
+UNATTRIBUTED_TOPIC_BUCKET = "__unattributed__"
 CONSUMER_APIS = {1, 2, 8, 9, 10, 11, 12, 13, 14}
 CODEC_NAMES = {0: "none", 1: "gzip", 2: "snappy", 3: "lz4", 4: "zstd"}
 FIELDS = [
@@ -583,10 +585,14 @@ def analyze_capture(
             )
 
     for message in messages:
-        if message["direction"] == "response" and message["api_key"] < 0:
-            message["api_key"], message["api_version"] = request_by_correlation.get(
+        if message["direction"] == "response":
+            request_api, request_version = request_by_correlation.get(
                 (message["stream"], message["correlation"]), (-1, -1)
             )
+            if message["api_key"] < 0:
+                message["api_key"] = request_api
+            if message["api_version"] < 0:
+                message["api_version"] = request_version
     roles = {stream: connection_role(data["request_apis"]) for stream, data in connections.items()}
     selected = {stream for stream, stream_role in roles.items() if stream_role in {role, "mixed"}}
     warnings: list[str] = []
@@ -645,6 +651,9 @@ def analyze_capture(
 
     selected_messages = [message for message in messages if message["stream"] in selected]
     api_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"requests": 0, "responses": 0, "request_bytes": 0, "response_bytes": 0})
+    topic_api_counts: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: {"requests": 0, "responses": 0, "request_bytes": 0, "response_bytes": 0})
+    )
     batch_totals: dict[str, Any] = {
         "batches": 0, "records": 0, "batch_wire_bytes": 0, "batch_header_bytes": 0,
         "compressed_record_bytes": 0, "uncompressed_record_bytes": 0, "compression_savings_bytes": 0,
@@ -695,17 +704,16 @@ def analyze_capture(
         else:
             unknown_topic_batches += 1
 
+    exchange_topics: dict[tuple[int, int, int], set[str]] = defaultdict(set)
     for message in selected_messages:
         api_key = int(message["api_key"])
         api_name = API_NAMES.get(api_key, f"Unknown({api_key})")
-        count = api_counts[api_name]
-        count[f"{message['direction']}s"] += 1
-        count[f"{message['direction']}_bytes"] += int(message["bytes"])
         carries_records = (
             role == "producer" and message["direction"] == "request" and api_key == 0
         ) or (
             role == "consumer" and message["direction"] == "response" and api_key == 1
         )
+        message["record_sets"] = []
         if not carries_records or not message["raw"]:
             continue
         record_sets: list[tuple[str | None, bytes]] = []
@@ -731,7 +739,41 @@ def analyze_capture(
         except ValueError as error:
             warn(f"Could not parse {api_name} v{message['api_version']} records: {error}")
             record_sets = [(None, message["raw"])]
-        for topic, records in record_sets:
+        message["record_sets"] = record_sets
+        if message["correlation"] >= 0:
+            exchange_topics[(message["stream"], message["correlation"], api_key)].update(
+                topic for topic, _ in record_sets if topic
+            )
+
+    stream_topics: dict[int, set[str]] = defaultdict(set)
+    for (stream, _correlation, _api_key), topics in exchange_topics.items():
+        stream_topics[stream].update(topics)
+
+    for message in selected_messages:
+        api_key = int(message["api_key"])
+        api_name = API_NAMES.get(api_key, f"Unknown({api_key})")
+        direction = str(message["direction"])
+        count = api_counts[api_name]
+        count[f"{direction}s"] += 1
+        count[f"{direction}_bytes"] += int(message["bytes"])
+        if api_key in {0, 1}:
+            topics = (
+                exchange_topics.get((message["stream"], message["correlation"], api_key), set())
+                if message["correlation"] >= 0
+                else {topic for topic, _ in message["record_sets"] if topic}
+            )
+            if len(topics) == 1:
+                bucket = next(iter(topics))
+            elif len(topics) > 1:
+                bucket = MULTIPLE_TOPICS_BUCKET
+            elif len(stream_topics.get(message["stream"], set())) == 1:
+                bucket = next(iter(stream_topics[message["stream"]]))
+            else:
+                bucket = UNATTRIBUTED_TOPIC_BUCKET
+            topic_count = topic_api_counts[bucket][api_name]
+            topic_count[f"{direction}s"] += 1
+            topic_count[f"{direction}_bytes"] += int(message["bytes"])
+        for topic, records in message["record_sets"]:
             for batch in find_record_batches(records, compression):
                 add_batch(batch, topic)
     batch_totals["codecs"] = dict(sorted(codecs.items()))
@@ -772,6 +814,10 @@ def analyze_capture(
         "kafka_pdu_bytes": kafka_bytes if not tls_detected else None,
         "kafka_protocol_bytes_excluding_batches": max(0, kafka_bytes - batch_totals["batch_wire_bytes"]) if not tls_detected else None,
         "api_types": dict(sorted(api_counts.items())),
+        "topic_api_types": {
+            topic: dict(sorted(values.items()))
+            for topic, values in sorted(topic_api_counts.items())
+        },
         "record_batches": batch_totals,
         "topics": dict(sorted(topic_batches.items())),
         "unknown_topic_batches": unknown_topic_batches,
@@ -841,7 +887,7 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
     ]
     result: dict[str, Any] = {
         "capture_count": len(selected), "connections": {}, "network": {},
-        "protocol": {"api_types": {}, "record_batches": {}, "topics": {}},
+        "protocol": {"api_types": {}, "topic_api_types": {}, "record_batches": {}, "topics": {}},
     }
     for capture in selected:
         add_numbers(result["connections"], capture["connections"], list(capture["connections"]))
@@ -854,6 +900,11 @@ def aggregate_role(captures: list[dict[str, Any]], role: str) -> dict[str, Any]:
         for api_name, values in protocol["api_types"].items():
             target = result["protocol"]["api_types"].setdefault(api_name, {})
             add_numbers(target, values, list(values))
+        for topic, api_types in protocol.get("topic_api_types", {}).items():
+            target_topic = result["protocol"]["topic_api_types"].setdefault(topic, {})
+            for api_name, values in api_types.items():
+                target_api = target_topic.setdefault(api_name, {})
+                add_numbers(target_api, values, list(values))
         batches = protocol["record_batches"]
         target_batches = result["protocol"]["record_batches"]
         add_numbers(target_batches, batches, [key for key, value in batches.items() if isinstance(value, int)])
