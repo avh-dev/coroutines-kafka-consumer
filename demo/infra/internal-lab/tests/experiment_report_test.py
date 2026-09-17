@@ -1270,31 +1270,35 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
             self.assertIn("Kafka network traffic analysis • Max load", markdown)
             self.assertIn("1.60 requests/s", markdown)
-            self.assertIn("800 bytes", markdown)
             self.assertIn("1.25 records", markdown)
             self.assertIn("0.60 requests/s", markdown)
-            self.assertIn("2,000 bytes", markdown)
             self.assertIn("3.33 records", markdown)
             self.assertNotIn("Request efficiency ·", markdown)
             self.assertNotIn('<tr class="detail-subsection">', markdown)
             network_start = markdown.index("Kafka network traffic analysis • Max load")
+            self.assertIn(
+                '<tr class="subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
+                markdown[network_start:],
+            )
+            self.assertNotIn("Produce requests", markdown[network_start:])
+            self.assertNotIn("Fetch requests", markdown[network_start:])
+            self.assertNotIn('<th scope="row">Decoded producer records', markdown)
+            self.assertNotIn('<th scope="row">Decoded consumer records', markdown)
+            self.assertNotIn('<th scope="row">Producer requests', markdown)
+            self.assertNotIn('<th scope="row">Consumer fetch requests', markdown)
+            self.assertNotIn("Producer request average", markdown)
+            self.assertNotIn("Producer response average", markdown)
+            self.assertNotIn("Consumer fetch request average", markdown)
+            self.assertNotIn("Consumer fetch response average", markdown)
             ordered_metrics = [
-                "Decoded producer records",
-                "Decoded consumer records",
                 "Message payload average",
                 "Kafka record average before compression",
-                "Producer requests",
-                "Producer request rate",
-                "Producer records per request",
-                "Producer request average",
-                "Producer response average",
-                "Consumer fetch requests",
-                "Consumer fetch request rate",
-                "Consumer fetch records per response",
-                "Consumer fetch request average",
-                "Consumer fetch response average",
                 "Messages per Kafka record batch",
                 "Batch compression",
+                "Producer records per request",
+                "Producer request rate",
+                "Consumer fetch records per response",
+                "Consumer fetch request rate",
                 "Producer wire bytes per message",
                 "Consumer wire bytes per message",
                 "Total wire bytes per message",
@@ -1315,7 +1319,18 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn("Multiple topics", markdown)
             self.assertIn("Unattributed / capture boundary", markdown)
-            self.assertIn("Request and response sizes exclude TCP/IP and link-layer headers", markdown)
+            all_topics_start = markdown.index("All topics", network_start)
+            self.assertGreater(all_topics_start, markdown.index("Unattributed / capture boundary", network_start))
+            self.assertIn(
+                'Producer wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">400 bytes/msg',
+                markdown[all_topics_start:],
+            )
+            self.assertIn(
+                'Total wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">800 bytes/msg',
+                markdown[all_topics_start:],
+            )
+            self.assertNotIn("Request and response sizes exclude TCP/IP and link-layer headers", markdown)
+            self.assertIn("Rates use the scheduled capture duration", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

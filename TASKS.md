@@ -342,6 +342,7 @@
 | [INFRA-192](#infra-192) | Refine downstream planning, delivery percentages, and freshness presentation in experiment reports. | DONE |
 | [INFRA-193](#infra-193) | Reduce smoke-repeat to one one-minute target with minimal measurement and capture windows. | DONE |
 | [INFRA-194](#infra-194) | Strengthen the one-minute smoke with 1k TPS and useful measurement and capture windows. | DONE |
+| [INFRA-195](#infra-195) | Reorder Kafka network analysis around batching, protocol behavior, and wire cost. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3934,3 +3935,14 @@ Raise the single smoke target to 1,000 messages per second while retaining its o
 Measure the final 30 seconds of maximum load and center a ten-second Kafka packet capture within that window.
 Keep smoke reports lightweight but populated with representative audit, Prometheus, and packet-capture evidence.
 Verification: all 28 experiment-orchestration and all 74 internal-lab tests pass; the canonical smoke definition validates, modified Python compiles, and whitespace validation passes. The installed smoke definition matches the repository checksum; no smoke experiment was launched automatically.
+
+<a id="infra-195"></a>
+### INFRA-195 - Reorder Kafka network analysis story
+
+_Date: 2026-09-17_
+
+Present each captured topic as input and batching, Kafka protocol behavior, then total wire cost.
+Omit capture-duration-dependent decoded-record and request totals, and render topic-only headings across the full comparison table.
+Keep protocol comparison focused on records per exchange and request rates rather than intermediate request and response PDU sizes.
+Restore an aggregate All topics wire-cost block at the end of each named capture while keeping wire calculations and attribution semantics unchanged.
+Verification: all 21 experiment-report and all 74 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository; no smoke experiment was launched automatically.
