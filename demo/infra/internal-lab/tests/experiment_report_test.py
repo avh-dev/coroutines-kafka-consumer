@@ -403,6 +403,7 @@ class ExperimentReportTest(unittest.TestCase):
                     },
                     "topics": {
                         "order.events.v1": {
+                            "batches": 2,
                             "records": 10,
                             "parsed_records": 10 if role == "producer" else 0,
                             "wire_bytes": 3_000,
@@ -413,6 +414,7 @@ class ExperimentReportTest(unittest.TestCase):
                             "codecs": {"lz4": 1} if role == "producer" else {},
                         },
                         "cauldron.events.v1": {
+                            "batches": 2,
                             "records": 10,
                             "parsed_records": 10 if role == "producer" else 0,
                             "wire_bytes": 3_000,
@@ -1220,6 +1222,7 @@ class ExperimentReportTest(unittest.TestCase):
                 "Consumer fetch records per response",
                 "Consumer fetch request average",
                 "Consumer fetch response average",
+                "Messages per Kafka record batch",
                 "Batch compression",
                 "Producer wire bytes per message",
                 "Consumer wire bytes per message",
@@ -1233,6 +1236,10 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn(
                 'Producer records per request<span class="metric-source source-c" title="Network packet capture">C</span></th><td>10.00 records</td>',
+                markdown,
+            )
+            self.assertIn(
+                'Messages per Kafka record batch<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">5.00 messages/batch',
                 markdown,
             )
             self.assertIn("Multiple topics", markdown)

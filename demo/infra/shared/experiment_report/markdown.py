@@ -135,6 +135,8 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def role_topic_batch_evidence(target: TargetReport, capture_name: str, topic: str, role: str) -> dict[str, Any]:
         totals: dict[str, Any] = {
+            "batches": 0,
+            "records": 0,
             "parsed_records": 0,
             "value_bytes": 0,
             "uncompressed_record_bytes": 0,
@@ -147,7 +149,7 @@ def render_markdown(report: ExperimentReport) -> str:
             values = capture_topics.get(topic, {}) if isinstance(capture_topics, dict) else {}
             if not isinstance(values, dict):
                 continue
-            for key in ("parsed_records", "value_bytes", "uncompressed_record_bytes", "compressed_record_bytes"):
+            for key in ("batches", "records", "parsed_records", "value_bytes", "uncompressed_record_bytes", "compressed_record_bytes"):
                 totals[key] += int(values.get(key) or 0)
             codecs = values.get("codecs")
             if isinstance(codecs, dict):
@@ -159,6 +161,11 @@ def render_markdown(report: ExperimentReport) -> str:
         evidence = role_topic_batch_evidence(target, capture_name, topic, "producer")
         records = int(evidence.get("parsed_records") or 0)
         return float(evidence.get(field) or 0) / records if records else None
+
+    def topic_messages_per_batch(target: TargetReport, capture_name: str, topic: str) -> float | None:
+        evidence = role_topic_batch_evidence(target, capture_name, topic, "producer")
+        batches = int(evidence.get("batches") or 0)
+        return float(evidence.get("records") or 0) / batches if batches else None
 
     def topic_compression(target: TargetReport, capture_name: str, topic: str) -> tuple[float | None, str]:
         evidence = role_topic_batch_evidence(target, capture_name, topic, "producer")
@@ -910,6 +917,16 @@ def render_markdown(report: ExperimentReport) -> str:
             )
             request_metrics(capture_name, topic, "producer", "Produce", "request")
             request_metrics(capture_name, topic, "consumer", "Fetch", "response")
+            row(
+                "Messages per Kafka record batch",
+                compared(
+                    [topic_messages_per_batch(target, capture_name, topic) for target in targets],
+                    2,
+                    " messages/batch",
+                    lower_is_better=False,
+                ),
+                "capture",
+            )
             compression = [topic_compression(target, capture_name, topic) for target in targets]
             row(
                 "Batch compression",
@@ -951,7 +968,7 @@ def render_markdown(report: ExperimentReport) -> str:
         lines.extend([
             "Kafka request metrics are calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly. Empty incremental Fetch exchanges inherit a topic only when their TCP stream is unambiguous; genuine multi-topic and remaining unattributed exchanges are reported separately. Request and response sizes exclude TCP/IP and link-layer headers; rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
             "",
-            "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
+            "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records. Messages per Kafka record batch divides the producer batch record count by decoded topic batches; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
         ])
     lines.extend([
