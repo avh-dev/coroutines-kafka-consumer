@@ -31,10 +31,12 @@ The byte categories are exhaustive for the captured Kafka TCP streams:
 `protocol.api_types` records request and response counts and Kafka PDU bytes for
 every decoded API. `protocol.topic_api_types` associates Produce and Fetch
 request/response pairs by TCP stream and correlation ID. Exchanges containing
-one topic are attributed to that topic; multi-topic or unattributed exchanges
-remain under `__shared__`. Reports use these counters for per-capture,
-per-topic request rates, average PDU sizes, and decoded records per
-data-carrying exchange. PDU sizes exclude network headers.
+one topic are attributed to that topic. Empty incremental Fetch exchanges
+inherit the topic when every attributed exchange on the same TCP stream uses
+one topic. Genuine multi-topic exchanges remain under `__multiple_topics__`;
+ambiguous or capture-boundary exchanges use `__unattributed__`. Reports use
+these counters for per-capture, per-topic request rates, average PDU sizes, and
+decoded records per data-carrying exchange. PDU sizes exclude network headers.
 
 When a Produce or Fetch payload can be associated with a canonical topic, the
 same batch and decoded-record counters are also accumulated under

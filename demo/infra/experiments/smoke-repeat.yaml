@@ -1,6 +1,6 @@
 schema_version: 2
 name: smoke-repeat
-description: Run the short smoke definition twice to validate experiment orchestration.
+description: Run the five-minute smoke definition twice to validate experiment orchestration.
 workload:
   stubs:
     error_rate_percent: 0
@@ -27,7 +27,7 @@ workload:
       order: 1000
       batch: 1000
       telemetry: 1000
-    load_profile: 0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down)
+    load_profile: 0 -> (30s, warmup) -> 100 -> (240s, maximum) -> 100 -> (30s, cool-down)
       -> 0
     cauldron_count: 2
     min_orders_per_batch: 2
@@ -37,6 +37,10 @@ workload:
     diagnostics_blob_size: 64
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 5
+  measurement_window:
+    name: max-load
+    start: 3m30s
+    duration: 1m
   topics:
     order:
       kafka_topic: order.events.v1
@@ -51,13 +55,13 @@ workload:
       traffic_percent: 40
       max_e2e_latency_ms: 1000
   diagnostics:
-  - at: 30s
+  - at: 230s
     type: tcpdump
     name: max-load
     targets:
     - application
     - load-test
-    duration: 15s
+    duration: 20s
     params:
       interface: auto
       snaplen: 0

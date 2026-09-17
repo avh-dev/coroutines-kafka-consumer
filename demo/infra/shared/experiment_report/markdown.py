@@ -87,6 +87,14 @@ def render_markdown(report: ExperimentReport) -> str:
     available_topics = {topic for target in targets for topic in target.topic_evidence}
     topics = [topic for topic in preferred_topics if topic in available_topics]
     topics.extend(sorted(available_topics - set(topics)))
+    metric_source_legend = (
+        '<div class="metric-source-legend">'
+        '<strong>Metric sources</strong>'
+        '<div><span class="metric-source source-a">A</span>Audit records</div>'
+        '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
+        '<div><span class="metric-source source-c">C</span>Network packet capture</div>'
+        '</div>'
+    )
 
     def capture_title(name: str) -> str:
         return name.replace("-", " ").replace("_", " ").strip().capitalize()
@@ -170,16 +178,18 @@ def render_markdown(report: ExperimentReport) -> str:
     def kafka_api(target: TargetReport, capture_name: str, topic: str, role: str, api_name: str) -> dict[str, int] | None:
         totals = {"requests": 0, "responses": 0, "request_bytes": 0, "response_bytes": 0}
         found = False
+        topic_keys = [topic, "__shared__"] if topic == "__unattributed__" else [topic]
         for capture in matching_captures(target, capture_name, role):
             protocol = capture.get("protocol", {})
             topic_api_types = protocol.get("topic_api_types", {}) if isinstance(protocol, dict) else {}
-            api_types = topic_api_types.get(topic, {}) if isinstance(topic_api_types, dict) else {}
-            values = api_types.get(api_name) if isinstance(api_types, dict) else None
-            if not isinstance(values, dict):
-                continue
-            found = True
-            for key in totals:
-                totals[key] += int(values.get(key) or 0)
+            for topic_key in topic_keys:
+                api_types = topic_api_types.get(topic_key, {}) if isinstance(topic_api_types, dict) else {}
+                values = api_types.get(api_name) if isinstance(api_types, dict) else None
+                if not isinstance(values, dict):
+                    continue
+                found = True
+                for key in totals:
+                    totals[key] += int(values.get(key) or 0)
         return totals if found else None
 
     def kafka_api_count(target: TargetReport, capture_name: str, topic: str, role: str, api_name: str, direction: str) -> int | None:
@@ -214,9 +224,9 @@ def render_markdown(report: ExperimentReport) -> str:
         records = role_topic_wire(target, capture_name, topic, role)[1]
         return records / exchanges if exchanges else None
 
-    def has_shared_exchanges(capture_name: str) -> bool:
+    def has_topic_bucket(capture_name: str, topic: str) -> bool:
         return any(
-            kafka_api(target, capture_name, "__shared__", role, api_name) is not None
+            kafka_api(target, capture_name, topic, role, api_name) is not None
             for target in targets
             for role, api_name in (("consumer", "Fetch"), ("producer", "Produce"))
         )
@@ -638,6 +648,8 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "## Results",
         "",
+        metric_source_legend,
+        "",
         "### Steady-state highlights" if isinstance(report.test_definition.get("measurement_window"), dict) else "### Detailed results",
         "",
         '<table class="comparison">',
@@ -726,12 +738,6 @@ def render_markdown(report: ExperimentReport) -> str:
             "</tbody></table>",
             "",
             "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
-            '<div class="metric-source-legend">'
-            '<strong>Metric sources</strong>'
-            '<div><span class="metric-source source-a">A</span>Audit records</div>'
-            '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
-            '<div><span class="metric-source source-c">C</span>Network packet capture</div>'
-            '</div>',
             "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
             "",
             "### Detailed results",
@@ -933,15 +939,19 @@ def render_markdown(report: ExperimentReport) -> str:
                 ], 0, " bytes/msg"),
                 "capture",
             )
-        if has_shared_exchanges(capture_name):
-            subsection("Multiple topics / shared")
-            request_efficiency(capture_name, "__shared__", "consumer", "Fetch", None)
-            request_efficiency(capture_name, "__shared__", "producer", "Produce", None)
+        for bucket, label in (
+            ("__multiple_topics__", "Multiple topics"),
+            ("__unattributed__", "Unattributed / capture boundary"),
+        ):
+            if has_topic_bucket(capture_name, bucket):
+                subsection(label)
+                request_efficiency(capture_name, bucket, "consumer", "Fetch", None)
+                request_efficiency(capture_name, bucket, "producer", "Produce", None)
 
     lines.extend(["</tbody></table>", ""])
     if diagnostic_steps:
         lines.extend([
-            "Kafka request efficiency is calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly; multi-topic or unattributed exchanges remain in the shared bucket. PDU sizes exclude TCP/IP and link-layer headers; rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
+            "Kafka request efficiency is calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly. Empty incremental Fetch exchanges inherit a topic only when their TCP stream is unambiguous; genuine multi-topic and remaining unattributed exchanges are reported separately. PDU sizes exclude TCP/IP and link-layer headers; rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
             "",
             "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",

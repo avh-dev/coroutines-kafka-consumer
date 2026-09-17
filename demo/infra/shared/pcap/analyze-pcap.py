@@ -25,7 +25,8 @@ API_NAMES = {
     9: "OffsetFetch", 10: "FindCoordinator", 11: "JoinGroup", 12: "Heartbeat",
     13: "LeaveGroup", 14: "SyncGroup", 18: "ApiVersions", 32: "DescribeConfigs",
 }
-SHARED_TOPIC_BUCKET = "__shared__"
+MULTIPLE_TOPICS_BUCKET = "__multiple_topics__"
+UNATTRIBUTED_TOPIC_BUCKET = "__unattributed__"
 CONSUMER_APIS = {1, 2, 8, 9, 10, 11, 12, 13, 14}
 CODEC_NAMES = {0: "none", 1: "gzip", 2: "snappy", 3: "lz4", 4: "zstd"}
 FIELDS = [
@@ -744,6 +745,10 @@ def analyze_capture(
                 topic for topic, _ in record_sets if topic
             )
 
+    stream_topics: dict[int, set[str]] = defaultdict(set)
+    for (stream, _correlation, _api_key), topics in exchange_topics.items():
+        stream_topics[stream].update(topics)
+
     for message in selected_messages:
         api_key = int(message["api_key"])
         api_name = API_NAMES.get(api_key, f"Unknown({api_key})")
@@ -757,7 +762,14 @@ def analyze_capture(
                 if message["correlation"] >= 0
                 else {topic for topic, _ in message["record_sets"] if topic}
             )
-            bucket = next(iter(topics)) if len(topics) == 1 else SHARED_TOPIC_BUCKET
+            if len(topics) == 1:
+                bucket = next(iter(topics))
+            elif len(topics) > 1:
+                bucket = MULTIPLE_TOPICS_BUCKET
+            elif len(stream_topics.get(message["stream"], set())) == 1:
+                bucket = next(iter(stream_topics[message["stream"]]))
+            else:
+                bucket = UNATTRIBUTED_TOPIC_BUCKET
             topic_count = topic_api_counts[bucket][api_name]
             topic_count[f"{direction}s"] += 1
             topic_count[f"{direction}_bytes"] += int(message["bytes"])

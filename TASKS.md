@@ -336,6 +336,7 @@
 | [INFRA-186](#infra-186) | Add Kafka Fetch and Produce request-efficiency evidence to experiment reports. | DONE |
 | [INFRA-187](#infra-187) | Add Kafka packet capture to the repeatable internal-lab smoke experiment. | DONE |
 | [INFRA-188](#infra-188) | Group Kafka network analysis by named packet capture and topic. | DONE |
+| [INFRA-189](#infra-189) | Refine Fetch topic attribution and extend the smoke measurement window. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3868,3 +3869,13 @@ Render one Kafka network analysis section per explicitly named tcpdump step and 
 Group request efficiency and wire evidence by topic while preserving multi-topic Kafka exchanges in an explicit shared bucket.
 Show capture names in load-profile annotations and rename the smoke capture to describe its max-load window.
 Verification: all 9 packet-capture analyzer, 20 experiment-report, 27 experiment-orchestration, and 73 internal-lab tests pass; the modified Python files compile, the smoke definition validates, and whitespace validation passes. Installed smoke, analyzer, Markdown renderer, and SVG renderer checksums match the repository; no experiment was launched automatically.
+
+<a id="infra-189"></a>
+### INFRA-189 - Refine Fetch attribution and smoke measurement
+
+_Date: 2026-09-17_
+
+Separate genuinely multi-topic Kafka exchanges from unattributed capture-boundary traffic and infer empty incremental Fetch exchanges from unambiguous TCP streams.
+Extend smoke-repeat to five minutes with 30-second warmup and cooldown phases, a final one-minute max-load measurement window, and a centered packet capture.
+Keep the metric-source legend visible in reports that do not define a measurement window.
+Verification: all 9 packet-capture analyzer, 20 experiment-report, 28 experiment-orchestration, and 73 internal-lab tests pass; modified Python files compile, the five-minute smoke definition validates, and whitespace validation passes. Installed smoke, analyzer, and report renderer checksums match the repository. Reanalysis of the latest real smoke capture attributed every formerly shared Fetch exchange to one topic, leaving no multi-topic or unattributed bucket; no new experiment was launched automatically.

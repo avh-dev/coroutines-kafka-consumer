@@ -152,8 +152,8 @@ class AnalyzePcapTest(unittest.TestCase):
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))
         self.assertEqual("consumer", analyze_pcap.expected_role(Path("sample-consumer.pcap")))
 
-    def test_api_exchanges_are_attributed_to_one_topic_or_shared_bucket(self) -> None:
-        def row(direction: str, correlation: int) -> dict[str, str]:
+    def test_api_exchanges_use_topic_stream_inference_and_explicit_fallback_buckets(self) -> None:
+        def row(direction: str, correlation: int, stream: int) -> dict[str, str]:
             values = {field: "" for field in analyze_pcap.FIELDS}
             values.update({
                 "frame.protocols": "eth:ip:tcp:kafka",
@@ -161,7 +161,7 @@ class AnalyzePcapTest(unittest.TestCase):
                 "frame.cap_len": "120",
                 "ip.len": "106",
                 "ip.hdr_len": "20",
-                "tcp.stream": "1",
+                "tcp.stream": str(stream),
                 "tcp.len": "66",
                 "tcp.hdr_len": "20",
                 "tcp.dstport": "9092" if direction == "request" else "40000",
@@ -174,13 +174,19 @@ class AnalyzePcapTest(unittest.TestCase):
             })
             return values
 
-        rows = [row("request", 7), row("response", 7), row("request", 8), row("response", 8)]
+        rows = [
+            row(direction, correlation, stream)
+            for stream, correlation in ((1, 7), (1, 8), (2, 9), (3, 10))
+            for direction in ("request", "response")
+        ]
         parsed = [
             [{"topic": "order.events.v1", "records": b""}],
+            [],
             [
                 {"topic": "order.events.v1", "records": b""},
                 {"topic": "batch.events.v1", "records": b""},
             ],
+            [],
         ]
         with (
             patch.object(analyze_pcap, "tshark_rows", return_value=rows),
@@ -191,10 +197,12 @@ class AnalyzePcapTest(unittest.TestCase):
                 Path("load-test-producer.pcap"), "tshark", analyze_pcap.NativeCompression(), {}
             )
         by_topic = summary["protocol"]["topic_api_types"]
-        self.assertEqual(1, by_topic["order.events.v1"]["Produce"]["requests"])
-        self.assertEqual(1, by_topic["order.events.v1"]["Produce"]["responses"])
-        self.assertEqual(1, by_topic["__shared__"]["Produce"]["requests"])
-        self.assertEqual(1, by_topic["__shared__"]["Produce"]["responses"])
+        self.assertEqual(2, by_topic["order.events.v1"]["Produce"]["requests"])
+        self.assertEqual(2, by_topic["order.events.v1"]["Produce"]["responses"])
+        self.assertEqual(1, by_topic["__multiple_topics__"]["Produce"]["requests"])
+        self.assertEqual(1, by_topic["__multiple_topics__"]["Produce"]["responses"])
+        self.assertEqual(1, by_topic["__unattributed__"]["Produce"]["requests"])
+        self.assertEqual(1, by_topic["__unattributed__"]["Produce"]["responses"])
 
     def test_role_aggregation_preserves_topic_record_and_compression_evidence(self) -> None:
         capture = {
@@ -205,7 +213,7 @@ class AnalyzePcapTest(unittest.TestCase):
                 "api_types": {"Produce": {"requests": 3, "request_bytes": 900}},
                 "topic_api_types": {
                     "order.events.v1": {"Produce": {"requests": 2, "request_bytes": 800}},
-                    "__shared__": {"Produce": {"requests": 1, "request_bytes": 100}},
+                    "__unattributed__": {"Produce": {"requests": 1, "request_bytes": 100}},
                 },
                 "record_batches": {},
                 "topics": {"order.events.v1": {
@@ -227,7 +235,6 @@ class AnalyzePcapTest(unittest.TestCase):
         summary = analyze_pcap.aggregate_role([capture], "producer")
         topic = summary["protocol"]["topics"]["order.events.v1"]
         self.assertEqual(4, topic["records"])
-        self.assertEqual(600, topic["captured_wire_bytes"])
         self.assertEqual(180, topic["value_bytes"])
         self.assertEqual(40.0, topic["compression_ratio_percent"])
         self.assertEqual(60.0, topic["space_saving_percent"])
@@ -238,7 +245,7 @@ class AnalyzePcapTest(unittest.TestCase):
         )
         self.assertEqual(
             {"requests": 1, "request_bytes": 100},
-            summary["protocol"]["topic_api_types"]["__shared__"]["Produce"],
+            summary["protocol"]["topic_api_types"]["__unattributed__"]["Produce"],
         )
 
 

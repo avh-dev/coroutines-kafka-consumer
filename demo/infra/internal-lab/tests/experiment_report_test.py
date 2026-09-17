@@ -379,6 +379,22 @@ class ExperimentReportTest(unittest.TestCase):
                                 "response_bytes": 100 if role == "producer" else 3_200,
                             },
                         },
+                        "__multiple_topics__": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 1,
+                                "responses": 1,
+                                "request_bytes": 250 if role == "producer" else 110,
+                                "response_bytes": 25 if role == "producer" else 21,
+                            },
+                        },
+                        "__unattributed__": {
+                            "Produce" if role == "producer" else "Fetch": {
+                                "requests": 1,
+                                "responses": 1,
+                                "request_bytes": 250 if role == "producer" else 110,
+                                "response_bytes": 25 if role == "producer" else 21,
+                            },
+                        },
                     },
                     "record_batches": {
                         "batches": batches, "records": records, "batch_wire_bytes": 8_000,
@@ -1189,6 +1205,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("2,000 bytes", markdown)
             self.assertIn("3.33 records", markdown)
             self.assertIn("Wire traffic", markdown)
+            self.assertIn("Multiple topics", markdown)
+            self.assertIn("Unattributed / capture boundary", markdown)
             self.assertIn("PDU sizes exclude TCP/IP and link-layer headers", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
@@ -1227,6 +1245,8 @@ class ExperimentReportTest(unittest.TestCase):
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertNotIn("Kafka network traffic analysis", markdown)
             self.assertNotIn("Kafka request efficiency is calculated", markdown)
+            self.assertIn('class="metric-source-legend"', markdown)
+            self.assertIn("Metric sources", markdown)
 
     def test_report_renders_each_named_capture_as_a_separate_network_section(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
