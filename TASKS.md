@@ -340,6 +340,7 @@
 | [INFRA-190](#infra-190) | Unify per-topic Kafka request and wire metrics into one importance-ordered network table. | DONE |
 | [INFRA-191](#infra-191) | Show average messages per Kafka record batch before topic compression results. | DONE |
 | [INFRA-192](#infra-192) | Refine downstream planning, delivery percentages, and freshness presentation in experiment reports. | DONE |
+| [INFRA-193](#infra-193) | Reduce smoke-repeat to one one-minute target with minimal measurement and capture windows. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3912,3 +3913,13 @@ Replace the dependency-latency SVG with an explicit HTTP downstream planning tab
 Make publish volume diagnostic, compare successful processing by its share of published records, and scope freshness-only outcomes to freshness-first topics.
 Normalize displayed processing modes and render freshness histograms without comparative deltas, highlighting each target's trailing zero region.
 Verification: all 21 experiment-report and all 74 internal-lab tests pass; modified Python files compile and whitespace validation passes. Installed Markdown, SVG, and report-generation helpers match repository checksums; no experiment was launched automatically.
+
+<a id="infra-193"></a>
+### INFRA-193 - Shorten the single-target smoke experiment
+
+_Date: 2026-09-17_
+
+Remove the redundant second smoke target and reduce the load profile to one minute.
+Keep minimal max-load measurement and Kafka capture windows so smoke reports still exercise windowed and network sections.
+Use the shortest whole-second duration supported by the canonical experiment contract.
+Verification: all 28 experiment-orchestration and all 74 internal-lab tests pass; the canonical smoke definition validates, modified Python compiles, and whitespace validation passes. The installed smoke definition matches the repository checksum; no smoke experiment was launched automatically.

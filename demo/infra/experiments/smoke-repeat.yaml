@@ -1,6 +1,6 @@
 schema_version: 2
 name: smoke-repeat
-description: Run the five-minute smoke definition twice to validate experiment orchestration.
+description: Run one one-minute smoke target to validate experiment orchestration and report generation.
 workload:
   stubs:
     error_rate_percent: 0
@@ -27,7 +27,7 @@ workload:
       order: 1000
       batch: 1000
       telemetry: 1000
-    load_profile: 0 -> (30s, warmup) -> 100 -> (240s, maximum) -> 100 -> (30s, cool-down)
+    load_profile: 0 -> (10s, warmup) -> 100 -> (40s, maximum) -> 100 -> (10s, cool-down)
       -> 0
     cauldron_count: 2
     min_orders_per_batch: 2
@@ -39,8 +39,8 @@ workload:
     telemetry_publish_interval_seconds: 5
   measurement_window:
     name: max-load
-    start: 3m30s
-    duration: 1m
+    start: 30s
+    duration: 1s
   topics:
     order:
       kafka_topic: order.events.v1
@@ -55,13 +55,13 @@ workload:
       traffic_percent: 40
       max_e2e_latency_ms: 1000
   diagnostics:
-  - at: 230s
+  - at: 30s
     type: tcpdump
     name: max-load
     targets:
     - application
     - load-test
-    duration: 20s
+    duration: 1s
     params:
       interface: auto
       snaplen: 0
@@ -70,29 +70,6 @@ workload:
     required: true
 targets:
 - name: ckc-smoke-1
-  implementation: ckc
-  application:
-    replicas: 2
-  runtime:
-    env:
-      PROCESSING_ENABLED: true
-      AUDIT_LOG_ENABLED: true
-      METRICS_IMPLEMENTATION: MICROMETER
-      LOAD_TEST_WORKERS: 1
-      PROCESSING_DISPATCHER_TYPE: FIXED
-      WORKER_DISPATCHER_THREADS: 2
-    planning_latency:
-      order_ms: 51.8
-      batch_ms: 5.16
-      telemetry_ms: 3.0
-    topics:
-      order:
-        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-      batch:
-        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
-      telemetry:
-        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-- name: ckc-smoke-2
   implementation: ckc
   application:
     replicas: 2
