@@ -45,13 +45,6 @@ SERVICE_BADGES = {
     "kafka-exporter": ("kafka-exporter", "KE", "#e6522c"),
     "process-exporter": ("process-exporter", "PE", "#e6522c"),
 }
-STUB_NAMES = {
-    "eta": "Arcane ETA ML",
-    "flavour": "Order flavour ML",
-    "registry": "Legacy brewing registry",
-}
-
-
 def esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
@@ -279,7 +272,7 @@ def environment_topology_svg(report: ExperimentReport) -> str:
             service_icon("demo-stubs", 346, 346, 30),
             '<text class="card-title" x="388" y="365">CKC demo stubs</text>',
             f'<text class="muted" x="346" y="396">1 pod · {esc(java_label("stubs"))}</text>',
-            '<text class="muted" x="346" y="416">Planned dependency latency below</text>',
+            '<text class="muted" x="346" y="416">Planned HTTP downstream behavior below</text>',
             '<rect x="70" y="530" width="485" height="250" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="88" y="557">Observability inside Kubernetes</text>',
             '<rect x="90" y="580" width="205" height="130" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
@@ -326,32 +319,6 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         ]
     body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     return svg_document(width, height, body, "Resolved environment topology")
-
-
-def stub_latency_svg(report: ExperimentReport) -> str:
-    stubs = report.test_definition.get("stubs", {})
-    if not isinstance(stubs, dict):
-        stubs = {}
-    streams = [(name, values) for name, values in stubs.items() if isinstance(values, dict)]
-    width = 1000
-    height = max(150, 92 + 42 * len(streams))
-    body = [
-        '<text class="title" x="30" y="32">Planned dependency-stub latency</text>',
-        '<text class="muted" x="30" y="52">Configured response-delay percentiles; separate from application message-handling time below.</text>',
-        '<rect x="25" y="68" width="950" height="28" rx="5" fill="#eaeef2"/>',
-        '<text class="table-head" x="45" y="87">Dependency</text>',
-        '<text class="table-head" x="500" y="87" text-anchor="middle">p90</text>',
-        '<text class="table-head" x="620" y="87" text-anchor="middle">p95</text>',
-        '<text class="table-head" x="740" y="87" text-anchor="middle">p99</text>',
-        '<text class="table-head" x="860" y="87" text-anchor="middle">max</text>',
-    ]
-    for index, (name, values) in enumerate(streams):
-        y = 120 + index * 42
-        body.extend([
-            f'<text class="label" x="45" y="{y}">{esc(STUB_NAMES.get(name, name))}</text>',
-            *[f'<text class="table-cell" x="{x}" y="{y}" text-anchor="middle">{esc(values.get(f"delay_{percentile}_ms", "—"))} ms</text>' for x, percentile in ((500, "p90"), (620, "p95"), (740, "p99"), (860, "p100"))],
-        ])
-    return svg_document(width, height, body, "Planned dependency-stub latency")
 
 
 def smoothed_line_path(points: list[tuple[float, float]], radius: float = 10) -> str:

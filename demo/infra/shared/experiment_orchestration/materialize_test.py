@@ -14,22 +14,24 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
-    def test_smoke_repeat_uses_five_minute_load_measurement_and_centered_capture(self) -> None:
+    def test_smoke_repeat_uses_one_minute_single_target_with_useful_traffic_windows(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/smoke-repeat.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
         resolve_experiment_definition(source, environment="internal-lab")
 
         workload = candidate["workload"]
+        self.assertEqual(["ckc-smoke-1"], [target["name"] for target in candidate["targets"]])
+        self.assertEqual(1000, workload["load"]["base_tps"])
         self.assertEqual(
-            "0 -> (30s, warmup) -> 100 -> (240s, maximum) -> 100 -> (30s, cool-down) -> 0",
+            "0 -> (10s, warmup) -> 100 -> (40s, maximum) -> 100 -> (10s, cool-down) -> 0",
             workload["load"]["load_profile"],
         )
         self.assertEqual(
-            {"name": "max-load", "start": "3m30s", "duration": "1m"},
+            {"name": "max-load", "start": "20s", "duration": "30s"},
             workload["measurement_window"],
         )
-        self.assertEqual(230, int(str(workload["diagnostics"][0]["at"]).removesuffix("s")))
-        self.assertEqual("20s", workload["diagnostics"][0]["duration"])
+        self.assertEqual("30s", workload["diagnostics"][0]["at"])
+        self.assertEqual("10s", workload["diagnostics"][0]["duration"])
 
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
