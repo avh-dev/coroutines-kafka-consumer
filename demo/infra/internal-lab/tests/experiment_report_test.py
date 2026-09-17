@@ -1196,18 +1196,48 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
             self.assertIn("Kafka network traffic analysis • Max load", markdown)
-            self.assertIn("Request efficiency · Consumer Fetch", markdown)
             self.assertIn("1.60 requests/s", markdown)
             self.assertIn("800 bytes", markdown)
             self.assertIn("1.25 records", markdown)
-            self.assertIn("Request efficiency · Producer Produce", markdown)
             self.assertIn("0.60 requests/s", markdown)
             self.assertIn("2,000 bytes", markdown)
             self.assertIn("3.33 records", markdown)
-            self.assertIn("Wire traffic", markdown)
+            self.assertNotIn("Request efficiency ·", markdown)
+            self.assertNotIn('<tr class="detail-subsection">', markdown)
+            network_start = markdown.index("Kafka network traffic analysis • Max load")
+            ordered_metrics = [
+                "Decoded producer records",
+                "Decoded consumer records",
+                "Message payload average",
+                "Kafka record average before compression",
+                "Producer requests",
+                "Producer request rate",
+                "Producer records per request",
+                "Producer request average",
+                "Producer response average",
+                "Consumer fetch requests",
+                "Consumer fetch request rate",
+                "Consumer fetch records per response",
+                "Consumer fetch request average",
+                "Consumer fetch response average",
+                "Batch compression",
+                "Producer wire bytes per message",
+                "Consumer wire bytes per message",
+                "Total wire bytes per message",
+            ]
+            metric_positions = [markdown.index(metric, network_start) for metric in ordered_metrics]
+            self.assertEqual(sorted(metric_positions), metric_positions)
+            self.assertIn(
+                'Message payload average<span class="metric-source source-c" title="Network packet capture">C</span></th><td>200 bytes/msg</td>',
+                markdown,
+            )
+            self.assertIn(
+                'Producer records per request<span class="metric-source source-c" title="Network packet capture">C</span></th><td>10.00 records</td>',
+                markdown,
+            )
             self.assertIn("Multiple topics", markdown)
             self.assertIn("Unattributed / capture boundary", markdown)
-            self.assertIn("PDU sizes exclude TCP/IP and link-layer headers", markdown)
+            self.assertIn("Request and response sizes exclude TCP/IP and link-layer headers", markdown)
 
     def test_report_only_shows_internal_audit_integrity_checks_when_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

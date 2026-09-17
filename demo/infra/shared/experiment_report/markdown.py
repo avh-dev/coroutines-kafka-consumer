@@ -441,7 +441,6 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}'
-            'table.comparison tr.detail-subsection th{background:#f6f8fa;color:#57606a;text-align:left;padding:6px 8px;font-weight:600}'
             'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
             'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
@@ -469,9 +468,6 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def subsection(title: str) -> None:
         lines.append(f'<tr class="subsection"><th colspan="{column_count}">{escaped(title)}</th></tr>')
-
-    def detail_subsection(title: str) -> None:
-        lines.append(f'<tr class="detail-subsection"><th colspan="{column_count}">{escaped(title)}</th></tr>')
 
     def topic_subsection(topic: str, suffix: str = "") -> None:
         limits = {
@@ -847,18 +843,35 @@ def render_markdown(report: ExperimentReport) -> str:
         row("CPU average · steady-state window", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
     row("CPU average · full run", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
 
-    def request_efficiency(capture_name: str, topic: str, role: str, api_name: str, record_direction: str | None) -> None:
-        detail_subsection(f"Request efficiency · {'Consumer Fetch' if role == 'consumer' else 'Producer Produce'}")
+    def request_metrics(capture_name: str, topic: str, role: str, api_name: str, record_direction: str | None) -> None:
+        label = "Consumer fetch" if role == "consumer" else "Producer"
         row(
-            "Requests",
-            counts([kafka_api_count(target, capture_name, topic, role, api_name, "request") for target in targets]),
+            f"{label} requests",
+            formatted(
+                [kafka_api_count(target, capture_name, topic, role, api_name, "request") for target in targets],
+                0,
+                "",
+            ),
             "capture",
         )
         row(
-            "Request rate",
-            compared([kafka_api_rate(target, capture_name, topic, role, api_name) for target in targets], 2, " requests/s"),
+            f"{label} request rate",
+            formatted([kafka_api_rate(target, capture_name, topic, role, api_name) for target in targets], 2, " requests/s"),
             "capture",
         )
+        if record_direction is not None:
+            row(
+                f"{label} records per {record_direction}",
+                formatted(
+                    [
+                        decoded_records_per_exchange(target, capture_name, topic, role, api_name, record_direction)
+                        for target in targets
+                    ],
+                    2,
+                    " records",
+                ),
+                "capture",
+            )
         request_sizes = [
             kafka_api_average_bytes(target, capture_name, topic, role, api_name, "request")
             for target in targets
@@ -868,48 +881,35 @@ def render_markdown(report: ExperimentReport) -> str:
             for target in targets
         ]
         row(
-            "Average request PDU",
+            f"{label} request average",
             compared(request_sizes, 0, " bytes", lower_is_better=False) if role == "producer" else formatted(request_sizes, 0, " bytes"),
             "capture",
         )
         row(
-            "Average response PDU",
+            f"{label} response average",
             compared(response_sizes, 0, " bytes", lower_is_better=False) if role == "consumer" else formatted(response_sizes, 0, " bytes"),
             "capture",
         )
-        if record_direction is not None:
-            row(
-                f"Decoded records per {record_direction}",
-                compared(
-                    [
-                        decoded_records_per_exchange(target, capture_name, topic, role, api_name, record_direction)
-                        for target in targets
-                    ],
-                    2,
-                    " records",
-                    lower_is_better=False,
-                ),
-                "capture",
-            )
 
     for step in diagnostic_steps:
         capture_name = str(step["name"])
         section(f"Kafka network traffic analysis • {capture_title(capture_name)}")
         for topic in capture_topics(capture_name):
             topic_subsection(topic)
-            request_efficiency(capture_name, topic, "consumer", "Fetch", "response")
-            request_efficiency(capture_name, topic, "producer", "Produce", "request")
-            detail_subsection("Wire traffic")
+            row("Decoded producer records", [number(role_topic_wire(target, capture_name, topic, "producer")[1], 0) for target in targets], "capture")
+            row("Decoded consumer records", [number(role_topic_wire(target, capture_name, topic, "consumer")[1], 0) for target in targets], "capture")
             row(
                 "Message payload average",
-                compared([topic_record_average(target, capture_name, topic, "value_bytes") for target in targets], 0, " bytes/msg"),
+                formatted([topic_record_average(target, capture_name, topic, "value_bytes") for target in targets], 0, " bytes/msg"),
                 "capture",
             )
             row(
                 "Kafka record average before compression",
-                compared([topic_record_average(target, capture_name, topic, "uncompressed_record_bytes") for target in targets], 0, " bytes/msg"),
+                formatted([topic_record_average(target, capture_name, topic, "uncompressed_record_bytes") for target in targets], 0, " bytes/msg"),
                 "capture",
             )
+            request_metrics(capture_name, topic, "producer", "Produce", "request")
+            request_metrics(capture_name, topic, "consumer", "Fetch", "response")
             compression = [topic_compression(target, capture_name, topic) for target in targets]
             row(
                 "Batch compression",
@@ -923,12 +923,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 ),
                 "capture",
             )
-            row("Producer", compared([bytes_per_message(target, capture_name, topic, "producer") for target in targets], 0, " bytes/msg"), "capture")
-            row("Consumer", compared([bytes_per_message(target, capture_name, topic, "consumer") for target in targets], 0, " bytes/msg"), "capture")
-            row("Decoded producer records", [number(role_topic_wire(target, capture_name, topic, "producer")[1], 0) for target in targets], "capture")
-            row("Decoded consumer records", [number(role_topic_wire(target, capture_name, topic, "consumer")[1], 0) for target in targets], "capture")
+            row("Producer wire bytes per message", compared([bytes_per_message(target, capture_name, topic, "producer") for target in targets], 0, " bytes/msg"), "capture")
+            row("Consumer wire bytes per message", compared([bytes_per_message(target, capture_name, topic, "consumer") for target in targets], 0, " bytes/msg"), "capture")
             row(
-                "Total",
+                "Total wire bytes per message",
                 compared([
                     None
                     if bytes_per_message(target, capture_name, topic, "producer") is None
@@ -945,13 +943,13 @@ def render_markdown(report: ExperimentReport) -> str:
         ):
             if has_topic_bucket(capture_name, bucket):
                 subsection(label)
-                request_efficiency(capture_name, bucket, "consumer", "Fetch", None)
-                request_efficiency(capture_name, bucket, "producer", "Produce", None)
+                request_metrics(capture_name, bucket, "producer", "Produce", None)
+                request_metrics(capture_name, bucket, "consumer", "Fetch", None)
 
     lines.extend(["</tbody></table>", ""])
     if diagnostic_steps:
         lines.extend([
-            "Kafka request efficiency is calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly. Empty incremental Fetch exchanges inherit a topic only when their TCP stream is unambiguous; genuine multi-topic and remaining unattributed exchanges are reported separately. PDU sizes exclude TCP/IP and link-layer headers; rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
+            "Kafka request metrics are calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly. Empty incremental Fetch exchanges inherit a topic only when their TCP stream is unambiguous; genuine multi-topic and remaining unattributed exchanges are reported separately. Request and response sizes exclude TCP/IP and link-layer headers; rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",
             "",
             "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
