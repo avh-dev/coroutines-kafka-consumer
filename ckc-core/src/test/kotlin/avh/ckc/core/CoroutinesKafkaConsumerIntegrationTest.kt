@@ -10,6 +10,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.NewTopic
+import org.apache.kafka.clients.admin.OffsetSpec
+import org.apache.kafka.clients.admin.RecordsToDelete
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerInterceptor
+import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.clients.producer.KafkaProducer
@@ -604,10 +609,107 @@ class CoroutinesKafkaConsumerIntegrationTest {
         }
     }
 
-    private fun consumerProperties(groupId: String): Map<String, Any?> = mapOf(
+    @Test
+    fun `when earliest skips offsets removed from the log then commits advance across the gap`() = runBlocking {
+        val topic = "retention-earliest-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        produce(topic, "key-0", "0")
+        produce(topic, "key-1", "1")
+        consumeUntilCommitted(topic, groupId, expectedOffset = 2L)
+
+        repeat(4) { index -> produce(topic, "key-${index + 2}", "${index + 2}") }
+        deleteRecordsBefore(topic, 4L)
+        assertEquals(2L, committedOffset(groupId, topic)?.offset())
+        assertEquals(4L, logStartOffset(topic))
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = testConsumer(topic, groupId, autoOffsetReset = "earliest") { record ->
+            processed += record.offset()
+        }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 20_000) { processed.takeIf { it.containsAll(listOf(4L, 5L)) } }
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() > 4L }
+            }
+
+            assertEquals(listOf(4L, 5L), processed.sorted())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when latest skips retained records then a new record commits across the gap`() = runBlocking {
+        val topic = "retention-latest-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        produce(topic, "key-0", "0")
+        produce(topic, "key-1", "1")
+        consumeUntilCommitted(topic, groupId, expectedOffset = 2L)
+
+        repeat(4) { index -> produce(topic, "key-${index + 2}", "${index + 2}") }
+        deleteRecordsBefore(topic, 4L)
+        assertEquals(2L, committedOffset(groupId, topic)?.offset())
+        assertEquals(4L, logStartOffset(topic))
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = testConsumer(topic, groupId, autoOffsetReset = "latest") { record ->
+            processed += record.offset()
+        }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 15_000) {
+                consumer.stateSnapshot().takeIf { it.assignedPartitionCount == 1 }
+            }
+            delay(500)
+            produce(topic, "key-6", "6")
+
+            awaitFor(timeoutMillis = 20_000) { processed.takeIf { it.contains(6L) } }
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 7L }
+            }
+
+            assertEquals(listOf(6L), processed.toList())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when kafka client filters an internal offset then commit advances across the gap`() = runBlocking {
+        val topic = "filtered-gap-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        repeat(3) { index -> produce(topic, "key-$index", "$index") }
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = testConsumer(
+            topic = topic,
+            groupId = groupId,
+            additionalProperties = mapOf(
+                ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG to DropOffsetOneConsumerInterceptor::class.java.name
+            )
+        ) { record ->
+            processed += record.offset()
+        }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 3L }
+            }
+
+            assertEquals(listOf(0L, 2L), processed.sorted())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    private fun consumerProperties(groupId: String, autoOffsetReset: String = "earliest"): Map<String, Any?> = mapOf(
         "bootstrap.servers" to kafka.bootstrapServers,
         "group.id" to groupId,
-        "auto.offset.reset" to "earliest",
+        "auto.offset.reset" to autoOffsetReset,
         "enable.auto.commit" to "false",
         "key.deserializer" to StringDeserializer::class.java,
         "value.deserializer" to StringDeserializer::class.java
@@ -640,6 +742,62 @@ class CoroutinesKafkaConsumerIntegrationTest {
         }
     }
 
+    private suspend fun consumeUntilCommitted(topic: String, groupId: String, expectedOffset: Long) {
+        val consumer = testConsumer(topic, groupId) { }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == expectedOffset }
+            }
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    private fun testConsumer(
+        topic: String,
+        groupId: String,
+        autoOffsetReset: String = "earliest",
+        additionalProperties: Map<String, Any?> = emptyMap(),
+        handler: KafkaRecordHandler<String, String>
+    ): CoroutinesKafkaConsumer<String, String> =
+        coroutinesKafkaConsumer(consumerProperties(groupId, autoOffsetReset) + additionalProperties) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            workerConcurrency = 4
+            workChannelCapacity = 32
+            topics(topic)
+            handle { record -> handler.process(record) }
+        }
+
+    private fun deleteRecordsBefore(topic: String, offset: Long, partition: Int = 0) {
+        val topicPartition = TopicPartition(topic, partition)
+        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
+            admin.deleteRecords(mapOf(topicPartition to RecordsToDelete.beforeOffset(offset))).all().get()
+        }
+        awaitForBlocking {
+            logStartOffset(topic, partition).takeIf { it == offset }
+        }
+    }
+
+    private fun logStartOffset(topic: String, partition: Int = 0): Long {
+        val topicPartition = TopicPartition(topic, partition)
+        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
+            return admin.listOffsets(mapOf(topicPartition to OffsetSpec.earliest()))
+                .all().get().getValue(topicPartition).offset()
+        }
+    }
+
+    private fun <T : Any> awaitForBlocking(timeoutMillis: Long = 15_000, block: () -> T?): T {
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (System.currentTimeMillis() < deadline) {
+            block()?.let { return it }
+            Thread.sleep(50)
+        }
+        error("Condition was not met within ${timeoutMillis}ms")
+    }
+
     private fun produce(topic: String, key: String, value: String, partition: Int? = null) {
         KafkaProducer<String, String>(
             mapOf(
@@ -659,4 +817,19 @@ class CoroutinesKafkaConsumerIntegrationTest {
         @JvmStatic
         val kafka = KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"))
     }
+}
+
+class DropOffsetOneConsumerInterceptor : ConsumerInterceptor<String, String> {
+    override fun configure(configs: MutableMap<String, *>?) = Unit
+
+    override fun onConsume(records: ConsumerRecords<String, String>): ConsumerRecords<String, String> =
+        ConsumerRecords(
+            records.partitions().associateWith { topicPartition ->
+                records.records(topicPartition).filterNot { it.offset() == 1L }
+            }
+        )
+
+    override fun onCommit(offsets: MutableMap<TopicPartition, OffsetAndMetadata>?) = Unit
+
+    override fun close() = Unit
 }

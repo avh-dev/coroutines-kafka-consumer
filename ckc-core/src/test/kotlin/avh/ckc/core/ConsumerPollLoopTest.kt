@@ -41,6 +41,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class ConsumerPollLoopTest {
@@ -292,6 +293,47 @@ class ConsumerPollLoopTest {
             assertFalse(state.isProcessed(42L))
             assertTrue(state.isProcessed(43L))
             verify(fixture.consumer, never()).position(fixture.topicPartition)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when kafka omits offsets then only the missing range is marked processed`() = runBlocking {
+            val pollCount = AtomicInteger()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L)),
+                pollAnswer = {
+                    when (pollCount.getAndIncrement()) {
+                        0 -> recordsOf(topicPartition, record(offset = 42L))
+                        1 -> recordsOf(topicPartition, record(offset = 45L))
+                        else -> emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+
+            val first = withTimeout(2_000) { fixture.workChannel.receive() }
+            val second = withTimeout(2_000) { fixture.workChannel.receive() }
+            assertEquals(42L, first.offset())
+            assertEquals(45L, second.offset())
+
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
+            state.advanceAndGetPendingOffsetsCount()
+            assertEquals(41L, state.trackerRefForTest().lastProcessedOffset)
+            assertFalse(state.isProcessed(42L))
+            assertTrue(state.isProcessed(43L))
+            assertTrue(state.isProcessed(44L))
+            assertFalse(state.isProcessed(45L))
+
+            state.markProcessed(42L)
+            state.advanceAndGetPendingOffsetsCount()
+            assertEquals(44L, state.trackerRefForTest().lastProcessedOffset)
 
             job.cancel()
             job.join()

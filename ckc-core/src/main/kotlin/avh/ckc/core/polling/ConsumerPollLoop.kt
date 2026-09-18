@@ -437,6 +437,7 @@ internal class ConsumerPollLoop<K, V>(
             if (state == State.ACTIVE) {
                 while (iterator.hasNext()) {
                     val record = iterator.next()
+                    observeRecordOffset(record)
                     val accepted = recordSink.tryEmit(record)
 
                     if (!accepted) {
@@ -452,6 +453,7 @@ internal class ConsumerPollLoop<K, V>(
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
                 val record = iterator.next()
+                observeRecordOffset(record)
                 stash.addLast(record)
             }
 
@@ -476,6 +478,11 @@ internal class ConsumerPollLoop<K, V>(
                 }
             }
         }
+    }
+
+    /** Marks offsets Kafka skipped before a record while leaving the delivered record pending for a worker. */
+    private fun observeRecordOffset(record: ConsumerRecord<K, V>) {
+        partitionStateRegistry.partitionStateFor(record)?.observe(record.offset())
     }
 
     private fun advanceAndCountPendingOffsets(): Long {

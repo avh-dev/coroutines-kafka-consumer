@@ -58,6 +58,41 @@ class PartitionStateTest {
     }
 
     @Test
+    fun `observed offset gap is completed without completing delivered records`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+
+        ps.observe(10L)
+        ps.observe(15L)
+
+        assertFalse(ps.isProcessed(10L))
+        for (offset in 11L until 15L) {
+            assertTrue(ps.isProcessed(offset))
+        }
+        assertFalse(ps.isProcessed(15L))
+
+        ps.advanceAndGetPendingOffsetsCount()
+        assertEquals(9L, ps.trackerRefForTest().lastProcessedOffset)
+
+        ps.markProcessed(10L)
+        ps.advanceAndGetPendingOffsetsCount()
+        assertEquals(14L, ps.trackerRefForTest().lastProcessedOffset)
+    }
+
+    @Test
+    fun `reobserved older offset does not close a delivered record`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        ps.observe(10L)
+        ps.observe(15L)
+
+        ps.observe(12L)
+
+        assertFalse(ps.isProcessed(10L))
+        assertFalse(ps.isProcessed(15L))
+    }
+
+    @Test
     fun `when initialized from snapshot then processed offsets are restored`() {
         val original = OffsetTracker(initialProcessedOffset = 9L)
         original.markProcessed(10L)

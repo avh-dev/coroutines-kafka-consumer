@@ -55,6 +55,7 @@
 | [CORE-50](#core-50) | Compact oversized `OffsetTracker` ring buffers after transient out-of-order processing spikes.                                                                                                            | DONE |
 | [CORE-51](#core-51) | Replace record-age telemetry with successful end-to-end record processing latency.                                                                                                                       | DONE |
 | [CORE-52](#core-52) | Serialize in-flight and queued successors per key in freshness-first processing.                                                                                                                         | DONE |
+| [CORE-53](#core-53) | Track non-contiguous Kafka offsets without blocking commits on records Kafka did not deliver.                                                                                                                   | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -3962,9 +3963,22 @@ Verification: the canonical experiment validates with a three-broker cluster, a 
 <a id="infra-197"></a>
 ### INFRA-197 - Refine experiment report framing
 
-_Date: 2026-09-18_
+_Date: 2026-09-19_
 
 Give generated reports a clear CKC Lab document title, experiment name, and execution timing.
 Present the experiment description as an explicit goal near the top of the report.
 Restyle planned HTTP stub behavior consistently with the other report tables and compact downstream context beneath each name.
 Verification: all 74 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository, and no smoke experiment was launched automatically.
+
+<a id="core-53"></a>
+### CORE-53 - Track non-contiguous Kafka offsets
+
+_Date: 2026-09-18_
+
+Detect gaps in the monotonically increasing offsets Kafka delivers for each partition and mark only the missing ranges as complete.
+Keep actual records pending until their handlers finish so out-of-order worker completion retains the existing at-least-once commit boundary.
+Cover compacted, filtered, and retention-style gaps without reimplementing Kafka's `auto.offset.reset` policy inside CKC.
+Verification: all 112 core unit tests pass, including range tracking, ring wrap, large-gap compaction, multi-poll gaps, and an in-flight record before a gap.
+Real-Kafka filtered-gap and `earliest`/`latest` retention tests pass together with focused metadata commit, metadata restore, and rebalance regressions.
+Production `markProcessed` JMH results match `master` after keeping range validation and synchronization off the contiguous-offset hot path.
+The complete integration suite was not run because of the pre-existing deserialization-failure shutdown hang tracked separately from this task.

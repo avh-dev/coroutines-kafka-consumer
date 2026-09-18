@@ -170,6 +170,61 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         assertFalse(tracker.isProcessed(10_000L))
     }
 
+    @Test
+    fun `processed range fills partial and complete ring words`() {
+        val tracker = OffsetTracker(initialProcessedOffset = 9L)
+
+        tracker.markProcessedRange(10L, 205L)
+
+        tracker.advanceProcessedFrontier()
+        assertEquals(204L, tracker.lastProcessedOffset)
+        assertFalse(tracker.isProcessed(205L))
+    }
+
+    @Test
+    fun `processed range preserves pending offsets before and after the range`() {
+        val tracker = OffsetTracker(initialProcessedOffset = 9L)
+        tracker.markProcessed(10L)
+        tracker.markProcessedRange(12L, 200L)
+        tracker.markProcessed(200L)
+
+        tracker.advanceProcessedFrontier()
+        assertEquals(10L, tracker.lastProcessedOffset)
+        assertFalse(tracker.isProcessed(11L))
+        assertTrue(tracker.isProcessed(12L))
+        assertTrue(tracker.isProcessed(200L))
+    }
+
+    @Test
+    fun `large processed range compacts after frontier advances`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L)
+        tracker.markProcessedRange(0L, 16_384L)
+        assertEquals(16_384, tracker.bitCapacity)
+
+        tracker.advanceProcessedFrontier()
+        tracker.compact()
+
+        assertEquals(16_383L, tracker.lastProcessedOffset)
+        assertEquals(128, tracker.bitCapacity)
+    }
+
+    @Test
+    fun `processed range follows a wrapped ring head`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L)
+        tracker.markProcessedRange(0L, 64L)
+        tracker.advanceProcessedFrontier()
+        assertEquals(63L, tracker.lastProcessedOffset)
+
+        tracker.markProcessedRange(70L, 140L)
+
+        assertFalse(tracker.isProcessed(69L))
+        assertTrue(tracker.isProcessed(70L))
+        assertTrue(tracker.isProcessed(139L))
+        tracker.markProcessedRange(64L, 70L)
+        tracker.advanceProcessedFrontier()
+        assertEquals(139L, tracker.lastProcessedOffset)
+    }
+
     private fun OffsetTracker.snapshotRoundTrip(): OffsetTrackerSnapshot =
         OffsetTrackerSerializer.deserialize(OffsetTrackerSerializer.serialize(snapshot()))
 }

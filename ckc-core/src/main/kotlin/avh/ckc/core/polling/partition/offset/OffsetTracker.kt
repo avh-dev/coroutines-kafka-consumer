@@ -93,6 +93,32 @@ internal class OffsetTracker(
         }
     }
 
+    /** Marks every offset in `[fromInclusive, toExclusive)` as processed. */
+    fun markProcessedRange(fromInclusive: Long, toExclusive: Long) {
+        synchronized(this) {
+            if (fromInclusive >= toExclusive || toExclusive <= headWordOffset) return
+
+            val firstOffset = max(fromInclusive, headWordOffset)
+            val lastOffset = toExclusive - 1
+            val lastBitIndex = bitIndex(lastOffset)
+            if (lastBitIndex >= capacityBits) {
+                extendCapacity(lastBitIndex)
+            }
+
+            var currentBitIndex = firstOffset - headWordOffset
+            val endBitIndex = toExclusive - headWordOffset
+            while (currentBitIndex < endBitIndex) {
+                val bitInWord = (currentBitIndex and 63L).toInt()
+                val bitCount = minOf((64 - bitInWord).toLong(), endBitIndex - currentBitIndex).toInt()
+                val logicalWordIndex = (currentBitIndex ushr 6).toInt()
+                val wordIndex = (logicalWordIndex + headWordIndex) and wordMask
+                val lowBits = if (bitCount == 64) -1L else (1L shl bitCount) - 1L
+                words[wordIndex] = words[wordIndex] or (lowBits shl bitInWord)
+                currentBitIndex += bitCount
+            }
+        }
+    }
+
     /**
      * Returns whether [offset] is already known as processed.
      *
@@ -222,6 +248,14 @@ internal class OffsetTracker(
     private fun ceilPow2(v: Int) = 1 shl (32 - (v - 1).countLeadingZeroBits())
 
     private fun Int.isPowerOfTwo() = this > 0 && (this and (this - 1)) == 0
+
+    private fun bitIndex(offset: Long): Int {
+        val index = offset - headWordOffset
+        require(index in 0..Int.MAX_VALUE.toLong()) {
+            "Offset $offset is outside the trackable range starting at $headWordOffset"
+        }
+        return index.toInt()
+    }
 
     /**
      * Extends ring buffer capacity to be able to store bitIndex
