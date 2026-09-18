@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import math
+from datetime import datetime
 from typing import Any
 
 from .model import ExperimentReport, TargetReport
@@ -19,6 +20,44 @@ def escaped(value: Any) -> str:
     if value is None or value == "":
         return "—"
     return html.escape(str(value), quote=True)
+
+
+def execution_time(report: ExperimentReport) -> str:
+    def instant(value: str) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def duration(seconds: float | None) -> str:
+        if seconds is None:
+            return ""
+        rounded = max(0, int(round(seconds)))
+        hours, remainder = divmod(rounded, 3600)
+        minutes, remaining_seconds = divmod(remainder, 60)
+        parts = []
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+        if remaining_seconds or not parts:
+            parts.append(f"{remaining_seconds}s")
+        return " ".join(parts)
+
+    started = instant(report.started_at)
+    ended = instant(report.ended_at)
+    interval = ""
+    if started and ended:
+        if started.date() == ended.date() and started.tzname() == ended.tzname():
+            interval = f"{started:%Y-%m-%d %H:%M}–{ended:%H:%M} {started.tzname() or ''}".rstrip()
+        else:
+            interval = f"{started:%Y-%m-%d %H:%M %Z}–{ended:%Y-%m-%d %H:%M %Z}".strip()
+    elif started:
+        interval = f"{started:%Y-%m-%d %H:%M %Z}".strip()
+    elapsed = duration(report.duration_seconds)
+    return " · ".join(part for part in (interval, f"Duration {elapsed}" if elapsed else "") if part)
 
 
 def normalized_histogram(raw: Any) -> dict[int, int]:
@@ -449,7 +488,7 @@ def render_markdown(report: ExperimentReport) -> str:
         if stream == "eta":
             return "100%"
         if stream == "flavour":
-            return "1 of 4 · 25%"
+            return "25%"
         load_test = report.test_definition.get("load_test")
         if stream != "registry" or not isinstance(load_test, dict):
             return "—"
@@ -459,38 +498,42 @@ def render_markdown(report: ExperimentReport) -> str:
             return "—"
         shares = [100 * steps / (steps + 9) for steps in range(minimum, maximum + 1)]
         average = sum(shares) / len(shares)
-        return f"≈{number(average, 1)}% · {minimum}–{maximum} of {minimum + 9}–{maximum + 9}"
+        return f"≈{number(average, 1)}%"
 
     stubs = report.test_definition.get("stubs")
     stubs = stubs if isinstance(stubs, dict) else {}
     downstream_definitions = (
-        ("eta", "Arcane ETA ML", "cauldron.events.v1", "Every eligible telemetry event"),
-        ("flavour", "Order flavour ML", "order.events.v1", "ORDER_CREATED"),
-        ("registry", "Legacy brewing registry", "batch.events.v1", "BATCH_BREWING_STEP_COMPLETED"),
+        ("eta", "Arcane ETA ML", "cauldron.events.v1"),
+        ("flavour", "Order flavour ML", "order.events.v1"),
+        ("registry", "Legacy brewing registry", "batch.events.v1"),
     )
     downstream_rows = []
-    for stream, name, topic, invocation in downstream_definitions:
+    for stream, name, topic in downstream_definitions:
         latency = stubs.get(stream)
         if not isinstance(latency, dict):
             continue
         downstream_rows.append(
-            "| " + " | ".join([
-                name,
-                f"`{topic}`",
-                f"`{invocation}`" if invocation.isupper() else invocation,
-                downstream_share(stream),
-                f'{number(stubs.get("error_rate_percent"), 1)}%',
-                *[f'{number(latency.get(f"delay_{percentile}_ms"), 0)} ms' for percentile in ("p90", "p95", "p99", "p100")],
-            ]) + " |"
+            '<tr><th scope="row">'
+            f'<span class="downstream-name">{escaped(name)}</span><br>'
+            f'<span class="downstream-context"><code>{escaped(topic)}</code> • {downstream_share(stream)}</span>'
+            '</th>'
+            f'<td>{number(stubs.get("error_rate_percent"), 1)}%</td>'
+            + "".join(
+                f'<td>{number(latency.get(f"delay_{percentile}_ms"), 0)} ms</td>'
+                for percentile in ("p90", "p95", "p99", "p100")
+            )
+            + '</tr>'
         )
     downstream_table = [
-        "### Planned HTTP downstream behavior",
+        "### Planned HTTP stub behavior",
         "",
-        "| HTTP downstream | Kafka topic | Invocation | Topic messages invoking it | Error rate | p90 | p95 | p99 | max |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        '<table class="comparison stub-behavior">',
+        '<thead><tr><th>Stubbed downstream</th><th>Error rate</th><th>p90</th><th>p95</th><th>p99</th><th>max</th></tr></thead>',
+        '<tbody>',
         *downstream_rows,
+        '</tbody></table>',
         "",
-        "Configured response delays and error rates; separate from application message-handling time below.",
+        "Configured demo-stub response delays and error rates; separate from application message-handling time below.",
     ]
 
     def required_key_order_violations(target: TargetReport, windowed: bool) -> int | None:
@@ -512,7 +555,13 @@ def render_markdown(report: ExperimentReport) -> str:
         else ["**Environment evidence is unavailable for this run.**"]
     )
     lines = [
-        f"# Experiment Report: {escaped(report.name)}",
+        "# CKC Lab Experiment Report",
+        "",
+        f"## {escaped(report.name)}",
+        "",
+        f'<p class="report-execution-time">{escaped(execution_time(report))}</p>',
+        "",
+        "## Experiment goal",
         "",
         escaped(report.description),
         "",
@@ -545,6 +594,9 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .audit-anomaly{color:#b42318;font-weight:700}'
             'table.comparison .topic-name{font-weight:600}'
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
+            '.report-execution-time{margin-top:-.35em;color:#57606a}'
+            'table.stub-behavior .downstream-name{font-weight:600}'
+            'table.stub-behavior .downstream-context{font-size:.82em;color:#57606a;font-weight:400;white-space:nowrap}'
             '.metric-source{display:inline-block;box-sizing:border-box;width:1.45em;height:1.45em;margin-left:.35em;border:1px solid;border-radius:50%;font-size:.68em;font-weight:700;line-height:1.3em;text-align:center;vertical-align:.12em}'
             '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
             '.source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'

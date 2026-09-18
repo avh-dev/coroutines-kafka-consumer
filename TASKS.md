@@ -344,6 +344,7 @@
 | [INFRA-194](#infra-194) | Strengthen the one-minute smoke with 1k TPS and useful measurement and capture windows. | DONE |
 | [INFRA-195](#infra-195) | Reorder Kafka network analysis around batching, protocol behavior, and wire cost. | DONE |
 | [INFRA-196](#infra-196) | Add a 20-minute repeated CKC target experiment for measuring internal-lab run-to-run variability. | DONE |
+| [INFRA-197](#infra-197) | Refine the experiment report header, goal, and planned HTTP stub presentation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -3957,3 +3958,13 @@ Add an internal-lab A/A experiment derived from a recent successful three-broker
 Run the same CKC target twice with an identical 20-minute load profile so the report exposes run-to-run variability on unchanged hardware.
 Keep the experiment compatible with report-only execution that skips evidence and audit archives.
 Verification: the canonical experiment validates with a three-broker cluster, a 20-minute load profile, a 15-minute measurement window, and structurally identical targets; all 28 orchestration and 74 internal-lab tests pass. The installed definition checksum matches the repository, and no experiment was launched automatically.
+
+<a id="infra-197"></a>
+### INFRA-197 - Refine experiment report framing
+
+_Date: 2026-09-18_
+
+Give generated reports a clear CKC Lab document title, experiment name, and execution timing.
+Present the experiment description as an explicit goal near the top of the report.
+Restyle planned HTTP stub behavior consistently with the other report tables and compact downstream context beneath each name.
+Verification: all 74 internal-lab tests pass; modified Python files compile and whitespace validation passes. The installed report renderer checksum matches the repository, and no smoke experiment was launched automatically.
