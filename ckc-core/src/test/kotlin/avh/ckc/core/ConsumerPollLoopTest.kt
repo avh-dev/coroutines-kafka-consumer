@@ -453,6 +453,36 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when partition is revoked with an inflight offset then later completed offsets are not committed`() = runBlocking {
+            val listenerRef = AtomicReference<ConsumerRebalanceListener?>()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 101L,
+                commitIntervalMs = 25L,
+                listenerRef = listenerRef,
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 100L)
+            state.markProcessed(102L)
+            state.markProcessed(103L)
+
+            listenerRef.get()!!.onPartitionsRevoked(listOf(fixture.topicPartition))
+            state.markProcessed(101L)
+            delay(100)
+
+            verify(fixture.consumer, never())
+                .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when commit interval elapses in AT_LEAST_ONCE_NO_ORDERING mode then ready offsets are committed`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
