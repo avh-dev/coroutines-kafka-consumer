@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -83,6 +84,56 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         runtime.start { throw it }
         assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "key-a")))
         assertTrue(runtime.tryEmit(typedTestRecord(offset = 2L, key = "key-b")))
+
+        withTimeout(2_000) { firstStarted.await() }
+        withTimeout(2_000) { secondStarted.await() }
+        releaseFirst.complete(Unit)
+        runtime.stop()
+    }
+
+    @Test
+    fun `when ordered by key then equal byte array keys are sequential even if handler mutates a key`() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val runtime = byteArrayOrderedRuntime { record ->
+            if (record.offset() == 1L) {
+                record.key()[0] = 99
+                firstStarted.complete(Unit)
+                releaseFirst.await()
+            } else {
+                secondStarted.complete(Unit)
+            }
+        }
+
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(ConsumerRecord("topic-a", 0, 1L, byteArrayOf(1, 2), "first")))
+        assertTrue(runtime.tryEmit(ConsumerRecord("topic-a", 0, 2L, byteArrayOf(1, 2), "second")))
+
+        withTimeout(2_000) { firstStarted.await() }
+        assertEquals(null, withTimeoutOrNull(200) { secondStarted.await() })
+        releaseFirst.complete(Unit)
+        withTimeout(2_000) { secondStarted.await() }
+        runtime.stop()
+    }
+
+    @Test
+    fun `when ordered by key then different byte array content may process concurrently`() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val runtime = byteArrayOrderedRuntime { record ->
+            if (record.offset() == 1L) {
+                firstStarted.complete(Unit)
+                releaseFirst.await()
+            } else {
+                secondStarted.complete(Unit)
+            }
+        }
+
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(ConsumerRecord("topic-a", 0, 1L, byteArrayOf(1, 2), "first")))
+        assertTrue(runtime.tryEmit(ConsumerRecord("topic-a", 0, 2L, byteArrayOf(1, 3), "second")))
 
         withTimeout(2_000) { firstStarted.await() }
         withTimeout(2_000) { secondStarted.await() }
@@ -262,4 +313,22 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
     @Suppress("UNCHECKED_CAST")
     private fun noopMetrics(): ConsumerMetrics<String, String> =
         ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun byteArrayOrderedRuntime(
+        handler: KafkaRecordHandler<ByteArray, String>
+    ): AtLeastOnceOrderingRecordProcessingRuntime<ByteArray, String> =
+        AtLeastOnceOrderingRecordProcessingRuntime(
+            workerConcurrency = 2,
+            workChannelCapacity = 8,
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            processingDispatcher = Dispatchers.Default,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<ByteArray, String>,
+            handler = handler,
+            retryPolicy = RetryPolicy.none(),
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            recordProcessingContext = null,
+            processedRecordTracker = NoopProcessedRecordTracker
+        )
 }

@@ -22,6 +22,8 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.LongDeserializer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
@@ -73,6 +75,49 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 withTimeout(15_000) { processed.await() }
             )
         } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when equal byte array keys are deserialized separately then key ordering remains sequential`() = runBlocking {
+        val topic = "byte-array-key-ordering-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        produce(topic, byteArrayOf(1, 2, 3), "first")
+        produce(topic, byteArrayOf(1, 2, 3), "second")
+
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val consumer = coroutinesKafkaConsumer<ByteArray, String>(
+            consumerProperties(groupId) + mapOf(
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java
+            )
+        ) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING
+            workerConcurrency = 2
+            workChannelCapacity = 8
+            topics(topic)
+            handle { record ->
+                if (record.offset() == 0L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                } else if (record.offset() == 1L) {
+                    secondStarted.complete(Unit)
+                }
+            }
+        }
+
+        try {
+            consumer.start()
+            withTimeout(15_000) { firstStarted.await() }
+            delay(500)
+            assertFalse(secondStarted.isCompleted)
+            releaseFirst.complete(Unit)
+            withTimeout(15_000) { secondStarted.await() }
+        } finally {
+            releaseFirst.complete(Unit)
             consumer.stop()
         }
     }
@@ -1025,6 +1070,20 @@ class CoroutinesKafkaConsumerIntegrationTest {
             mapOf(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.ACKS_CONFIG to "all"
+            )
+        ).use { producer ->
+            producer.send(ProducerRecord(topic, partition, key, value)).get()
+            producer.flush()
+        }
+    }
+
+    private fun produce(topic: String, key: ByteArray, value: String, partition: Int? = null) {
+        KafkaProducer<ByteArray, String>(
+            mapOf(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
                 ProducerConfig.ACKS_CONFIG to "all"
             )

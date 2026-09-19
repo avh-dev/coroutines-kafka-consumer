@@ -60,6 +60,7 @@
 | [CORE-55](#core-55) | Preserve at-least-once delivery when partitions are rebalanced during active and queued record processing.                                                                                                      | DONE |
 | [CORE-56](#core-56) | Reprocess records from the authoritative group offset after an explicit backward administrative reset.                                                                                                           | DONE |
 | [CORE-57](#core-57) | Bind versioned CKC offset metadata to its consumer group, topic partition, and committed offset.                                                                                                                    | DONE |
+| [CORE-58](#core-58) | Use content equality for byte-array keys in key ordering and freshness replacement.                                                                                                                                 | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4026,3 +4027,13 @@ Add an explicit CKC format signature and version around offset-tracker metadata.
 Bind each snapshot to its consumer group, topic partition, and Kafka committed offset, with corruption detection.
 Reject legacy, foreign, stale, transplanted, unsupported, or malformed metadata and fall back to the authoritative Kafka offset.
 Verification: all 121 core unit tests and all 20 real-Kafka integration tests pass, including valid metadata restoration and rejection of stale metadata after a backward reset.
+
+<a id="core-58"></a>
+### CORE-58 - Preserve byte-array key content equality
+
+_Date: 2026-09-19_
+
+Treat deserialized `ByteArray` keys with equal content as the same identity in both key-based runtimes.
+Keep the key identity stable if application code mutates the record key during processing.
+Verify ordered processing and freshness replacement for equal byte-array content, while preserving concurrency for different content.
+Verification: all 124 core unit tests and all 21 real-Kafka integration tests pass.

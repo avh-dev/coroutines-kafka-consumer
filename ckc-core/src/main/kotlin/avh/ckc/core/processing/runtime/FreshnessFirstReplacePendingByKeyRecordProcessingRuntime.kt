@@ -65,7 +65,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         workQueueCapacity = workChannelCapacity
     )
     private val admissionBudget = AdmissionBudget(workChannelCapacity, runtimeStats)
-    private val states = ConcurrentHashMap<FreshnessKey, KeyState<K, V>>()
+    private val states = ConcurrentHashMap<RecordKeyIdentity, KeyState<K, V>>()
     private val acceptingRecords = AtomicBoolean(true)
     private val workChannel by lazy {
         Channel<Envelope<K, V>>(
@@ -203,7 +203,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         return record
     }
 
-    private fun finish(key: FreshnessKey) {
+    private fun finish(key: RecordKeyIdentity) {
         var successor: Envelope<K, V>? = null
         states.compute(key) { _, state ->
             if (state == null) {
@@ -247,14 +247,8 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         }
     }
 
-    private fun keyFor(record: ConsumerRecord<K, V>): FreshnessKey {
-        val key = record.key()
-        return if (key == null) {
-            FreshnessKey.NullKey
-        } else {
-            FreshnessKey.DeserializedKey(key)
-        }
-    }
+    private fun keyFor(record: ConsumerRecord<K, V>): RecordKeyIdentity =
+        RecordKeyIdentity.from(record.key())
 
     private class KeyState<K, V>(
         var queued: Envelope<K, V>? = null,
@@ -262,15 +256,9 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     )
 
     private class Envelope<K, V>(
-        val key: FreshnessKey,
+        val key: RecordKeyIdentity,
         var record: ConsumerRecord<K, V>
     )
-
-    private sealed interface FreshnessKey {
-        data object NullKey : FreshnessKey
-
-        data class DeserializedKey(val key: Any) : FreshnessKey
-    }
 
     private class AdmissionBudget(
         private val capacity: Int,
