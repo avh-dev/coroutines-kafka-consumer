@@ -244,12 +244,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     private fun Ordering.keyFor(record: ConsumerRecord<K, V>): OrderingKey =
         when (this) {
             Ordering.BY_KEY -> {
-                val key = record.key()
-                if (key == null) {
-                    OrderingKey.NullKey
-                } else {
-                    OrderingKey.DeserializedKey(key)
-                }
+                OrderingKey.DeserializedKey(RecordKeyIdentity.from(record.key()))
             }
             Ordering.BY_PARTITION -> OrderingKey.Partition(record.topic(), record.partition())
         }
@@ -265,9 +260,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     )
 
     private sealed interface OrderingKey {
-        data object NullKey : OrderingKey
-
-        data class DeserializedKey(val key: Any) : OrderingKey
+        data class DeserializedKey(val key: RecordKeyIdentity) : OrderingKey
 
         data class Partition(val topic: String, val partition: Int) : OrderingKey
     }
