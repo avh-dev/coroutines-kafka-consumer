@@ -57,6 +57,7 @@
 | [CORE-52](#core-52) | Serialize in-flight and queued successors per key in freshness-first processing.                                                                                                                         | DONE |
 | [CORE-53](#core-53) | Track non-contiguous Kafka offsets without blocking commits on records Kafka did not deliver.                                                                                                                   | DONE |
 | [CORE-54](#core-54) | Complete terminal-failure shutdown without waiting forever for graceful poll-loop drain signals.                                                                                                              | DONE |
+| [CORE-55](#core-55) | Preserve at-least-once delivery when partitions are rebalanced during active and queued record processing.                                                                                                      | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -3993,3 +3994,13 @@ Stop all poll loops through the terminal-failure path instead of waiting for gra
 Preserve the original consumer failure for callers while closing the processing runtime and Kafka consumers deterministically.
 Cover poll-loop, multi-loop, and processing failures with unit tests and retain the real-Kafka deserialization-failure regression.
 Verification: all 114 core unit tests and all 17 real-Kafka integration tests pass, including terminal poll-loop, sibling cancellation, processing failure, deserialization failure, retention-gap, and rebalance coverage.
+
+<a id="core-55"></a>
+### CORE-55 - Preserve active processing across rebalance
+
+_Date: 2026-09-19_
+
+Exercise partition revocation while records from that partition are still in flight or queued for processing.
+Commit only the contiguous completed frontier during revoke and allow unfinished records to be redelivered to the new partition owner.
+Cover the state transition with focused unit tests and a real-Kafka two-consumer rebalance regression without duplicating the existing happy-path scenario.
+Verification: all 115 core unit tests and all 18 real-Kafka integration tests pass, including active offset holes during partition revocation and redelivery to the new partition owner.

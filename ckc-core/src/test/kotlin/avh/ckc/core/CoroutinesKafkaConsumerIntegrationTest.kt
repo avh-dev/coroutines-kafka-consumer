@@ -36,6 +36,7 @@ import org.testcontainers.kafka.KafkaContainer
 import org.testcontainers.utility.DockerImageName
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
@@ -612,6 +613,109 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
+    fun `when partitions are revoked with active offset holes then unfinished records are redelivered`() = runBlocking {
+        val topic = "rebalance-active-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        val partitions = 4
+        createTopic(topic, partitions)
+
+        val releaseBlockedRecords = CompletableDeferred<Unit>()
+        val firstBlockedPartitions = ConcurrentHashMap.newKeySet<Int>()
+        val firstCompleted = ConcurrentHashMap.newKeySet<Pair<Int, Long>>()
+        val secondCompleted = ConcurrentHashMap.newKeySet<Pair<Int, Long>>()
+        val firstConsumer = activeRebalanceConsumer(topic, groupId) { record ->
+            if (record.offset() == 0L) {
+                firstBlockedPartitions += record.partition()
+                releaseBlockedRecords.await()
+            }
+            firstCompleted += record.partition() to record.offset()
+        }
+        val secondConsumer = activeRebalanceConsumer(topic, groupId) { record ->
+            secondCompleted += record.partition() to record.offset()
+        }
+
+        try {
+            firstConsumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                firstConsumer.stateSnapshot().takeIf { it.assignedPartitionCount == partitions }
+            }
+
+            repeat(partitions) { partition ->
+                repeat(3) { offset ->
+                    produce(topic, "key-$partition-$offset", "value-$partition-$offset", partition)
+                }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                firstBlockedPartitions.takeIf { it.size == partitions }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                firstCompleted.takeIf { completed ->
+                    (0 until partitions).all { partition ->
+                        completed.contains(partition to 1L) && completed.contains(partition to 2L)
+                    }
+                }
+            }
+
+            secondConsumer.start()
+            val assignments = awaitFor(timeoutMillis = 30_000) {
+                val firstAssigned = assignedPartitions(firstConsumer)
+                val secondAssigned = assignedPartitions(secondConsumer)
+                (firstAssigned to secondAssigned).takeIf {
+                    firstAssigned.isNotEmpty() &&
+                            secondAssigned.isNotEmpty() &&
+                            firstAssigned.intersect(secondAssigned).isEmpty() &&
+                            firstAssigned + secondAssigned == (0 until partitions).toSet()
+                }
+            }
+            val firstAssigned = assignments.first
+            val secondAssigned = assignments.second
+
+            awaitFor(timeoutMillis = 30_000) {
+                secondCompleted.takeIf { completed ->
+                    secondAssigned.all { partition ->
+                        (0L..2L).all { offset -> completed.contains(partition to offset) }
+                    }
+                }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                groupOffsets(groupId, topic, partitions).takeIf { offsets ->
+                    secondAssigned.all { (offsets[it] ?: -1L) >= 3L }
+                }
+            }
+
+            val offsetsWhileFirstIsBlocked = groupOffsets(groupId, topic, partitions)
+            assertTrue(secondAssigned.all { offsetsWhileFirstIsBlocked[it] == 3L })
+            assertTrue(firstAssigned.all { (offsetsWhileFirstIsBlocked[it] ?: -1L) < 3L })
+
+            releaseBlockedRecords.complete(Unit)
+            awaitFor(timeoutMillis = 20_000) {
+                firstCompleted.takeIf { completed ->
+                    (0 until partitions).all { completed.contains(it to 0L) }
+                }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                groupOffsets(groupId, topic, partitions).takeIf { offsets ->
+                    (0 until partitions).all { (offsets[it] ?: -1L) >= 3L }
+                }
+            }
+
+            repeat(partitions) { partition ->
+                produce(topic, "after-key-$partition", "after-value-$partition", partition)
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                groupOffsets(groupId, topic, partitions).takeIf { offsets ->
+                    (0 until partitions).all { (offsets[it] ?: -1L) >= 4L }
+                }
+            }
+        } finally {
+            releaseBlockedRecords.complete(Unit)
+            secondConsumer.stop()
+            firstConsumer.stop()
+        }
+        Unit
+    }
+
+    @Test
     fun `when earliest skips offsets removed from the log then commits advance across the gap`() = runBlocking {
         val topic = "retention-earliest-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
@@ -729,6 +833,35 @@ class CoroutinesKafkaConsumerIntegrationTest {
             return consumer.committed(setOf(topicPartition))[topicPartition]
         }
     }
+
+    private fun groupOffsets(groupId: String, topic: String, partitions: Int): Map<Int, Long> {
+        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
+            val offsets = admin.listConsumerGroupOffsets(groupId).partitionsToOffsetAndMetadata().get()
+            return (0 until partitions).associateWith { partition ->
+                offsets[TopicPartition(topic, partition)]?.offset() ?: -1L
+            }
+        }
+    }
+
+    private fun assignedPartitions(consumer: CoroutinesKafkaConsumer<String, String>): Set<Int> =
+        consumer.stateSnapshot().pollLoops
+            .flatMap { it.assignedPartitions }
+            .mapTo(mutableSetOf()) { it.partition }
+
+    private fun activeRebalanceConsumer(
+        topic: String,
+        groupId: String,
+        handler: KafkaRecordHandler<String, String>
+    ): CoroutinesKafkaConsumer<String, String> =
+        coroutinesKafkaConsumer(consumerProperties(groupId)) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            workerConcurrency = 8
+            workChannelCapacity = 64
+            topics(topic)
+            handle { record -> handler.process(record) }
+        }
 
     private fun commitOffset(
         groupId: String,
