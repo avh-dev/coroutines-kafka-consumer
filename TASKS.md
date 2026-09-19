@@ -61,6 +61,7 @@
 | [CORE-56](#core-56) | Reprocess records from the authoritative group offset after an explicit backward administrative reset.                                                                                                           | DONE |
 | [CORE-57](#core-57) | Bind versioned CKC offset metadata to its consumer group, topic partition, and committed offset.                                                                                                                    | DONE |
 | [CORE-58](#core-58) | Use content equality for byte-array keys in key ordering and freshness replacement.                                                                                                                                 | DONE |
+| [CORE-59](#core-59) | Recover polling and offset commits after a single Kafka broker is paused and resumed.                                                                                                                              | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4037,3 +4038,14 @@ Treat deserialized `ByteArray` keys with equal content as the same identity in b
 Keep the key identity stable if application code mutates the record key during processing.
 Verify ordered processing and freshness replacement for equal byte-array content, while preserving concurrency for different content.
 Verification: all 124 core unit tests and all 21 real-Kafka integration tests pass.
+
+<a id="core-59"></a>
+### CORE-59 - Recover after a single broker pause
+
+_Date: 2026-09-19_
+
+Pause the real-Kafka Testcontainer while an active consumer has completed work awaiting commit.
+Resume the same broker and verify that the same consumer recovers polling and commits without terminal failure.
+Process and commit a new record after recovery to prove continued liveness.
+No production change was required: the existing poll loop retries the failed commit and remains live.
+Verification: all 124 core unit tests and all 22 real-Kafka integration tests pass.
