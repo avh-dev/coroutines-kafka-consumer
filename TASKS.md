@@ -58,6 +58,7 @@
 | [CORE-53](#core-53) | Track non-contiguous Kafka offsets without blocking commits on records Kafka did not deliver.                                                                                                                   | DONE |
 | [CORE-54](#core-54) | Complete terminal-failure shutdown without waiting forever for graceful poll-loop drain signals.                                                                                                              | DONE |
 | [CORE-55](#core-55) | Preserve at-least-once delivery when partitions are rebalanced during active and queued record processing.                                                                                                      | DONE |
+| [CORE-56](#core-56) | Reprocess records from the authoritative group offset after an explicit backward administrative reset.                                                                                                           | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4004,3 +4005,13 @@ Exercise partition revocation while records from that partition are still in fli
 Commit only the contiguous completed frontier during revoke and allow unfinished records to be redelivered to the new partition owner.
 Cover the state transition with focused unit tests and a real-Kafka two-consumer rebalance regression without duplicating the existing happy-path scenario.
 Verification: all 115 core unit tests and all 18 real-Kafka integration tests pass, including active offset holes during partition revocation and redelivery to the new partition owner.
+
+<a id="core-56"></a>
+### CORE-56 - Reprocess after a backward group offset reset
+
+_Date: 2026-09-19_
+
+Reset an inactive consumer group's committed offset backwards through the Kafka Admin API.
+Restart CKC from the new authoritative offset and verify that the reset range is processed and committed again.
+Keep the scenario separate from retention gaps, rebalance handling, and non-standard reuse of stale CKC offset metadata.
+Verification: all 115 core unit tests and all 19 real-Kafka integration tests pass, including metadata replacement during the administrative reset and reprocessing from the reset offset.
