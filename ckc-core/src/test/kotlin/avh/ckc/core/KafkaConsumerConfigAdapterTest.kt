@@ -10,6 +10,15 @@ import org.junit.jupiter.api.Test
 class KafkaConsumerConfigAdapterTest {
 
     @Test
+    fun `when kafka string property is configured then value is returned`() {
+        val adapter = KafkaConsumerConfigAdapter(
+            testConsumerProperties(ConsumerConfig.GROUP_ID_CONFIG to "group-a")
+        )
+
+        assertEquals("group-a", adapter.getString(ConsumerConfig.GROUP_ID_CONFIG))
+    }
+
+    @Test
     fun `when kafka int property is configured then parsed value is returned`() {
         val adapter = KafkaConsumerConfigAdapter(
             testConsumerProperties(
