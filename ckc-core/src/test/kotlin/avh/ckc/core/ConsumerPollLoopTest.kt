@@ -150,6 +150,23 @@ class ConsumerPollLoopTest {
     inner class AT_LEAST_ONCE_NO_ORDERING {
 
         @Test
+        fun `when poll fails then terminal completion releases shutdown readiness`() = runBlocking {
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 16,
+                pollAnswer = { throw IllegalStateException("poll failed") }
+            )
+
+            val job = fixture.start()
+            withTimeout(2_000) { job.join() }
+
+            withTimeout(2_000) { fixture.loop.prepareForShutdown().await() }
+
+            assertTrue(job.isCancelled)
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when work channel is full in AT_LEAST_ONCE_NO_ORDERING mode then consumer is paused`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(

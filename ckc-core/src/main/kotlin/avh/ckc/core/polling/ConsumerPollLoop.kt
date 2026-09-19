@@ -151,20 +151,25 @@ internal class ConsumerPollLoop<K, V>(
 
     private suspend fun runLoop() {
         running = true
-        val consumer = kafkaConsumerFactory(consumerProperties)
-        consumerRef = consumer
+        var consumer: KafkaConsumer<K, V>? = null
         try {
+            consumer = kafkaConsumerFactory(consumerProperties)
+            consumerRef = consumer
             subscribe(consumer)
             consumerLoop(consumer)
         } finally {
             running = false
             assignedPartitionSnapshot = emptyList()
+            consumerRef = null
             withContext(NonCancellable) {
                 try {
-                    consumer.close()
+                    consumer?.close()
                 } catch (_: Exception) {
                 }
             }
+            // A terminal loop failure cannot perform the graceful drain handshake,
+            // but it is already safe for the owner to join the completed job.
+            readyForShutdownSignal.complete(Unit)
         }
     }
 

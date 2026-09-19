@@ -435,15 +435,17 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
             assertTrue(failure is org.apache.kafka.common.errors.RecordDeserializationException)
             assertEquals("Size of data received by LongDeserializer is not 8", failure.cause?.message)
-            val thrown = assertThrows(org.apache.kafka.common.errors.RecordDeserializationException::class.java) {
-                runBlocking {
-                    consumer.stop()
-                }
+            val thrown = try {
+                withTimeout(5_000) { consumer.stop() }
+                null
+            } catch (error: Throwable) {
+                error
             }
-            assertEquals("Size of data received by LongDeserializer is not 8", thrown.cause?.message)
+            assertTrue(thrown is org.apache.kafka.common.errors.RecordDeserializationException)
+            assertEquals("Size of data received by LongDeserializer is not 8", thrown?.cause?.message)
         } finally {
             try {
-                consumer.stop()
+                withTimeout(5_000) { consumer.stop() }
             } catch (_: Throwable) {
             }
         }
