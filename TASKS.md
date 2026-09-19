@@ -59,6 +59,7 @@
 | [CORE-54](#core-54) | Complete terminal-failure shutdown without waiting forever for graceful poll-loop drain signals.                                                                                                              | DONE |
 | [CORE-55](#core-55) | Preserve at-least-once delivery when partitions are rebalanced during active and queued record processing.                                                                                                      | DONE |
 | [CORE-56](#core-56) | Reprocess records from the authoritative group offset after an explicit backward administrative reset.                                                                                                           | DONE |
+| [CORE-57](#core-57) | Bind versioned CKC offset metadata to its consumer group, topic partition, and committed offset.                                                                                                                    | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4015,3 +4016,13 @@ Reset an inactive consumer group's committed offset backwards through the Kafka 
 Restart CKC from the new authoritative offset and verify that the reset range is processed and committed again.
 Keep the scenario separate from retention gaps, rebalance handling, and non-standard reuse of stale CKC offset metadata.
 Verification: all 115 core unit tests and all 19 real-Kafka integration tests pass, including metadata replacement during the administrative reset and reprocessing from the reset offset.
+
+<a id="core-57"></a>
+### CORE-57 - Bind versioned offset metadata to its commit context
+
+_Date: 2026-09-19_
+
+Add an explicit CKC format signature and version around offset-tracker metadata.
+Bind each snapshot to its consumer group, topic partition, and Kafka committed offset, with corruption detection.
+Reject legacy, foreign, stale, transplanted, unsupported, or malformed metadata and fall back to the authoritative Kafka offset.
+Verification: all 121 core unit tests and all 20 real-Kafka integration tests pass, including valid metadata restoration and rejection of stale metadata after a backward reset.

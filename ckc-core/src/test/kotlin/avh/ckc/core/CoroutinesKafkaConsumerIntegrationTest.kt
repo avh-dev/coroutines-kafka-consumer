@@ -2,6 +2,7 @@ package avh.ckc.core
 
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -344,11 +345,14 @@ class CoroutinesKafkaConsumerIntegrationTest {
             assertEquals(0L, withTimeout(15_000) { processed.await() })
             val committed = awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
                 committedOffset(groupId, topic)?.takeIf {
-                    it.offset() == 1L && it.metadata().isNotEmpty()
+                    it.offset() == 1L && it.metadata().startsWith(OffsetTrackerMetadata.PREFIX)
                 }
             }
 
-            OffsetTrackerMetadata.decode(committed.metadata())
+            OffsetTrackerMetadata.decode(
+                committed.metadata(),
+                OffsetTrackerMetadataContext(groupId, TopicPartition(topic, 0), committed.offset())
+            )
             Unit
         } finally {
             consumer.stop()
@@ -371,7 +375,10 @@ class CoroutinesKafkaConsumerIntegrationTest {
             groupId = groupId,
             topic = topic,
             offset = 1L,
-            metadata = OffsetTrackerMetadata.encode(tracker.snapshot())!!
+            metadata = OffsetTrackerMetadata.encode(
+                tracker.snapshot(),
+                OffsetTrackerMetadataContext(groupId, TopicPartition(topic, 0), 1L)
+            )!!
         )
 
         val processed = CopyOnWriteArrayList<Long>()
@@ -414,6 +421,39 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val resetOffset = committedOffset(groupId, topic)
         assertEquals(2L, resetOffset?.offset())
         assertTrue(resetOffset?.metadata().isNullOrEmpty())
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = testConsumer(topic, groupId) { record -> processed += record.offset() }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                processed.takeIf { it.containsAll(listOf(2L, 3L, 4L, 5L)) }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 6L }
+            }
+
+            assertEquals(listOf(2L, 3L, 4L, 5L), processed.sorted())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when backward reset preserves stale CKC metadata then restarted consumer ignores it`() = runBlocking {
+        val topic = "stale-metadata-reset-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        repeat(6) { index -> produce(topic, "key-$index", "$index") }
+        consumeUntilCommitted(topic, groupId, expectedOffset = 6L)
+
+        val staleMetadata = committedOffset(groupId, topic)?.metadata()
+        assertTrue(staleMetadata?.startsWith(OffsetTrackerMetadata.PREFIX) == true)
+        alterGroupOffset(groupId, topic, offset = 2L, metadata = staleMetadata!!)
+
+        val resetOffset = committedOffset(groupId, topic)
+        assertEquals(2L, resetOffset?.offset())
+        assertEquals(staleMetadata, resetOffset?.metadata())
 
         val processed = CopyOnWriteArrayList<Long>()
         val consumer = testConsumer(topic, groupId) { record -> processed += record.offset() }
@@ -908,12 +948,18 @@ class CoroutinesKafkaConsumerIntegrationTest {
         }
     }
 
-    private fun alterGroupOffset(groupId: String, topic: String, offset: Long, partition: Int = 0) {
+    private fun alterGroupOffset(
+        groupId: String,
+        topic: String,
+        offset: Long,
+        partition: Int = 0,
+        metadata: String = ""
+    ) {
         val topicPartition = TopicPartition(topic, partition)
         AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
             admin.alterConsumerGroupOffsets(
                 groupId,
-                mapOf(topicPartition to OffsetAndMetadata(offset))
+                mapOf(topicPartition to OffsetAndMetadata(offset, metadata))
             ).all().get()
         }
     }

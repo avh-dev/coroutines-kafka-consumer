@@ -41,4 +41,12 @@ internal class KafkaConsumerConfigAdapter(
         } catch (_: Exception) {
             null
         }
+
+    /** Returns the Kafka configuration property as a [String], or null when it is missing or invalid. */
+    fun getString(key: String): String? =
+        try {
+            consumerConfig.getString(key)
+        } catch (_: Exception) {
+            null
+        }
 }

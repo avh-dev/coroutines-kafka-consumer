@@ -5,6 +5,7 @@ import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.ConsumerPollLoop
@@ -293,7 +294,10 @@ class ConsumerPollLoopTest {
         fun `when partitions assigned with offset metadata then tracker is restored from committed metadata`() = runBlocking {
             val restoredTracker = OffsetTracker(initialProcessedOffset = 41L)
             restoredTracker.markProcessed(43L)
-            val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
+            val metadata = OffsetTrackerMetadata.encode(
+                restoredTracker.snapshot(),
+                OffsetTrackerMetadataContext("test-group", TopicPartition("topic-a", 0), 42L)
+            )!!
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
@@ -362,7 +366,10 @@ class ConsumerPollLoopTest {
         fun `when polled record is already processed from metadata then it is not sent to work channel`() = runBlocking {
             val restoredTracker = OffsetTracker(initialProcessedOffset = 41L)
             restoredTracker.markProcessed(43L)
-            val metadata = OffsetTrackerMetadata.encode(restoredTracker.snapshot())!!
+            val metadata = OffsetTrackerMetadata.encode(
+                restoredTracker.snapshot(),
+                OffsetTrackerMetadataContext("test-group", TopicPartition("topic-a", 0), 42L)
+            )!!
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,

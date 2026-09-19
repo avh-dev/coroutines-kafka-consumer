@@ -10,10 +10,12 @@ import avh.ckc.core.polling.partition.OffsetCommitData
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
+import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.tracksProcessedOffsets
 import kotlinx.coroutines.*
 import org.apache.kafka.clients.consumer.*
+import org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.WakeupException
@@ -118,6 +120,12 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
+
+    private val consumerGroupId: String by lazy {
+        requireNotNull(consumerConfigAdapter.getString(GROUP_ID_CONFIG)) {
+            "Kafka consumer group.id is required for tracked offset metadata"
+        }
+    }
 
     override fun start(): Job {
         check(job == null)
@@ -289,7 +297,10 @@ internal class ConsumerPollLoop<K, V>(
         try {
             partitionState.init(
                 committedOffset = committed.offset(),
-                snapshot = OffsetTrackerMetadata.decode(metadata)
+                snapshot = OffsetTrackerMetadata.decode(
+                    metadata = metadata,
+                    context = metadataContext(partitionState.topicPartition, committed.offset())
+                )
             )
         } catch (e: Exception) {
             log.warn(
@@ -336,8 +347,11 @@ internal class ConsumerPollLoop<K, V>(
             val commitData = partitionState.advanceAndGetCommitData()
             if (commitData != null) {
                 commitDataByPartition[partitionState] = commitData
-                val metadata = OffsetTrackerMetadata.encode(commitData.offsetTrackerSnapshot)
                 val kafkaOffset = commitData.offset + 1
+                val metadata = OffsetTrackerMetadata.encode(
+                    snapshot = commitData.offsetTrackerSnapshot,
+                    context = metadataContext(partitionState.topicPartition, kafkaOffset)
+                )
                 offsets[partitionState.topicPartition] = if (metadata == null) {
                     OffsetAndMetadata(kafkaOffset)
                 } else {
@@ -366,6 +380,16 @@ internal class ConsumerPollLoop<K, V>(
         }
         return CommitAttemptResult.NO_OFFSETS
     }
+
+    private fun metadataContext(
+        topicPartition: TopicPartition,
+        committedOffset: Long
+    ): OffsetTrackerMetadataContext =
+        OffsetTrackerMetadataContext(
+            groupId = consumerGroupId,
+            topicPartition = topicPartition,
+            committedOffset = committedOffset
+        )
 
     /**
      * Tracked at-least-once mode loop.
