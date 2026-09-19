@@ -402,6 +402,37 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
+    fun `when group offset is reset backwards then restarted consumer reprocesses from authoritative offset`() = runBlocking {
+        val topic = "admin-reset-backwards-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        repeat(6) { index -> produce(topic, "key-$index", "$index") }
+        consumeUntilCommitted(topic, groupId, expectedOffset = 6L)
+
+        assertFalse(committedOffset(groupId, topic)?.metadata().isNullOrEmpty())
+        alterGroupOffset(groupId, topic, offset = 2L)
+        val resetOffset = committedOffset(groupId, topic)
+        assertEquals(2L, resetOffset?.offset())
+        assertTrue(resetOffset?.metadata().isNullOrEmpty())
+
+        val processed = CopyOnWriteArrayList<Long>()
+        val consumer = testConsumer(topic, groupId) { record -> processed += record.offset() }
+        try {
+            consumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                processed.takeIf { it.containsAll(listOf(2L, 3L, 4L, 5L)) }
+            }
+            awaitFor(timeoutMillis = 20_000) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 6L }
+            }
+
+            assertEquals(listOf(2L, 3L, 4L, 5L), processed.sorted())
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `when deserialization fails permanently then consumer reports failure`() = runBlocking {
         val topic = "deser-failure-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
@@ -874,6 +905,16 @@ class CoroutinesKafkaConsumerIntegrationTest {
         KafkaConsumer<String, String>(consumerProperties(groupId)).use { consumer ->
             consumer.assign(listOf(topicPartition))
             consumer.commitSync(mapOf(topicPartition to OffsetAndMetadata(offset, metadata)))
+        }
+    }
+
+    private fun alterGroupOffset(groupId: String, topic: String, offset: Long, partition: Int = 0) {
+        val topicPartition = TopicPartition(topic, partition)
+        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
+            admin.alterConsumerGroupOffsets(
+                groupId,
+                mapOf(topicPartition to OffsetAndMetadata(offset))
+            ).all().get()
         }
     }
 
