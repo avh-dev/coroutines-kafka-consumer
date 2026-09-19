@@ -123,6 +123,77 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
+    fun `when single broker is paused then active consumer resumes commits and polling after unpause`() = runBlocking {
+        val topic = "broker-pause-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val processedOffsets = CopyOnWriteArrayList<Long>()
+        val metrics = RecordingMetrics<String, String>()
+        val consumer = coroutinesKafkaConsumer<String, String>(
+            consumerProperties(groupId) + mapOf(
+                ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG to "1000"
+            )
+        ) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            workerConcurrency = 1
+            workChannelCapacity = 8
+            this.metrics = metrics
+            topics(topic)
+            handle { record ->
+                if (record.offset() == 0L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                }
+                processedOffsets += record.offset()
+            }
+        }
+
+        var brokerPaused = false
+        try {
+            consumer.start()
+            produce(topic, "key-0", "value-0")
+            withTimeout(15_000) { firstStarted.await() }
+
+            kafka.dockerClient.pauseContainerCmd(kafka.containerId).exec()
+            brokerPaused = true
+            releaseFirst.complete(Unit)
+            awaitFor(timeoutMillis = 10_000, pauseMillis = 50) {
+                metrics.commits.firstOrNull { !it.success }
+            }
+
+            kafka.dockerClient.unpauseContainerCmd(kafka.containerId).exec()
+            brokerPaused = false
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 1L }
+            }
+
+            produce(topic, "key-1", "value-1")
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                processedOffsets.takeIf { it.contains(1L) }
+            }
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 2L }
+            }
+
+            assertEquals(listOf(0L, 1L), processedOffsets.toList())
+            assertTrue(metrics.commits.any { !it.success })
+            assertTrue(metrics.commits.any { it.success })
+            assertFalse(consumer.stateSnapshot().failed)
+        } finally {
+            releaseFirst.complete(Unit)
+            if (brokerPaused) {
+                kafka.dockerClient.unpauseContainerCmd(kafka.containerId).exec()
+            }
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST with auto commit then consumer processes produced record`() = runBlocking {
         val topic = "FRESHNESS_FIRST_DROP_OLDEST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
