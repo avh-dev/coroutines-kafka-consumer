@@ -20,6 +20,7 @@ internal class PartitionState(
 ) : ConsumerPartitionStats {
     private var offsetTracker: OffsetTracker = OffsetTracker(-1)
     private var initialized = false
+    private var nextObservedOffset = 0L
 
     /** Last offset whose Kafka commit completed successfully. */
     internal var lastCommittedOffset: Long = -1
@@ -42,6 +43,7 @@ internal class PartitionState(
         val committedOffset = initialPosition - 1
         if (!initialized || committedOffset != lastCommittedOffset) {
             offsetTracker = OffsetTracker(committedOffset)
+            nextObservedOffset = initialPosition
         }
         lastCommittedOffset = committedOffset
         initialized = true
@@ -58,6 +60,7 @@ internal class PartitionState(
         val lastCommittedOffset = committedOffset - 1
         if (!initialized || lastCommittedOffset != this.lastCommittedOffset) {
             offsetTracker = OffsetTracker(initialProcessedOffset = lastCommittedOffset, snapshot = snapshot)
+            nextObservedOffset = committedOffset
         }
         this.lastCommittedOffset = lastCommittedOffset
         initialized = true
@@ -98,6 +101,20 @@ internal class PartitionState(
      */
     fun markProcessed(offset: Long) {
         offsetTracker.markProcessed(offset)
+    }
+
+    /**
+     * Observes a record delivered by Kafka and closes any offset gap before it.
+     *
+     * Kafka preserves offset order within a partition but may omit offsets removed by compaction, retention,
+     * or filtering. The delivered record itself remains pending until a worker calls [markProcessed].
+     */
+    fun observe(offset: Long) {
+        if (offset < nextObservedOffset) return
+        if (offset > nextObservedOffset) {
+            offsetTracker.markProcessedRange(nextObservedOffset, offset)
+        }
+        nextObservedOffset = offset + 1
     }
 
     fun isProcessed(offset: Long): Boolean =
