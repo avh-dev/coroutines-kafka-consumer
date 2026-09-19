@@ -16,6 +16,7 @@ import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRunt
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
@@ -119,6 +121,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 ) {
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
+    private val terminalFailureSignal = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
     private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
@@ -252,6 +255,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         pollLoopJobs = pollLoops.map { loop ->
             loop.start().also { observeFailure(it) }
         }
+
+        // A processing worker may fail while poll loops are still being started.
+        if (failure.get() != null) {
+            pollLoopJobs.forEach { it.cancel() }
+        }
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
@@ -292,8 +300,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private fun handleFailure(cause: Throwable) {
         if (failure.compareAndSet(null, cause)) {
             metrics.onConsumerFailure(cause)
+            processingLifecycle.close(cause)
+            terminalFailureSignal.complete(Unit)
+            pollLoopJobs.forEach { it.cancel() }
         }
-        processingLifecycle.close(cause)
     }
 
     private fun CoroutineScope.launchStopSequence(): Deferred<Unit> = async {
@@ -304,8 +314,18 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             stopped = true
 
             try {
-                val readySignals = pollLoops.map { it.prepareForShutdown() }
-                readySignals.forEach { it.await() }
+                if (failure.get() == null) {
+                    val readySignals = pollLoops.map { it.prepareForShutdown() }
+                    for (readySignal in readySignals) {
+                        select {
+                            readySignal.onAwait { }
+                            terminalFailureSignal.onAwait { }
+                        }
+                        if (terminalFailureSignal.isCompleted) {
+                            break
+                        }
+                    }
+                }
 
                 pollLoopJobs.forEach { job ->
                     if (job.isActive) {

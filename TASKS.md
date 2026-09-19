@@ -56,6 +56,7 @@
 | [CORE-51](#core-51) | Replace record-age telemetry with successful end-to-end record processing latency.                                                                                                                       | DONE |
 | [CORE-52](#core-52) | Serialize in-flight and queued successors per key in freshness-first processing.                                                                                                                         | DONE |
 | [CORE-53](#core-53) | Track non-contiguous Kafka offsets without blocking commits on records Kafka did not deliver.                                                                                                                   | DONE |
+| [CORE-54](#core-54) | Complete terminal-failure shutdown without waiting forever for graceful poll-loop drain signals.                                                                                                              | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -3982,3 +3983,13 @@ Verification: all 112 core unit tests pass, including range tracking, ring wrap,
 Real-Kafka filtered-gap and `earliest`/`latest` retention tests pass together with focused metadata commit, metadata restore, and rebalance regressions.
 Production `markProcessed` JMH results match `master` after keeping range validation and synchronization off the contiguous-offset hot path.
 The complete integration suite was not run because of the pre-existing deserialization-failure shutdown hang tracked separately from this task.
+
+<a id="core-54"></a>
+### CORE-54 - Complete terminal-failure shutdown
+
+_Date: 2026-09-19_
+
+Stop all poll loops through the terminal-failure path instead of waiting for graceful drain signals that a failed loop cannot complete.
+Preserve the original consumer failure for callers while closing the processing runtime and Kafka consumers deterministically.
+Cover poll-loop, multi-loop, and processing failures with unit tests and retain the real-Kafka deserialization-failure regression.
+Verification: all 114 core unit tests and all 17 real-Kafka integration tests pass, including terminal poll-loop, sibling cancellation, processing failure, deserialization failure, retention-gap, and rebalance coverage.

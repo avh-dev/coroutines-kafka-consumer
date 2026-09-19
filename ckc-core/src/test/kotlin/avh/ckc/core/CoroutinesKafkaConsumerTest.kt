@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -323,13 +324,16 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
-    fun `when poll loop fails then metrics receive consumer failure`() = runBlocking {
+    fun `when one poll loop fails then terminal shutdown cancels its sibling`() = runBlocking {
         val metrics = RecordingMetrics<String, String>()
         val expected = IllegalStateException("poll loop failed")
+        val failFirstLoop = CompletableDeferred<Unit>()
+        val siblingStarted = CompletableDeferred<Unit>()
+        val siblingCancelled = CompletableDeferred<Unit>()
         val consumer: CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
             processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
             workerConcurrency = 1,
-            consumerPollLoopConcurrency = 1,
+            consumerPollLoopConcurrency = 2,
             commitIntervalMs = 1_000L,
             commitRecordsThreshold = 1_000,
             workChannelCapacity = 16,
@@ -344,13 +348,22 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
+            pollLoopFactory = { index: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
-                        throw expected
+                        if (index == 0) {
+                            failFirstLoop.await()
+                            throw expected
+                        }
+                        try {
+                            siblingStarted.complete(Unit)
+                            awaitCancellation()
+                        } finally {
+                            siblingCancelled.complete(Unit)
+                        }
                     }
 
-                    override fun prepareForShutdown() = CompletableDeferred(Unit)
+                    override fun prepareForShutdown() = CompletableDeferred<Unit>()
 
                     override fun stateSnapshot(): PollLoopStateSnapshot =
                         PollLoopStateSnapshot(
@@ -370,12 +383,44 @@ class CoroutinesKafkaConsumerTest {
         )
 
         consumer.start()
+        withTimeout(2_000) { siblingStarted.await() }
+        failFirstLoop.complete(Unit)
         withTimeout(2_000) {
             awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
                 metrics.consumerFailures.firstOrNull()
             }
         }
         val thrown = assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                withTimeout(2_000) { consumer.stop() }
+            }
+        }
+
+        withTimeout(2_000) { siblingCancelled.await() }
+        assertEquals(expected.message, thrown.message)
+        assertEquals(listOf(expected), metrics.consumerFailures)
+    }
+
+    @Test
+    fun `when processing runtime fails then terminal shutdown returns its failure`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val expected = UnsupportedOperationException("failure handler failed")
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 1L, key = "key", value = "value")),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> throw expected },
+            handler = KafkaRecordHandler { throw IllegalStateException("processing failed") }
+        )
+
+        consumer.start()
+        withTimeout(2_000) {
+            awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+                metrics.consumerFailures.firstOrNull()
+            }
+        }
+
+        val thrown = assertThrows(UnsupportedOperationException::class.java) {
             runBlocking {
                 withTimeout(2_000) { consumer.stop() }
             }
