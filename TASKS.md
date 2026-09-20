@@ -62,6 +62,7 @@
 | [CORE-57](#core-57) | Bind versioned CKC offset metadata to its consumer group, topic partition, and committed offset.                                                                                                                    | DONE |
 | [CORE-58](#core-58) | Use content equality for byte-array keys in key ordering and freshness replacement.                                                                                                                                 | DONE |
 | [CORE-59](#core-59) | Recover polling and offset commits after a single Kafka broker is paused and resumed.                                                                                                                              | DONE |
+| [CORE-60](#core-60) | Recover the same consumer after a graceful stop and restart of a single Kafka broker.                                                                                                                              | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4049,3 +4050,14 @@ Resume the same broker and verify that the same consumer recovers polling and co
 Process and commit a new record after recovery to prove continued liveness.
 No production change was required: the existing poll loop retries the failed commit and remains live.
 Verification: all 124 core unit tests and all 22 real-Kafka integration tests pass.
+
+<a id="core-60"></a>
+### CORE-60 - Recover after a single broker stop and restart
+
+_Date: 2026-09-20_
+
+Gracefully stop and restart the existing real-Kafka Testcontainer with stable storage and host port binding.
+Verify retry of an offset commit that fails while the broker is stopped.
+Verify coordinator recovery, continued polling, and processing of a new record by the same consumer instance.
+Keep the Testcontainer host port stable because Docker remaps randomly published ports across a restart.
+No production change was required; all 124 core unit tests and all 23 real-Kafka integration tests pass.
