@@ -38,9 +38,11 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.KafkaContainer
 import org.testcontainers.utility.DockerImageName
 import java.io.IOException
+import java.net.ServerSocket
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.time.Duration.Companion.milliseconds
@@ -188,6 +190,77 @@ class CoroutinesKafkaConsumerIntegrationTest {
             releaseFirst.complete(Unit)
             if (brokerPaused) {
                 kafka.dockerClient.unpauseContainerCmd(kafka.containerId).exec()
+            }
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `when single broker is stopped then active consumer recovers after same broker restarts`() = runBlocking {
+        val topic = "broker-restart-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val processedOffsets = CopyOnWriteArrayList<Long>()
+        val metrics = RecordingMetrics<String, String>()
+        val consumer = coroutinesKafkaConsumer<String, String>(
+            consumerProperties(groupId) + mapOf(
+                ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG to "1000"
+            )
+        ) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            workerConcurrency = 1
+            workChannelCapacity = 8
+            this.metrics = metrics
+            topics(topic)
+            handle { record ->
+                if (record.offset() == 0L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                }
+                processedOffsets += record.offset()
+            }
+        }
+
+        var brokerStopped = false
+        try {
+            consumer.start()
+            produce(topic, "key-0", "value-0")
+            withTimeout(15_000) { firstStarted.await() }
+
+            kafka.dockerClient.stopContainerCmd(kafka.containerId).withTimeout(10).exec()
+            brokerStopped = true
+            releaseFirst.complete(Unit)
+            awaitFor(timeoutMillis = 10_000, pauseMillis = 50) {
+                metrics.commits.firstOrNull { !it.success }
+            }
+
+            ensureBrokerRunning()
+            brokerStopped = false
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 1L }
+            }
+
+            produce(topic, "key-1", "value-1")
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                processedOffsets.takeIf { it.contains(1L) }
+            }
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 2L }
+            }
+
+            assertEquals(listOf(0L, 1L), processedOffsets.toList())
+            assertTrue(metrics.commits.any { !it.success })
+            assertTrue(metrics.commits.any { it.success })
+            assertFalse(consumer.stateSnapshot().failed)
+        } finally {
+            releaseFirst.complete(Unit)
+            if (brokerStopped) {
+                ensureBrokerRunning()
             }
             consumer.stop()
         }
@@ -1164,10 +1237,57 @@ class CoroutinesKafkaConsumerIntegrationTest {
         }
     }
 
+    private fun ensureBrokerRunning(timeoutMillis: Long = 30_000) {
+        val running = kafka.dockerClient.inspectContainerCmd(kafka.containerId).exec().state.running == true
+        if (!running) {
+            kafka.dockerClient.startContainerCmd(kafka.containerId).exec()
+        }
+
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        var lastFailure: Exception? = null
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                AdminClient.create(
+                    mapOf(
+                        "bootstrap.servers" to kafka.bootstrapServers,
+                        "default.api.timeout.ms" to "1000",
+                        "request.timeout.ms" to "1000"
+                    )
+                ).use { admin ->
+                    admin.describeCluster().clusterId().get(2, TimeUnit.SECONDS)
+                }
+                return
+            } catch (error: Exception) {
+                lastFailure = error
+                Thread.sleep(100)
+            }
+        }
+        val state = kafka.dockerClient.inspectContainerCmd(kafka.containerId).exec().state
+        val logs = kafka.logs.takeLast(8_000)
+        error(
+            "Kafka broker did not become ready within ${timeoutMillis}ms; " +
+                    "running=${state.running}, status=${state.status}, exitCode=${state.exitCodeLong}, " +
+                    "lastFailure=${lastFailure?.javaClass?.name}: ${lastFailure?.message}\n$logs"
+        )
+    }
+
     companion object {
         @Container
         @JvmStatic
-        val kafka = KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"))
+        val kafka: KafkaContainer = RestartableKafkaContainer(
+            DockerImageName.parse("apache/kafka-native:3.8.0")
+        ).withFixedKafkaPort(availableTcpPort())
+
+        private fun availableTcpPort(): Int = ServerSocket(0).use { it.localPort }
+    }
+}
+
+private class RestartableKafkaContainer(imageName: DockerImageName) : KafkaContainer(imageName) {
+    fun withFixedKafkaPort(hostPort: Int): KafkaContainer =
+        apply { addFixedExposedPort(hostPort, KAFKA_PORT) }
+
+    private companion object {
+        const val KAFKA_PORT = 9092
     }
 }
 
