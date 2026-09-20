@@ -197,7 +197,20 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
     @Test
     fun `when single broker is stopped then active consumer recovers after same broker restarts`() = runBlocking {
-        val topic = "broker-restart-${UUID.randomUUID()}"
+        verifyBrokerRestartRecovery("broker-restart") {
+            kafka.dockerClient.stopContainerCmd(kafka.containerId).withTimeout(10).exec()
+        }
+    }
+
+    @Test
+    fun `when single broker is killed then active consumer recovers after same broker restarts`() = runBlocking {
+        verifyBrokerRestartRecovery("broker-kill") {
+            kafka.dockerClient.killContainerCmd(kafka.containerId).exec()
+        }
+    }
+
+    private suspend fun verifyBrokerRestartRecovery(topicPrefix: String, stopBroker: () -> Unit) {
+        val topic = "$topicPrefix-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
@@ -232,7 +245,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "key-0", "value-0")
             withTimeout(15_000) { firstStarted.await() }
 
-            kafka.dockerClient.stopContainerCmd(kafka.containerId).withTimeout(10).exec()
+            stopBroker()
             brokerStopped = true
             releaseFirst.complete(Unit)
             awaitFor(timeoutMillis = 10_000, pauseMillis = 50) {

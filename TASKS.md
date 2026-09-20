@@ -63,6 +63,7 @@
 | [CORE-58](#core-58) | Use content equality for byte-array keys in key ordering and freshness replacement.                                                                                                                                 | DONE |
 | [CORE-59](#core-59) | Recover polling and offset commits after a single Kafka broker is paused and resumed.                                                                                                                              | DONE |
 | [CORE-60](#core-60) | Recover the same consumer after a graceful stop and restart of a single Kafka broker.                                                                                                                              | DONE |
+| [CORE-61](#core-61) | Recover the same consumer after a single Kafka broker is killed and restarted.                                                                                                                                      | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4061,3 +4062,13 @@ Verify retry of an offset commit that fails while the broker is stopped.
 Verify coordinator recovery, continued polling, and processing of a new record by the same consumer instance.
 Keep the Testcontainer host port stable because Docker remaps randomly published ports across a restart.
 No production change was required; all 124 core unit tests and all 23 real-Kafka integration tests pass.
+
+<a id="core-61"></a>
+### CORE-61 - Recover after a single broker kill and restart
+
+_Date: 2026-09-20_
+
+Kill the active real-Kafka container without allowing a graceful broker shutdown.
+Restart the same container with its existing storage and stable host port binding.
+Verify failed commit retry, coordinator recovery, and continued processing by the same consumer instance.
+No production change was required; all 124 core unit tests and all 24 real-Kafka integration tests pass.
