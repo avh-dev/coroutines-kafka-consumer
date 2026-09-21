@@ -9,7 +9,7 @@ from typing import Any, Collection, Mapping
 import yaml
 
 from .diagnostic_steps import normalize as normalize_diagnostic_steps
-from .definition_environment import normalized_chaos_steps
+from .definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from .implementation_catalog import profile_catalog
 from .workload import deep_merge, load_yaml, validate_resolved_test
 
@@ -219,6 +219,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
     if "diagnostics" in workload:
         definition["diagnostic_steps"] = copy.deepcopy(workload["diagnostics"])
     validate_resolved_test(definition)
+    stub_settings_from_definition(definition["stubs"], source)
     if "chaos_steps" in definition:
         normalized_chaos_steps(definition, definition["stubs"], source)
     if "diagnostic_steps" in definition:
@@ -530,6 +531,7 @@ def validate_canonical_experiment(
             **({"diagnostic_steps": target_workload["diagnostics"]} if "diagnostics" in target_workload else {}),
         }
         validate_resolved_test(target_definition)
+        stub_settings_from_definition(target_definition["stubs"], source)
         if "chaos_steps" in target_definition:
             normalized_chaos_steps(target_definition, target_definition["stubs"], source)
         if "diagnostic_steps" in target_definition:

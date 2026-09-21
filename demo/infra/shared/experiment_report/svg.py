@@ -449,7 +449,9 @@ def stubs_table_rows(scenario: dict[str, Any]) -> list[dict[str, Any]]:
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     rows = stubs_table_rows(scenario)
     if rows:
-        return 600, 76 + len(rows) * 27
+        table = scenario.get("stubs_changes")
+        columns = table.get("columns") if isinstance(table, dict) else []
+        return min(900, 170 + max(1, len(columns)) * 85), 76 + len(rows) * 27
     title = str(scenario.get("title") or scenario.get("type") or "Chaos")
     at = float(scenario.get("at_seconds") or 0)
     duration = scenario.get("duration_seconds")
@@ -472,7 +474,9 @@ def stubs_table_svg(
     rows = stubs_table_rows(scenario)
     if not rows:
         return []
-    columns = ("p90", "p95", "p99", "p100", "errors")
+    table = scenario.get("stubs_changes")
+    raw_columns = table.get("columns") if isinstance(table, dict) else None
+    columns = tuple(str(column) for column in raw_columns) if isinstance(raw_columns, list) else ("errors",)
     table_x = card_x + 10
     table_y = card_y + 42
     table_width = card_width - 20

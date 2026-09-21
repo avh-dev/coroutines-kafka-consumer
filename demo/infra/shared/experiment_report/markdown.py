@@ -22,6 +22,15 @@ def escaped(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
+def percentile_sort_key(name: str) -> float:
+    if name == "p100":
+        return 1.0
+    try:
+        return float(f"0.{name[1:]}")
+    except (TypeError, ValueError):
+        return 2.0
+
+
 def execution_time(report: ExperimentReport) -> str:
     def instant(value: str) -> datetime | None:
         if not value:
@@ -507,31 +516,32 @@ def render_markdown(report: ExperimentReport) -> str:
         ("flavour", "Order flavour ML", "order.events.v1"),
         ("registry", "Legacy brewing registry", "batch.events.v1"),
     )
-    downstream_rows = []
+    downstream_cards = []
     for stream, name, topic in downstream_definitions:
         latency = stubs.get(stream)
         if not isinstance(latency, dict):
             continue
-        downstream_rows.append(
-            '<tr><th scope="row">'
-            f'<span class="downstream-name">{escaped(name)}</span><br>'
-            f'<span class="downstream-context"><code>{escaped(topic)}</code> • {downstream_share(stream)}</span>'
-            '</th>'
-            f'<td>{number(stubs.get("error_rate_percent"), 1)}%</td>'
-            + "".join(
-                f'<td>{number(latency.get(f"delay_{percentile}_ms"), 0)} ms</td>'
-                for percentile in ("p90", "p95", "p99", "p100")
-            )
-            + '</tr>'
+        percentiles = latency.get("percentiles")
+        if not isinstance(percentiles, dict):
+            continue
+        percentile_rows = "".join(
+            f'<div><dt>{escaped(percentile)}</dt><dd>{number(delay, 0)} ms</dd></div>'
+            for percentile, delay in sorted(percentiles.items(), key=lambda item: percentile_sort_key(item[0]))
+        )
+        downstream_cards.append(
+            '<article class="stub-card">'
+            f'<h4>{escaped(name)}</h4>'
+            f'<p class="downstream-context"><code>{escaped(topic)}</code><br>{downstream_share(stream)} of messages</p>'
+            f'<dl>{percentile_rows}'
+            f'<div class="stub-errors"><dt>Errors</dt><dd>{number(stubs.get("error_rate_percent"), 1)}%</dd></div>'
+            '</dl></article>'
         )
     downstream_table = [
         "### Planned HTTP stub behavior",
         "",
-        '<table class="comparison stub-behavior">',
-        '<thead><tr><th>Stubbed downstream</th><th>Error rate</th><th>p90</th><th>p95</th><th>p99</th><th>max</th></tr></thead>',
-        '<tbody>',
-        *downstream_rows,
-        '</tbody></table>',
+        '<div class="stub-cards">',
+        *downstream_cards,
+        '</div>',
         "",
         "Configured demo-stub response delays and error rates; separate from application message-handling time below.",
     ]
@@ -595,8 +605,13 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .topic-name{font-weight:600}'
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
             '.report-execution-time{margin-top:-.35em;color:#57606a}'
-            'table.stub-behavior .downstream-name{font-weight:600}'
-            'table.stub-behavior .downstream-context{font-size:.82em;color:#57606a;font-weight:400;white-space:nowrap}'
+            '.stub-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}'
+            '.stub-card{border:1px solid #d0d7de;border-radius:8px;padding:12px 14px;background:#f8fafc}'
+            '.stub-card h4{margin:0 0 4px}.stub-card .downstream-context{margin:0 0 10px;color:#57606a;font-size:.85em}'
+            '.stub-card dl{margin:0}.stub-card dl div{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-top:1px solid #e5e7eb}'
+            '.stub-card dt{font-weight:600}.stub-card dd{margin:0;font-variant-numeric:tabular-nums}'
+            '.stub-card .stub-errors{margin-top:3px;color:#57606a}'
+            '@media(max-width:760px){.stub-cards{grid-template-columns:1fr}}'
             '.metric-source{display:inline-block;box-sizing:border-box;width:1.45em;height:1.45em;margin-left:.35em;border:1px solid;border-radius:50%;font-size:.68em;font-weight:700;line-height:1.3em;text-align:center;vertical-align:.12em}'
             '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
             '.source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'

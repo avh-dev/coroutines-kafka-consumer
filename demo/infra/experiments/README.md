@@ -28,6 +28,24 @@ portable. Environment-specific capabilities are checked before any deployment.
 Generated planner capabilities, Terraform inputs, Kubernetes manifests, and
 resolved snapshots are evidence, not additional configuration sources.
 
+Stub latency distributions use arbitrary percentile maps:
+
+```yaml
+stubs:
+  error_rate_percent: 0
+  eta:
+    percentiles:
+      p50: 10
+      p99: 80
+      p999: 500
+      p100: 60000
+```
+
+`p50` means quantile `0.50`, `p999` means `0.999`, and every complete
+distribution ends with `p100`. Target workload and chaos overrides are merged
+by percentile key; resolved experiment evidence always contains the complete
+distribution.
+
 ## No-chaos E2E tuning candidate
 
 `spring-ckc-no-chaos-e2e-tuning-5k.yaml` keeps the 5k/s workload, 4–9 minute

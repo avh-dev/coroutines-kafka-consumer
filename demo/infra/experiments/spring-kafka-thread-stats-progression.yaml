@@ -6,20 +6,23 @@ workload:
   stubs:
     error_rate_percent: 0
     eta:
-      delay_p90_ms: 25
-      delay_p95_ms: 40
-      delay_p99_ms: 160
-      delay_p100_ms: 300
+      percentiles:
+        p90: 25
+        p95: 40
+        p99: 160
+        p100: 300
     flavour:
-      delay_p90_ms: 4
-      delay_p95_ms: 6
-      delay_p99_ms: 8
-      delay_p100_ms: 50
+      percentiles:
+        p90: 4
+        p95: 6
+        p99: 8
+        p100: 50
     registry:
-      delay_p90_ms: 2
-      delay_p95_ms: 3
-      delay_p99_ms: 4
-      delay_p100_ms: 5
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
   load:
     shards: 1
     workers: 8

@@ -357,6 +357,7 @@
 | [INFRA-195](#infra-195) | Reorder Kafka network analysis around batching, protocol behavior, and wire cost. | DONE |
 | [INFRA-196](#infra-196) | Add a 20-minute repeated CKC target experiment for measuring internal-lab run-to-run variability. | DONE |
 | [INFRA-197](#infra-197) | Refine the experiment report header, goal, and planned HTTP stub presentation. | DONE |
+| [INFRA-199](#infra-199) | Carry arbitrary stub latency percentiles through experiment configuration and render them as report cards. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4095,6 +4096,16 @@ Allow synthetic downstream delays to exceed Armeria's default ten-second server 
 Disable the timeout by default so the stub honors the configured latency distribution, while retaining an environment override for bounded runs.
 Wire the parsed value into Armeria's server builder and cover default, override, and validation behavior with focused tests.
 Verification: all `ckc-demo-stubs` tests pass; whitespace validation passes.
+
+<a id="infra-199"></a>
+### INFRA-199 - Report dynamic stub latency distributions
+
+_Date: 2026-09-21_
+
+Replace fixed stub latency fields in the canonical experiment contract with mergeable percentile maps.
+Preserve fully resolved distributions in experiment evidence and pass the dynamic settings to demo-stubs.
+Render ETA, flavour, and registry distributions as responsive HTML cards with percentile values in rows.
+Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, 28 AWS runner, and `ckc-demo-stubs` tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>
 ### DEMO-98 - Support arbitrary demo-stub latency percentiles

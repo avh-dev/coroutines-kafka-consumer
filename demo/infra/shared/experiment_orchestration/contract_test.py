@@ -17,7 +17,12 @@ def canonical_experiment() -> dict:
         "name": "portable-smoke",
         "description": "Run the same smoke workload in either environment.",
         "workload": {
-            "stubs": {"error_rate_percent": 0},
+            "stubs": {
+                "error_rate_percent": 0,
+                "eta": {"percentiles": {"p50": 10, "p999": 80, "p100": 120}},
+                "flavour": {"percentiles": {"p50": 10, "p999": 80, "p100": 120}},
+                "registry": {"percentiles": {"p50": 1, "p999": 4, "p100": 5}},
+            },
             "load": {
                 "base_tps": 100,
                 "load_profile": "0 -> (10s, smoke) -> 100 -> (10s, cool-down) -> 0",
@@ -154,6 +159,26 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment["test_definition"] = "smoke"
         with self.assertRaisesRegex(ValueError, "test_definition"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
+
+    def test_merges_target_stub_percentiles_and_preserves_arbitrary_keys(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["workload"] = {
+            "stubs": {"eta": {"percentiles": {"p999": 1000, "p100": 60_000}}}
+        }
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
+        self.assertEqual(
+            {"p50": 10, "p999": 1000, "p100": 60_000},
+            snapshot["targets"][0]["workload"]["stubs"]["eta"]["percentiles"],
+        )
+
+    def test_rejects_stub_distribution_without_terminal_percentile(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["stubs"]["eta"] = {"percentiles": {"p999": 80}}
+
+        with self.assertRaisesRegex(ValueError, "must end with p100"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
     def test_rejects_unknown_target_implementation(self) -> None:
         experiment = canonical_experiment()

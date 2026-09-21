@@ -148,22 +148,13 @@ class ExperimentReportTest(unittest.TestCase):
                 "stubs": {
                     "error_rate_percent": 0,
                     "eta": {
-                        "delay_p90_ms": 25,
-                        "delay_p95_ms": 40,
-                        "delay_p99_ms": 160,
-                        "delay_p100_ms": 300,
+                        "percentiles": {"p50": 10, "p90": 25, "p95": 40, "p99": 160, "p100": 300},
                     },
                     "flavour": {
-                        "delay_p90_ms": 4,
-                        "delay_p95_ms": 6,
-                        "delay_p99_ms": 8,
-                        "delay_p100_ms": 50,
+                        "percentiles": {"p90": 4, "p95": 6, "p99": 8, "p100": 50},
                     },
                     "registry": {
-                        "delay_p90_ms": 2,
-                        "delay_p95_ms": 3,
-                        "delay_p99_ms": 4,
-                        "delay_p100_ms": 5,
+                        "percentiles": {"p90": 2, "p95": 3, "p99": 4, "p100": 5},
                     },
                 },
                 "load_test": {
@@ -186,10 +177,7 @@ class ExperimentReportTest(unittest.TestCase):
                         "params": {
                             "error_rate_percent": 0,
                             "eta": {
-                                "delay_p90_ms": 25,
-                                "delay_p95_ms": 150,
-                                "delay_p99_ms": 250,
-                                "delay_p100_ms": 500,
+                                "percentiles": {"p95": 150, "p99": 250, "p999": 300, "p100": 500},
                             },
                         },
                     },
@@ -525,8 +513,8 @@ class ExperimentReportTest(unittest.TestCase):
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {
             "error_rate_percent": 0,
-            "eta": {"delay_p90_ms": 25, "delay_p95_ms": 40, "delay_p99_ms": 160, "delay_p100_ms": 300},
-            "flavour": {"delay_p90_ms": 4, "delay_p95_ms": 6, "delay_p99_ms": 8, "delay_p100_ms": 50},
+            "eta": {"percentiles": {"p90": 25, "p95": 40, "p99": 160, "p100": 300}},
+            "flavour": {"percentiles": {"p90": 4, "p95": 6, "p99": 8, "p100": 50}},
         }
         scenarios = normalize_chaos_scenarios(
             [
@@ -534,7 +522,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "type": "stubs_degradation",
                     "params": {
                         "error_rate_percent": 0,
-                        "eta": {"delay_p90_ms": 25, "delay_p95_ms": 150, "delay_p99_ms": 250, "delay_p100_ms": 500},
+                        "eta": {"percentiles": {"p95": 150, "p99": 250, "p999": 300, "p100": 500}},
                     },
                 }
             ],
@@ -544,6 +532,7 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(["eta"], [row["id"] for row in rows])
         self.assertFalse(rows[0]["values"]["p90"]["changed"])
         self.assertTrue(rows[0]["values"]["p95"]["changed"])
+        self.assertTrue(rows[0]["values"]["p999"]["changed"])
 
     def test_service_artwork_is_embedded_in_svg(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -673,11 +662,15 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('<p class="report-execution-time">2026-08-07 10:00–10:02 UTC · Duration 2m</p>', markdown)
             self.assertIn("## Experiment goal\n\nCompare &lt;one&gt; &amp; two.", markdown)
             self.assertIn("### Planned HTTP stub behavior", markdown)
-            self.assertIn('<table class="comparison stub-behavior">', markdown)
-            self.assertIn("<th>Stubbed downstream</th><th>Error rate</th><th>p90</th><th>p95</th><th>p99</th><th>max</th>", markdown)
-            self.assertIn('<span class="downstream-name">Arcane ETA ML</span><br><span class="downstream-context"><code>cauldron.events.v1</code> • 100%</span>', markdown)
-            self.assertIn('<span class="downstream-name">Order flavour ML</span><br><span class="downstream-context"><code>order.events.v1</code> • 25%</span>', markdown)
-            self.assertIn('<span class="downstream-name">Legacy brewing registry</span><br><span class="downstream-context"><code>batch.events.v1</code> • ≈41.6%</span>', markdown)
+            self.assertIn('<div class="stub-cards">', markdown)
+            self.assertEqual(3, markdown.count('<article class="stub-card">'))
+            self.assertIn('<h4>Arcane ETA ML</h4>', markdown)
+            self.assertIn('<code>cauldron.events.v1</code><br>100% of messages', markdown)
+            self.assertIn('<h4>Order flavour ML</h4>', markdown)
+            self.assertIn('<code>order.events.v1</code><br>25% of messages', markdown)
+            self.assertIn('<h4>Legacy brewing registry</h4>', markdown)
+            self.assertIn('<code>batch.events.v1</code><br>≈41.6% of messages', markdown)
+            self.assertIn('<dt>p50</dt><dd>10 ms</dd>', markdown)
             self.assertNotIn("ORDER_CREATED", markdown)
             self.assertNotIn("BATCH_BREWING_STEP_COMPLETED", markdown)
             self.assertFalse((report_dir / "stub-latency.svg").exists())
@@ -717,6 +710,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">· 40s–50s · 10s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
+            self.assertIn(">p999, ms</text>", svg)
             self.assertIn('data-stubs-cell="changed"', svg)
             self.assertNotIn(">100%</text>", svg)
             root_element = ET.fromstring(svg)

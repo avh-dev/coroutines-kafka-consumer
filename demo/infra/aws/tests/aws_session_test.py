@@ -156,8 +156,8 @@ class AwsSessionTest(unittest.TestCase):
         settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
 
         self.assertEqual(0, settings["errorRatePercent"])
-        self.assertEqual(20, settings["eta"]["delayP90Ms"])
-        self.assertEqual(80, settings["flavour"]["delayP99Ms"])
+        self.assertEqual(20, settings["eta"]["percentiles"]["p90"])
+        self.assertEqual(80, settings["flavour"]["percentiles"]["p99"])
 
     def test_aws_runner_refuses_to_silently_skip_chaos_steps(self) -> None:
         definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"

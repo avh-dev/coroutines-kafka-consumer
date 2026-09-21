@@ -209,8 +209,8 @@ class MaterializeTest(unittest.TestCase):
         for downstream in ("eta", "flavour", "registry"):
             with self.subTest(downstream=downstream):
                 settings = chaos[0]["params"][downstream]
-                self.assertEqual(500, settings["delay_p99_ms"])
-                self.assertEqual(2000, settings["delay_p100_ms"])
+                self.assertEqual(500, settings["percentiles"]["p99"])
+                self.assertEqual(2000, settings["percentiles"]["p100"])
 
         experiment = resolve_experiment_definition(candidate_path, environment="internal-lab")
         self.assertEqual(
