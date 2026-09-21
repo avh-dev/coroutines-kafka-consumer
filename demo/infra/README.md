@@ -37,7 +37,7 @@ environment declared by that file:
 
 ```sh
 demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment internal-lab
-demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment aws
+demo/infra/run-experiment.sh demo/infra/experiments/aws-smoke.yaml --environment aws
 ```
 
 The shared command validates, resolves, and materializes the experiment before

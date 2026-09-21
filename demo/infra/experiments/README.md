@@ -9,17 +9,17 @@ Validate an experiment before provisioning:
 
 ```bash
 python3 demo/infra/shared/validate-experiment.py \
-  demo/infra/experiments/smoke-repeat.yaml \
+  demo/infra/experiments/smoke.yaml \
   --environment internal-lab
 ```
 
 Run it from any repository checkout through the shared entrypoint:
 
 ```bash
-demo/infra/run-experiment.sh demo/infra/experiments/smoke-repeat.yaml \
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml \
   --environment internal-lab
 
-demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml \
+demo/infra/run-experiment.sh demo/infra/experiments/aws-smoke.yaml \
   --environment aws
 ```
 

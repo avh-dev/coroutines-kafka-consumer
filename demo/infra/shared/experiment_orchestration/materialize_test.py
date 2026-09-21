@@ -14,8 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
-    def test_smoke_repeat_uses_one_minute_single_target_with_useful_traffic_windows(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/smoke-repeat.yaml"
+    def test_smoke_uses_one_minute_single_target_with_useful_traffic_windows(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
         resolve_experiment_definition(source, environment="internal-lab")
 
@@ -32,6 +32,12 @@ class MaterializeTest(unittest.TestCase):
         )
         self.assertEqual("30s", workload["diagnostics"][0]["at"])
         self.assertEqual("10s", workload["diagnostics"][0]["duration"])
+        self.assertEqual("25s", workload["chaos"][0]["at"])
+        self.assertEqual("20s", workload["chaos"][0]["duration"])
+        self.assertEqual(
+            {"p99": 500, "p999": 1000, "p100": 2000},
+            workload["chaos"][0]["params"]["eta"]["percentiles"],
+        )
 
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(

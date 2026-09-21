@@ -30,7 +30,7 @@ file:
 
 ```bash
 demo/infra/run-experiment.sh \
-  demo/infra/experiments/smoke-repeat.yaml \
+  demo/infra/experiments/smoke.yaml \
   --environment internal-lab
 ```
 
@@ -166,7 +166,7 @@ After shared orchestration, reporting, dashboard, audit, or bundle changes:
 
 1. run the internal-lab unit tests;
 2. update the installed lab;
-3. run `smoke-repeat`;
+3. run `smoke`;
 4. verify every target status and acceptance result;
 5. verify application Loki streams and their `app`, `pod`, `profile`, `run_id`,
    and workload labels;
@@ -177,7 +177,7 @@ For a non-interactive privileged smoke run:
 
 ```bash
 ssh -o BatchMode=yes root@optilab \
-  'LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh smoke-repeat'
+  'LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh smoke'
 ```
 
 ## Diagnostics

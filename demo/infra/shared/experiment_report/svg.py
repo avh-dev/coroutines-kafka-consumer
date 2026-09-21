@@ -546,8 +546,9 @@ def load_profile_svg(report: ExperimentReport) -> str:
     measurement_window = report.test_definition.get("measurement_window")
     if isinstance(measurement_window, dict) and float(measurement_window.get("duration_seconds") or 0) > 0:
         start = float(measurement_window.get("start_seconds") or 0)
+        window_name = str(measurement_window.get("name") or "steady state").replace("-", " ").strip()
         chaos_scenarios.append({
-            "type": "measurement", "action": "measurement", "title": measurement_window.get("name") or "steady-state measurement",
+            "type": "measurement", "action": "measurement", "title": f"Measurement window • {window_name}",
             "target": "", "at_seconds": start, "duration_seconds": float(measurement_window["duration_seconds"]),
             "end_seconds": start + float(measurement_window["duration_seconds"]),
         })

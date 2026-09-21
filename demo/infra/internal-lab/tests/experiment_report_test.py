@@ -159,6 +159,7 @@ class ExperimentReportTest(unittest.TestCase):
                 },
                 "load_test": {
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
+                    "measurement_window": {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
                     "order_event_percent": 60,
                     "batch_event_percent": 40,
                     "cauldron_telemetry_percent": 0,
@@ -714,6 +715,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-topic-legend="order.events.v1"', svg)
             self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
             self.assertIn(">warmup · 10s</text>", svg)
+            self.assertIn(">Measurement window • max load</text>", svg)
             self.assertIn(">Delete random pod</text>", svg)
             self.assertIn(">· 40s–50s · 10s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
@@ -814,7 +816,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(1, len(topic_boundaries))
             self.assertEqual("1", topic_boundaries[0].attrib["stroke-width"])
             self.assertEqual(
-                5,
+                6,
                 len(
                     [
                         element

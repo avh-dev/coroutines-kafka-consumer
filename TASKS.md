@@ -358,6 +358,7 @@
 | [INFRA-196](#infra-196) | Add a 20-minute repeated CKC target experiment for measuring internal-lab run-to-run variability. | DONE |
 | [INFRA-197](#infra-197) | Refine the experiment report header, goal, and planned HTTP stub presentation. | DONE |
 | [INFRA-199](#infra-199) | Carry arbitrary stub latency percentiles through experiment configuration and render them as report cards. | DONE |
+| [INFRA-200](#infra-200) | Rename the local smoke experiment, exercise a timed stub degradation, and label its measurement window. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4107,6 +4108,16 @@ Preserve fully resolved distributions in experiment evidence and pass the dynami
 Render ETA, flavour, and registry distributions as responsive HTML cards with percentile values in rows.
 Reuse the load-profile topic palette in the cards and explain percentile bucket boundaries directly below them.
 Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, 28 AWS runner, and `ckc-demo-stubs` tests pass; whitespace validation passes.
+
+<a id="infra-200"></a>
+### INFRA-200 - Clarify the smoke experiment timeline
+
+_Date: 2026-09-21_
+
+Rename the current local `smoke-repeat` experiment to `smoke` and give the existing AWS-only smoke an explicit filename.
+Add a 25–45 second stub degradation to exercise dynamic percentile reporting in the short local run.
+Label the measurement window explicitly on the planned load timeline alongside diagnostic and chaos annotations.
+Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, and 28 AWS runner tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>
 ### DEMO-98 - Support arbitrary demo-stub latency percentiles
