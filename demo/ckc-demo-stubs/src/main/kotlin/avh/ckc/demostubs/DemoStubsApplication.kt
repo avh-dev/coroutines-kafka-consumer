@@ -32,6 +32,7 @@ fun main() {
     val server = Server.builder()
         .http(config.port)
         .workerGroup(workerGroup, true)
+        .requestTimeoutMillis(config.requestTimeoutMillis)
         .service("/health") { _, _ ->
             jsonResponse("""{"status":"UP"}""")
         }
@@ -139,7 +140,8 @@ fun main() {
         .build()
 
     println(
-        "demo-stubs listening on port=${config.port} workers=${config.workers} settings=${settings.get()}"
+        "demo-stubs listening on port=${config.port} workers=${config.workers} " +
+            "requestTimeoutMillis=${config.requestTimeoutMillis} settings=${settings.get()}"
     )
 
     Runtime.getRuntime().addShutdownHook(Thread {

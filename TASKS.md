@@ -160,6 +160,7 @@
 | [DEMO-94](#demo-94) | Compare Spring Kafka and CKC under ETA-model saturation during the steady measurement window. | DONE |
 | [DEMO-95](#demo-95) | Increase producer and consumer audit appender capacity for broker-failover acknowledgement bursts. | DONE |
 | [DEMO-96](#demo-96) | Use the Thread Stats sampling interval defaults in demo and lab deployments. | DONE |
+| [DEMO-97](#demo-97) | Make the demo-stub server request timeout configurable so configured long-tail delays are not truncated. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4083,3 +4084,13 @@ Remove application and standalone-agent sampling interval overrides after the Th
 Keep short test-only intervals explicit and retain the application's deliberate per-thread context-switch enablement.
 Verify the Spring context inherits the 15-second library default instead of binding an application-local value.
 Verification: all `ckc-demo` tests and all 74 internal-lab tests pass; whitespace validation passes.
+
+<a id="demo-97"></a>
+### DEMO-97 - Make the demo-stub request timeout configurable
+
+_Date: 2026-09-21_
+
+Allow synthetic downstream delays to exceed Armeria's default ten-second server request timeout.
+Disable the timeout by default so the stub honors the configured latency distribution, while retaining an environment override for bounded runs.
+Wire the parsed value into Armeria's server builder and cover default, override, and validation behavior with focused tests.
+Verification: all `ckc-demo-stubs` tests pass; whitespace validation passes.

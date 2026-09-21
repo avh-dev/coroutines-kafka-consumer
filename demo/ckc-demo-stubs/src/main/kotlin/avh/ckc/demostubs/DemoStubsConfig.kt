@@ -3,12 +3,14 @@ package avh.ckc.demostubs
 data class DemoStubsConfig(
     val port: Int,
     val workers: Int,
+    val requestTimeoutMillis: Long,
     val redisHost: String,
     val redisPort: Int
 ) {
     init {
         require(port > 0) { "port must be positive" }
         require(workers > 0) { "workers must be positive" }
+        require(requestTimeoutMillis >= 0) { "requestTimeoutMillis must be non-negative" }
         require(redisHost.isNotBlank()) { "redisHost must not be blank" }
         require(redisPort > 0) { "redisPort must be positive" }
     }
@@ -18,6 +20,7 @@ data class DemoStubsConfig(
             DemoStubsConfig(
                 port = environment["PORT"]?.toIntOrNull() ?: 8080,
                 workers = environment["STUB_WORKERS"]?.toIntOrNull() ?: 4,
+                requestTimeoutMillis = environment["STUB_REQUEST_TIMEOUT_MS"]?.toLongOrNull() ?: 0,
                 redisHost = environment["REDIS_HOST"] ?: "localhost",
                 redisPort = environment["REDIS_PORT"]?.toIntOrNull() ?: 6379
             )
