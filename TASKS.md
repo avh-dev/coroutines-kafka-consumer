@@ -159,6 +159,7 @@
 | [DEMO-93](#demo-93) | Generate telemetry from a pre-seeded fleet at a fixed per-key interval while scaling load through active key count. | DONE |
 | [DEMO-94](#demo-94) | Compare Spring Kafka and CKC under ETA-model saturation during the steady measurement window. | DONE |
 | [DEMO-95](#demo-95) | Increase producer and consumer audit appender capacity for broker-failover acknowledgement bursts. | DONE |
+| [DEMO-96](#demo-96) | Use the Thread Stats sampling interval defaults in demo and lab deployments. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4072,3 +4073,13 @@ Kill the active real-Kafka container without allowing a graceful broker shutdown
 Restart the same container with its existing storage and stable host port binding.
 Verify failed commit retry, coordinator recovery, and continued processing by the same consumer instance.
 No production change was required; all 124 core unit tests and all 24 real-Kafka integration tests pass.
+
+<a id="demo-96"></a>
+### DEMO-96 - Use Thread Stats sampling defaults
+
+_Date: 2026-09-21_
+
+Remove application and standalone-agent sampling interval overrides after the Thread Stats default is aligned with the lab's 15-second Prometheus scrape interval.
+Keep short test-only intervals explicit and retain the application's deliberate per-thread context-switch enablement.
+Verify the Spring context inherits the 15-second library default instead of binding an application-local value.
+Verification: all `ckc-demo` tests and all 74 internal-lab tests pass; whitespace validation passes.

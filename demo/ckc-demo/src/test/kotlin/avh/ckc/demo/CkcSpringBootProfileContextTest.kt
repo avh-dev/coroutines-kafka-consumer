@@ -123,6 +123,7 @@ class CkcSpringBootProfileContextTest(
         assertTrue(properties.isProcessContextSwitchesEnabled)
         assertTrue(properties.metrics.isEnabled)
         assertTrue(properties.metrics.isCategoryOrderPrefixEnabled)
+        assertEquals(Duration.ofSeconds(15), properties.samplingInterval)
         assertEquals("other", properties.fallbackCategory)
         assertEquals("other", properties.fallbackGroup)
     }
