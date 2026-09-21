@@ -4128,6 +4128,7 @@ _Date: 2026-09-21_
 Resolve effective baseline delays for percentile boundaries introduced only by a degradation override instead of rendering missing values.
 Use the topic color for the whole card border while keeping the topic badge and neutral card body.
 Remove the top accent and special p100 row treatment for a quieter report layout.
+Arrange each degraded downstream's percentile comparison vertically so arbitrary distributions grow downward rather than widening the timeline card.
 Verification: all 75 internal-lab tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>

@@ -450,7 +450,7 @@ def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     if rows:
         table = scenario.get("stubs_changes")
         columns = table.get("columns") if isinstance(table, dict) else []
-        return min(900, 170 + max(1, len(columns)) * 85), 76 + len(rows) * 27
+        return min(900, max(280, 20 + len(rows) * 220)), 76 + max(1, len(columns)) * 25
     title = str(scenario.get("title") or scenario.get("type") or "Chaos")
     at = float(scenario.get("at_seconds") or 0)
     duration = scenario.get("duration_seconds")
@@ -479,26 +479,25 @@ def stubs_table_svg(
     table_x = card_x + 10
     table_y = card_y + 42
     table_width = card_width - 20
-    name_width = 150
-    value_width = (table_width - name_width) / len(columns)
-    row_height = 27
+    stream_width = table_width / len(rows)
+    row_height = 25
     result = [
+        '<g data-stubs-layout="vertical">',
         f'<line x1="{table_x:.1f}" y1="{table_y-5:.1f}" x2="{table_x+table_width:.1f}" y2="{table_y-5:.1f}" stroke="#e5e7eb"/>',
     ]
-    for index, column in enumerate(columns):
-        cell_x = table_x + name_width + index * value_width
-        label = f"{column}, ms" if column != "errors" else "errors, %"
-        result.append(
-            f'<text class="table-head" x="{cell_x+value_width/2:.1f}" y="{table_y+12:.1f}" text-anchor="middle">{label}</text>'
-        )
     for row_index, row in enumerate(rows):
-        row_y = table_y + 21 + row_index * row_height
+        stream_x = table_x + row_index * stream_width
+        content_x = stream_x + 8
+        content_right = stream_x + stream_width - 8
         if row_index % 2 == 0:
             result.append(
-                f'<rect x="{table_x:.1f}" y="{row_y-7:.1f}" width="{table_width:.1f}" height="{row_height}" rx="3" fill="#f8fafc"/>'
+                f'<rect x="{stream_x+2:.1f}" y="{table_y:.1f}" width="{stream_width-4:.1f}" '
+                f'height="{24+len(columns)*row_height:.1f}" rx="4" fill="#f8fafc"/>'
             )
         result.append(
-            f'<text class="table-cell" x="{table_x+6:.1f}" y="{row_y+10:.1f}">{esc(row.get("name") or row.get("id") or "downstream")}</text>'
+            f'<text class="table-head" data-stubs-stream="{esc(row.get("id") or "downstream")}" '
+            f'x="{stream_x+stream_width/2:.1f}" y="{table_y+15:.1f}" text-anchor="middle">'
+            f'{esc(row.get("name") or row.get("id") or "downstream")}</text>'
         )
         values = row.get("values") if isinstance(row.get("values"), dict) else {}
         for column_index, column in enumerate(columns):
@@ -506,22 +505,28 @@ def stubs_table_svg(
             base = value.get("base")
             new = value.get("new")
             changed = bool(value.get("changed"))
-            cell_x = table_x + name_width + column_index * value_width
-            center_x = cell_x + value_width / 2
+            row_y = table_y + 40 + column_index * row_height
+            label = f"{column}, ms" if column != "errors" else "errors, %"
             if changed:
                 result.append(
-                    f'<rect data-stubs-cell="changed" x="{cell_x+3:.1f}" y="{row_y-5:.1f}" width="{value_width-6:.1f}" height="{row_height-4:.1f}" rx="4" fill="{color}" fill-opacity="0.10"/>'
+                    f'<rect data-stubs-cell="changed" x="{stream_x+4:.1f}" y="{row_y-16:.1f}" '
+                    f'width="{stream_width-8:.1f}" height="{row_height-3:.1f}" rx="4" fill="{color}" fill-opacity="0.10"/>'
                 )
+            result.append(
+                f'<text class="table-head" x="{content_x:.1f}" y="{row_y:.1f}">{label}</text>'
+            )
+            if changed:
                 result.append(
-                    f'<text class="table-cell" x="{center_x:.1f}" y="{row_y+10:.1f}" text-anchor="middle">'
+                    f'<text class="table-cell" x="{content_right:.1f}" y="{row_y:.1f}" text-anchor="end">'
                     f'<tspan class="table-base">{esc(base)}</tspan>'
                     f'<tspan class="table-arrow" fill="{color}"> → </tspan>'
                     f'<tspan class="table-new" fill="{color}">{esc(new)}</tspan></text>'
                 )
             else:
                 result.append(
-                    f'<text class="table-cell" x="{center_x:.1f}" y="{row_y+10:.1f}" text-anchor="middle">{esc(new)}</text>'
+                    f'<text class="table-cell" x="{content_right:.1f}" y="{row_y:.1f}" text-anchor="end">{esc(new)}</text>'
                 )
+    result.append("</g>")
     return result
 
 

@@ -725,6 +725,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
             self.assertIn(">p999, ms</text>", svg)
+            self.assertIn('data-stubs-layout="vertical"', svg)
+            self.assertIn('data-stubs-stream="eta"', svg)
             self.assertNotIn('<tspan class="table-base">None</tspan>', svg)
             self.assertIn('<tspan class="table-base">300</tspan>', svg)
             self.assertIn('data-stubs-cell="changed"', svg)
@@ -735,6 +737,30 @@ class ExperimentReportTest(unittest.TestCase):
                 "".join(element.itertext()): element
                 for element in root_element.iter(f"{namespace}text")
             }
+            degradation_card = next(
+                element
+                for element in root_element.iter(f"{namespace}g")
+                if element.attrib.get("data-chaos-card") == "stubs_degradation"
+            )
+            degradation_text = [
+                element
+                for element in degradation_card.iter(f"{namespace}text")
+            ]
+            degradation_streams = [
+                element
+                for element in degradation_text
+                if element.attrib.get("data-stubs-stream")
+            ]
+            self.assertTrue(degradation_streams)
+            self.assertEqual(1, len({element.attrib["y"] for element in degradation_streams}))
+            eta_percentile_y = [
+                float(element.attrib["y"])
+                for element in degradation_text
+                if "".join(element.itertext()) in {"p50, ms", "p90, ms", "p95, ms", "p99, ms", "p999, ms", "p100, ms"}
+                and float(element.attrib["x"]) < float(degradation_streams[0].attrib["x"])
+            ]
+            self.assertEqual(sorted(eta_percentile_y), eta_percentile_y)
+            self.assertGreater(len(set(eta_percentile_y)), 1)
             warmup = text_elements["warmup · 10s"]
             self.assertRegex(warmup.attrib["transform"], r"rotate\(-\d")
             chaos_y = [
