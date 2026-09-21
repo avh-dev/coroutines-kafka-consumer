@@ -573,6 +573,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
             "type": "diagnostic", "action": "diagnostic", "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
         })
+    chaos_scenarios.sort(key=lambda scenario: float(scenario.get("at_seconds") or 0))
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)

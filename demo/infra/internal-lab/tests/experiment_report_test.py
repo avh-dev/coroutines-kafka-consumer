@@ -761,6 +761,21 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertEqual(sorted(eta_percentile_y), eta_percentile_y)
             self.assertGreater(len(set(eta_percentile_y)), 1)
+            chronological_card_y = [
+                float(text_elements[label].attrib["y"])
+                for label in (
+                    "Delete random pod",
+                    "Measurement window • max load",
+                    "Kafka network packet capture • Max load",
+                    "Service outage",
+                    "Restart service",
+                    "Degrade stubs",
+                )
+            ]
+            self.assertEqual(
+                sorted(chronological_card_y, reverse=True),
+                chronological_card_y,
+            )
             warmup = text_elements["warmup · 10s"]
             self.assertRegex(warmup.attrib["transform"], r"rotate\(-\d")
             chaos_y = [
@@ -787,22 +802,28 @@ class ExperimentReportTest(unittest.TestCase):
                 for element in root_element.iter(f"{namespace}rect")
                 if element.attrib.get("data-chaos-kind") == "interval"
             ]
-            self.assertEqual("service_outage", intervals[0].attrib["data-scenario-type"])
-            self.assertGreater(float(intervals[0].attrib["width"]), 0)
-            self.assertEqual("0.38", intervals[0].attrib["fill-opacity"])
+            outage_interval = next(
+                element
+                for element in intervals
+                if element.attrib.get("data-scenario-type") == "service_outage"
+            )
+            self.assertGreater(float(outage_interval.attrib["width"]), 0)
+            self.assertEqual("0.38", outage_interval.attrib["fill-opacity"])
             interval_start = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
                 if element.attrib.get("data-chaos-boundary") == "start"
+                and element.attrib.get("x1") == outage_interval.attrib["x"]
             )
-            self.assertEqual(intervals[0].attrib["x"], interval_start.attrib["x1"])
-            self.assertEqual(intervals[0].attrib["fill"], interval_start.attrib["stroke"])
+            self.assertEqual(outage_interval.attrib["x"], interval_start.attrib["x1"])
+            self.assertEqual(outage_interval.attrib["fill"], interval_start.attrib["stroke"])
             self.assertEqual("1.2", interval_start.attrib["stroke-width"])
             self.assertNotIn("stroke-dasharray", interval_start.attrib)
             interval_connector = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
                 if element.attrib.get("data-chaos-connector") == "interval"
+                and element.attrib.get("x1") == interval_start.attrib["x1"]
             )
             self.assertEqual(interval_start.attrib["x1"], interval_connector.attrib["x1"])
             self.assertEqual("2.4", interval_connector.attrib["stroke-width"])
