@@ -526,14 +526,8 @@ def render_markdown(report: ExperimentReport) -> str:
         if not isinstance(percentiles, dict):
             continue
         ordered_percentiles = sorted(percentiles.items(), key=lambda item: percentile_sort_key(item[0]))
-        tail_is_distinct = (
-            len(ordered_percentiles) > 1
-            and ordered_percentiles[-1][0] == "p100"
-            and ordered_percentiles[-1][1] != ordered_percentiles[-2][1]
-        )
         percentile_rows = "".join(
-            f'<div class="{"tail-bucket" if percentile == "p100" and tail_is_distinct else ""}">'
-            f'<dt>{escaped(percentile)}</dt><dd>{number(delay, 0)} ms</dd></div>'
+            f'<div><dt>{escaped(percentile)}</dt><dd>{number(delay, 0)} ms</dd></div>'
             for percentile, delay in ordered_percentiles
         )
         fill_color, boundary_color, text_color = topic_palette(topic)
@@ -623,12 +617,11 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
             '.report-execution-time{margin-top:-.35em;color:#57606a}'
             '.stub-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}'
-            '.stub-card{border:1px solid #d0d7de;border-top:4px solid var(--topic-border);border-radius:8px;padding:10px 14px 12px;background:#f8fafc}'
+            '.stub-card{border:1px solid var(--topic-border);border-radius:8px;padding:12px 14px;background:#f8fafc}'
             '.stub-card h4{margin:0 0 4px}.stub-card .downstream-context{margin:0 0 10px;color:#57606a;font-size:.85em}'
             '.stub-card .topic-badge{display:inline-block;padding:1px 5px;border:1px solid var(--topic-border);border-radius:4px;background:var(--topic-fill);color:var(--topic-text)}'
             '.stub-card dl{margin:0}.stub-card dl div{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-top:1px solid #e5e7eb}'
             '.stub-card dt{font-weight:600}.stub-card dd{margin:0;font-variant-numeric:tabular-nums}'
-            '.stub-card dl .tail-bucket{margin:2px -5px 0;padding:4px 5px;border-radius:4px;background:var(--topic-fill);color:var(--topic-text)}'
             '.stub-card .stub-errors{margin-top:3px;color:#57606a}'
             '.stub-percentile-help{margin:.75em 0 0;color:#57606a;font-size:.9em}'
             '@media(max-width:760px){.stub-cards{grid-template-columns:1fr}}'

@@ -119,6 +119,14 @@ def stub_percentiles(stream: Any) -> dict[str, Any]:
     return percentiles if isinstance(percentiles, dict) else {}
 
 
+def percentile_delay_at_boundary(percentiles: dict[str, Any], boundary: str) -> Any:
+    quantile = percentile_sort_key(boundary)
+    for name in sorted(percentiles, key=percentile_sort_key):
+        if percentile_sort_key(name) >= quantile:
+            return percentiles[name]
+    return None
+
+
 def planned_load_topics(load_test: Any) -> list[dict[str, Any]]:
     if not isinstance(load_test, dict):
         return []
@@ -202,10 +210,10 @@ def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
         values = {}
         stream_changed = False
         base_percentiles = stub_percentiles(base_stream)
-        new_percentiles = stub_percentiles(new_stream)
+        new_percentiles = {**base_percentiles, **stub_percentiles(new_stream)}
         for percentile in percentile_columns:
-            base_value = base_percentiles.get(percentile)
-            new_value = new_percentiles.get(percentile, base_value)
+            base_value = percentile_delay_at_boundary(base_percentiles, percentile)
+            new_value = percentile_delay_at_boundary(new_percentiles, percentile)
             changed = new_value != base_value
             stream_changed = stream_changed or changed
             values[percentile] = {

@@ -533,7 +533,8 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(["eta"], [row["id"] for row in rows])
         self.assertFalse(rows[0]["values"]["p90"]["changed"])
         self.assertTrue(rows[0]["values"]["p95"]["changed"])
-        self.assertTrue(rows[0]["values"]["p999"]["changed"])
+        self.assertEqual(300, rows[0]["values"]["p999"]["base"])
+        self.assertFalse(rows[0]["values"]["p999"]["changed"])
 
     def test_service_artwork_is_embedded_in_svg(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -675,9 +676,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-topic="batch.events.v1" style="--topic-fill:#ddd6fe;--topic-border:#a78bfa;--topic-text:#4c1d95"', markdown)
             self.assertIn('<code class="topic-badge">batch.events.v1</code><br>≈41.6% of messages', markdown)
             self.assertIn('<dt>p50</dt><dd>10 ms</dd>', markdown)
-            self.assertIn('<div class="tail-bucket"><dt>p100</dt><dd>300 ms</dd></div>', markdown)
+            self.assertIn('<div><dt>p100</dt><dd>300 ms</dd></div>', markdown)
+            self.assertNotIn('class="tail-bucket"', markdown)
             self.assertIn('<code>p999</code> means <code>0.999</code>', markdown)
             self.assertIn('gives the final 0.1% of calls a 60-second delay', markdown)
+            self.assertIn('.stub-card{border:1px solid var(--topic-border);', markdown)
+            self.assertNotIn('border-top:4px', markdown)
             self.assertNotIn("ORDER_CREATED", markdown)
             self.assertNotIn("BATCH_BREWING_STEP_COMPLETED", markdown)
             self.assertFalse((report_dir / "stub-latency.svg").exists())
@@ -721,6 +725,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
             self.assertIn(">p999, ms</text>", svg)
+            self.assertNotIn('<tspan class="table-base">None</tspan>', svg)
+            self.assertIn('<tspan class="table-base">300</tspan>', svg)
             self.assertIn('data-stubs-cell="changed"', svg)
             self.assertNotIn(">100%</text>", svg)
             root_element = ET.fromstring(svg)

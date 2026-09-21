@@ -359,6 +359,7 @@
 | [INFRA-197](#infra-197) | Refine the experiment report header, goal, and planned HTTP stub presentation. | DONE |
 | [INFRA-199](#infra-199) | Carry arbitrary stub latency percentiles through experiment configuration and render them as report cards. | DONE |
 | [INFRA-200](#infra-200) | Rename the local smoke experiment, exercise a timed stub degradation, and label its measurement window. | DONE |
+| [INFRA-201](#infra-201) | Refine stub cards and resolve inherited percentile values in degradation comparisons. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4118,6 +4119,16 @@ Rename the current local `smoke-repeat` experiment to `smoke` and give the exist
 Add a 25–45 second stub degradation to exercise dynamic percentile reporting in the short local run.
 Label the measurement window explicitly on the planned load timeline alongside diagnostic and chaos annotations.
 Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, and 28 AWS runner tests pass; whitespace validation passes.
+
+<a id="infra-201"></a>
+### INFRA-201 - Refine stub report presentation
+
+_Date: 2026-09-21_
+
+Resolve effective baseline delays for percentile boundaries introduced only by a degradation override instead of rendering missing values.
+Use the topic color for the whole card border while keeping the topic badge and neutral card body.
+Remove the top accent and special p100 row treatment for a quieter report layout.
+Verification: all 75 internal-lab tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>
 ### DEMO-98 - Support arbitrary demo-stub latency percentiles
