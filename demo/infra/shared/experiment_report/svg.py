@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from .model import ExperimentReport
+from .theme import topic_palette
 
 
 PALETTE = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#4f46e5", "#64748b"]
-TOPIC_COLORS = ("#bfdbfe", "#ddd6fe", "#ccfbf1", "#fde68a")
-TOPIC_BOUNDARY_COLORS = ("#60a5fa", "#a78bfa", "#2dd4bf", "#fbbf24")
 ICON_ROOT = Path(__file__).resolve().parent / "icons" / "services"
 ACTION_COLORS = {
     "delete": "#dc2626",
@@ -629,10 +628,10 @@ def load_profile_svg(report: ExperimentReport) -> str:
             percent = float(topic.get("percent") or 0)
             topic_max_tps = maximum_tps * percent / 100
             item_x = left + index * legend_slot_width
-            color = TOPIC_COLORS[index % len(TOPIC_COLORS)]
+            fill_color, boundary_color, _text_color = topic_palette(topic.get("topic"))
             body.extend(
                 [
-                    f'<rect data-topic-legend="{esc(topic.get("topic"))}" x="{item_x:.1f}" y="34" width="12" height="12" rx="2" fill="{color}" stroke="{TOPIC_BOUNDARY_COLORS[index % len(TOPIC_BOUNDARY_COLORS)]}" stroke-width="0.8"/>',
+                    f'<rect data-topic-legend="{esc(topic.get("topic"))}" x="{item_x:.1f}" y="34" width="12" height="12" rx="2" fill="{fill_color}" stroke="{boundary_color}" stroke-width="0.8"/>',
                     f'<text class="axis-label" x="{item_x+19:.1f}" y="44">{esc(topic.get("topic"))} · {format_tps(percent)}% · max {format_tps(topic_max_tps)} TPS</text>',
                 ]
             )
@@ -706,12 +705,13 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 upper = [(x(seconds), y(tps * upper_percent)) for seconds, tps in load_vertices]
                 lower = [(x(seconds), y(tps * lower_percent)) for seconds, tps in reversed(load_vertices)]
                 topic_polygon = " ".join(f"{px:.1f},{py:.1f}" for px, py in [*upper, *lower])
-                topic_polygons.append((topic, TOPIC_COLORS[topic_index % len(TOPIC_COLORS)], topic_polygon))
+                fill_color, boundary_color, _text_color = topic_palette(topic.get("topic"))
+                topic_polygons.append((topic, fill_color, topic_polygon))
                 if topic_index < len(load_topics) - 1:
                     topic_boundaries.append(
                         (
                             topic,
-                            TOPIC_BOUNDARY_COLORS[topic_index % len(TOPIC_BOUNDARY_COLORS)],
+                            boundary_color,
                             smoothed_line_path(upper, radius=7),
                         )
                     )

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .model import ExperimentReport, TargetReport
+from .theme import topic_palette
 
 
 def number(value: Any, digits: int = 2) -> str:
@@ -524,14 +525,24 @@ def render_markdown(report: ExperimentReport) -> str:
         percentiles = latency.get("percentiles")
         if not isinstance(percentiles, dict):
             continue
-        percentile_rows = "".join(
-            f'<div><dt>{escaped(percentile)}</dt><dd>{number(delay, 0)} ms</dd></div>'
-            for percentile, delay in sorted(percentiles.items(), key=lambda item: percentile_sort_key(item[0]))
+        ordered_percentiles = sorted(percentiles.items(), key=lambda item: percentile_sort_key(item[0]))
+        tail_is_distinct = (
+            len(ordered_percentiles) > 1
+            and ordered_percentiles[-1][0] == "p100"
+            and ordered_percentiles[-1][1] != ordered_percentiles[-2][1]
         )
+        percentile_rows = "".join(
+            f'<div class="{"tail-bucket" if percentile == "p100" and tail_is_distinct else ""}">'
+            f'<dt>{escaped(percentile)}</dt><dd>{number(delay, 0)} ms</dd></div>'
+            for percentile, delay in ordered_percentiles
+        )
+        fill_color, boundary_color, text_color = topic_palette(topic)
         downstream_cards.append(
-            '<article class="stub-card">'
+            f'<article class="stub-card" data-topic="{escaped(topic)}" '
+            f'style="--topic-fill:{fill_color};--topic-border:{boundary_color};--topic-text:{text_color}">'
             f'<h4>{escaped(name)}</h4>'
-            f'<p class="downstream-context"><code>{escaped(topic)}</code><br>{downstream_share(stream)} of messages</p>'
+            f'<p class="downstream-context"><code class="topic-badge">{escaped(topic)}</code><br>'
+            f'{downstream_share(stream)} of messages</p>'
             f'<dl>{percentile_rows}'
             f'<div class="stub-errors"><dt>Errors</dt><dd>{number(stubs.get("error_rate_percent"), 1)}%</dd></div>'
             '</dl></article>'
@@ -542,6 +553,12 @@ def render_markdown(report: ExperimentReport) -> str:
         '<div class="stub-cards">',
         *downstream_cards,
         '</div>',
+        "",
+        '<p class="stub-percentile-help"><code>pN</code> is a cumulative upper boundary: '
+        '<code>p50</code> means <code>0.50</code>, <code>p999</code> means <code>0.999</code>, and '
+        '<code>p100</code> is the required <code>1.0</code> endpoint. Each delay applies from the previous '
+        'boundary up to the current one. For example, <code>p999 = 80 ms</code> followed by '
+        '<code>p100 = 60 s</code> gives the final 0.1% of calls a 60-second delay.</p>',
         "",
         "Configured demo-stub response delays and error rates; separate from application message-handling time below.",
     ]
@@ -606,11 +623,14 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison .topic-requirements{font-size:.88em;color:#57606a}'
             '.report-execution-time{margin-top:-.35em;color:#57606a}'
             '.stub-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}'
-            '.stub-card{border:1px solid #d0d7de;border-radius:8px;padding:12px 14px;background:#f8fafc}'
+            '.stub-card{border:1px solid #d0d7de;border-top:4px solid var(--topic-border);border-radius:8px;padding:10px 14px 12px;background:#f8fafc}'
             '.stub-card h4{margin:0 0 4px}.stub-card .downstream-context{margin:0 0 10px;color:#57606a;font-size:.85em}'
+            '.stub-card .topic-badge{display:inline-block;padding:1px 5px;border:1px solid var(--topic-border);border-radius:4px;background:var(--topic-fill);color:var(--topic-text)}'
             '.stub-card dl{margin:0}.stub-card dl div{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-top:1px solid #e5e7eb}'
             '.stub-card dt{font-weight:600}.stub-card dd{margin:0;font-variant-numeric:tabular-nums}'
+            '.stub-card dl .tail-bucket{margin:2px -5px 0;padding:4px 5px;border-radius:4px;background:var(--topic-fill);color:var(--topic-text)}'
             '.stub-card .stub-errors{margin-top:3px;color:#57606a}'
+            '.stub-percentile-help{margin:.75em 0 0;color:#57606a;font-size:.9em}'
             '@media(max-width:760px){.stub-cards{grid-template-columns:1fr}}'
             '.metric-source{display:inline-block;box-sizing:border-box;width:1.45em;height:1.45em;margin-left:.35em;border:1px solid;border-radius:50%;font-size:.68em;font-weight:700;line-height:1.3em;text-align:center;vertical-align:.12em}'
             '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'

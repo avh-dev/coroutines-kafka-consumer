@@ -4105,6 +4105,7 @@ _Date: 2026-09-21_
 Replace fixed stub latency fields in the canonical experiment contract with mergeable percentile maps.
 Preserve fully resolved distributions in experiment evidence and pass the dynamic settings to demo-stubs.
 Render ETA, flavour, and registry distributions as responsive HTML cards with percentile values in rows.
+Reuse the load-profile topic palette in the cards and explain percentile bucket boundaries directly below them.
 Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, 28 AWS runner, and `ckc-demo-stubs` tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>
