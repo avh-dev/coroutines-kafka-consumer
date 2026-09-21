@@ -97,12 +97,34 @@ STUB_STREAM_NAMES = {
     "flavour": "Order flavour ML",
     "registry": "Legacy brewing registry",
 }
-STUB_PERCENTILES = ("p90", "p95", "p99", "p100")
 LOAD_TOPIC_FIELDS = (
     ("order.events.v1", "order", "order_event_percent"),
     ("batch.events.v1", "batch", "batch_event_percent"),
     ("cauldron.events.v1", "telemetry", "cauldron_telemetry_percent"),
 )
+
+
+def percentile_sort_key(name: str) -> Decimal:
+    if name == "p100":
+        return Decimal(1)
+    if not re.fullmatch(r"p[1-9][0-9]*", name):
+        return Decimal(2)
+    return Decimal(f"0.{name[1:]}")
+
+
+def stub_percentiles(stream: Any) -> dict[str, Any]:
+    if not isinstance(stream, dict):
+        return {}
+    percentiles = stream.get("percentiles")
+    return percentiles if isinstance(percentiles, dict) else {}
+
+
+def percentile_delay_at_boundary(percentiles: dict[str, Any], boundary: str) -> Any:
+    quantile = percentile_sort_key(boundary)
+    for name in sorted(percentiles, key=percentile_sort_key):
+        if percentile_sort_key(name) >= quantile:
+            return percentiles[name]
+    return None
 
 
 def planned_load_topics(load_test: Any) -> list[dict[str, Any]]:
@@ -165,6 +187,15 @@ def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
         for key, value in degraded.items()
         if key not in stream_ids and key != "error_rate_percent" and isinstance(value, dict)
     )
+    percentile_columns = sorted(
+        {
+            percentile
+            for stream_id in stream_ids
+            for source in (baseline, degraded)
+            for percentile in stub_percentiles(source.get(stream_id)).keys()
+        },
+        key=percentile_sort_key,
+    )
     for stream_id in stream_ids:
         raw_base_stream = baseline.get(stream_id)
         raw_new_stream = degraded.get(stream_id)
@@ -178,10 +209,11 @@ def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
             new_stream = {}
         values = {}
         stream_changed = False
-        for percentile in STUB_PERCENTILES:
-            key = f"delay_{percentile}_ms"
-            base_value = base_stream.get(key)
-            new_value = new_stream.get(key, base_value)
+        base_percentiles = stub_percentiles(base_stream)
+        new_percentiles = {**base_percentiles, **stub_percentiles(new_stream)}
+        for percentile in percentile_columns:
+            base_value = percentile_delay_at_boundary(base_percentiles, percentile)
+            new_value = percentile_delay_at_boundary(new_percentiles, percentile)
             changed = new_value != base_value
             stream_changed = stream_changed or changed
             values[percentile] = {
@@ -207,7 +239,7 @@ def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
     if not rows:
         return None
     return {
-        "columns": [*STUB_PERCENTILES, "errors"],
+        "columns": [*percentile_columns, "errors"],
         "rows": rows,
     }
 

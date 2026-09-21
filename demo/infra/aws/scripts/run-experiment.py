@@ -1226,7 +1226,7 @@ def load_controller(work_dir: Path, session_id: str) -> SessionController:
 def main() -> None:
     args = parse_args()
     if args.command == "run" and not args.experiment:
-        args.experiment = "demo/infra/experiments/smoke.yaml"
+        args.experiment = "demo/infra/experiments/aws-smoke.yaml"
     work_dir = Path(args.work_dir).resolve()
     if args.command == "status":
         controller = load_controller(work_dir, args.session_id)

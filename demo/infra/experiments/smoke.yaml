@@ -1,33 +1,36 @@
 schema_version: 2
-name: aws-smoke
-description: Minimal end-to-end AWS experiment using the shared experiment and target
-  contracts.
+name: smoke
+description: Run one one-minute smoke target with a short ETA tail-latency window to validate orchestration and report generation.
 workload:
   stubs:
     error_rate_percent: 0
     eta:
-      delay_p90_ms: 20
-      delay_p95_ms: 40
-      delay_p99_ms: 80
-      delay_p100_ms: 120
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
     flavour:
-      delay_p90_ms: 20
-      delay_p95_ms: 40
-      delay_p99_ms: 80
-      delay_p100_ms: 120
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
     registry:
-      delay_p90_ms: 2
-      delay_p95_ms: 3
-      delay_p99_ms: 4
-      delay_p100_ms: 5
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
   load:
     shards: 1
-    base_tps: 10
+    workers: 2
+    base_tps: 1000
     producer_capacity_tps:
       order: 1000
       batch: 1000
       telemetry: 1000
-    load_profile: 0 -> (10s, warmup) -> 100 -> (60s, smoke) -> 100 -> (10s, cool-down)
+    load_profile: 0 -> (10s, warmup) -> 100 -> (40s, maximum) -> 100 -> (10s, cool-down)
       -> 0
     cauldron_count: 2
     min_orders_per_batch: 2
@@ -35,6 +38,23 @@ workload:
     min_brewing_steps: 5
     max_brewing_steps: 8
     diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+  measurement_window:
+    name: max-load
+    start: 20s
+    duration: 30s
+  chaos:
+  - at: 25s
+    duration: 20s
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      eta:
+        percentiles:
+          p99: 500
+          p999: 1000
+          p100: 2000
   topics:
     order:
       kafka_topic: order.events.v1
@@ -48,30 +68,37 @@ workload:
       kafka_topic: cauldron.events.v1
       traffic_percent: 40
       max_e2e_latency_ms: 1000
+  diagnostics:
+  - at: 30s
+    type: tcpdump
+    name: max-load
+    targets:
+    - application
+    - load-test
+    duration: 10s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+    required: true
 targets:
-- name: ckc
+- name: ckc-smoke-1
   implementation: ckc
   application:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: '1'
-        memory: 1Gi
-    hpa:
-      enabled: false
+    replicas: 2
   runtime:
     env:
       PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
+      LOAD_TEST_WORKERS: 1
       PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
     planning_latency:
-      order_ms: 50
-      batch_ms: 50
-      telemetry_ms: 150
+      order_ms: 51.8
+      batch_ms: 5.16
+      telemetry_ms: 3.0
     topics:
       order:
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
@@ -80,48 +107,6 @@ targets:
       telemetry:
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
 environments:
-  aws:
-    region: eu-central-1
+  internal-lab:
     lab:
-      kubernetes_version: '1.33'
-      network:
-        vpc_cidr: 10.42.0.0/16
-        availability_zones:
-        - eu-central-1a
-        - eu-central-1b
-        - eu-central-1c
-        private_subnets:
-        - 10.42.0.0/20
-        - 10.42.16.0/20
-        - 10.42.32.0/20
-        public_subnets:
-        - 10.42.128.0/20
-        - 10.42.144.0/20
-        - 10.42.160.0/20
-      nodes:
-        instance_types:
-        - m7i.large
-        desired_size: 2
-        min_size: 1
-        max_size: 4
-        disk_size_gib: 100
-      kafka:
-        mode: kubernetes
-        kubernetes_brokers: 3
-      redis:
-        mode: kubernetes
-        kubernetes_architecture: standalone
-        kubernetes_replicas: 1
-      observability:
-        runner_peering: true
-        runner_project: ckc-runner
-        remote_write_port: 8428
-        loki_port: 3100
-        audit_port: 5170
-    third_party:
-    - name: ckc-kafka
-      chart: bitnami/kafka
-      version: 32.4.3
-    - name: ckc-redis
-      chart: bitnami/redis
-      version: 28.0.12
+      profile: installed

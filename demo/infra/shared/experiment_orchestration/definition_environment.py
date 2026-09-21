@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 from .diagnostic_steps import normalize as normalize_diagnostic_steps
+from .workload import deep_merge
 
 try:
     import yaml
@@ -122,23 +124,55 @@ def producer_capacity_tps(load_test: dict[str, Any], topic: str) -> int:
     return value
 
 
-def latency_settings_from_values(values: dict[str, Any], context: str, definition_path: Path) -> dict[str, int]:
-    required_keys = ("delay_p90_ms", "delay_p95_ms", "delay_p99_ms", "delay_p100_ms")
-    missing = [key for key in required_keys if key not in values]
-    if missing:
-        raise ValueError(f"Test definition must define {context}.{missing[0]}: {definition_path}")
-    return {
-        "delayP90Ms": int(values["delay_p90_ms"]),
-        "delayP95Ms": int(values["delay_p95_ms"]),
-        "delayP99Ms": int(values["delay_p99_ms"]),
-        "delayP100Ms": int(values["delay_p100_ms"]),
-    }
+def percentile_quantile(name: str) -> Decimal:
+    if not isinstance(name, str) or not re.fullmatch(r"p[1-9][0-9]*", name):
+        raise ValueError(f"Percentile key must match p<digits>: {name}")
+    if name == "p100":
+        return Decimal(1)
+    try:
+        quantile = Decimal(f"0.{name[1:]}")
+    except InvalidOperation as error:
+        raise ValueError(f"Invalid percentile key: {name}") from error
+    if not Decimal(0) < quantile < Decimal(1):
+        raise ValueError(f"Percentile must be between 0 and p100: {name}")
+    return quantile
+
+
+def percentile_sort_key(name: str) -> Decimal:
+    return percentile_quantile(name)
+
+
+def latency_settings_from_values(values: dict[str, Any], context: str, definition_path: Path) -> dict[str, Any]:
+    percentiles = values.get("percentiles")
+    if not isinstance(percentiles, dict) or not percentiles:
+        raise ValueError(f"Test definition must define non-empty {context}.percentiles: {definition_path}")
+    normalized: dict[str, int] = {}
+    quantiles: set[Decimal] = set()
+    previous_delay: int | None = None
+    for name in sorted(percentiles, key=percentile_sort_key):
+        quantile = percentile_quantile(name)
+        if quantile in quantiles:
+            raise ValueError(f"Test definition percentile keys must identify distinct quantiles at {context}: {definition_path}")
+        quantiles.add(quantile)
+        value = percentiles[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"Test definition {context}.percentiles.{name} must be a non-negative integer: {definition_path}")
+        if previous_delay is not None and value < previous_delay:
+            raise ValueError(f"Test definition {context}.percentiles delays must be non-decreasing: {definition_path}")
+        normalized[name] = value
+        previous_delay = value
+    if list(normalized)[-1] != "p100":
+        raise ValueError(f"Test definition {context}.percentiles must end with p100: {definition_path}")
+    return {"percentiles": normalized}
 
 
 def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, context: str = "stubs") -> dict[str, Any]:
     if "error_rate_percent" not in stubs:
         raise ValueError(f"Test definition must define {context}.error_rate_percent: {definition_path}")
-    default_registry = {"delayP90Ms": 2, "delayP95Ms": 3, "delayP99Ms": 4, "delayP100Ms": 5}
+    error_rate = stubs["error_rate_percent"]
+    if not isinstance(error_rate, int) or isinstance(error_rate, bool) or not 0 <= error_rate <= 100:
+        raise ValueError(f"Test definition {context}.error_rate_percent must be an integer between 0 and 100: {definition_path}")
+    default_registry = {"percentiles": {"p90": 2, "p95": 3, "p99": 4, "p100": 5}}
     registry = stubs.get("registry", {})
     return {
         "eta": latency_settings_from_values(stubs.get("eta", {}), f"{context}.eta", definition_path),
@@ -148,7 +182,7 @@ def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, 
             if isinstance(registry, dict) and registry
             else default_registry
         ),
-        "errorRatePercent": int(stubs["error_rate_percent"]),
+        "errorRatePercent": error_rate,
     }
 
 
@@ -217,9 +251,12 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
             if not target:
                 raise ValueError(f"chaos_steps[{index}].target must not be empty: {definition_path}")
             normalized["target"] = target
+            merged_stubs = deep_merge(baseline_stubs, params)
             normalized["params"] = {
-                "settings": stub_settings_from_definition(params, definition_path, f"chaos_steps[{index}].params"),
-                "baselineSettings": baseline_stubs,
+                "settings": stub_settings_from_definition(
+                    merged_stubs, definition_path, f"chaos_steps[{index}].params"
+                ),
+                "baselineSettings": stub_settings_from_definition(baseline_stubs, definition_path),
             }
         elif step_type in {"network_degradation", "service_outage", "service_restart", "service_crash"}:
             context = f"chaos_steps[{index}]"
@@ -319,7 +356,7 @@ def main() -> None:
         raise ValueError(f"Test definition must define stubs baseline settings: {definition_path}")
 
     stub_settings = stub_settings_from_definition(stubs, definition_path)
-    chaos_steps = normalized_chaos_steps(definition, stub_settings, definition_path)
+    chaos_steps = normalized_chaos_steps(definition, stubs, definition_path)
     diagnostic_steps = normalized_diagnostic_steps(definition, definition_path)
 
     deployment_env = value_at(deployment_profile, "env", default={})

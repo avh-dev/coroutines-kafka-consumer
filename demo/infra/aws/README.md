@@ -76,7 +76,7 @@ targets sequentially in one immutable lab, downloads and verifies every target
 result, and tears the session down:
 
 ```bash
-demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment aws
+demo/infra/run-experiment.sh demo/infra/experiments/aws-smoke.yaml --environment aws
 ```
 
 The materialized resolved workload, implementation catalog, Terraform variables,

@@ -150,17 +150,17 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(1, metadata["worker_dispatcher_threads"])
 
     def test_aws_runner_uses_internal_lab_stub_settings_contract(self) -> None:
-        definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
+        definition_path = REPO_ROOT / "demo/infra/experiments/aws-smoke.yaml"
         experiment = yaml.safe_load(definition_path.read_text(encoding="utf-8"))
         definition = {"stubs": experiment["workload"]["stubs"]}
         settings = run_test_module.normalized_stub_settings(REPO_ROOT, definition, definition_path)
 
         self.assertEqual(0, settings["errorRatePercent"])
-        self.assertEqual(20, settings["eta"]["delayP90Ms"])
-        self.assertEqual(80, settings["flavour"]["delayP99Ms"])
+        self.assertEqual(20, settings["eta"]["percentiles"]["p90"])
+        self.assertEqual(80, settings["flavour"]["percentiles"]["p99"])
 
     def test_aws_runner_refuses_to_silently_skip_chaos_steps(self) -> None:
-        definition_path = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
+        definition_path = REPO_ROOT / "demo/infra/experiments/aws-smoke.yaml"
         definition = {"chaos_steps": [{"at": "1s", "type": "pod_delete"}]}
 
         with self.assertRaisesRegex(ValueError, "AWS chaos execution is not implemented yet"):
@@ -169,7 +169,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_new_state_materializes_shared_aws_experiment_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(
-                experiment="demo/infra/experiments/smoke.yaml",
+                experiment="demo/infra/experiments/aws-smoke.yaml",
                 experiment_id=None,
                 max_session_hours=12,
                 region="eu-central-1",
@@ -190,7 +190,7 @@ class AwsSessionTest(unittest.TestCase):
 
     def test_new_state_rejects_unsafe_session_name(self) -> None:
         base = SimpleNamespace(
-            experiment="demo/infra/experiments/smoke.yaml",
+            experiment="demo/infra/experiments/aws-smoke.yaml",
             experiment_id=None,
             max_session_hours=12,
             region="eu-central-1",
@@ -235,7 +235,7 @@ class AwsSessionTest(unittest.TestCase):
                 "config": {
                     "session_id": "safe-session",
                     "region": "eu-central-1",
-                    "experiment": "demo/infra/experiments/smoke.yaml",
+                    "experiment": "demo/infra/experiments/aws-smoke.yaml",
                     "latency_limits": {"order.events.v1": 2000},
                 },
                 "terraform": {},
@@ -368,7 +368,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_controller_builds_portable_experiment_root_from_target_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
-            experiment_path = "demo/infra/experiments/smoke.yaml"
+            experiment_path = "demo/infra/experiments/aws-smoke.yaml"
             target_definition = session_dir / "materialized/ckc/resolved-test.yaml"
             target_test = target_definition.with_name("resolved-test-source.yaml")
             target_definition.parent.mkdir(parents=True)

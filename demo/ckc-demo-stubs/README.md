@@ -22,5 +22,9 @@ Runtime settings are intentionally configured after startup:
 ```sh
 curl -fsS -X POST http://localhost:8080/settings \
   -H 'Content-Type: application/json' \
-  --data '{"eta":{"delayP90Ms":40,"delayP95Ms":80,"delayP99Ms":160,"delayP100Ms":300},"flavour":{"delayP90Ms":40,"delayP95Ms":80,"delayP99Ms":160,"delayP100Ms":300},"errorRatePercent":0}'
+  --data '{"eta":{"percentiles":{"p50":20,"p90":40,"p999":160,"p100":300}},"flavour":{"percentiles":{"p50":20,"p90":40,"p999":160,"p100":300}},"errorRatePercent":0}'
 ```
+
+Percentile keys encode their quantile as decimal digits: `p50` is `0.50`,
+`p999` is `0.999`, and the required terminal `p100` is `1.0`. Delays are
+milliseconds and must be non-negative and non-decreasing by quantile.

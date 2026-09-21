@@ -161,6 +161,7 @@
 | [DEMO-95](#demo-95) | Increase producer and consumer audit appender capacity for broker-failover acknowledgement bursts. | DONE |
 | [DEMO-96](#demo-96) | Use the Thread Stats sampling interval defaults in demo and lab deployments. | DONE |
 | [DEMO-97](#demo-97) | Make the demo-stub server request timeout configurable so configured long-tail delays are not truncated. | DONE |
+| [DEMO-98](#demo-98) | Support arbitrary percentile latency distributions in demo-stub settings. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -356,6 +357,9 @@
 | [INFRA-195](#infra-195) | Reorder Kafka network analysis around batching, protocol behavior, and wire cost. | DONE |
 | [INFRA-196](#infra-196) | Add a 20-minute repeated CKC target experiment for measuring internal-lab run-to-run variability. | DONE |
 | [INFRA-197](#infra-197) | Refine the experiment report header, goal, and planned HTTP stub presentation. | DONE |
+| [INFRA-199](#infra-199) | Carry arbitrary stub latency percentiles through experiment configuration and render them as report cards. | DONE |
+| [INFRA-200](#infra-200) | Rename the local smoke experiment, exercise a timed stub degradation, and label its measurement window. | DONE |
+| [INFRA-201](#infra-201) | Refine stub cards and resolve inherited percentile values in degradation comparisons. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4093,4 +4097,47 @@ _Date: 2026-09-21_
 Allow synthetic downstream delays to exceed Armeria's default ten-second server request timeout.
 Disable the timeout by default so the stub honors the configured latency distribution, while retaining an environment override for bounded runs.
 Wire the parsed value into Armeria's server builder and cover default, override, and validation behavior with focused tests.
+Verification: all `ckc-demo-stubs` tests pass; whitespace validation passes.
+
+<a id="infra-199"></a>
+### INFRA-199 - Report dynamic stub latency distributions
+
+_Date: 2026-09-21_
+
+Replace fixed stub latency fields in the canonical experiment contract with mergeable percentile maps.
+Preserve fully resolved distributions in experiment evidence and pass the dynamic settings to demo-stubs.
+Render ETA, flavour, and registry distributions as responsive HTML cards with percentile values in rows.
+Reuse the load-profile topic palette in the cards and explain percentile bucket boundaries directly below them.
+Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, 28 AWS runner, and `ckc-demo-stubs` tests pass; whitespace validation passes.
+
+<a id="infra-200"></a>
+### INFRA-200 - Clarify the smoke experiment timeline
+
+_Date: 2026-09-21_
+
+Rename the current local `smoke-repeat` experiment to `smoke` and give the existing AWS-only smoke an explicit filename.
+Add a 25–45 second stub degradation to exercise dynamic percentile reporting in the short local run.
+Label the measurement window explicitly on the planned load timeline alongside diagnostic and chaos annotations.
+Verification: all 22 catalog experiments validate; all 75 internal-lab, 27 focused shared-orchestration, and 28 AWS runner tests pass; whitespace validation passes.
+
+<a id="infra-201"></a>
+### INFRA-201 - Refine stub report presentation
+
+_Date: 2026-09-21_
+
+Resolve effective baseline delays for percentile boundaries introduced only by a degradation override instead of rendering missing values.
+Use the topic color for the whole card border while keeping the topic badge and neutral card body.
+Remove the top accent and special p100 row treatment for a quieter report layout.
+Arrange each degraded downstream's percentile comparison vertically so arbitrary distributions grow downward rather than widening the timeline card.
+Order all timeline cards chronologically from bottom to top so their time-anchored connectors form a mostly non-overlapping staircase.
+Verification: all 75 internal-lab tests pass; whitespace validation passes.
+
+<a id="demo-98"></a>
+### DEMO-98 - Support arbitrary demo-stub latency percentiles
+
+_Date: 2026-09-21_
+
+Replace the fixed p90/p95/p99/p100 latency fields with an ordered percentile distribution.
+Accept arbitrary percentile keys such as p50, p75, and p999 while retaining p100 as the required terminal bucket.
+Sample with sufficient precision for sub-percent tail buckets and validate malformed or incomplete distributions.
 Verification: all `ckc-demo-stubs` tests pass; whitespace validation passes.

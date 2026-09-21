@@ -9,17 +9,17 @@ Validate an experiment before provisioning:
 
 ```bash
 python3 demo/infra/shared/validate-experiment.py \
-  demo/infra/experiments/smoke-repeat.yaml \
+  demo/infra/experiments/smoke.yaml \
   --environment internal-lab
 ```
 
 Run it from any repository checkout through the shared entrypoint:
 
 ```bash
-demo/infra/run-experiment.sh demo/infra/experiments/smoke-repeat.yaml \
+demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml \
   --environment internal-lab
 
-demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml \
+demo/infra/run-experiment.sh demo/infra/experiments/aws-smoke.yaml \
   --environment aws
 ```
 
@@ -27,6 +27,24 @@ An experiment may contain both environment entries when its workload is
 portable. Environment-specific capabilities are checked before any deployment.
 Generated planner capabilities, Terraform inputs, Kubernetes manifests, and
 resolved snapshots are evidence, not additional configuration sources.
+
+Stub latency distributions use arbitrary percentile maps:
+
+```yaml
+stubs:
+  error_rate_percent: 0
+  eta:
+    percentiles:
+      p50: 10
+      p99: 80
+      p999: 500
+      p100: 60000
+```
+
+`p50` means quantile `0.50`, `p999` means `0.999`, and every complete
+distribution ends with `p100`. Target workload and chaos overrides are merged
+by percentile key; resolved experiment evidence always contains the complete
+distribution.
 
 ## No-chaos E2E tuning candidate
 

@@ -7,20 +7,23 @@ workload:
   stubs:
     error_rate_percent: 0
     eta:
-      delay_p90_ms: 1
-      delay_p95_ms: 1
-      delay_p99_ms: 1
-      delay_p100_ms: 1
+      percentiles:
+        p90: 1
+        p95: 1
+        p99: 1
+        p100: 1
     flavour:
-      delay_p90_ms: 1
-      delay_p95_ms: 1
-      delay_p99_ms: 1
-      delay_p100_ms: 1
+      percentiles:
+        p90: 1
+        p95: 1
+        p99: 1
+        p100: 1
     registry:
-      delay_p90_ms: 1
-      delay_p95_ms: 1
-      delay_p99_ms: 1
-      delay_p100_ms: 1
+      percentiles:
+        p90: 1
+        p95: 1
+        p99: 1
+        p100: 1
   load:
     shards: 1
     workers: 1
@@ -60,20 +63,23 @@ workload:
     params:
       error_rate_percent: 0
       eta:
-        delay_p90_ms: 10
-        delay_p95_ms: 10
-        delay_p99_ms: 10
-        delay_p100_ms: 10
+        percentiles:
+          p90: 10
+          p95: 10
+          p99: 10
+          p100: 10
       flavour:
-        delay_p90_ms: 10
-        delay_p95_ms: 10
-        delay_p99_ms: 10
-        delay_p100_ms: 10
+        percentiles:
+          p90: 10
+          p95: 10
+          p99: 10
+          p100: 10
       registry:
-        delay_p90_ms: 10
-        delay_p95_ms: 10
-        delay_p99_ms: 10
-        delay_p100_ms: 10
+        percentiles:
+          p90: 10
+          p95: 10
+          p99: 10
+          p100: 10
 targets:
 - name: ckc-sync.virtual.1carrier.workers40
   implementation: ckc-sync

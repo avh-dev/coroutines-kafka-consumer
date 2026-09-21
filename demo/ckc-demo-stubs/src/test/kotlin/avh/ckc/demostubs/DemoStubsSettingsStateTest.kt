@@ -56,9 +56,9 @@ class DemoStubsSettingsStateTest {
 
     private fun settings(delayMs: Long): DemoStubsSettings =
         DemoStubsSettings(
-            eta = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
-            flavour = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
-            registry = ModelLatencySettings(delayMs, delayMs, delayMs, delayMs),
+            eta = ModelLatencySettings(mapOf("p100" to delayMs)),
+            flavour = ModelLatencySettings(mapOf("p100" to delayMs)),
+            registry = ModelLatencySettings(mapOf("p100" to delayMs)),
             errorRatePercent = 0
         )
 

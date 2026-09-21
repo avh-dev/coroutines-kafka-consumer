@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from .model import ExperimentReport
+from .theme import topic_palette
 
 
 PALETTE = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#4f46e5", "#64748b"]
-TOPIC_COLORS = ("#bfdbfe", "#ddd6fe", "#ccfbf1", "#fde68a")
-TOPIC_BOUNDARY_COLORS = ("#60a5fa", "#a78bfa", "#2dd4bf", "#fbbf24")
 ICON_ROOT = Path(__file__).resolve().parent / "icons" / "services"
 ACTION_COLORS = {
     "delete": "#dc2626",
@@ -449,7 +448,9 @@ def stubs_table_rows(scenario: dict[str, Any]) -> list[dict[str, Any]]:
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     rows = stubs_table_rows(scenario)
     if rows:
-        return 600, 76 + len(rows) * 27
+        table = scenario.get("stubs_changes")
+        columns = table.get("columns") if isinstance(table, dict) else []
+        return min(900, max(280, 20 + len(rows) * 220)), 76 + max(1, len(columns)) * 25
     title = str(scenario.get("title") or scenario.get("type") or "Chaos")
     at = float(scenario.get("at_seconds") or 0)
     duration = scenario.get("duration_seconds")
@@ -472,30 +473,31 @@ def stubs_table_svg(
     rows = stubs_table_rows(scenario)
     if not rows:
         return []
-    columns = ("p90", "p95", "p99", "p100", "errors")
+    table = scenario.get("stubs_changes")
+    raw_columns = table.get("columns") if isinstance(table, dict) else None
+    columns = tuple(str(column) for column in raw_columns) if isinstance(raw_columns, list) else ("errors",)
     table_x = card_x + 10
     table_y = card_y + 42
     table_width = card_width - 20
-    name_width = 150
-    value_width = (table_width - name_width) / len(columns)
-    row_height = 27
+    stream_width = table_width / len(rows)
+    row_height = 25
     result = [
+        '<g data-stubs-layout="vertical">',
         f'<line x1="{table_x:.1f}" y1="{table_y-5:.1f}" x2="{table_x+table_width:.1f}" y2="{table_y-5:.1f}" stroke="#e5e7eb"/>',
     ]
-    for index, column in enumerate(columns):
-        cell_x = table_x + name_width + index * value_width
-        label = f"{column}, ms" if column != "errors" else "errors, %"
-        result.append(
-            f'<text class="table-head" x="{cell_x+value_width/2:.1f}" y="{table_y+12:.1f}" text-anchor="middle">{label}</text>'
-        )
     for row_index, row in enumerate(rows):
-        row_y = table_y + 21 + row_index * row_height
+        stream_x = table_x + row_index * stream_width
+        content_x = stream_x + 8
+        content_right = stream_x + stream_width - 8
         if row_index % 2 == 0:
             result.append(
-                f'<rect x="{table_x:.1f}" y="{row_y-7:.1f}" width="{table_width:.1f}" height="{row_height}" rx="3" fill="#f8fafc"/>'
+                f'<rect x="{stream_x+2:.1f}" y="{table_y:.1f}" width="{stream_width-4:.1f}" '
+                f'height="{24+len(columns)*row_height:.1f}" rx="4" fill="#f8fafc"/>'
             )
         result.append(
-            f'<text class="table-cell" x="{table_x+6:.1f}" y="{row_y+10:.1f}">{esc(row.get("name") or row.get("id") or "downstream")}</text>'
+            f'<text class="table-head" data-stubs-stream="{esc(row.get("id") or "downstream")}" '
+            f'x="{stream_x+stream_width/2:.1f}" y="{table_y+15:.1f}" text-anchor="middle">'
+            f'{esc(row.get("name") or row.get("id") or "downstream")}</text>'
         )
         values = row.get("values") if isinstance(row.get("values"), dict) else {}
         for column_index, column in enumerate(columns):
@@ -503,22 +505,28 @@ def stubs_table_svg(
             base = value.get("base")
             new = value.get("new")
             changed = bool(value.get("changed"))
-            cell_x = table_x + name_width + column_index * value_width
-            center_x = cell_x + value_width / 2
+            row_y = table_y + 40 + column_index * row_height
+            label = f"{column}, ms" if column != "errors" else "errors, %"
             if changed:
                 result.append(
-                    f'<rect data-stubs-cell="changed" x="{cell_x+3:.1f}" y="{row_y-5:.1f}" width="{value_width-6:.1f}" height="{row_height-4:.1f}" rx="4" fill="{color}" fill-opacity="0.10"/>'
+                    f'<rect data-stubs-cell="changed" x="{stream_x+4:.1f}" y="{row_y-16:.1f}" '
+                    f'width="{stream_width-8:.1f}" height="{row_height-3:.1f}" rx="4" fill="{color}" fill-opacity="0.10"/>'
                 )
+            result.append(
+                f'<text class="table-head" x="{content_x:.1f}" y="{row_y:.1f}">{label}</text>'
+            )
+            if changed:
                 result.append(
-                    f'<text class="table-cell" x="{center_x:.1f}" y="{row_y+10:.1f}" text-anchor="middle">'
+                    f'<text class="table-cell" x="{content_right:.1f}" y="{row_y:.1f}" text-anchor="end">'
                     f'<tspan class="table-base">{esc(base)}</tspan>'
                     f'<tspan class="table-arrow" fill="{color}"> → </tspan>'
                     f'<tspan class="table-new" fill="{color}">{esc(new)}</tspan></text>'
                 )
             else:
                 result.append(
-                    f'<text class="table-cell" x="{center_x:.1f}" y="{row_y+10:.1f}" text-anchor="middle">{esc(new)}</text>'
+                    f'<text class="table-cell" x="{content_right:.1f}" y="{row_y:.1f}" text-anchor="end">{esc(new)}</text>'
                 )
+    result.append("</g>")
     return result
 
 
@@ -543,8 +551,9 @@ def load_profile_svg(report: ExperimentReport) -> str:
     measurement_window = report.test_definition.get("measurement_window")
     if isinstance(measurement_window, dict) and float(measurement_window.get("duration_seconds") or 0) > 0:
         start = float(measurement_window.get("start_seconds") or 0)
+        window_name = str(measurement_window.get("name") or "steady state").replace("-", " ").strip()
         chaos_scenarios.append({
-            "type": "measurement", "action": "measurement", "title": measurement_window.get("name") or "steady-state measurement",
+            "type": "measurement", "action": "measurement", "title": f"Measurement window • {window_name}",
             "target": "", "at_seconds": start, "duration_seconds": float(measurement_window["duration_seconds"]),
             "end_seconds": start + float(measurement_window["duration_seconds"]),
         })
@@ -564,6 +573,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
             "type": "diagnostic", "action": "diagnostic", "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
         })
+    chaos_scenarios.sort(key=lambda scenario: float(scenario.get("at_seconds") or 0))
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)
@@ -625,10 +635,10 @@ def load_profile_svg(report: ExperimentReport) -> str:
             percent = float(topic.get("percent") or 0)
             topic_max_tps = maximum_tps * percent / 100
             item_x = left + index * legend_slot_width
-            color = TOPIC_COLORS[index % len(TOPIC_COLORS)]
+            fill_color, boundary_color, _text_color = topic_palette(topic.get("topic"))
             body.extend(
                 [
-                    f'<rect data-topic-legend="{esc(topic.get("topic"))}" x="{item_x:.1f}" y="34" width="12" height="12" rx="2" fill="{color}" stroke="{TOPIC_BOUNDARY_COLORS[index % len(TOPIC_BOUNDARY_COLORS)]}" stroke-width="0.8"/>',
+                    f'<rect data-topic-legend="{esc(topic.get("topic"))}" x="{item_x:.1f}" y="34" width="12" height="12" rx="2" fill="{fill_color}" stroke="{boundary_color}" stroke-width="0.8"/>',
                     f'<text class="axis-label" x="{item_x+19:.1f}" y="44">{esc(topic.get("topic"))} · {format_tps(percent)}% · max {format_tps(topic_max_tps)} TPS</text>',
                 ]
             )
@@ -702,12 +712,13 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 upper = [(x(seconds), y(tps * upper_percent)) for seconds, tps in load_vertices]
                 lower = [(x(seconds), y(tps * lower_percent)) for seconds, tps in reversed(load_vertices)]
                 topic_polygon = " ".join(f"{px:.1f},{py:.1f}" for px, py in [*upper, *lower])
-                topic_polygons.append((topic, TOPIC_COLORS[topic_index % len(TOPIC_COLORS)], topic_polygon))
+                fill_color, boundary_color, _text_color = topic_palette(topic.get("topic"))
+                topic_polygons.append((topic, fill_color, topic_polygon))
                 if topic_index < len(load_topics) - 1:
                     topic_boundaries.append(
                         (
                             topic,
-                            TOPIC_BOUNDARY_COLORS[topic_index % len(TOPIC_BOUNDARY_COLORS)],
+                            boundary_color,
                             smoothed_line_path(upper, radius=7),
                         )
                     )

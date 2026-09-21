@@ -28,9 +28,16 @@ chaos_runner = load_helper("chaos_runner_for_test", "run-chaos-steps.py")
 
 
 BASELINE_STUBS = {
-    "eta": {"delayP90Ms": 1, "delayP95Ms": 2, "delayP99Ms": 3, "delayP100Ms": 4},
-    "flavour": {"delayP90Ms": 1, "delayP95Ms": 2, "delayP99Ms": 3, "delayP100Ms": 4},
-    "registry": {"delayP90Ms": 1, "delayP95Ms": 2, "delayP99Ms": 3, "delayP100Ms": 4},
+    "eta": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
+    "flavour": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
+    "registry": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
+    "error_rate_percent": 0,
+}
+
+STUB_API_BASELINE = {
+    "eta": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
+    "flavour": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
+    "registry": {"percentiles": {"p90": 1, "p95": 2, "p99": 3, "p100": 4}},
     "errorRatePercent": 0,
 }
 
@@ -38,9 +45,9 @@ BASELINE_STUBS = {
 def degradation_params() -> dict[str, object]:
     return {
         "error_rate_percent": 5,
-        "eta": {"delay_p90_ms": 100, "delay_p95_ms": 200, "delay_p99_ms": 300, "delay_p100_ms": 400},
-        "flavour": {"delay_p90_ms": 100, "delay_p95_ms": 200, "delay_p99_ms": 300, "delay_p100_ms": 400},
-        "registry": {"delay_p90_ms": 10, "delay_p95_ms": 20, "delay_p99_ms": 30, "delay_p100_ms": 40},
+        "eta": {"percentiles": {"p90": 100, "p95": 200, "p99": 300, "p100": 400}},
+        "flavour": {"percentiles": {"p90": 100, "p95": 200, "p99": 300, "p100": 400}},
+        "registry": {"percentiles": {"p90": 10, "p95": 20, "p99": 30, "p100": 40}},
     }
 
 
@@ -69,7 +76,22 @@ class ChaosScenariosTest(unittest.TestCase):
         self.assertEqual(1, len(scenarios))
         self.assertEqual(150, scenarios[0]["atSeconds"])
         self.assertEqual(200, scenarios[0]["durationSeconds"])
-        self.assertEqual(BASELINE_STUBS, scenarios[0]["params"]["baselineSettings"])
+        self.assertEqual(STUB_API_BASELINE, scenarios[0]["params"]["baselineSettings"])
+
+    def test_degradation_merges_arbitrary_percentiles_with_baseline(self) -> None:
+        scenarios = self.normalize(
+            [{
+                "at": "10s",
+                "duration": "20s",
+                "type": "stubs_degradation",
+                "params": {"eta": {"percentiles": {"p999": 4, "p100": 60_000}}},
+            }]
+        )
+
+        self.assertEqual(
+            {"p90": 1, "p95": 2, "p99": 3, "p999": 4, "p100": 60_000},
+            scenarios[0]["params"]["settings"]["eta"]["percentiles"],
+        )
 
     def test_overlapping_duration_scenarios_for_target_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "overlaps"):
@@ -128,12 +150,12 @@ class ChaosScenariosTest(unittest.TestCase):
         stubs = {
             "type": "stubs_degradation",
             "target": "demo-stubs",
-            "params": {"settings": {}, "baselineSettings": BASELINE_STUBS},
+            "params": {"settings": {}, "baselineSettings": STUB_API_BASELINE},
         }
         with patch.object(chaos_runner, "apply_stubs_profile") as apply_stubs:
             chaos_runner.recover_scenario(stubs, "/configure-stubs", dry_run=False)
         apply_stubs.assert_called_once_with(
-            {"settings": BASELINE_STUBS},
+            {"settings": STUB_API_BASELINE},
             "/configure-stubs",
             dry_run=False,
             check=True,

@@ -148,26 +148,18 @@ class ExperimentReportTest(unittest.TestCase):
                 "stubs": {
                     "error_rate_percent": 0,
                     "eta": {
-                        "delay_p90_ms": 25,
-                        "delay_p95_ms": 40,
-                        "delay_p99_ms": 160,
-                        "delay_p100_ms": 300,
+                        "percentiles": {"p50": 10, "p90": 25, "p95": 40, "p99": 160, "p100": 300},
                     },
                     "flavour": {
-                        "delay_p90_ms": 4,
-                        "delay_p95_ms": 6,
-                        "delay_p99_ms": 8,
-                        "delay_p100_ms": 50,
+                        "percentiles": {"p90": 4, "p95": 6, "p99": 8, "p100": 50},
                     },
                     "registry": {
-                        "delay_p90_ms": 2,
-                        "delay_p95_ms": 3,
-                        "delay_p99_ms": 4,
-                        "delay_p100_ms": 5,
+                        "percentiles": {"p90": 2, "p95": 3, "p99": 4, "p100": 5},
                     },
                 },
                 "load_test": {
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
+                    "measurement_window": {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
                     "order_event_percent": 60,
                     "batch_event_percent": 40,
                     "cauldron_telemetry_percent": 0,
@@ -186,10 +178,7 @@ class ExperimentReportTest(unittest.TestCase):
                         "params": {
                             "error_rate_percent": 0,
                             "eta": {
-                                "delay_p90_ms": 25,
-                                "delay_p95_ms": 150,
-                                "delay_p99_ms": 250,
-                                "delay_p100_ms": 500,
+                                "percentiles": {"p95": 150, "p99": 250, "p999": 300, "p100": 500},
                             },
                         },
                     },
@@ -525,8 +514,8 @@ class ExperimentReportTest(unittest.TestCase):
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {
             "error_rate_percent": 0,
-            "eta": {"delay_p90_ms": 25, "delay_p95_ms": 40, "delay_p99_ms": 160, "delay_p100_ms": 300},
-            "flavour": {"delay_p90_ms": 4, "delay_p95_ms": 6, "delay_p99_ms": 8, "delay_p100_ms": 50},
+            "eta": {"percentiles": {"p90": 25, "p95": 40, "p99": 160, "p100": 300}},
+            "flavour": {"percentiles": {"p90": 4, "p95": 6, "p99": 8, "p100": 50}},
         }
         scenarios = normalize_chaos_scenarios(
             [
@@ -534,7 +523,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "type": "stubs_degradation",
                     "params": {
                         "error_rate_percent": 0,
-                        "eta": {"delay_p90_ms": 25, "delay_p95_ms": 150, "delay_p99_ms": 250, "delay_p100_ms": 500},
+                        "eta": {"percentiles": {"p95": 150, "p99": 250, "p999": 300, "p100": 500}},
                     },
                 }
             ],
@@ -544,6 +533,8 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(["eta"], [row["id"] for row in rows])
         self.assertFalse(rows[0]["values"]["p90"]["changed"])
         self.assertTrue(rows[0]["values"]["p95"]["changed"])
+        self.assertEqual(300, rows[0]["values"]["p999"]["base"])
+        self.assertFalse(rows[0]["values"]["p999"]["changed"])
 
     def test_service_artwork_is_embedded_in_svg(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -673,11 +664,24 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('<p class="report-execution-time">2026-08-07 10:00–10:02 UTC · Duration 2m</p>', markdown)
             self.assertIn("## Experiment goal\n\nCompare &lt;one&gt; &amp; two.", markdown)
             self.assertIn("### Planned HTTP stub behavior", markdown)
-            self.assertIn('<table class="comparison stub-behavior">', markdown)
-            self.assertIn("<th>Stubbed downstream</th><th>Error rate</th><th>p90</th><th>p95</th><th>p99</th><th>max</th>", markdown)
-            self.assertIn('<span class="downstream-name">Arcane ETA ML</span><br><span class="downstream-context"><code>cauldron.events.v1</code> • 100%</span>', markdown)
-            self.assertIn('<span class="downstream-name">Order flavour ML</span><br><span class="downstream-context"><code>order.events.v1</code> • 25%</span>', markdown)
-            self.assertIn('<span class="downstream-name">Legacy brewing registry</span><br><span class="downstream-context"><code>batch.events.v1</code> • ≈41.6%</span>', markdown)
+            self.assertIn('<div class="stub-cards">', markdown)
+            self.assertEqual(3, markdown.count('<article class="stub-card"'))
+            self.assertIn('<h4>Arcane ETA ML</h4>', markdown)
+            self.assertIn('data-topic="cauldron.events.v1" style="--topic-fill:#ccfbf1;--topic-border:#2dd4bf;--topic-text:#134e4a"', markdown)
+            self.assertIn('<code class="topic-badge">cauldron.events.v1</code><br>100% of messages', markdown)
+            self.assertIn('<h4>Order flavour ML</h4>', markdown)
+            self.assertIn('data-topic="order.events.v1" style="--topic-fill:#bfdbfe;--topic-border:#60a5fa;--topic-text:#1e3a8a"', markdown)
+            self.assertIn('<code class="topic-badge">order.events.v1</code><br>25% of messages', markdown)
+            self.assertIn('<h4>Legacy brewing registry</h4>', markdown)
+            self.assertIn('data-topic="batch.events.v1" style="--topic-fill:#ddd6fe;--topic-border:#a78bfa;--topic-text:#4c1d95"', markdown)
+            self.assertIn('<code class="topic-badge">batch.events.v1</code><br>≈41.6% of messages', markdown)
+            self.assertIn('<dt>p50</dt><dd>10 ms</dd>', markdown)
+            self.assertIn('<div><dt>p100</dt><dd>300 ms</dd></div>', markdown)
+            self.assertNotIn('class="tail-bucket"', markdown)
+            self.assertIn('<code>p999</code> means <code>0.999</code>', markdown)
+            self.assertIn('gives the final 0.1% of calls a 60-second delay', markdown)
+            self.assertIn('.stub-card{border:1px solid var(--topic-border);', markdown)
+            self.assertNotIn('border-top:4px', markdown)
             self.assertNotIn("ORDER_CREATED", markdown)
             self.assertNotIn("BATCH_BREWING_STEP_COMPLETED", markdown)
             self.assertFalse((report_dir / "stub-latency.svg").exists())
@@ -712,11 +716,19 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">1m</text>", svg)
             self.assertIn(">order.events.v1 · 60% · max 60 TPS</text>", svg)
             self.assertIn(">batch.events.v1 · 40% · max 40 TPS</text>", svg)
+            self.assertIn('data-topic-legend="order.events.v1"', svg)
+            self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
             self.assertIn(">warmup · 10s</text>", svg)
+            self.assertIn(">Measurement window • max load</text>", svg)
             self.assertIn(">Delete random pod</text>", svg)
             self.assertIn(">· 40s–50s · 10s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
+            self.assertIn(">p999, ms</text>", svg)
+            self.assertIn('data-stubs-layout="vertical"', svg)
+            self.assertIn('data-stubs-stream="eta"', svg)
+            self.assertNotIn('<tspan class="table-base">None</tspan>', svg)
+            self.assertIn('<tspan class="table-base">300</tspan>', svg)
             self.assertIn('data-stubs-cell="changed"', svg)
             self.assertNotIn(">100%</text>", svg)
             root_element = ET.fromstring(svg)
@@ -725,6 +737,45 @@ class ExperimentReportTest(unittest.TestCase):
                 "".join(element.itertext()): element
                 for element in root_element.iter(f"{namespace}text")
             }
+            degradation_card = next(
+                element
+                for element in root_element.iter(f"{namespace}g")
+                if element.attrib.get("data-chaos-card") == "stubs_degradation"
+            )
+            degradation_text = [
+                element
+                for element in degradation_card.iter(f"{namespace}text")
+            ]
+            degradation_streams = [
+                element
+                for element in degradation_text
+                if element.attrib.get("data-stubs-stream")
+            ]
+            self.assertTrue(degradation_streams)
+            self.assertEqual(1, len({element.attrib["y"] for element in degradation_streams}))
+            eta_percentile_y = [
+                float(element.attrib["y"])
+                for element in degradation_text
+                if "".join(element.itertext()) in {"p50, ms", "p90, ms", "p95, ms", "p99, ms", "p999, ms", "p100, ms"}
+                and float(element.attrib["x"]) < float(degradation_streams[0].attrib["x"])
+            ]
+            self.assertEqual(sorted(eta_percentile_y), eta_percentile_y)
+            self.assertGreater(len(set(eta_percentile_y)), 1)
+            chronological_card_y = [
+                float(text_elements[label].attrib["y"])
+                for label in (
+                    "Delete random pod",
+                    "Measurement window • max load",
+                    "Kafka network packet capture • Max load",
+                    "Service outage",
+                    "Restart service",
+                    "Degrade stubs",
+                )
+            ]
+            self.assertEqual(
+                sorted(chronological_card_y, reverse=True),
+                chronological_card_y,
+            )
             warmup = text_elements["warmup · 10s"]
             self.assertRegex(warmup.attrib["transform"], r"rotate\(-\d")
             chaos_y = [
@@ -751,22 +802,28 @@ class ExperimentReportTest(unittest.TestCase):
                 for element in root_element.iter(f"{namespace}rect")
                 if element.attrib.get("data-chaos-kind") == "interval"
             ]
-            self.assertEqual("service_outage", intervals[0].attrib["data-scenario-type"])
-            self.assertGreater(float(intervals[0].attrib["width"]), 0)
-            self.assertEqual("0.38", intervals[0].attrib["fill-opacity"])
+            outage_interval = next(
+                element
+                for element in intervals
+                if element.attrib.get("data-scenario-type") == "service_outage"
+            )
+            self.assertGreater(float(outage_interval.attrib["width"]), 0)
+            self.assertEqual("0.38", outage_interval.attrib["fill-opacity"])
             interval_start = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
                 if element.attrib.get("data-chaos-boundary") == "start"
+                and element.attrib.get("x1") == outage_interval.attrib["x"]
             )
-            self.assertEqual(intervals[0].attrib["x"], interval_start.attrib["x1"])
-            self.assertEqual(intervals[0].attrib["fill"], interval_start.attrib["stroke"])
+            self.assertEqual(outage_interval.attrib["x"], interval_start.attrib["x1"])
+            self.assertEqual(outage_interval.attrib["fill"], interval_start.attrib["stroke"])
             self.assertEqual("1.2", interval_start.attrib["stroke-width"])
             self.assertNotIn("stroke-dasharray", interval_start.attrib)
             interval_connector = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
                 if element.attrib.get("data-chaos-connector") == "interval"
+                and element.attrib.get("x1") == interval_start.attrib["x1"]
             )
             self.assertEqual(interval_start.attrib["x1"], interval_connector.attrib["x1"])
             self.assertEqual("2.4", interval_connector.attrib["stroke-width"])
@@ -812,7 +869,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(1, len(topic_boundaries))
             self.assertEqual("1", topic_boundaries[0].attrib["stroke-width"])
             self.assertEqual(
-                5,
+                6,
                 len(
                     [
                         element
