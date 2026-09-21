@@ -1,5 +1,6 @@
 package avh.ckc.demostubs
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -77,5 +78,15 @@ class DemoStubsConfigTest {
         assertFailsWith<IllegalArgumentException> {
             ModelLatencySettings(mapOf("p5" to 10, "p50" to 20, "p100" to 30))
         }
+    }
+
+    @Test
+    fun `runtime settings decode arbitrary percentile maps`() {
+        val settings = Json.decodeFromString<DemoStubsSettings>(
+            """{"eta":{"percentiles":{"p50":10,"p999":80,"p100":60000}},"flavour":{"percentiles":{"p100":5}},"errorRatePercent":0}"""
+        )
+
+        assertEquals(listOf("p50", "p999", "p100"), settings.eta.buckets.map { it.name })
+        assertEquals(60_000, settings.eta.buckets.last().delayMillis)
     }
 }
