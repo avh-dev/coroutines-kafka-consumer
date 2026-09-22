@@ -233,11 +233,14 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(1800, workload["load"]["consumer_drain_timeout_seconds"])
         self.assertEqual(60, workload["load"]["consumer_drain_idle_seconds"])
         self.assertEqual(
-            {"name": "bounded tail-latency pressure", "start": "2m", "duration": "7m"},
-            workload["measurement_window"],
+            [
+                {"name": "baseline", "start": "2m", "duration": "2m"},
+                {"name": "degraded", "start": "5m", "duration": "5m"},
+            ],
+            workload["measurement_windows"],
         )
         chaos = workload["chaos"][0]
-        self.assertEqual("3m", chaos["at"])
+        self.assertEqual("5m", chaos["at"])
         self.assertEqual("5m", chaos["duration"])
         self.assertEqual(
             {"p995": 120, "p100": 60000},
@@ -254,6 +257,10 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(
             {1000},
             {topic["max_e2e_latency_ms"] for topic in workload["topics"].values()},
+        )
+        self.assertEqual(
+            [("baseline", "3m"), ("degraded", "7m")],
+            [(capture["name"], capture["at"]) for capture in workload["diagnostics"]],
         )
 
         with tempfile.TemporaryDirectory() as directory:

@@ -1,10 +1,10 @@
 schema_version: 2
 name: tail-latency-window-2k-comparison
-description: Compare CKC and Confluent Parallel Consumer with a production-style
-  Spring Kafka and JDK HTTP client baseline at 2k messages per second. During a
-  bounded five-minute window, the slowest 0.5% of downstream calls take one minute,
-  creating sustained out-of-order completion and partition head-of-line blocking
-  without injecting failures.
+description: Compare a production-style Spring Kafka and JDK HTTP client baseline
+  with CKC and Confluent Parallel Consumer at 2k messages per second. Contrast a
+  normal-latency baseline window with a five-minute window where the slowest 0.5%
+  of downstream calls take one minute, creating sustained out-of-order completion
+  and partition head-of-line blocking without injecting failures.
 workload:
   stubs:
     error_rate_percent: 0
@@ -34,7 +34,7 @@ workload:
       order: 2000
       batch: 2000
       telemetry: 2000
-    load_profile: 0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down) -> 0
+    load_profile: 0 -> (60s, warmup) -> 100 -> (660s, maximum) -> 100 -> (60s, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -55,12 +55,15 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
-  measurement_window:
-    name: bounded tail-latency pressure
+  measurement_windows:
+  - name: baseline
     start: 2m
-    duration: 7m
+    duration: 2m
+  - name: degraded
+    start: 5m
+    duration: 5m
   chaos:
-  - at: 3m
+  - at: 5m
     duration: 5m
     type: stubs_degradation
     target: demo-stubs
@@ -102,9 +105,21 @@ workload:
         delivery: not_guaranteed
         ordering: not_guaranteed
   diagnostics:
-  - at: 5m
+  - at: 3m
     type: tcpdump
-    name: tail-latency-pressure
+    name: baseline
+    targets:
+    - application
+    - load-test
+    duration: 15s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+  - at: 7m
+    type: tcpdump
+    name: degraded
     targets:
     - application
     - load-test
