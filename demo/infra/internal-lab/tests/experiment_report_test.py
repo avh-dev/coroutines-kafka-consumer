@@ -802,6 +802,19 @@ class ExperimentReportTest(unittest.TestCase):
                 for element in root_element.iter(f"{namespace}rect")
                 if element.attrib.get("data-chaos-kind") == "interval"
             ]
+            duration_ranges = [
+                element
+                for element in root_element.iter(f"{namespace}line")
+                if element.attrib.get("data-duration-range") == "line"
+            ]
+            self.assertEqual(len(intervals), len(duration_ranges))
+            self.assertEqual(
+                {element.attrib.get("data-scenario-type") for element in intervals},
+                {element.attrib.get("data-scenario-type") for element in duration_ranges},
+            )
+            range_y_positions = [float(element.attrib["y1"]) for element in duration_ranges]
+            self.assertEqual(sorted(range_y_positions), range_y_positions)
+            self.assertEqual(len(range_y_positions), len(set(range_y_positions)))
             outage_interval = next(
                 element
                 for element in intervals
@@ -822,12 +835,37 @@ class ExperimentReportTest(unittest.TestCase):
             interval_connector = next(
                 element
                 for element in root_element.iter(f"{namespace}line")
-                if element.attrib.get("data-chaos-connector") == "interval"
-                and element.attrib.get("x1") == interval_start.attrib["x1"]
+                if element.attrib.get("data-chaos-connector") == "interval-start"
+                and element.attrib.get("data-scenario-type") == "service_outage"
             )
             self.assertEqual(interval_start.attrib["x1"], interval_connector.attrib["x1"])
-            self.assertEqual("2.4", interval_connector.attrib["stroke-width"])
+            self.assertEqual("2.0", interval_connector.attrib["stroke-width"])
             self.assertIn("stroke-dasharray", interval_connector.attrib)
+            interval_end_connector = next(
+                element
+                for element in root_element.iter(f"{namespace}line")
+                if element.attrib.get("data-chaos-connector") == "interval-end"
+                and element.attrib.get("data-scenario-type") == "service_outage"
+            )
+            self.assertIn("stroke-dasharray", interval_end_connector.attrib)
+            interval_range = next(
+                element
+                for element in root_element.iter(f"{namespace}line")
+                if element.attrib.get("data-duration-range") == "line"
+                and element.attrib.get("data-scenario-type") == "service_outage"
+            )
+            self.assertEqual(interval_connector.attrib["x1"], interval_range.attrib["x1"])
+            self.assertEqual(interval_end_connector.attrib["x1"], interval_range.attrib["x2"])
+            self.assertEqual(interval_end_connector.attrib["y2"], interval_range.attrib["y2"])
+            duration_arrows = [
+                element
+                for element in root_element.iter(f"{namespace}path")
+                if element.attrib.get("data-duration-arrow") in {"start", "end"}
+                and element.attrib.get("data-scenario-type") == "service_outage"
+            ]
+            self.assertEqual({"start", "end"}, {
+                element.attrib["data-duration-arrow"] for element in duration_arrows
+            })
             outage_card = next(
                 element
                 for element in root_element.iter(f"{namespace}g")
@@ -843,6 +881,17 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertAlmostEqual(float(interval_connector.attrib["x1"]), action_center, places=1)
             outage_card_frame = next(outage_card.iter(f"{namespace}rect"))
             self.assertEqual(interval_start.attrib["stroke"], outage_card_frame.attrib["stroke"])
+            self.assertEqual(outage_card_frame.attrib["y"], interval_connector.attrib["y2"])
+            card_frames = [
+                next(card.iter(f"{namespace}rect"))
+                for card in root_element.iter(f"{namespace}g")
+                if card.attrib.get("data-chaos-card")
+            ]
+            self.assertLess(max(range_y_positions), min(float(frame.attrib["y"]) for frame in card_frames))
+            self.assertGreater(
+                min(range_y_positions),
+                float(interval_connector.attrib["y1"]),
+            )
             profile_fills = [
                 element
                 for element in root_element.iter(f"{namespace}polygon")
