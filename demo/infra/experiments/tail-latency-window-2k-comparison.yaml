@@ -1,0 +1,293 @@
+schema_version: 2
+name: tail-latency-window-2k-comparison
+description: Compare CKC and Confluent Parallel Consumer with a production-style
+  Spring Kafka and JDK HTTP client baseline at 2k messages per second. During a
+  bounded five-minute window, the slowest 0.5% of downstream calls take one minute,
+  creating sustained out-of-order completion and partition head-of-line blocking
+  without injecting failures.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    flavour:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 2000
+    producer_capacity_tps:
+      order: 2000
+      batch: 2000
+      telemetry: 2000
+    load_profile: 0 -> (60s, warmup) -> 100 -> (480s, steady) -> 100 -> (60s, cool-down) -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_timeout_seconds: 1800
+    consumer_drain_idle_seconds: 60
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: bounded tail-latency pressure
+    start: 2m
+    duration: 7m
+  chaos:
+  - at: 3m
+    duration: 5m
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      error_rate_percent: 0
+      eta:
+        percentiles:
+          p995: 120
+          p100: 60000
+      flavour:
+        percentiles:
+          p995: 120
+          p100: 60000
+      registry:
+        percentiles:
+          p995: 5
+          p100: 60000
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 1000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 1000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+  diagnostics:
+  - at: 5m
+    type: tcpdump
+    name: tail-latency-pressure
+    targets:
+    - application
+    - load-test
+    duration: 15s
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
+targets:
+- name: spring-kafka.jdk
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 100
+      batch_ms: 151
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 70
+        pollers: 70
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 76
+        pollers: 76
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 56
+        pollers: 56
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+  workload:
+    load:
+      order_kafka_producer_batch_size: 524288
+      batch_kafka_producer_batch_size: 524288
+- name: ckc.fixed.1
+  implementation: ckc
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: >-
+      -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+      -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      MODEL_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 100
+      batch_ms: 151
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      batch:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      telemetry:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+  workload:
+    load:
+      order_kafka_producer_batch_size: 524288
+      batch_kafka_producer_batch_size: 524288
+- name: cpc-reactor.fixed.1
+  implementation: confluent-reactor
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: >-
+      -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+      -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      MODEL_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 100
+      batch_ms: 151
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      batch:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      telemetry:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+  workload:
+    load:
+      order_kafka_producer_batch_size: 524288
+      batch_kafka_producer_batch_size: 524288
+environments:
+  internal-lab:
+    lab:
+      profile: installed
