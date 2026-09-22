@@ -583,7 +583,21 @@ def load_profile_svg(report: ExperimentReport) -> str:
     card_gap = 10
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)
     cards_height += max(0, len(card_dimensions) - 1) * card_gap
-    height = axis_y + 52 + max(38, cards_height) + 18
+    duration_indexes = [
+        index
+        for index, scenario in enumerate(chaos_scenarios)
+        if scenario.get("duration_seconds") is not None
+    ]
+    range_lane_gap = 16
+    range_y_positions = {
+        scenario_index: axis_y + 58 + range_index * range_lane_gap
+        for range_index, scenario_index in enumerate(duration_indexes)
+    }
+    cards_top = (
+        axis_y + 58 + max(0, len(duration_indexes) - 1) * range_lane_gap + 14
+        if duration_indexes else axis_y + 52
+    )
+    height = cards_top + max(38, cards_height) + 18
     plot_width = width - left - right
     load_total = sum(float(phase["duration_seconds"]) for phase in phases)
     chaos_total = max(
@@ -799,6 +813,9 @@ def load_profile_svg(report: ExperimentReport) -> str:
         title_width = len(title) * 6.8
         time_x = title_x + title_width + 10
         if duration is not None:
+            range_y = range_y_positions[index]
+            arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
+            arrow_height = max(0.5, min(4.0, arrow_width * 2 / 3))
             chaos_fills.append(
                 f'<rect data-chaos-kind="interval" data-range-background="overlay" '
                 f'data-scenario-type="{esc(scenario.get("type"))}" '
@@ -809,7 +826,11 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 [
                     f'<line data-chaos-boundary="start" x1="{start_x:.1f}" y1="{top}" x2="{start_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.8"/>',
                     f'<line data-chaos-boundary="end" x1="{end_x:.1f}" y1="{top}" x2="{end_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.8"/>',
-                    f'<line data-chaos-connector="interval" x1="{start_x:.1f}" y1="{axis_y}" x2="{start_x:.1f}" y2="{card_y:.1f}" stroke="{color}" stroke-width="2.4" stroke-opacity="0.82" stroke-dasharray="6 5"/>',
+                    f'<line data-chaos-connector="interval-start" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{axis_y}" x2="{start_x:.1f}" y2="{card_y:.1f}" stroke="{color}" stroke-width="2.0" stroke-opacity="0.82" stroke-dasharray="6 5"/>',
+                    f'<line data-chaos-connector="interval-end" data-scenario-type="{esc(scenario.get("type"))}" x1="{end_x:.1f}" y1="{axis_y}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="2.0" stroke-opacity="0.82" stroke-dasharray="6 5"/>',
+                    f'<line data-duration-range="line" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{range_y:.1f}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="2.4" stroke-opacity="0.9"/>',
+                    f'<path data-duration-arrow="start" data-scenario-type="{esc(scenario.get("type"))}" d="M {start_x+arrow_width:.1f} {range_y-arrow_height:.1f} L {start_x:.1f} {range_y:.1f} L {start_x+arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+                    f'<path data-duration-arrow="end" data-scenario-type="{esc(scenario.get("type"))}" d="M {end_x-arrow_width:.1f} {range_y-arrow_height:.1f} L {end_x:.1f} {range_y:.1f} L {end_x-arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
                 ]
             )
         else:
