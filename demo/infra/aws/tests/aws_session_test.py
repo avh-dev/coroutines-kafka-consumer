@@ -656,6 +656,31 @@ class AwsSessionTest(unittest.TestCase):
         self.assertFalse(drained)
         self.assertEqual("TIMEOUT", document["status"])
 
+    def test_consumer_drain_stops_after_processing_is_idle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "drain.json"
+            with (
+                patch.object(
+                    run_test_module,
+                    "prometheus_scalar",
+                    side_effect=[42.0, 100.0, 42.0, 100.0],
+                ),
+                patch.object(run_test_module.time, "monotonic", side_effect=[0.0, 0.0, 60.0]),
+                patch.object(run_test_module.time, "sleep"),
+            ):
+                drained = run_test_module.wait_for_consumer_drain(
+                    "http://metrics",
+                    report,
+                    timeout_seconds=300,
+                    required=True,
+                    idle_seconds=60,
+                    poll_seconds=60,
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+        self.assertFalse(drained)
+        self.assertEqual("IDLE", document["status"])
+        self.assertEqual(60, document["idle_threshold_seconds"])
+
     def test_cluster_health_reports_container_restarts_and_last_termination(self) -> None:
         report = run_test_module.summarize_cluster_pod_health([{
             "metadata": {"namespace": "ckc-app", "name": "ckc-demo-1"},

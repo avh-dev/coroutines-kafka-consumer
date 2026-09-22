@@ -360,6 +360,7 @@
 | [INFRA-199](#infra-199) | Carry arbitrary stub latency percentiles through experiment configuration and render them as report cards. | DONE |
 | [INFRA-200](#infra-200) | Rename the local smoke experiment, exercise a timed stub degradation, and label its measurement window. | DONE |
 | [INFRA-201](#infra-201) | Refine stub cards and resolve inherited percentile values in degradation comparisons. | DONE |
+| [INFRA-202](#infra-202) | Finish stalled experiment drains promptly and extend Kafka retention and consumer processing windows. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4131,6 +4132,16 @@ Remove the top accent and special p100 row treatment for a quieter report layout
 Arrange each degraded downstream's percentile comparison vertically so arbitrary distributions grow downward rather than widening the timeline card.
 Order all timeline cards chronologically from bottom to top so their time-anchored connectors form a mostly non-overlapping staircase.
 Verification: all 75 internal-lab tests pass; whitespace validation passes.
+
+<a id="infra-202"></a>
+### INFRA-202 - Finish stalled runs and extend Kafka windows
+
+_Date: 2026-09-22_
+
+Stop waiting for a fully drained consumer after publication has finished and processing has made no progress for a bounded idle period.
+Increase experiment Kafka retention and the consumer-group processing window so deliberately long latency tails remain available and assigned.
+Share the drain-progress state machine between internal-lab and AWS and preserve timeout as an independent safety limit.
+Verification: all 75 internal-lab, 29 AWS runner, and focused shared orchestration tests pass; Python and shell syntax checks pass.
 
 <a id="demo-98"></a>
 ### DEMO-98 - Support arbitrary demo-stub latency percentiles

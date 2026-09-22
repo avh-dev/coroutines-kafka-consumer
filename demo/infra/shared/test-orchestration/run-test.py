@@ -27,6 +27,14 @@ if str(SHARED_INFRA) not in sys.path:
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
 from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
+from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker
+
+
+PROCESSING_TOTAL_QUERY = (
+    "(sum(demo_ckc_record_process_duration_seconds_count) or vector(0)) + "
+    "(sum(demo_ckc_record_failed_duration_seconds_count) or vector(0)) + "
+    "(sum(demo_ckc_record_dropped_total) or vector(0))"
+)
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
@@ -257,25 +265,47 @@ def wait_for_consumer_drain(
     report_path: Path,
     timeout_seconds: int = 300,
     required: bool = True,
+    idle_seconds: int = 60,
+    poll_seconds: int = 15,
 ) -> bool:
     expression = 'sum(kafka_consumergroup_lag{consumergroup="ckc-demo"})'
     deadline = time.monotonic() + timeout_seconds
     observations: list[dict[str, Any]] = []
-    zero_observations = 0
+    tracker = ConsumerDrainTracker(stable_seconds=poll_seconds, idle_seconds=idle_seconds)
     while True:
         lag = prometheus_scalar(metrics_url, expression)
-        observations.append({"checked_at": utc_now_text(), "lag": lag})
-        zero_observations = zero_observations + 1 if lag is not None and lag <= 0 else 0
-        if zero_observations >= 2:
+        processed = prometheus_scalar(metrics_url, PROCESSING_TOTAL_QUERY)
+        now = time.monotonic()
+        outcome = tracker.observe(lag, processed, now)
+        observations.append({
+            "checked_at": utc_now_text(),
+            "lag": lag,
+            "processed": processed,
+            "idle_seconds": round(tracker.idle_for(now), 3),
+        })
+        if outcome == DRAINED:
             report_path.write_text(json_dump({"status": "DRAINED", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
             return True
-        if time.monotonic() >= deadline:
+        if outcome == IDLE:
+            report_path.write_text(json_dump({
+                "status": "IDLE",
+                "query": expression,
+                "processing_query": PROCESSING_TOTAL_QUERY,
+                "idle_threshold_seconds": idle_seconds,
+                "observations": observations,
+            }) + "\n", encoding="utf-8")
+            print(
+                f"Consumer lag remains at {lag}, but processing made no progress for "
+                f"{idle_seconds}s after publishing finished; continuing to audit analysis."
+            )
+            return False
+        if now >= deadline:
             report_path.write_text(json_dump({"status": "TIMEOUT", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
             if required:
                 raise TimeoutError(f"Consumer lag did not drain within {timeout_seconds}s; see {report_path}")
             print(f"Consumer lag did not drain within {timeout_seconds}s; continuing because consumer_drain_required=false.")
             return False
-        time.sleep(15)
+        time.sleep(poll_seconds)
 
 
 def append_experiment_event(run_dir: Path, event: dict[str, Any]) -> None:
@@ -1065,6 +1095,7 @@ def main() -> None:
             run_dir / "consumer-drain.json",
             as_int(load_test.get("consumer_drain_timeout_seconds"), 300),
             as_bool(load_test.get("consumer_drain_required"), True),
+            as_int(load_test.get("consumer_drain_idle_seconds"), 60),
         )
         telemetry_settle_seconds = as_int(load_test.get("telemetry_settle_seconds"), 65)
         if telemetry_settle_seconds > 0:

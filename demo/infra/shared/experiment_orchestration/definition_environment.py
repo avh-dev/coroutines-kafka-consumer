@@ -410,12 +410,17 @@ def main() -> None:
         "TELEMETRY_SOURCE_MODE": str(load_test.get("telemetry_source_mode", "ACTIVE_BATCHES")),
         "TELEMETRY_PUBLISH_INTERVAL_SECONDS": str(load_test.get("telemetry_publish_interval_seconds", 5)),
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
+        "CONSUMER_DRAIN_TIMEOUT_SECONDS": str(load_test.get("consumer_drain_timeout_seconds", 900)),
+        "CONSUMER_DRAIN_IDLE_SECONDS": str(load_test.get("consumer_drain_idle_seconds", 60)),
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
         "KAFKA_PRODUCER_LINGER_MS": str(load_test.get("kafka_producer_linger_ms", "")),
         "KAFKA_PRODUCER_BATCH_SIZE": str(load_test.get("kafka_producer_batch_size", "")),
         "KAFKA_PRODUCER_COMPRESSION_TYPE": str(load_test.get("kafka_producer_compression_type", "")),
         "KAFKA_PRODUCER_BUFFER_MEMORY": str(load_test.get("kafka_producer_buffer_memory", "")),
+        "KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS": str(
+            load_test.get("kafka_consumer_max_poll_interval_ms", 1_800_000)
+        ),
     }
 
     for topic in ("order", "batch", "telemetry"):
