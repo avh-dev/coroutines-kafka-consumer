@@ -11,6 +11,7 @@ class KafkaConsumerPropertiesTest {
             kafka.consumer.fetchMinBytes = 8192
             kafka.consumer.fetchMaxWaitMs = 250
             kafka.consumer.maxPollRecords = 500
+            kafka.consumer.maxPollIntervalMs = 1_800_000
             kafka.consumer.fetchMaxBytes = 32 * 1024 * 1024
             kafka.consumer.maxPartitionFetchBytes = 1024 * 1024
             consumers.telemetry.kafka.fetchMaxWaitMs = 50
@@ -23,6 +24,7 @@ class KafkaConsumerPropertiesTest {
         assertEquals(8192, resolved[ConsumerConfig.FETCH_MIN_BYTES_CONFIG])
         assertEquals(50, resolved[ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG])
         assertEquals(200, resolved[ConsumerConfig.MAX_POLL_RECORDS_CONFIG])
+        assertEquals(1_800_000, resolved[ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG])
         assertEquals(32 * 1024 * 1024, resolved[ConsumerConfig.FETCH_MAX_BYTES_CONFIG])
         assertEquals(2 * 1024 * 1024, resolved[ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG])
     }

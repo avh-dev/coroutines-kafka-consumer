@@ -162,6 +162,7 @@
 | [DEMO-96](#demo-96) | Use the Thread Stats sampling interval defaults in demo and lab deployments. | DONE |
 | [DEMO-97](#demo-97) | Make the demo-stub server request timeout configurable so configured long-tail delays are not truncated. | DONE |
 | [DEMO-98](#demo-98) | Support arbitrary percentile latency distributions in demo-stub settings. | DONE |
+| [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4142,6 +4143,15 @@ Stop waiting for a fully drained consumer after publication has finished and pro
 Increase experiment Kafka retention and the consumer-group processing window so deliberately long latency tails remain available and assigned.
 Share the drain-progress state machine between internal-lab and AWS and preserve timeout as an independent safety limit.
 Verification: all 75 internal-lab, 29 AWS runner, and focused shared orchestration tests pass; Python and shell syntax checks pass.
+
+<a id="demo-99"></a>
+### DEMO-99 - Configure the consumer maximum poll interval
+
+_Date: 2026-09-22_
+
+Expose `max.poll.interval.ms` through the shared demo consumer settings used by CKC, Spring Kafka, and Confluent Parallel Consumer profiles.
+Allow experiment infrastructure to keep slow batch listeners in their consumer group while deliberately exercising long processing tails.
+Verification: all `ckc-demo` tests pass; whitespace validation passes.
 
 <a id="demo-98"></a>
 ### DEMO-98 - Support arbitrary demo-stub latency percentiles
