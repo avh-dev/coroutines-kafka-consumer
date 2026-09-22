@@ -453,8 +453,7 @@ def render_markdown(report: ExperimentReport) -> str:
         if isinstance(contract, dict) and contract.get("semantics") == "freshness_first"
     }
 
-    def freshness_delivery(target: TargetReport, *, windowed: bool) -> dict[str, int]:
-        evidence = target.window_topic_evidence if windowed else target.topic_evidence
+    def freshness_delivery(evidence: dict[str, Any]) -> dict[str, int]:
         values = [evidence.get(topic, {}) for topic in freshness_first_topics]
         return {
             "published": sum(int(value.get("published") or 0) for value in values if isinstance(value, dict)),
@@ -557,8 +556,7 @@ def render_markdown(report: ExperimentReport) -> str:
         "Configured demo-stub response delays and error rates; separate from application message-handling time below.",
     ]
 
-    def required_key_order_violations(target: TargetReport, windowed: bool) -> int | None:
-        evidence = target.window_topic_evidence if windowed else target.topic_evidence
+    def required_key_order_violations(evidence: dict[str, Any]) -> int | None:
         values = []
         for topic, contract in topic_contracts.items():
             if not isinstance(contract, dict) or contract.get("ordering") != "per_key":
@@ -651,7 +649,11 @@ def render_markdown(report: ExperimentReport) -> str:
         limits = {
             (evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms")
             for target in targets
-            for evidence in (target.topic_evidence, target.window_topic_evidence)
+            for evidence in (
+                target.topic_evidence,
+                target.window_topic_evidence,
+                *(window.get("topic_evidence", {}) for window in target.measurement_windows),
+            )
             if (evidence.get(topic, {}).get("e2e_latency") or {}).get("limit_ms") is not None
         }
         requirements = []
@@ -824,6 +826,26 @@ def render_markdown(report: ExperimentReport) -> str:
             [bytes_value((configured_topic(target).get("producer") or {}).get("buffer_memory")) for target in targets],
         )
 
+    measurement_windows = report.test_definition.get("measurement_windows")
+    if not isinstance(measurement_windows, list):
+        legacy_window = report.test_definition.get("measurement_window")
+        measurement_windows = [legacy_window] if isinstance(legacy_window, dict) else []
+    legacy_single_window = (
+        isinstance(report.test_definition.get("measurement_window"), dict)
+        and len(measurement_windows) == 1
+    )
+
+    def target_window(target: TargetReport, index: int) -> dict[str, Any]:
+        if index < len(target.measurement_windows):
+            return target.measurement_windows[index]
+        if index == 0:
+            return {
+                "delivery": target.window_delivery,
+                "topic_evidence": target.window_topic_evidence,
+                "measurements": target.window_measurements,
+            }
+        return {}
+
     lines.extend([
         "</tbody></table>",
         "",
@@ -833,7 +855,11 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         metric_source_legend,
         "",
-        "### Steady-state highlights" if isinstance(report.test_definition.get("measurement_window"), dict) else "### Detailed results",
+        (
+            "### Steady-state highlights" if legacy_single_window
+            else "### Measurement-window highlights" if measurement_windows
+            else "### Detailed results"
+        ),
         "",
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
@@ -843,9 +869,14 @@ def render_markdown(report: ExperimentReport) -> str:
         "<tbody>",
     ])
 
-    window = report.test_definition.get("measurement_window")
-    if isinstance(window, dict):
+    for window_index, window in enumerate(measurement_windows):
+        if not isinstance(window, dict):
+            continue
         window_duration = float(window.get("duration_seconds") or 0)
+        window_results = [target_window(target, window_index) for target in targets]
+        deliveries = [result.get("delivery", {}) for result in window_results]
+        measurements = [result.get("measurements", {}) for result in window_results]
+        topic_evidence = [result.get("topic_evidence", {}) for result in window_results]
         section(
             f"{escaped(window.get('name') or 'Steady-state')} · "
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
@@ -854,23 +885,23 @@ def render_markdown(report: ExperimentReport) -> str:
             "Published rate",
             formatted(
                 [
-                    (target.window_delivery.get("published") or 0) / window_duration
+                    (delivery.get("published") or 0) / window_duration
                     if window_duration else None
-                    for target in targets
+                    for delivery in deliveries
                 ],
                 0,
                 " msg/s",
             ),
             "audit",
         )
-        row("Application CPU", compared([target.window_measurements.get("cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
-        row("Kafka broker CPU", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
-        row("Application memory", compared([target.window_measurements.get("application_memory_average_mib") for target in targets], 0, " MiB"), "prometheus")
-        row("Application context switches", compared([target.window_measurements.get("context_switches_average_per_second") for target in targets], 0, " /s"), "prometheus")
+        row("Application CPU", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Kafka broker CPU", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application memory", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Application context switches", compared([value.get("context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
         highlighted_topics = {
             topic
-            for target in targets
-            for topic in target.window_topic_evidence
+            for evidence in topic_evidence
+            for topic in evidence
         }
         ordered_highlighted_topics = [
             topic for topic in preferred_topics if topic in highlighted_topics
@@ -878,8 +909,8 @@ def render_markdown(report: ExperimentReport) -> str:
         ordered_highlighted_topics.extend(sorted(highlighted_topics - set(preferred_topics)))
         for topic in ordered_highlighted_topics:
             topic_values = [
-                target.window_topic_evidence.get(topic, {})
-                for target in targets
+                evidence.get(topic, {})
+                for evidence in topic_evidence
             ]
             if any(isinstance(value, dict) and value.get("e2e_latency") for value in topic_values):
                 row(
@@ -891,36 +922,38 @@ def render_markdown(report: ExperimentReport) -> str:
                     ], 0, " ms"),
                     "audit",
                 )
-        row("Lost messages", counts([target.window_delivery.get("missing_terminal") for target in targets]), "audit")
-        row("Failed processing", counts([target.window_delivery.get("failed") for target in targets]), "audit")
+        row("Lost messages", counts([delivery.get("missing_terminal") for delivery in deliveries]), "audit")
+        row("Failed processing", counts([delivery.get("failed") for delivery in deliveries]), "audit")
         if freshness_first_topics:
             row(
                 "Intentionally dropped · freshness-first topics",
-                dropped_values([freshness_delivery(target, windowed=True) for target in targets]),
+                dropped_values([freshness_delivery(evidence) for evidence in topic_evidence]),
                 "audit",
             )
         row(
             "Processed duplicates",
-            counts([(target.window_delivery.get("duplicates") or {}).get("processed") for target in targets]),
+            counts([(delivery.get("duplicates") or {}).get("processed") for delivery in deliveries]),
             "audit",
         )
         integrity_row(
             "Terminal outcomes without publish",
-            [without_publish_count(target.window_delivery) for target in targets],
+            [without_publish_count(delivery) for delivery in deliveries],
         )
         integrity_row(
             "Conflicting terminal outcomes",
-            [target.window_delivery.get("conflicting_terminal_outcomes") for target in targets],
+            [delivery.get("conflicting_terminal_outcomes") for delivery in deliveries],
         )
         row(
             "Per-key ordering violations",
-            counts([required_key_order_violations(target, True) for target in targets]),
+            counts([required_key_order_violations(evidence) for evidence in topic_evidence]),
             "audit",
         )
+
+    if measurement_windows:
         lines.extend([
             "</tbody></table>",
             "",
-            "Multipliers compare each metric with the first target over the steady-state measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
+            "Multipliers compare each metric with the first target in the same measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
             "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
             "",
             "### Detailed results",
@@ -1027,15 +1060,19 @@ def render_markdown(report: ExperimentReport) -> str:
                         "audit",
                     )
 
-    if isinstance(window, dict):
+    for window_index, window in enumerate(measurement_windows):
+        if not isinstance(window, dict):
+            continue
         window_start = float(window.get("start_seconds") or 0)
+        window_duration = float(window.get("duration_seconds") or 0)
+        window_results = [target_window(target, window_index) for target in targets]
         render_interval(
             f"{escaped(window.get('name') or 'Steady-state')} window · {number(window_start, 0)}–{number(window_start + window_duration, 0)} s",
             window_start,
             window_duration,
-            [target.window_delivery for target in targets],
-            [target.window_measurements for target in targets],
-            [target.window_topic_evidence for target in targets],
+            [result.get("delivery", {}) for result in window_results],
+            [result.get("measurements", {}) for result in window_results],
+            [result.get("topic_evidence", {}) for result in window_results],
         )
     render_interval(
         f"Full run · {number(load_duration, 0)} s",
@@ -1047,8 +1084,18 @@ def render_markdown(report: ExperimentReport) -> str:
     )
 
     section("Kafka broker metrics")
-    if isinstance(window, dict):
-        row("CPU average · steady-state window", compared([target.window_measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    for window_index, window in enumerate(measurement_windows):
+        if not isinstance(window, dict):
+            continue
+        window_results = [target_window(target, window_index) for target in targets]
+        row(
+            f"CPU average · {escaped(window.get('name') or 'measurement')} window",
+            compared([
+                (result.get("measurements") or {}).get("broker_cpu_average_cores")
+                for result in window_results
+            ], 3, " cores"),
+            "prometheus",
+        )
     row("CPU average · full run", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
 
     def request_metrics(capture_name: str, topic: str, role: str, api_name: str, record_direction: str | None) -> None:

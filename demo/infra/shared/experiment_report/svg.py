@@ -548,8 +548,13 @@ def load_profile_svg(report: ExperimentReport) -> str:
         if isinstance(scenario, dict)
     ]
     chaos_scenarios = list(planned_chaos_scenarios)
-    measurement_window = report.test_definition.get("measurement_window")
-    if isinstance(measurement_window, dict) and float(measurement_window.get("duration_seconds") or 0) > 0:
+    measurement_windows = report.test_definition.get("measurement_windows")
+    if not isinstance(measurement_windows, list):
+        measurement_window = report.test_definition.get("measurement_window")
+        measurement_windows = [measurement_window] if isinstance(measurement_window, dict) else []
+    for measurement_window in measurement_windows:
+        if not isinstance(measurement_window, dict) or float(measurement_window.get("duration_seconds") or 0) <= 0:
+            continue
         start = float(measurement_window.get("start_seconds") or 0)
         window_name = str(measurement_window.get("name") or "steady state").replace("-", " ").strip()
         chaos_scenarios.append({

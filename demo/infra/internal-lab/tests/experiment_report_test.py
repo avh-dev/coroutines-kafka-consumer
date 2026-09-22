@@ -1189,6 +1189,7 @@ class ExperimentReportTest(unittest.TestCase):
                 'Published rate<span class="metric-source source-a" title="Audit records">A</span></th><td>0 msg/s</td>',
                 markdown,
             )
+
             self.assertIn(
                 'Actual publish rate<span class="metric-source source-a" title="Audit records">A</span></th><td>12 msg/s</td>',
                 markdown,
@@ -1262,6 +1263,57 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)
             self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
+
+    def test_report_collects_and_renders_multiple_measurement_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
+            resolved_test["load_test"].pop("measurement_window", None)
+            resolved_test["load_test"]["measurement_windows"] = [
+                {"name": "baseline", "start_seconds": 10, "duration_seconds": 10},
+                {"name": "degraded", "start_seconds": 30, "duration_seconds": 10},
+            ]
+            self.write_yaml(resolved_test_path, resolved_test)
+            analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
+            analyzer_target = root / "lab/helpers/audit/analyze-audit.py"
+            analyzer_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(analyzer_source, analyzer_target)
+            run_dir = root / "results/runs/run-a"
+            started = datetime(2026, 8, 7, 10, 0, 0, tzinfo=timezone.utc)
+            first = round((started.timestamp() + 15) * 1000)
+            second = round((started.timestamp() + 35) * 1000)
+            (run_dir / "audit/audit-run-a.log").write_text(
+                f"P|1|0|1|{first}|{first}|baseline-order\n"
+                f"C|1|0|1|{first + 100}|baseline-order\n"
+                f"P|1|0|2|{second}|{second}|degraded-order\n"
+                f"C|1|0|2|{second + 200}|degraded-order\n",
+                encoding="utf-8",
+            )
+            measurements = {
+                "throughput_average_rps": 100.0,
+                "cpu_average_cores": 1.0,
+                "broker_cpu_average_cores": 0.25,
+            }
+
+            with patch(
+                "experiment_report.analyze.collect_standard_measurements",
+                return_value=measurements,
+            ) as collect:
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+
+            self.assertEqual(3, collect.call_count)
+            model = yaml.safe_load((outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8"))
+            windows = model["targets"][0]["measurement_windows"]
+            self.assertEqual(["baseline", "degraded"], [window["name"] for window in windows])
+            self.assertEqual([1, 1], [window["delivery"]["published"] for window in windows])
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("baseline window · 10–20 s", markdown)
+            self.assertIn("degraded window · 30–40 s", markdown)
+            timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
+            self.assertIn("Measurement window • baseline", timeline)
+            self.assertIn("Measurement window • degraded", timeline)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

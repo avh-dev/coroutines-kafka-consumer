@@ -767,6 +767,14 @@ def window_audit(
     return audit if isinstance(audit, dict) else {}
 
 
+def configured_measurement_windows(load_test: dict[str, Any]) -> list[dict[str, Any]]:
+    windows = load_test.get("measurement_windows")
+    if isinstance(windows, list):
+        return [window for window in windows if isinstance(window, dict)]
+    window = load_test.get("measurement_window")
+    return [window] if isinstance(window, dict) else []
+
+
 def analyze_experiment(
     experiment_set_id: str,
     experiment_summary: dict[str, Any],
@@ -839,20 +847,27 @@ def analyze_experiment(
         warnings: list[str] = []
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
-        window_measurements = {name: None for name in STANDARD_MEASUREMENTS}
-        window_audit_document: dict[str, Any] = {}
+        measurement_window_results: list[dict[str, Any]] = []
         if start is not None:
             try:
                 measurements = collect_standard_measurements(prometheus, start, target_load_duration)
-                window = target_load_test.get("measurement_window")
-                if isinstance(window, dict):
-                    window_start = float(window.get("start_seconds") or 0)
-                    window_duration = float(window.get("duration_seconds") or 0)
-                    if window_duration > 0 and window_start + window_duration <= target_load_duration:
-                        window_measurements = collect_standard_measurements(
+            except Exception as error:
+                warnings.append(f"Prometheus measurements are unavailable: {error}")
+            for window in configured_measurement_windows(target_load_test):
+                result = {
+                    **window,
+                    "delivery": {},
+                    "topic_evidence": {},
+                    "measurements": {name: None for name in STANDARD_MEASUREMENTS},
+                }
+                window_start = float(window.get("start_seconds") or 0)
+                window_duration = float(window.get("duration_seconds") or 0)
+                if window_duration > 0 and window_start + window_duration <= target_load_duration:
+                    try:
+                        collected_measurements = collect_standard_measurements(
                             prometheus, start + timedelta(seconds=window_start), window_duration
                         )
-                        window_audit_document = window_audit(
+                        audit_document = window_audit(
                             run_dir,
                             lab_root,
                             start,
@@ -860,12 +875,38 @@ def analyze_experiment(
                             window_latency_limits,
                             warnings,
                         )
-                    else:
-                        warnings.append("Configured measurement window falls outside the planned load profile")
-            except Exception as error:
-                warnings.append(f"Prometheus measurements are unavailable: {error}")
+                        result.update({
+                            "delivery": (
+                                audit_document.get("totals", {})
+                                if isinstance(audit_document.get("totals"), dict) else {}
+                            ),
+                            "topic_evidence": (
+                                audit_document.get("topics", {})
+                                if isinstance(audit_document.get("topics"), dict) else {}
+                            ),
+                            "measurements": collected_measurements,
+                        })
+                    except Exception as error:
+                        name = str(window.get("name") or "unnamed")
+                        warnings.append(f"Measurement window {name} is unavailable: {error}")
+                else:
+                    name = str(window.get("name") or "unnamed")
+                    warnings.append(
+                        f"Configured measurement window {name} falls outside the planned load profile"
+                    )
+                measurement_window_results.append(result)
         else:
             warnings.append("Run start time is unavailable; Prometheus measurements were not collected")
+            measurement_window_results = [{
+                **window,
+                "delivery": {},
+                "topic_evidence": {},
+                "measurements": {name: None for name in STANDARD_MEASUREMENTS},
+            } for window in configured_measurement_windows(target_load_test)]
+        first_window = measurement_window_results[0] if measurement_window_results else {}
+        window_measurements = first_window.get("measurements", {})
+        window_delivery = first_window.get("delivery", {})
+        window_topic_evidence = first_window.get("topic_evidence", {})
         criteria = [
             evaluate_criterion(item, audit, measurements)
             for item in (sla_profile or {}).get("criteria", [])
@@ -951,11 +992,12 @@ def analyze_experiment(
                     "diagnostic_steps": target_test_definition.get("diagnostic_steps") or [],
                 },
                 delivery=audit.get("totals", {}) if isinstance(audit.get("totals"), dict) else {},
-                window_delivery=window_audit_document.get("totals", {}) if isinstance(window_audit_document.get("totals"), dict) else {},
+                window_delivery=window_delivery,
                 topic_evidence=audit.get("topics", {}) if isinstance(audit.get("topics"), dict) else {},
-                window_topic_evidence=window_audit_document.get("topics", {}) if isinstance(window_audit_document.get("topics"), dict) else {},
+                window_topic_evidence=window_topic_evidence,
                 measurements=measurements,
                 window_measurements=window_measurements,
+                measurement_windows=measurement_window_results,
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
@@ -992,6 +1034,7 @@ def analyze_experiment(
             "load_topics": load_topics,
             "topic_contracts": topic_contracts,
             "measurement_window": load_test.get("measurement_window"),
+            "measurement_windows": configured_measurement_windows(load_test),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,

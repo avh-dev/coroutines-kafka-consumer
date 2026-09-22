@@ -46,6 +46,24 @@ distribution ends with `p100`. Target workload and chaos overrides are merged
 by percentile key; resolved experiment evidence always contains the complete
 distribution.
 
+Experiments may define several named measurement intervals when before/after
+evidence is needed from one target run:
+
+```yaml
+measurement_windows:
+- name: baseline
+  start: 2m
+  duration: 2m
+- name: degraded
+  start: 5m
+  duration: 5m
+```
+
+Names must be unique. Every window receives an independent audit cohort and
+Prometheus range in the report and appears on the load-profile timeline. The
+singular `measurement_window` form remains supported for existing experiments;
+the singular and plural forms cannot be used together.
+
 ## No-chaos E2E tuning candidate
 
 `spring-ckc-no-chaos-e2e-tuning-5k.yaml` keeps the 5k/s workload, 4–9 minute
