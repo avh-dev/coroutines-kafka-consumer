@@ -224,6 +224,67 @@ class MaterializeTest(unittest.TestCase):
             [target.name for target in experiment.targets],
         )
 
+    def test_materializes_bounded_tail_latency_comparison_at_2k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/tail-latency-window-2k-comparison.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        workload = candidate["workload"]
+
+        self.assertEqual(2000, workload["load"]["base_tps"])
+        self.assertEqual(1800, workload["load"]["consumer_drain_timeout_seconds"])
+        self.assertEqual(60, workload["load"]["consumer_drain_idle_seconds"])
+        self.assertEqual(
+            {"name": "bounded tail-latency pressure", "start": "2m", "duration": "7m"},
+            workload["measurement_window"],
+        )
+        chaos = workload["chaos"][0]
+        self.assertEqual("3m", chaos["at"])
+        self.assertEqual("5m", chaos["duration"])
+        self.assertEqual(
+            {"p995": 120, "p100": 60000},
+            chaos["params"]["eta"]["percentiles"],
+        )
+        self.assertEqual(
+            {"p995": 5, "p100": 60000},
+            chaos["params"]["registry"]["percentiles"],
+        )
+        self.assertEqual(
+            {"order": 35, "batch": 25, "telemetry": 40},
+            {name: topic["traffic_percent"] for name, topic in workload["topics"].items()},
+        )
+        self.assertEqual(
+            {1000},
+            {topic["max_e2e_latency_ms"] for topic in workload["topics"].values()},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        self.assertEqual(
+            ["spring-kafka.jdk", "ckc.fixed.1", "cpc-reactor.fixed.1"],
+            [target.target.name for target in materialized],
+        )
+        for target in candidate["targets"]:
+            self.assertIn(
+                "-Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC",
+                target["application"]["java_options"],
+            )
+        actual_partitions = {
+            name: [topic["partitions"] for topic in definition["deployment"]["run_plan"]["topics"]]
+            for name, definition in definitions.items()
+        }
+        self.assertEqual([3, 3, 3], actual_partitions["ckc.fixed.1"])
+        self.assertEqual([3, 3, 3], actual_partitions["cpc-reactor.fixed.1"])
+        self.assertEqual([70, 76, 56], actual_partitions["spring-kafka.jdk"])
+
 
 if __name__ == "__main__":
     unittest.main()

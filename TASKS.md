@@ -362,6 +362,7 @@
 | [INFRA-200](#infra-200) | Rename the local smoke experiment, exercise a timed stub degradation, and label its measurement window. | DONE |
 | [INFRA-201](#infra-201) | Refine stub cards and resolve inherited percentile values in degradation comparisons. | DONE |
 | [INFRA-202](#infra-202) | Finish stalled experiment drains promptly and extend Kafka retention and consumer processing windows. | DONE |
+| [INFRA-203](#infra-203) | Add a 2k/s comparison with a five-minute 0.5% minute-long downstream tail window. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4143,6 +4144,17 @@ Stop waiting for a fully drained consumer after publication has finished and pro
 Increase experiment Kafka retention and the consumer-group processing window so deliberately long latency tails remain available and assigned.
 Share the drain-progress state machine between internal-lab and AWS and preserve timeout as an independent safety limit.
 Verification: all 75 internal-lab, 29 AWS runner, and focused shared orchestration tests pass; Python and shell syntax checks pass.
+
+<a id="infra-203"></a>
+### INFRA-203 - Add a bounded 2k/s tail-latency comparison
+
+_Date: 2026-09-22_
+
+Compare CKC and Confluent Parallel Consumer with a production-style Spring Kafka/JDK baseline at 2k messages per second.
+Keep normal stub latency outside a five-minute degradation window and make only the slowest 0.5% of downstream calls take one minute during that window.
+Run order, batch, and cauldron telemetry traffic together, use Spring as the first report baseline, and apply the same SerialGC settings to every target.
+Size Spring Kafka partitions from the resulting mean processing latency while retaining the intentionally compact three-partition CKC and CPC topology and a one-second end-to-end requirement.
+Verification: all 35 experiment-orchestration and 75 internal-lab tests pass; the canonical experiment validates, whitespace validation passes, and the installed optilab definition matches the repository checksum. No workload experiment was launched automatically.
 
 <a id="demo-99"></a>
 ### DEMO-99 - Configure the consumer maximum poll interval
