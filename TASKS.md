@@ -364,6 +364,7 @@
 | [INFRA-202](#infra-202) | Finish stalled experiment drains promptly and extend Kafka retention and consumer processing windows. | DONE |
 | [INFRA-203](#infra-203) | Add a 2k/s comparison with a five-minute 0.5% minute-long downstream tail window. | DONE |
 | [INFRA-204](#infra-204) | Support multiple named measurement windows throughout experiment orchestration and reports. | DONE |
+| [INFRA-205](#infra-205) | Add separate baseline and degraded evidence windows to the 2k/s tail-latency comparison. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4166,6 +4167,16 @@ Allow an experiment to define several named measurement intervals while retainin
 Collect Prometheus and audit evidence independently for every window and render each interval in the workload timeline and result highlights.
 Keep the generic capability separate from the subsequent tail-latency experiment timeline refinement.
 Verification: all 37 experiment-orchestration, 76 internal-lab, 29 AWS, and 14 result-bundle tests pass; Python compilation, JSON schema parsing, and whitespace validation pass.
+
+<a id="infra-205"></a>
+### INFRA-205 - Compare baseline and degraded tail-latency windows
+
+_Date: 2026-09-22_
+
+Extend the 2k/s tail-latency run so warm baseline behavior and the five-minute degradation have separate measurement evidence.
+Capture Kafka traffic once in each measurement interval and retain a two-minute recovery interval after normal stub latency is restored.
+Keep target topology, traffic distribution, JVM settings, and end-to-end requirements unchanged from the completed comparison definition.
+Verification: all 37 experiment-orchestration and 76 internal-lab tests pass; the canonical experiment validates and whitespace validation passes. No workload experiment was launched automatically.
 
 <a id="demo-99"></a>
 ### DEMO-99 - Configure the consumer maximum poll interval
