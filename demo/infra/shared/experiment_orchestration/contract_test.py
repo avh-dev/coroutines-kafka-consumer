@@ -173,6 +173,43 @@ class CanonicalExperimentContractTest(unittest.TestCase):
             snapshot["targets"][0]["workload"]["stubs"]["eta"]["percentiles"],
         )
 
+    def test_normalizes_multiple_named_measurement_windows(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["measurement_windows"] = [
+            {"name": "baseline", "start": "2m", "duration": "2m"},
+            {"name": "degraded", "start": "5m", "duration": "5m"},
+        ]
+
+        resolved = resolve_experiment_definition(
+            self.write(experiment),
+            environment="internal-lab",
+        )
+
+        self.assertNotIn("measurement_window", resolved.test.definition["load_test"])
+        self.assertEqual(
+            [
+                {"name": "baseline", "start_seconds": 120, "duration_seconds": 120},
+                {"name": "degraded", "start_seconds": 300, "duration_seconds": 300},
+            ],
+            resolved.test.definition["load_test"]["measurement_windows"],
+        )
+
+    def test_rejects_ambiguous_or_unnamed_measurement_windows(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["measurement_window"] = {
+            "name": "baseline", "start": "2m", "duration": "2m",
+        }
+        experiment["workload"]["measurement_windows"] = [
+            {"name": "degraded", "start": "5m", "duration": "5m"},
+        ]
+        with self.assertRaisesRegex(ValueError, "either measurement_window or measurement_windows"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
+        del experiment["workload"]["measurement_window"]
+        experiment["workload"]["measurement_windows"][0]["name"] = ""
+        with self.assertRaisesRegex(ValueError, "name must not be empty"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
     def test_rejects_stub_distribution_without_terminal_percentile(self) -> None:
         experiment = canonical_experiment()
         experiment["workload"]["stubs"]["eta"] = {"percentiles": {"p999": 80}}

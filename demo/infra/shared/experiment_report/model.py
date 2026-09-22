@@ -55,6 +55,7 @@ class TargetReport:
     window_topic_evidence: dict[str, Any]
     measurements: dict[str, float | None]
     window_measurements: dict[str, float | None]
+    measurement_windows: list[dict[str, Any]]
     thread_stats: dict[str, Any]
     packet_captures: dict[str, Any]
     pcap_analysis: dict[str, Any]

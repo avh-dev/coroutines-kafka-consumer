@@ -31,23 +31,43 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
-def measurement_window(value: Any) -> dict[str, Any] | None:
+def measurement_window(
+    value: Any,
+    context: str = "Experiment workload.measurement_window",
+) -> dict[str, Any] | None:
     if value is None:
         return None
-    window = require_mapping(value, "Experiment workload.measurement_window")
+    window = require_mapping(value, context)
     unknown = sorted(set(window) - {"name", "start", "duration"})
     if unknown:
-        raise ValueError(f"Experiment workload.measurement_window contains unknown fields: {', '.join(unknown)}")
+        raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
     if set(window) < {"start", "duration"}:
-        raise ValueError("Experiment workload.measurement_window must define start and duration")
+        raise ValueError(f"{context} must define start and duration")
     def seconds(name: str, positive: bool) -> int:
         text = str(window[name]).strip()
         matches = list(re.finditer(r"(\d+)\s*([hms])", text))
         result = sum(int(match.group(1)) * {"h": 3600, "m": 60, "s": 1}[match.group(2)] for match in matches)
         if not matches or "".join(match.group(0) for match in matches) != text.replace(" ", "") or (positive and result <= 0):
-            raise ValueError(f"Experiment workload.measurement_window.{name} must be a {'positive' if positive else 'non-negative'} duration")
+            raise ValueError(f"{context}.{name} must be a {'positive' if positive else 'non-negative'} duration")
         return result
     return {"name": str(window.get("name") or "steady-state"), "start_seconds": seconds("start", False), "duration_seconds": seconds("duration", True)}
+
+
+def measurement_windows(value: Any) -> list[dict[str, Any]]:
+    windows = require_list(value, "Experiment workload.measurement_windows", non_empty=True)
+    normalized: list[dict[str, Any]] = []
+    names: set[str] = set()
+    for index, value in enumerate(windows):
+        context = f"Experiment workload.measurement_windows[{index}]"
+        item = require_mapping(value, context)
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"{context}.name must not be empty")
+        if name in names:
+            raise ValueError(f"Experiment workload.measurement_windows contains duplicate name: {name}")
+        names.add(name)
+        normalized.append(measurement_window(item, context) or {})
+    return normalized
 
 
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
@@ -143,7 +163,10 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
-    allowed = {"stubs", "load", "topics", "chaos", "diagnostics", "measurement_window"}
+    allowed = {
+        "stubs", "load", "topics", "chaos", "diagnostics",
+        "measurement_window", "measurement_windows",
+    }
     unknown = sorted(set(workload) - allowed)
     if unknown:
         raise ValueError(f"Experiment workload contains unknown fields: {', '.join(unknown)}")
@@ -211,9 +234,17 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         "stubs": copy.deepcopy(workload.get("stubs")),
         "load_test": load,
     }
+    if "measurement_window" in workload and "measurement_windows" in workload:
+        raise ValueError(
+            "Experiment workload must define either measurement_window or measurement_windows, not both"
+        )
     window = measurement_window(workload.get("measurement_window"))
     if window:
         definition["load_test"]["measurement_window"] = window
+    if "measurement_windows" in workload:
+        definition["load_test"]["measurement_windows"] = measurement_windows(
+            workload["measurement_windows"]
+        )
     if "chaos" in workload:
         definition["chaos_steps"] = copy.deepcopy(workload["chaos"])
     if "diagnostics" in workload:

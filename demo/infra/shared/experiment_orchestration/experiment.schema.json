@@ -46,7 +46,13 @@
         "stubs": {"type": "object", "minProperties": 1},
         "load": {"type": "object", "minProperties": 1},
         "chaos": {"type": "array", "items": {"type": "object"}},
-        "diagnostics": {"type": "array", "items": {"type": "object"}}
+        "diagnostics": {"type": "array", "items": {"type": "object"}},
+        "measurement_window": {"$ref": "#/$defs/measurementWindow"},
+        "measurement_windows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/measurementWindow"}
+        }
       }
     },
     "workloadOverride": {
@@ -56,7 +62,23 @@
         "stubs": {"type": "object"},
         "load": {"type": "object"},
         "chaos": {"type": "array", "items": {"type": "object"}},
-        "diagnostics": {"type": "array", "items": {"type": "object"}}
+        "diagnostics": {"type": "array", "items": {"type": "object"}},
+        "measurement_window": {"$ref": "#/$defs/measurementWindow"},
+        "measurement_windows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/measurementWindow"}
+        }
+      }
+    },
+    "measurementWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "duration"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "start": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"},
+        "duration": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"}
       }
     },
     "acceptance": {

@@ -363,6 +363,7 @@
 | [INFRA-201](#infra-201) | Refine stub cards and resolve inherited percentile values in degradation comparisons. | DONE |
 | [INFRA-202](#infra-202) | Finish stalled experiment drains promptly and extend Kafka retention and consumer processing windows. | DONE |
 | [INFRA-203](#infra-203) | Add a 2k/s comparison with a five-minute 0.5% minute-long downstream tail window. | DONE |
+| [INFRA-204](#infra-204) | Support multiple named measurement windows throughout experiment orchestration and reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4155,6 +4156,16 @@ Keep normal stub latency outside a five-minute degradation window and make only 
 Run order, batch, and cauldron telemetry traffic together, use Spring as the first report baseline, and apply the same SerialGC settings to every target.
 Size Spring Kafka partitions from the resulting mean processing latency while retaining the intentionally compact three-partition CKC and CPC topology and a one-second end-to-end requirement.
 Verification: all 35 experiment-orchestration and 75 internal-lab tests pass; the canonical experiment validates, whitespace validation passes, and the installed optilab definition matches the repository checksum. No workload experiment was launched automatically.
+
+<a id="infra-204"></a>
+### INFRA-204 - Support multiple measurement windows
+
+_Date: 2026-09-22_
+
+Allow an experiment to define several named measurement intervals while retaining compatibility with existing single-window definitions.
+Collect Prometheus and audit evidence independently for every window and render each interval in the workload timeline and result highlights.
+Keep the generic capability separate from the subsequent tail-latency experiment timeline refinement.
+Verification: all 37 experiment-orchestration, 76 internal-lab, 29 AWS, and 14 result-bundle tests pass; Python compilation, JSON schema parsing, and whitespace validation pass.
 
 <a id="demo-99"></a>
 ### DEMO-99 - Configure the consumer maximum poll interval
