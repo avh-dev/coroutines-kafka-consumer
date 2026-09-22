@@ -25,6 +25,7 @@ data class DemoApplicationProperties(
         var fetchMinBytes: Int = 1,
         var fetchMaxWaitMs: Int = 500,
         var maxPollRecords: Int = 500,
+        var maxPollIntervalMs: Int = 300_000,
         var fetchMaxBytes: Int = 50 * 1024 * 1024,
         var maxPartitionFetchBytes: Int = 1024 * 1024,
         var commitIntervalMs: Int = 5_000

@@ -23,6 +23,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(1, properties.kafka.consumer.fetchMinBytes)
         assertEquals(500, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(500, properties.kafka.consumer.maxPollRecords)
+        assertEquals(300_000, properties.kafka.consumer.maxPollIntervalMs)
         assertEquals(50 * 1024 * 1024, properties.kafka.consumer.fetchMaxBytes)
         assertEquals(1024 * 1024, properties.kafka.consumer.maxPartitionFetchBytes)
         assertEquals("", properties.experimentTargetName)
@@ -65,6 +66,7 @@ class DemoApplicationPropertiesTest {
                 "demo.kafka.consumer.fetch-min-bytes" to "65536",
                 "demo.kafka.consumer.fetch-max-wait-ms" to "100",
                 "demo.kafka.consumer.max-poll-records" to "200",
+                "demo.kafka.consumer.max-poll-interval-ms" to "1800000",
                 "demo.kafka.consumer.fetch-max-bytes" to "16777216",
                 "demo.kafka.consumer.max-partition-fetch-bytes" to "2097152",
                 "demo.experiment-target-name" to "spring.many-consumers.linger50",
@@ -107,6 +109,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(65536, properties.kafka.consumer.fetchMinBytes)
         assertEquals(100, properties.kafka.consumer.fetchMaxWaitMs)
         assertEquals(200, properties.kafka.consumer.maxPollRecords)
+        assertEquals(1_800_000, properties.kafka.consumer.maxPollIntervalMs)
         assertEquals(16777216, properties.kafka.consumer.fetchMaxBytes)
         assertEquals(2097152, properties.kafka.consumer.maxPartitionFetchBytes)
         assertEquals("spring.many-consumers.linger50", properties.experimentTargetName)

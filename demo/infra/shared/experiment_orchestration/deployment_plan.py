@@ -383,6 +383,11 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         if key in GENERATED_ENV_NAMES and value not in (None, "")
     }
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
+    workload_load = (plan.get("workload") or {}).get("load") or {}
+    computed_env.setdefault(
+        "KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS",
+        str(workload_load.get("kafka_consumer_max_poll_interval_ms", 1_800_000)),
+    )
     computed_env.update({
         "EXPERIMENT_TARGET_NAME": str(plan["target"]["name"]),
         "KAFKA_ENABLED": "true",

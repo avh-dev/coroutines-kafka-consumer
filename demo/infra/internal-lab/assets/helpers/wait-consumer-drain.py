@@ -10,6 +10,15 @@ import time
 import urllib.parse
 import urllib.request
 
+from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker
+
+
+PROCESSING_TOTAL_QUERY = (
+    "(sum(demo_ckc_record_process_duration_seconds_count) or vector(0)) + "
+    "(sum(demo_ckc_record_failed_duration_seconds_count) or vector(0)) + "
+    "(sum(demo_ckc_record_dropped_total) or vector(0))"
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wait until internal-lab Kafka consumer lag drains to zero.")
@@ -27,11 +36,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--poll-seconds", type=int, default=5)
     parser.add_argument("--stable-seconds", type=int, default=15)
+    parser.add_argument("--idle-seconds", type=int, default=60)
     return parser.parse_args()
 
 
-def query_lag(prometheus_url: str, group_regex: str) -> float | None:
-    expression = f'sum(kafka_consumergroup_lag{{consumergroup=~"{group_regex}"}})'
+def query_prometheus_scalar(prometheus_url: str, expression: str) -> float | None:
     query = urllib.parse.urlencode({"query": expression})
     url = f"{prometheus_url.rstrip('/')}/api/v1/query?{query}"
     with urllib.request.urlopen(url, timeout=10) as response:
@@ -44,6 +53,15 @@ def query_lag(prometheus_url: str, group_regex: str) -> float | None:
     if not result:
         return None
     return float(result[0]["value"][1])
+
+
+def query_lag(prometheus_url: str, group_regex: str) -> float | None:
+    expression = f'sum(kafka_consumergroup_lag{{consumergroup=~"{group_regex}"}})'
+    return query_prometheus_scalar(prometheus_url, expression)
+
+
+def query_processing_total(prometheus_url: str) -> float | None:
+    return query_prometheus_scalar(prometheus_url, PROCESSING_TOTAL_QUERY)
 
 
 def query_rpk_lag(args: argparse.Namespace) -> float | None:
@@ -194,20 +212,27 @@ def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str
 def main() -> int:
     args = parse_args()
     deadline = time.monotonic() + args.timeout_seconds
-    zero_since: float | None = None
+    tracker = ConsumerDrainTracker(args.stable_seconds, args.idle_seconds)
 
     while time.monotonic() < deadline:
         lag, source = query_lag_with_fallback(args)
-        if lag is not None and lag <= 0:
-            if zero_since is None:
-                zero_since = time.monotonic()
-            stable_for = time.monotonic() - zero_since
-            print(f"consumer lag={lag:.0f}, source={source}, stable_for={stable_for:.0f}s")
-            if stable_for >= args.stable_seconds:
-                return 0
-        else:
-            zero_since = None
-            print(f"consumer lag={'missing' if lag is None else f'{lag:.0f}'}, source={source}")
+        processed = query_processing_total(args.prometheus_url) if args.prometheus_url else None
+        now = time.monotonic()
+        outcome = tracker.observe(lag, processed, now)
+        lag_text = "missing" if lag is None else f"{lag:.0f}"
+        processed_text = "missing" if processed is None else f"{processed:.0f}"
+        print(
+            f"consumer lag={lag_text}, processed={processed_text}, source={source}, "
+            f"stable_for={tracker.stable_for(now):.0f}s, idle_for={tracker.idle_for(now):.0f}s"
+        )
+        if outcome == DRAINED:
+            return 0
+        if outcome == IDLE:
+            print(
+                f"Consumer lag remains at {lag_text}, but processing made no progress for "
+                f"{args.idle_seconds}s after publishing finished; continuing to audit analysis."
+            )
+            return 0
 
         time.sleep(args.poll_seconds)
 

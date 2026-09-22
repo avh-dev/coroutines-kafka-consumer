@@ -83,6 +83,7 @@ class DeploymentPlanTest(unittest.TestCase):
         container = application["spec"]["template"]["spec"]["containers"][0]
         environment = {item["name"]: item["value"] for item in container["env"]}
         self.assertEqual("kafka.internal:9092", environment["KAFKA_BOOTSTRAP_SERVERS"])
+        self.assertEqual("1800000", environment["KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS"])
         self.assertEqual("redis.internal", environment["SPRING_DATA_REDIS_HOST"])
         self.assertEqual("20", environment["TELEMETRY_WORKER_CONCURRENCY"])
         self.assertEqual("registry/demo@sha256:application", container["image"])
