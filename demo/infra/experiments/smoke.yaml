@@ -1,6 +1,6 @@
 schema_version: 2
 name: smoke
-description: Run one one-minute smoke target with a short ETA tail-latency window to validate orchestration and report generation.
+description: Run one two-minute smoke target with a short ETA tail-latency window to validate orchestration and report generation.
 workload:
   stubs:
     error_rate_percent: 0
@@ -30,7 +30,7 @@ workload:
       order: 1000
       batch: 1000
       telemetry: 1000
-    load_profile: 0 -> (10s, warmup) -> 100 -> (40s, maximum) -> 100 -> (10s, cool-down)
+    load_profile: 0 -> (10s, warmup) -> 100 -> (100s, maximum) -> 100 -> (10s, cool-down)
       -> 0
     cauldron_count: 2
     min_orders_per_batch: 2
@@ -40,10 +40,13 @@ workload:
     diagnostics_blob_size: 64
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 5
-  measurement_window:
-    name: max-load
+  measurement_windows:
+  - name: max-load
     start: 20s
-    duration: 30s
+    duration: 80s
+  - name: post-degradation
+    start: 55s
+    duration: 40s
   chaos:
   - at: 25s
     duration: 20s
