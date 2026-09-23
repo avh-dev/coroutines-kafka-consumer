@@ -3,6 +3,8 @@ package avh.ckc.micrometer
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.OffsetCommitMetadataCompression
+import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -215,6 +217,74 @@ class MicrometerConsumerMetricsSchemaTest {
                 .counter()
                 .count()
         )
+    }
+
+    @Test
+    fun `when offset metadata is encoded then size utilization and compression are recorded`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        )
+
+        metrics.onOffsetCommitMetadataEncoded(
+            OffsetCommitMetadataStats(
+                topic = "orders",
+                compression = OffsetCommitMetadataCompression.ZSTD,
+                candidateSizeBytes = 1024,
+                sizeLimitBytes = 4096,
+                rawPayloadSizeBytes = 2000,
+                encodedPayloadSizeBytes = 500
+            )
+        )
+
+        val expectedTags = arrayOf("topic", "orders", "compression", "zstd", "included", "true")
+        assertEquals(
+            1024.0,
+            registry.get("test.ckc.commit.metadata.size").tags(*expectedTags).summary().totalAmount()
+        )
+        assertEquals(
+            0.25,
+            registry.get("test.ckc.commit.metadata.limit.utilization").tags(*expectedTags).summary().totalAmount()
+        )
+        assertEquals(
+            0.25,
+            registry.get("test.ckc.commit.metadata.payload.compression.ratio").tags(*expectedTags).summary().totalAmount()
+        )
+        assertEquals(
+            2000.0,
+            registry.get("test.ckc.commit.metadata.payload.raw.size").tags(*expectedTags).summary().totalAmount()
+        )
+        assertEquals(
+            500.0,
+            registry.get("test.ckc.commit.metadata.payload.encoded.size").tags(*expectedTags).summary().totalAmount()
+        )
+    }
+
+    @Test
+    fun `oversized metadata is exported separately from included candidates`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        )
+        val candidate = OffsetCommitMetadataStats(
+            topic = "orders",
+            compression = OffsetCommitMetadataCompression.NONE,
+            candidateSizeBytes = 8192,
+            sizeLimitBytes = 4096,
+            rawPayloadSizeBytes = 6000,
+            encodedPayloadSizeBytes = 6000
+        )
+        metrics.onOffsetCommitMetadataEncoded(candidate)
+        metrics.onOffsetCommitMetadataEncoded(candidate.copy(candidateSizeBytes = 4096))
+
+        val excluded = registry.get("test.ckc.commit.metadata.size")
+            .tags("topic", "orders", "compression", "none", "included", "false").summary()
+        assertEquals(1L, excluded.count())
+        assertEquals(8192.0, excluded.totalAmount())
+        assertEquals(2.0, registry.get("test.ckc.commit.metadata.limit.utilization")
+            .tag("included", "false").summary().totalAmount())
+        assertEquals(4096.0, registry.get("test.ckc.commit.metadata.size")
+            .tag("included", "true").summary().totalAmount())
     }
 
     @Test

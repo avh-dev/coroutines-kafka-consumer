@@ -98,6 +98,14 @@ interface ConsumerMetrics<K, V> {
     fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) = Unit
 
     /**
+     * Records the encoded offset-tracker metadata candidate prepared for one partition in a Kafka commit.
+     *
+     * This callback runs before each commit attempt, including retries. [stats] indicates whether the candidate
+     * fits CKC's local metadata size limit and is attached to the attempt; it does not indicate Kafka acceptance.
+     */
+    fun onOffsetCommitMetadataEncoded(stats: OffsetCommitMetadataStats) = Unit
+
+    /**
      * Records a Kafka consumer pause or resume event caused by downstream backpressure.
      *
      * [partitionsCount] is the number of assigned partitions passed to KafkaConsumer.pause/resume.

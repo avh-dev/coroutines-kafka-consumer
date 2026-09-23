@@ -258,6 +258,36 @@ derived from the count of `myapp.ckc.record.failed.duration`.
       <td>Number of offset positions advanced by each commit attempt.</td>
     </tr>
     <tr>
+      <td><code>ckc.commit.metadata.size</code></td>
+      <td>Distribution summary</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>compression</code>, <code>included</code></td>
+      <td>Complete encoded offset metadata candidate size in bytes, including its CKC envelope and Base64 expansion.</td>
+    </tr>
+    <tr>
+      <td><code>ckc.commit.metadata.limit.utilization</code></td>
+      <td>Distribution summary</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>compression</code>, <code>included</code></td>
+      <td>Encoded candidate size divided by CKC's local metadata size limit of 4096 bytes. Values above <code>1</code> are excluded from the commit.</td>
+    </tr>
+    <tr>
+      <td><code>ckc.commit.metadata.payload.compression.ratio</code></td>
+      <td>Distribution summary</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>compression</code>, <code>included</code></td>
+      <td>Encoded bitset body size divided by its raw size. Raw payloads report <code>1</code>; lower zstd values mean better compression.</td>
+    </tr>
+    <tr>
+      <td><code>ckc.commit.metadata.payload.raw.size</code></td>
+      <td>Distribution summary</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>compression</code>, <code>included</code></td>
+      <td>Raw offset-tracker bitset payload size in bytes before optional compression.</td>
+    </tr>
+    <tr>
+      <td><code>ckc.commit.metadata.payload.encoded.size</code></td>
+      <td>Distribution summary</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>compression</code>, <code>included</code></td>
+      <td>Offset-tracker bitset payload size in bytes after optional compression.</td>
+    </tr>
+    <tr>
       <th colspan="4" align="left" bgcolor="#f6f8fa">Backpressure and failure metrics</th>
     </tr>
     <tr>
@@ -334,6 +364,17 @@ derived from the count of `myapp.ckc.record.failed.duration`.
 
 `consumer_id` is always present. If `micrometerConsumerMetrics(...)` is called without an explicit
 value, the schema uses `consumer_id=default`.
+
+Commit metadata observations are recorded per partition when preparing a commit, including retries.
+`included=true` means the candidate fits CKC's local 4096-byte limit and is attached to the commit attempt;
+it does not mean Kafka accepted the commit. CKC does not read the broker's metadata limit.
+`included=false` candidates remain observable, while their offsets are committed without CKC metadata.
+`compression=none|zstd` describes only the bitset payload, before the envelope and Base64 encoding.
+
+The `commit.metadata.payload.compression.ratio` summary describes individual encoding events. Its mean
+weights each event equally. For a byte-weighted compression ratio across events, divide the sum of
+`commit.metadata.payload.encoded.size` by the sum of `commit.metadata.payload.raw.size` over the same
+interval and with matching tag filters. A zero raw-byte total has no defined ratio.
 
 ## Public API
 

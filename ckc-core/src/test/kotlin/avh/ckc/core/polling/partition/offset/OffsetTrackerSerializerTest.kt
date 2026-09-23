@@ -15,10 +15,12 @@ class OffsetTrackerSerializerTest {
             words = longArrayOf(0L, 0b1011L)
         )
 
-        val encoded = OffsetTrackerSerializer.serialize(snapshot)
-        val decoded = OffsetTrackerSerializer.deserialize(encoded)
+        val serialization = OffsetTrackerSerializer.serialize(snapshot)
+        val decoded = OffsetTrackerSerializer.deserialize(serialization.bytes)
 
-        assertEquals(0, encoded.first().toInt())
+        assertEquals(OffsetTrackerCompression.NONE, serialization.payload.compression)
+        assertEquals(16, serialization.payload.rawPayloadSizeBytes)
+        assertEquals(16, serialization.payload.encodedPayloadSizeBytes)
         assertSnapshotEquals(snapshot, decoded)
     }
 
@@ -30,10 +32,12 @@ class OffsetTrackerSerializerTest {
             words = LongArray(128) { -1L }
         )
 
-        val encoded = OffsetTrackerSerializer.serialize(snapshot)
-        val decoded = OffsetTrackerSerializer.deserialize(encoded)
+        val serialization = OffsetTrackerSerializer.serialize(snapshot)
+        val decoded = OffsetTrackerSerializer.deserialize(serialization.bytes)
 
-        assertEquals(0, encoded.first().toInt())
+        assertEquals(OffsetTrackerCompression.NONE, serialization.payload.compression)
+        assertEquals(1024, serialization.payload.rawPayloadSizeBytes)
+        assertEquals(1024, serialization.payload.encodedPayloadSizeBytes)
         assertSnapshotEquals(snapshot, decoded)
     }
 
@@ -45,11 +49,12 @@ class OffsetTrackerSerializerTest {
             words = LongArray(256) { -1L }
         )
 
-        val encoded = OffsetTrackerSerializer.serialize(snapshot)
-        val decoded = OffsetTrackerSerializer.deserialize(encoded)
+        val serialization = OffsetTrackerSerializer.serialize(snapshot)
+        val decoded = OffsetTrackerSerializer.deserialize(serialization.bytes)
 
-        assertEquals(1, encoded.first().toInt())
-        assertTrue(encoded.size < snapshot.words.size * Long.SIZE_BYTES)
+        assertEquals(OffsetTrackerCompression.ZSTD, serialization.payload.compression)
+        assertEquals(2048, serialization.payload.rawPayloadSizeBytes)
+        assertTrue(serialization.payload.encodedPayloadSizeBytes < serialization.payload.rawPayloadSizeBytes)
         assertSnapshotEquals(snapshot, decoded)
     }
 

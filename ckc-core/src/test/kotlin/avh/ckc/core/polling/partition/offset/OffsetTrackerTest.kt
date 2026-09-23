@@ -226,5 +226,5 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     }
 
     private fun OffsetTracker.snapshotRoundTrip(): OffsetTrackerSnapshot =
-        OffsetTrackerSerializer.deserialize(OffsetTrackerSerializer.serialize(snapshot()))
+        OffsetTrackerSerializer.deserialize(OffsetTrackerSerializer.serialize(snapshot()).bytes)
 }

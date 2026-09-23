@@ -348,10 +348,12 @@ internal class ConsumerPollLoop<K, V>(
             if (commitData != null) {
                 commitDataByPartition[partitionState] = commitData
                 val kafkaOffset = commitData.offset + 1
-                val metadata = OffsetTrackerMetadata.encode(
+                val encodedMetadata = OffsetTrackerMetadata.encode(
                     snapshot = commitData.offsetTrackerSnapshot,
                     context = metadataContext(partitionState.topicPartition, kafkaOffset)
                 )
+                metrics.onOffsetCommitMetadataEncoded(encodedMetadata.toCommitMetadataStats(partitionState.topic))
+                val metadata = encodedMetadata.metadata
                 offsets[partitionState.topicPartition] = if (metadata == null) {
                     OffsetAndMetadata(kafkaOffset)
                 } else {

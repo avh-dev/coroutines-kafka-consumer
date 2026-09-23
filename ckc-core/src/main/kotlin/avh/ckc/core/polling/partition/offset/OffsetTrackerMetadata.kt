@@ -40,8 +40,10 @@ internal object OffsetTrackerMetadata {
         snapshot: OffsetTrackerSnapshot,
         context: OffsetTrackerMetadataContext,
         maxMetadataBytes: Int = DEFAULT_MAX_METADATA_BYTES
-    ): String? {
-        val serializedSnapshot = OffsetTrackerSerializer.serialize(snapshot)
+    ): EncodedOffsetTrackerMetadata {
+        require(maxMetadataBytes > 0) { "Maximum metadata size must be positive" }
+        val serialization = OffsetTrackerSerializer.serialize(snapshot)
+        val serializedSnapshot = serialization.bytes
         val envelope = ByteBuffer
             .allocate(ENVELOPE_HEADER_BYTES + serializedSnapshot.size + CHECKSUM_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -56,7 +58,12 @@ internal object OffsetTrackerMetadata {
             .putInt(checksumOffset, crc32c(envelope, checksumOffset).toInt())
 
         val metadata = PREFIX + encoder.encodeToString(envelope)
-        return metadata.takeIf { it.length <= maxMetadataBytes }
+        return EncodedOffsetTrackerMetadata(
+            metadata = metadata.takeIf { it.length <= maxMetadataBytes },
+            candidateSizeBytes = metadata.length,
+            sizeLimitBytes = maxMetadataBytes,
+            payload = serialization.payload
+        )
     }
 
     fun decode(metadata: String, context: OffsetTrackerMetadataContext): OffsetTrackerSnapshot {
@@ -109,3 +116,10 @@ internal object OffsetTrackerMetadata {
     private fun crc32c(bytes: ByteArray, length: Int): Long =
         CRC32C().apply { update(bytes, 0, length) }.value
 }
+
+internal data class EncodedOffsetTrackerMetadata(
+    val metadata: String?,
+    val candidateSizeBytes: Int,
+    val sizeLimitBytes: Int,
+    val payload: OffsetTrackerPayloadEncoding
+)
