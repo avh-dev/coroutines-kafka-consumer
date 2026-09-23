@@ -297,7 +297,7 @@ class ConsumerPollLoopTest {
             val metadata = OffsetTrackerMetadata.encode(
                 restoredTracker.snapshot(),
                 OffsetTrackerMetadataContext("test-group", TopicPartition("topic-a", 0), 42L)
-            )!!
+            ).metadata!!
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
@@ -369,7 +369,7 @@ class ConsumerPollLoopTest {
             val metadata = OffsetTrackerMetadata.encode(
                 restoredTracker.snapshot(),
                 OffsetTrackerMetadataContext("test-group", TopicPartition("topic-a", 0), 42L)
-            )!!
+            ).metadata!!
             val firstPoll = AtomicBoolean(true)
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
@@ -511,11 +511,51 @@ class ConsumerPollLoopTest {
             fixture.awaitCommit(203L)
             awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
             assertEquals(3L, metrics.commits.single().offsetsCount)
+            val metadataStats = metrics.offsetCommitMetadata.single()
+            assertEquals("topic-a", metadataStats.topic)
+            assertEquals(true, metadataStats.includedInCommit)
+            assertTrue(metadataStats.candidateSizeBytes > 0)
+            assertEquals(1.0, metadataStats.compressionRatio)
 
             job.cancel()
             job.join()
 
             verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `oversized metadata remains observable while commit contains only offset`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                metrics = metrics,
+                workChannelCapacity = 4,
+                commitIntervalMs = 25L,
+                pollAnswer = { emptyRecords() }
+            )
+            val job = fixture.start()
+            try {
+                val state = fixture.awaitAssignedState(lastCommittedOffset = -1L)
+                // Leave offset 1 pending and create a large, poorly compressible completion bitmap.
+                val random = kotlin.random.Random(62)
+                for (offset in 2L until 65_536L) {
+                    if (random.nextBoolean()) state.markProcessed(offset)
+                }
+                state.markProcessed(0L)
+
+                awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
+                val stats = metrics.offsetCommitMetadata.single()
+                assertFalse(stats.includedInCommit)
+                assertTrue(stats.limitUtilization > 1.0)
+                verify(fixture.consumer).commitSync(
+                    argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                        get(fixture.topicPartition)?.let { it.offset() == 1L && it.metadata().isEmpty() } == true
+                    }
+                )
+            } finally {
+                job.cancel()
+                job.join()
+            }
         }
 
         @Test

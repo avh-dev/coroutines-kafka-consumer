@@ -64,6 +64,7 @@
 | [CORE-59](#core-59) | Recover polling and offset commits after a single Kafka broker is paused and resumed.                                                                                                                              | DONE |
 | [CORE-60](#core-60) | Recover the same consumer after a graceful stop and restart of a single Kafka broker.                                                                                                                              | DONE |
 | [CORE-61](#core-61) | Recover the same consumer after a single Kafka broker is killed and restarted.                                                                                                                                      | DONE |
+| [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4218,3 +4219,13 @@ Replace the fixed p90/p95/p99/p100 latency fields with an ordered percentile dis
 Accept arbitrary percentile keys such as p50, p75, and p999 while retaining p100 as the required terminal bucket.
 Sample with sufficient precision for sub-percent tail buckets and validate malformed or incomplete distributions.
 Verification: all `ckc-demo-stubs` tests pass; whitespace validation passes.
+
+<a id="core-62"></a>
+### CORE-62 - Observe offset commit metadata encoding
+
+_Date: 2026-09-23_
+
+Expose the candidate size and CKC size-limit utilization of offset metadata prepared for Kafka commits.
+Report uncompressed and encoded payload sizes plus their compression ratio without partition-cardinality tags.
+Distinguish metadata included in a commit from candidates rejected for exceeding CKC's local size limit.
+Verification: all `ckc-core` and `ckc-micrometer` tests pass; whitespace validation passes.

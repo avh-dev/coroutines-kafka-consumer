@@ -580,7 +580,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             metadata = OffsetTrackerMetadata.encode(
                 tracker.snapshot(),
                 OffsetTrackerMetadataContext(groupId, TopicPartition(topic, 0), 1L)
-            )!!
+            ).metadata!!
         )
 
         val processed = CopyOnWriteArrayList<Long>()

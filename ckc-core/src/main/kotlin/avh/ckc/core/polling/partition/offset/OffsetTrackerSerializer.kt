@@ -20,17 +20,31 @@ internal object OffsetTrackerSerializer {
     private const val COMPRESSION_THRESHOLD_BYTES = 1024
     private const val HEADER_BYTES = Byte.SIZE_BYTES + Long.SIZE_BYTES + Int.SIZE_BYTES + Int.SIZE_BYTES
 
-    fun serialize(snapshot: OffsetTrackerSnapshot): ByteArray {
+    fun serialize(snapshot: OffsetTrackerSnapshot): OffsetTrackerSerialization {
         val words = snapshot.words
         val rawWords = words.toLittleEndianBytes()
         val useCompression = rawWords.size > COMPRESSION_THRESHOLD_BYTES
         if (useCompression) {
             val compressedWords = Zstd.compress(rawWords)
             if (compressedWords.size < rawWords.size) {
-                return pack(ZSTD, snapshot, words.size, compressedWords)
+                return OffsetTrackerSerialization(
+                    bytes = pack(ZSTD, snapshot, words.size, compressedWords),
+                    payload = OffsetTrackerPayloadEncoding(
+                        compression = OffsetTrackerCompression.ZSTD,
+                        rawPayloadSizeBytes = rawWords.size,
+                        encodedPayloadSizeBytes = compressedWords.size
+                    )
+                )
             }
         }
-        return pack(RAW, snapshot, words.size, rawWords)
+        return OffsetTrackerSerialization(
+            bytes = pack(RAW, snapshot, words.size, rawWords),
+            payload = OffsetTrackerPayloadEncoding(
+                compression = OffsetTrackerCompression.NONE,
+                rawPayloadSizeBytes = rawWords.size,
+                encodedPayloadSizeBytes = rawWords.size
+            )
+        )
     }
 
     fun deserialize(payload: ByteArray): OffsetTrackerSnapshot {
@@ -99,4 +113,20 @@ internal object OffsetTrackerSerializer {
         }
         return words
     }
+}
+
+internal data class OffsetTrackerSerialization(
+    val bytes: ByteArray,
+    val payload: OffsetTrackerPayloadEncoding
+)
+
+internal data class OffsetTrackerPayloadEncoding(
+    val compression: OffsetTrackerCompression,
+    val rawPayloadSizeBytes: Int,
+    val encodedPayloadSizeBytes: Int
+)
+
+internal enum class OffsetTrackerCompression {
+    NONE,
+    ZSTD
 }

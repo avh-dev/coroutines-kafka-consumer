@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
@@ -61,6 +62,7 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val dropped = CopyOnWriteArrayList<RecordDroppedCall<K, V>>()
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
+    val offsetCommitMetadata = CopyOnWriteArrayList<OffsetCommitMetadataStats>()
     val backpressurePauseResume = CopyOnWriteArrayList<BackpressurePauseResumeCall>()
     val consumerFailures = CopyOnWriteArrayList<Throwable>()
     val boundRuntimeStats = CopyOnWriteArrayList<ConsumerRuntimeStats>()
@@ -118,6 +120,10 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
 
     override fun onCommit(partitionsCount: Int, offsetsCount: Long, durationNanos: Long, success: Boolean) {
         commits += CommitCall(partitionsCount, offsetsCount, durationNanos, success)
+    }
+
+    override fun onOffsetCommitMetadataEncoded(stats: OffsetCommitMetadataStats) {
+        offsetCommitMetadata += stats
     }
 
     override fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) {

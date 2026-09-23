@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
+import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
@@ -121,6 +122,19 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         timer(COMMIT_DURATION, tags).record(durationNanos, TimeUnit.NANOSECONDS)
         summary(COMMIT_PARTITIONS, tags).record(partitionsCount.toDouble())
         summary(COMMIT_OFFSETS, tags).record(offsetsCount.toDouble())
+    }
+
+    override fun onOffsetCommitMetadataEncoded(stats: OffsetCommitMetadataStats) {
+        val tags = tags(
+            "topic" to stats.topic,
+            "compression" to stats.compression.name.lowercase(),
+            "included" to stats.includedInCommit.toString()
+        )
+        summary(COMMIT_METADATA_SIZE, tags).record(stats.candidateSizeBytes.toDouble())
+        summary(COMMIT_METADATA_LIMIT_UTILIZATION, tags).record(stats.limitUtilization)
+        summary(COMMIT_METADATA_COMPRESSION_RATIO, tags).record(stats.compressionRatio)
+        summary(COMMIT_METADATA_PAYLOAD_RAW_SIZE, tags).record(stats.rawPayloadSizeBytes.toDouble())
+        summary(COMMIT_METADATA_PAYLOAD_ENCODED_SIZE, tags).record(stats.encodedPayloadSizeBytes.toDouble())
     }
 
     override fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) {

@@ -1,6 +1,7 @@
 package avh.ckc.core.polling.partition.offset
 
 import org.apache.kafka.common.TopicPartition
+import avh.ckc.core.polling.toCommitMetadataStats
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -20,7 +21,7 @@ class OffsetTrackerMetadataTest {
             words = longArrayOf(0L, 0b101L, -1L, 0L)
         )
 
-        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot, context()))
+        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot, context()).metadata)
         val decoded = OffsetTrackerMetadata.decode(metadata, context())
 
         assertTrue(metadata.startsWith("ckc:v2:"))
@@ -37,12 +38,40 @@ class OffsetTrackerMetadataTest {
             words = LongArray(256) { it.toLong() }
         )
 
-        assertNull(OffsetTrackerMetadata.encode(snapshot, context(), maxMetadataBytes = 8))
+        val encoding = OffsetTrackerMetadata.encode(snapshot, context(), maxMetadataBytes = 8)
+
+        assertNull(encoding.metadata)
+        assertTrue(encoding.candidateSizeBytes > encoding.sizeLimitBytes)
+        assertEquals(8, encoding.sizeLimitBytes)
+        assertEquals(OffsetTrackerCompression.ZSTD, encoding.payload.compression)
+        assertEquals(2048, encoding.payload.rawPayloadSizeBytes)
+        assertTrue(encoding.payload.encodedPayloadSizeBytes < encoding.payload.rawPayloadSizeBytes)
+    }
+
+    @Test
+    fun `metadata limit boundary agrees with reported inclusion and exact candidate size`() {
+        val candidate = OffsetTrackerMetadata.encode(snapshot(), context())
+        val size = assertNotNull(candidate.metadata).toByteArray(Charsets.UTF_8).size
+        assertEquals(size, candidate.candidateSizeBytes)
+
+        val atLimit = OffsetTrackerMetadata.encode(snapshot(), context(), maxMetadataBytes = size)
+        assertNotNull(atLimit.metadata)
+        assertTrue(atLimit.toCommitMetadataStats("topic-a").includedInCommit)
+        assertEquals(1.0, atLimit.toCommitMetadataStats("topic-a").limitUtilization)
+
+        val overLimit = OffsetTrackerMetadata.encode(snapshot(), context(), maxMetadataBytes = size - 1)
+        assertNull(overLimit.metadata)
+        val stats = overLimit.toCommitMetadataStats("topic-a")
+        assertEquals(false, stats.includedInCommit)
+        assertTrue(stats.limitUtilization > 1.0)
+        assertEquals(size, stats.candidateSizeBytes)
     }
 
     @Test
     fun `metadata is rejected when committed offset changes`() {
-        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot(), context(committedOffset = 42L)))
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(snapshot(), context(committedOffset = 42L)).metadata
+        )
 
         assertFailsWith<IllegalArgumentException> {
             OffsetTrackerMetadata.decode(metadata, context(committedOffset = 21L))
@@ -51,7 +80,7 @@ class OffsetTrackerMetadataTest {
 
     @Test
     fun `metadata is rejected when consumer group or topic partition changes`() {
-        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot(), context()))
+        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot(), context()).metadata)
         val foreignContexts = listOf(
             context(groupId = "other-group"),
             context(topicPartition = TopicPartition("other-topic", 3)),
@@ -67,7 +96,7 @@ class OffsetTrackerMetadataTest {
 
     @Test
     fun `metadata is rejected when checksum is corrupted`() {
-        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot(), context()))
+        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot(), context()).metadata)
         val envelope = Base64.getUrlDecoder().decode(metadata.removePrefix(OffsetTrackerMetadata.PREFIX))
         envelope[envelope.lastIndex] = (envelope.last().toInt() xor 1).toByte()
         val corrupted = OffsetTrackerMetadata.PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(envelope)
@@ -80,7 +109,7 @@ class OffsetTrackerMetadataTest {
     @Test
     fun `legacy unprefixed metadata is rejected`() {
         val legacyMetadata = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(OffsetTrackerSerializer.serialize(snapshot()))
+            .encodeToString(OffsetTrackerSerializer.serialize(snapshot()).bytes)
 
         assertFailsWith<IllegalArgumentException> {
             OffsetTrackerMetadata.decode(legacyMetadata, context())
