@@ -701,6 +701,29 @@ class ConsumerPollLoopTest {
 
             verify(fixture.consumer).close()
         }
+
+        @Test
+        fun `kafka client metrics follow poll loop lifecycle`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                metrics = metrics,
+                workChannelCapacity = 1,
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+            awaitFor(2_000L, 10L) {
+                metrics.boundKafkaConsumers.singleOrNull()
+            }
+
+            job.cancel()
+            job.join()
+
+            assertEquals(listOf(1 to fixture.consumer), metrics.boundKafkaConsumers)
+            assertEquals(listOf(1), metrics.unboundKafkaConsumers)
+            verify(fixture.consumer).close()
+        }
     }
 }
 

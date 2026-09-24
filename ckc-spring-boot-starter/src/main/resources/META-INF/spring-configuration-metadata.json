@@ -166,6 +166,12 @@
       "description": "Default Micrometer schema name used when a consumer does not set ckc.consumers.<name>.metrics.schema."
     },
     {
+      "name": "ckc.metrics.micrometer.kafka-client-metrics-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether native metrics exposed by underlying Kafka consumers are bound to Micrometer.",
+      "defaultValue": false
+    },
+    {
       "name": "ckc.metrics.micrometer.schemas.*.metric-prefix",
       "type": "java.lang.String",
       "description": "Metric prefix prepended to CKC Micrometer meter names.",

@@ -488,6 +488,7 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.consumers.*.freshness-max-record-age")
             .contains("ckc.consumers.*.commit-records-threshold")
+            .contains("ckc.metrics.micrometer.kafka-client-metrics-enabled")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
             .contains("ckc.consumers.*.retry-schema")
     }
@@ -621,6 +622,7 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
                 "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
                 "ckc.metrics.implementation=micrometer",
+                "ckc.metrics.micrometer.kafka-client-metrics-enabled=true",
                 "ckc.metrics.micrometer.schemas.default.metric-prefix=testapp",
                 "ckc.metrics.micrometer.schemas.default.static-tags[0].name=app_name",
                 "ckc.metrics.micrometer.schemas.default.static-tags[0].value=test",
@@ -639,6 +641,8 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo("testapp")
                 assertThat(metrics.micrometer.schemas.getValue("default").recordDrivenTags.single().default)
                     .isEqualTo("UNKNOWN")
+                assertThat(metrics.micrometer.kafkaClientMetricsEnabled)
+                    .isTrue()
             }
     }
 

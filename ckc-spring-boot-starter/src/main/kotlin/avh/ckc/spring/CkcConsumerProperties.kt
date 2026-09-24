@@ -90,7 +90,8 @@ data class CkcConsumerProperties(
 
     data class Micrometer(
         var defaultSchema: String? = null,
-        var schemas: MutableMap<String, MicrometerSchema> = linkedMapOf()
+        var schemas: MutableMap<String, MicrometerSchema> = linkedMapOf(),
+        var kafkaClientMetricsEnabled: Boolean = false
     )
 
     /**

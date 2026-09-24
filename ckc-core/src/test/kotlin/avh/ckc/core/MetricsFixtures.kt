@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -56,6 +57,8 @@ data class PartitionMetricsKey(
 )
 
 internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
+    val boundKafkaConsumers = CopyOnWriteArrayList<Pair<Int, Consumer<K, V>>>()
+    val unboundKafkaConsumers = CopyOnWriteArrayList<Int>()
     val polls = CopyOnWriteArrayList<Pair<Int, Long>>()
     val processed = CopyOnWriteArrayList<RecordProcessedCall<K, V>>()
     val failed = CopyOnWriteArrayList<RecordFailedCall<K, V>>()
@@ -69,6 +72,14 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val unbindRuntimeMetricsCalls = CopyOnWriteArrayList<Unit>()
     val boundPartitionStats = CopyOnWriteArrayList<ConsumerPartitionStats>()
     val unboundPartitionMetrics = CopyOnWriteArrayList<PartitionMetricsKey>()
+
+    override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) {
+        boundKafkaConsumers += pollLoopId to consumer
+    }
+
+    override fun unbindKafkaClientMetrics(pollLoopId: Int) {
+        unboundKafkaConsumers += pollLoopId
+    }
 
     override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
         boundRuntimeStats += stats

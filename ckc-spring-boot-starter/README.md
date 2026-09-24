@@ -32,6 +32,7 @@ ckc:
   metrics:
     implementation: MICROMETER
     micrometer:
+      kafka-client-metrics-enabled: false
       schemas:
         default:
           metric-prefix: myapp
@@ -175,6 +176,7 @@ ckc:
     prefix: app # fallback when no Micrometer schemas are configured
     micrometer:
       default-schema: default
+      kafka-client-metrics-enabled: false
       schemas:
         default:
           metric-prefix: app
@@ -241,6 +243,8 @@ pending within a poll loop or `commit-interval` elapses, whichever happens first
 Set `ckc.metrics.implementation` to `MICROMETER`, `CUSTOM`, or `NONE`. `MICROMETER` uses the
 configured `ckc.metrics.micrometer.schemas` entries to create CKC Micrometer metrics. If no schema is
 configured, the starter keeps the legacy fallback and creates one schema from `ckc.metrics.prefix`.
+Set `ckc.metrics.micrometer.kafka-client-metrics-enabled=true` to also export the native
+`kafka.consumer.*` meters for each CKC poll loop. This is disabled by default.
 
 Record-driven Micrometer tag schemas are declared in configuration. The per-record extraction logic
 lives in Spring beans annotated with `@CkcMicrometerRecordTags`:

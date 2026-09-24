@@ -29,7 +29,8 @@ val meterRegistry = SimpleMeterRegistry()
 
 val ckcMetricsSchema = MicrometerConsumerMetricsSchema(
     meterRegistry = meterRegistry,
-    metricPrefix = "myapp"
+    metricPrefix = "myapp",
+    kafkaClientMetricsEnabled = true
 )
 
 val orderConsumer = coroutinesKafkaConsumer<String, OrderEvent>(
@@ -47,6 +48,10 @@ val orderConsumer = coroutinesKafkaConsumer<String, OrderEvent>(
 Metric names always include the permanent `ckc` namespace after the user-defined prefix. For example,
 `metricPrefix = "myapp"` records processed records with
 `myapp.ckc.record.process.duration`.
+
+`kafkaClientMetricsEnabled` additionally binds the native `kafka.consumer.*` meters exposed by
+each underlying Kafka client. It is disabled by default because the Kafka client publishes a large
+meter set. Native meters carry the logical `consumer_id` and the CKC `poll_loop` tags.
 
 ## Tags Customization
 
@@ -386,7 +391,8 @@ MicrometerConsumerMetricsSchema(
     meterRegistry = meterRegistry,
     metricPrefix = "myapp",
     staticTags = listOf(Tag.of("service", "orders")),
-    recordDrivenTags = recordDrivenTags("event_type")
+    recordDrivenTags = recordDrivenTags("event_type"),
+    kafkaClientMetricsEnabled = true
 )
 ```
 
@@ -394,6 +400,8 @@ MicrometerConsumerMetricsSchema(
 - `metricPrefix`: required user-defined prefix before the permanent `.ckc` segment.
 - `staticTags`: optional tags attached to every meter created by the schema.
 - `recordDrivenTags`: optional definitions for record-driven custom tags.
+- `kafkaClientMetricsEnabled`: optionally binds native `kafka.consumer.*` meters; defaults to
+  `false`.
 
 `micrometerConsumerMetrics(schema) { ... }` creates the `ConsumerMetrics<K, V>` instance passed to a
 CKC consumer:
