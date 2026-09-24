@@ -13,6 +13,8 @@ import io.micrometer.core.instrument.Meter
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Tags
 import io.micrometer.core.instrument.Timer
+import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
+import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
 
@@ -22,8 +24,37 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>
 ) : ConsumerMetrics<K, V> {
     private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
+    private val kafkaClientMetrics = mutableMapOf<Int, KafkaClientMetrics>()
     private val runtimeMeters = mutableListOf<Meter>()
     private val partitionMeters = mutableMapOf<Pair<String, Int>, Meter>()
+
+    override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) {
+        if (!schema.kafkaClientMetricsEnabled) {
+            return
+        }
+        synchronized(kafkaClientMetrics) {
+            check(pollLoopId !in kafkaClientMetrics) {
+                "Kafka consumer metrics are already bound for poll loop $pollLoopId"
+            }
+            val clientMetrics = KafkaClientMetrics(
+                consumer,
+                consumerTags.and("poll_loop", pollLoopId.toString())
+            )
+            try {
+                clientMetrics.bindTo(schema.meterRegistry)
+            } catch (failure: Exception) {
+                clientMetrics.close()
+                throw failure
+            }
+            kafkaClientMetrics[pollLoopId] = clientMetrics
+        }
+    }
+
+    override fun unbindKafkaClientMetrics(pollLoopId: Int) {
+        synchronized(kafkaClientMetrics) {
+            kafkaClientMetrics.remove(pollLoopId)?.close()
+        }
+    }
 
     override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) {
         if (runtimeMeters.isNotEmpty()) {

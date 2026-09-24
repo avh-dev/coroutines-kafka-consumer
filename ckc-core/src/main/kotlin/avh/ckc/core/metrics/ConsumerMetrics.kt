@@ -1,5 +1,6 @@
 package avh.ckc.core.metrics
 
+import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
 /**
@@ -10,6 +11,22 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
  * defaults so consumers can implement only the signals they export.
  */
 interface ConsumerMetrics<K, V> {
+    /**
+     * Binds metrics exposed by the underlying Kafka consumer used by one poll loop.
+     *
+     * [pollLoopId] is stable within the owning [avh.ckc.core.CoroutinesKafkaConsumer]. Implementations may use it
+     * to distinguish multiple Kafka clients created for concurrent poll loops. The callback runs on the poll-loop
+     * thread immediately after the client is created and before it subscribes.
+     */
+    fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) = Unit
+
+    /**
+     * Unbinds Kafka client metrics previously registered for [pollLoopId].
+     *
+     * Called from the poll-loop shutdown path before the underlying Kafka consumer is closed.
+     */
+    fun unbindKafkaClientMetrics(pollLoopId: Int) = Unit
+
     /**
      * Binds runtime-level gauges for a consumer instance.
      *

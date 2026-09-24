@@ -10,7 +10,10 @@ import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -25,6 +28,52 @@ class MicrometerConsumerMetricsSchemaTest {
     private data class TestLifecycleEvent(
         val eventType: String
     )
+
+    @Test
+    fun `kafka client metrics are tagged and removed with poll loop lifecycle`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, String>(
+            MicrometerConsumerMetricsSchema(
+                registry,
+                metricPrefix = "test",
+                kafkaClientMetricsEnabled = true
+            )
+        ) {
+            consumerId = "orders"
+        }
+        val consumer = testKafkaConsumer()
+
+        try {
+            metrics.bindKafkaClientMetrics(3, consumer)
+
+            val nativeMeters = registry.meters.filter { it.id.name.startsWith("kafka.consumer") }
+            assertTrue(nativeMeters.isNotEmpty())
+            assertTrue(nativeMeters.all { it.id.getTag("consumer_id") == "orders" })
+            assertTrue(nativeMeters.all { it.id.getTag("poll_loop") == "3" })
+
+            metrics.unbindKafkaClientMetrics(3)
+            assertTrue(registry.meters.none { it.id.name.startsWith("kafka.consumer") })
+        } finally {
+            consumer.close()
+        }
+    }
+
+    @Test
+    fun `kafka client metrics are disabled by default`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, String>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        )
+        val consumer = testKafkaConsumer()
+
+        try {
+            metrics.bindKafkaClientMetrics(1, consumer)
+
+            assertTrue(registry.meters.none { it.id.name.startsWith("kafka.consumer") })
+        } finally {
+            consumer.close()
+        }
+    }
 
     @Test
     fun `when record is processed then processing and end to end timers are recorded`() {
@@ -621,6 +670,16 @@ class MicrometerConsumerMetricsSchemaTest {
 
     private fun <K, V> testRecord(topic: String = "orders", partition: Int, key: K? = null, value: V? = null): ConsumerRecord<K, V> =
         ConsumerRecord(topic, partition, 0L, key, value)
+
+    private fun testKafkaConsumer(): KafkaConsumer<String, String> =
+        KafkaConsumer(
+            mapOf(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "127.0.0.1:1",
+                ConsumerConfig.GROUP_ID_CONFIG to "metrics-test",
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+            )
+        )
 
     private class MutableRuntimeStats(
         override val workerCount: Int,

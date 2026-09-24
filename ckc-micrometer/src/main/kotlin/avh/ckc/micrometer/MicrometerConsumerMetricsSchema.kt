@@ -28,12 +28,15 @@ import java.util.logging.Logger
  * @param staticTags tags attached to every meter created by this schema.
  * @param recordDrivenTags record-driven custom tag keys and default values that
  * may be populated by per-consumer extractors.
+ * @param kafkaClientMetricsEnabled whether native metrics exposed by each underlying Kafka consumer
+ * should be bound to [meterRegistry]. Disabled by default because Kafka clients expose a large meter set.
  */
 open class MicrometerConsumerMetricsSchema(
     internal val meterRegistry: MeterRegistry,
     val metricPrefix: String,
     internal val staticTags: List<Tag> = emptyList(),
-    internal val recordDrivenTags: List<RecordMetricTagDefinition> = emptyList()
+    internal val recordDrivenTags: List<RecordMetricTagDefinition> = emptyList(),
+    val kafkaClientMetricsEnabled: Boolean = false
 ) {
     init {
         require(metricPrefix.isNotBlank()) { "Metric prefix must not be blank" }

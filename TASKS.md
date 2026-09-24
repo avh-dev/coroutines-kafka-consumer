@@ -65,6 +65,7 @@
 | [CORE-60](#core-60) | Recover the same consumer after a graceful stop and restart of a single Kafka broker.                                                                                                                              | DONE |
 | [CORE-61](#core-61) | Recover the same consumer after a single Kafka broker is killed and restarted.                                                                                                                                      | DONE |
 | [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | IN_PROGRESS |
+| [CORE-63](#core-63) | Optionally bind native Kafka consumer client metrics through the Micrometer adapter.                                                                                                                              | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -4229,3 +4230,13 @@ Expose the candidate size and CKC size-limit utilization of offset metadata prep
 Report uncompressed and encoded payload sizes plus their compression ratio without partition-cardinality tags.
 Distinguish metadata included in a commit from candidates rejected for exceeding CKC's local size limit.
 Verification: all `ckc-core` and `ckc-micrometer` tests pass; whitespace validation passes.
+
+<a id="core-63"></a>
+### CORE-63 - Add optional Kafka client metrics
+
+_Date: 2026-09-23_
+
+Expose the Kafka consumer lifecycle needed by metrics adapters without coupling core to Micrometer.
+Allow `ckc-micrometer` schemas to bind native `kafka.consumer.*` meters with logical consumer and poll-loop tags.
+Keep native Kafka client metrics disabled by default so existing applications retain their current metric volume.
+Verification: all `ckc-core`, `ckc-micrometer`, and `ckc-spring-boot-starter` tests pass; whitespace validation passes.

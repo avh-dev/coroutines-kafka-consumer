@@ -160,9 +160,12 @@ internal class ConsumerPollLoop<K, V>(
     private suspend fun runLoop() {
         running = true
         var consumer: KafkaConsumer<K, V>? = null
+        var kafkaClientMetricsBound = false
         try {
             consumer = kafkaConsumerFactory(consumerProperties)
             consumerRef = consumer
+            metrics.bindKafkaClientMetrics(id, consumer)
+            kafkaClientMetricsBound = true
             subscribe(consumer)
             consumerLoop(consumer)
         } finally {
@@ -171,8 +174,14 @@ internal class ConsumerPollLoop<K, V>(
             consumerRef = null
             withContext(NonCancellable) {
                 try {
-                    consumer?.close()
-                } catch (_: Exception) {
+                    if (kafkaClientMetricsBound) {
+                        metrics.unbindKafkaClientMetrics(id)
+                    }
+                } finally {
+                    try {
+                        consumer?.close()
+                    } catch (_: Exception) {
+                    }
                 }
             }
             // A terminal loop failure cannot perform the graceful drain handshake,

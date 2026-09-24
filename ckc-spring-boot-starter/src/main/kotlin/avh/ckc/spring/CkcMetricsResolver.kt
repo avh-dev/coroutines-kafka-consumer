@@ -132,7 +132,8 @@ private fun buildMicrometerSchema(
         },
         recordDrivenTags = schemaProperties.recordDrivenTags.map { tag ->
             RecordMetricTagDefinition(tag.name, tag.default)
-        }
+        },
+        kafkaClientMetricsEnabled = properties.metrics.micrometer.kafkaClientMetricsEnabled
     )
 }
 
