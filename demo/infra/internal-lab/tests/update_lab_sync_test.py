@@ -30,6 +30,17 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertNotIn("internal-lab/workloads", script)
         self.assertIn("demo/infra/shared/result_bundle", script)
 
+    def test_materializes_the_shared_dashboard_for_internal_lab(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('result_bundle/dashboard.py"', script)
+        self.assertIn("--environment internal-lab", script)
+        self.assertIn("--kafka-mode kubernetes", script)
+        self.assertNotIn(
+            'sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards"',
+            script,
+        )
+
     def test_keeps_canonical_experiments_and_shared_helpers_after_sync(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 

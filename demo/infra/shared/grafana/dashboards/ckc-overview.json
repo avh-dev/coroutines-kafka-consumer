@@ -95,6 +95,7 @@
           "refId": "A"
         }
       ],
+      "description": "Experiment phases and measurement windows from the event stream. Use it to align workload changes, captures, and measured intervals with the metric panels below.",
       "title": "Profile Timeline",
       "type": "state-timeline"
     },
@@ -143,6 +144,7 @@
           "refId": "B"
         }
       ],
+      "description": "Published workload rate and successfully processed application rate across all event topics. A sustained gap indicates growing backlog or dropped/failed work.",
       "title": "Total Message Throughput",
       "type": "timeseries"
     },
@@ -200,6 +202,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}"
             }
           ],
+          "description": "Successfully processed order events per second.",
           "title": "Order Events Throughput",
           "type": "timeseries"
         },
@@ -243,6 +246,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} / {{error}}"
             }
           ],
+          "description": "Failed order-event processing attempts per second, split by error type.",
           "title": "Order Events Failure Throughput",
           "type": "timeseries"
         },
@@ -306,6 +310,7 @@
               "refId": "E"
             }
           ],
+          "description": "Time spent executing the order-event handler. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99; the selection applies to every processing-duration and end-to-end latency panel.",
           "title": "Order Events Processing Duration",
           "type": "timeseries"
         },
@@ -369,6 +374,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max"
             }
           ],
+          "description": "Time from the event's published timestamp until processing completes. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99.",
           "title": "Order Events End-to-End Latency",
           "type": "timeseries"
         }
@@ -425,6 +431,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}"
             }
           ],
+          "description": "Successfully processed batch events per second.",
           "title": "Batch Events Throughput",
           "type": "timeseries"
         },
@@ -468,6 +475,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} / {{error}}"
             }
           ],
+          "description": "Failed batch-event processing attempts per second, split by error type.",
           "title": "Batch Events Failure Throughput",
           "type": "timeseries"
         },
@@ -531,6 +539,7 @@
               "refId": "E"
             }
           ],
+          "description": "Time spent executing the batch-event handler. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99; the selection applies to every processing-duration and end-to-end latency panel.",
           "title": "Batch Events Processing Duration",
           "type": "timeseries"
         },
@@ -594,6 +603,7 @@
               "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max"
             }
           ],
+          "description": "Time from the event's published timestamp until processing completes. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99.",
           "title": "Batch Events End-to-End Latency",
           "type": "timeseries"
         }
@@ -656,6 +666,7 @@
               "legendFormat": "{{topic}} {{pod_legend}}"
             }
           ],
+          "description": "Successfully processed cauldron telemetry events per second.",
           "title": "Cauldron Events Throughput",
           "type": "timeseries"
         },
@@ -699,6 +710,7 @@
               "legendFormat": "{{topic}} {{pod_legend}} / {{error}}"
             }
           ],
+          "description": "Failed cauldron-event processing attempts per second, split by error type.",
           "title": "Cauldron Events Failure Throughput",
           "type": "timeseries"
         },
@@ -762,6 +774,7 @@
               "refId": "E"
             }
           ],
+          "description": "Time spent executing the cauldron-event handler. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99; the selection applies to every processing-duration and end-to-end latency panel.",
           "title": "Cauldron Events Processing Duration",
           "type": "timeseries"
         },
@@ -825,6 +838,7 @@
               "legendFormat": "{{topic}} {{pod_legend}} max"
             }
           ],
+          "description": "Time from the event's published timestamp until processing completes. Use the Duration statistic dashboard control to select avg, max, p50, p95, or p99.",
           "title": "Cauldron Events End-to-End Latency",
           "type": "timeseries"
         },
@@ -888,8 +902,107 @@
               "legendFormat": "{{pod_legend}} max"
             }
           ],
+          "description": "Event-time difference between the current cauldron telemetry event and the previously persisted ETA context. Use Duration statistic to select avg, rolling max, or a histogram percentile; a growing gap can expose sparse or stale state updates.",
           "title": "Cauldron Telemetry Event Gap",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 24
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (reason, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (reason, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=\"cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{reason}} {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "description": "Cauldron events intentionally discarded before successful processing, split by drop reason. This includes stale events and older key records replaced by newer state.",
+          "title": "Cauldron Events Drop Throughput",
+          "type": "timeseries",
+          "id": 134
         }
       ],
       "title": "Cauldron Events",
@@ -901,7 +1014,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 17
       },
       "panels": [
         {
@@ -997,7 +1110,8 @@
               "refId": "A"
             }
           ],
-          "title": "HTTP Call Throughput",
+      "description": "Outbound HTTP requests completed by the demo application per second, reported by its Micrometer client instrumentation.",
+      "title": "HTTP Call Throughput",
           "type": "timeseries",
           "id": 70
         },
@@ -1138,7 +1252,8 @@
               "refId": "E"
             }
           ],
-          "title": "HTTP Call Duration",
+      "description": "Outbound HTTP request latency reported by the demo application's Micrometer client instrumentation. Use Duration statistic to select avg, rolling max, or a histogram percentile.",
+      "title": "HTTP Call Duration",
           "type": "timeseries",
           "id": 71
         }
@@ -1208,6 +1323,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} configured"
             }
           ],
+          "description": "Workers currently executing record handlers compared with the configured worker limit.",
           "title": "CKC Active Workers",
           "type": "timeseries"
         },
@@ -1263,6 +1379,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} max observed"
             }
           ],
+          "description": "Current work-queue size, configured capacity, and the maximum size observed by CKC. Sustained proximity to capacity indicates processing backpressure.",
           "title": "CKC Queue Pressure",
           "type": "timeseries"
         },
@@ -1308,6 +1425,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}}"
             }
           ],
+          "description": "Fraction of configured CKC workers currently executing record handlers. Values near 100% indicate that worker concurrency is saturated.",
           "title": "CKC Worker Utilization",
           "type": "timeseries"
         },
@@ -1353,6 +1471,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} current"
             }
           ],
+          "description": "Current CKC work-queue size divided by configured capacity. Values near 100% indicate little remaining admission headroom.",
           "title": "CKC Work Queue Utilization",
           "type": "timeseries"
         },
@@ -1396,6 +1515,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} / attempt={{attempt}} / {{error}}"
             }
           ],
+          "description": "Record retries per second, split by attempt number and exception type.",
           "title": "CKC Retry Throughput",
           "type": "timeseries"
         },
@@ -1439,6 +1559,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} avg"
             }
           ],
+          "description": "Average time spent in each CKC Kafka poll call. This is poll-call duration, not time between polls or record-processing latency.",
           "title": "CKC Poll Duration",
           "type": "timeseries"
         },
@@ -1482,6 +1603,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}}"
             }
           ],
+          "description": "Records returned by CKC poll calls per second. This measures ingestion from Kafka, not completed business processing.",
           "title": "CKC Polled Records Throughput",
           "type": "timeseries"
         },
@@ -1525,6 +1647,7 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} / success={{success}}"
             }
           ],
+          "description": "CKC offset commit attempts per second, split by success status.",
           "title": "CKC Commit Throughput",
           "type": "timeseries"
         },
@@ -1584,7 +1707,7 @@
                   }
                 ]
               },
-              "unit": "ops"
+              "unit": "short"
             },
             "overrides": []
           },
@@ -1615,110 +1738,14 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (rate(demo_ckc_record_dropped_total{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{consumer_id}} {{pod_legend}}",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} total",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "CKC Drop Throughput",
-          "type": "timeseries",
-          "id": 81
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "linear",
-                "barAlignment": 0,
-                "lineWidth": 1,
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "spanNulls": false,
-                "insertNulls": false,
-                "showPoints": "never",
-                "pointSize": 5,
-                "stacking": {
-                  "mode": "none",
-                  "group": "A"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "axisColorMode": "text",
-                "axisBorderShow": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "axisCenteredZero": false,
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "color": {
-                "mode": "palette-classic"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 42
-          },
-          "options": {
-            "tooltip": {
-              "mode": "multi",
-              "sort": "none"
-            },
-            "legend": {
-              "showLegend": true,
-              "displayMode": "list",
-              "placement": "bottom",
-              "calcs": [
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "(label_join((sum by (consumer_id, partition, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, partition, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{consumer_id}} {{pod_legend}} / partition {{partition}}",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "CKC OffsetTracker Capacity",
+          "description": "Sum of offset-tracker bit capacities across all assigned partitions. This is logical bitset capacity, not heap usage or a record count.",
+          "title": "CKC Offset Tracker Total Capacity",
           "type": "timeseries",
           "id": 82
         },
@@ -1815,6 +1842,7 @@
               "refId": "A"
             }
           ],
+          "description": "Kafka partition pause and resume operations initiated by CKC backpressure control, shown as operations per second.",
           "title": "CKC Pause / Resume Events",
           "type": "timeseries",
           "id": 83
@@ -1866,8 +1894,404 @@
               "legendFormat": "{{consumer_id}} {{pod_legend}} max observed"
             }
           ],
+          "description": "Current and maximum records held behind an in-flight ordering key or partition before handler execution. Sustained growth shows ordering contention rather than Kafka fetch lag.",
           "title": "CKC Ordering Queue Pressure",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 42
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((max by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((max by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_capacity{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} max partition",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "description": "Largest offset-tracker bit capacity among assigned partitions. Compare with the total-capacity panel to identify skew concentrated in one partition.",
+          "title": "CKC Offset Tracker Maximum Partition Capacity",
+          "type": "timeseries",
+          "id": 135
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 58
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "(label_join((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} / metadata avg",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "expr": "(label_join((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_raw_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_raw_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_raw_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_raw_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} / raw payload avg",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "expr": "(label_join((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_encoded_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_encoded_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_encoded_size_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_encoded_size_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} / encoded payload avg",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "description": "Average CKC metadata candidate size alongside its raw and encoded bitset payload sizes for candidates included in Kafka commits. The difference between raw and encoded payloads shows the byte savings from compression.",
+          "title": "CKC Commit Metadata Size",
+          "type": "timeseries",
+          "id": 136
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 58
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "(label_join((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_compression_ratio_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_compression_ratio_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_compression_ratio_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, ${pod_grouping}) (rate(demo_ckc_commit_metadata_payload_compression_ratio_count{consumer_id=~\"order_events|batch_events|cauldron_events\", included=\"true\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} avg",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "description": "Average encoded bitset payload size divided by raw payload size for metadata included in commits. Lower is better; 1 means compression produced no size reduction.",
+          "title": "CKC Commit Metadata Compression Ratio",
+          "type": "timeseries",
+          "id": 137
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 66
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "(label_join((sum by (consumer_id, compression, included, ${pod_grouping}) (rate(demo_ckc_commit_metadata_limit_utilization_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, included, ${pod_grouping}) (rate(demo_ckc_commit_metadata_limit_utilization_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, compression, included, ${pod_grouping}) (rate(demo_ckc_commit_metadata_limit_utilization_sum{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, compression, included, ${pod_grouping}) (rate(demo_ckc_commit_metadata_limit_utilization_count{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"}[$__rate_interval])), 1e-9)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} / included={{included}} avg",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "expr": "(label_join((max by (consumer_id, compression, included, ${pod_grouping}) (demo_ckc_commit_metadata_limit_utilization_max{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((max by (consumer_id, compression, included, ${pod_grouping}) (demo_ckc_commit_metadata_limit_utilization_max{consumer_id=~\"order_events|batch_events|cauldron_events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} / {{compression}} / included={{included}} max",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "description": "CKC metadata candidate size divided by the configured Kafka commit-metadata limit. Values above 100% are rejected and committed without CKC metadata; the included label distinguishes accepted and rejected candidates.",
+          "title": "CKC Commit Metadata Limit Utilization",
+          "type": "timeseries",
+          "id": 138
         }
       ],
       "title": "CKC Runtime",
@@ -1929,6 +2353,7 @@
               "legendFormat": "{{consumer_id}} {{pod}}"
             }
           ],
+          "description": "Records currently admitted by Parallel Consumer and not yet completed.",
           "title": "PC Inflight Records",
           "type": "timeseries"
         },
@@ -1974,6 +2399,7 @@
               "legendFormat": "{{consumer_id}} {{pod}}"
             }
           ],
+          "description": "Records waiting inside Parallel Consumer before execution. Sustained growth indicates processing cannot keep up with ingestion.",
           "title": "PC Waiting Records",
           "type": "timeseries"
         },
@@ -2020,6 +2446,7 @@
               "legendFormat": "{{consumer_id}} {{pod}}"
             }
           ],
+          "description": "Parallel Consumer's adaptive load factor used to regulate record admission and processing concurrency.",
           "title": "PC Dynamic Load Factor",
           "type": "timeseries"
         },
@@ -2033,7 +2460,52 @@
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "short"
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "dark-gray",
+                      "index": 0,
+                      "text": "UNUSED"
+                    },
+                    "1": {
+                      "color": "green",
+                      "index": 1,
+                      "text": "RUNNING"
+                    },
+                    "2": {
+                      "color": "yellow",
+                      "index": 2,
+                      "text": "PAUSED"
+                    },
+                    "3": {
+                      "color": "blue",
+                      "index": 3,
+                      "text": "DRAINING"
+                    },
+                    "4": {
+                      "color": "orange",
+                      "index": 4,
+                      "text": "CLOSING"
+                    },
+                    "5": {
+                      "color": "gray",
+                      "index": 5,
+                      "text": "CLOSED"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
             },
             "overrides": []
           },
@@ -2045,28 +2517,30 @@
           },
           "id": 49,
           "options": {
+            "alignValue": "left",
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "auto",
             "tooltip": {
               "mode": "multi",
-              "sort": "desc"
+              "sort": "none"
             }
           },
           "targets": [
             {
-              "expr": "avg by (consumer_id, pcinstance, ${pod_grouping}) (pc_status{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "expr": "max by (consumer_id, pcinstance, ${pod_grouping}) (pc_status{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
               "refId": "A",
               "legendFormat": "{{consumer_id}} {{pod}} / {{pcinstance}}"
             }
           ],
-          "title": "PC Status",
-          "type": "timeseries"
+          "description": "Lifecycle state reported by each Parallel Consumer runtime: UNUSED, RUNNING, PAUSED, DRAINING, CLOSING, or CLOSED. The state timeline preserves transitions per runtime instance.",
+          "title": "PC Runtime State",
+          "type": "state-timeline"
         },
         {
           "datasource": {
@@ -2115,6 +2589,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} partitions"
             }
           ],
+          "description": "Offsets observed but not yet complete, shown as a total and by topic partitions. Growth reflects the out-of-order completion state retained by Parallel Consumer.",
           "title": "PC Incomplete Offsets",
           "type": "timeseries"
         },
@@ -2155,21 +2630,22 @@
           },
           "targets": [
             {
-              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_seen_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "expr": "max by (consumer_id, topic, partition, ${pod_grouping}) (pc_partition_highest_seen_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} seen"
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} p{{partition}} seen"
             },
             {
-              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_completed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "expr": "max by (consumer_id, topic, partition, ${pod_grouping}) (pc_partition_highest_completed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
               "refId": "B",
-              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} completed"
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} p{{partition}} completed"
             },
             {
-              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_latest_committed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "expr": "max by (consumer_id, topic, partition, ${pod_grouping}) (pc_partition_latest_committed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
               "refId": "C",
-              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} committed"
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} p{{partition}} committed"
             }
           ],
+          "description": "Highest seen, completed, and committed offsets for each topic partition. Widening gaps on the same partition show where processing or commit progress trails ingestion.",
           "title": "PC Partition Offset Progress",
           "type": "timeseries"
         },
@@ -2220,6 +2696,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} shard size"
             }
           ],
+          "description": "Current Parallel Consumer shard count and aggregate shard size used to coordinate ordering and work distribution.",
           "title": "PC Shards",
           "type": "timeseries"
         },
@@ -2270,6 +2747,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} paused"
             }
           ],
+          "description": "Partitions assigned to Parallel Consumer and the subset currently paused by its flow control.",
           "title": "PC Partitions",
           "type": "timeseries"
         },
@@ -2315,6 +2793,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} avg"
             }
           ],
+          "description": "Average time Parallel Consumer spends encoding incomplete-offset state for Kafka commit metadata.",
           "title": "PC Offset Encoding Time",
           "type": "timeseries"
         },
@@ -2360,6 +2839,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} / {{encoding}}"
             }
           ],
+          "description": "Offset-metadata encodings selected by Parallel Consumer per second, split by encoding type.",
           "title": "PC Offset Encoding Usage",
           "type": "timeseries"
         },
@@ -2405,6 +2885,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} avg"
             }
           ],
+          "description": "Average fraction of the Kafka offset-metadata allowance consumed by Parallel Consumer.",
           "title": "PC Offset Metadata Space Used",
           "type": "timeseries"
         },
@@ -2450,6 +2931,7 @@
               "legendFormat": "{{consumer_id}} {{pod}} avg"
             }
           ],
+          "description": "Average encoded metadata payload bytes required per incomplete offset. Lower values indicate denser offset-state encoding.",
           "title": "PC Offset Payload Bytes per Offset",
           "type": "timeseries"
         }
@@ -2467,7 +2949,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 14
       },
       "id": 121,
       "panels": [
@@ -3002,7 +3484,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Maximum client-observed gap between the current fetch position and broker log end. This differs from committed consumer-group lag.",
+          "description": "Maximum broker log-end minus the Apache consumer's current read position across its assigned partitions. This is an in-process client view and differs from durable committed consumer-group lag.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -3040,7 +3522,7 @@
               "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
             }
           ],
-          "title": "Kafka Consumer Client-side Lag",
+          "title": "Kafka Client Read Lag — Max",
           "type": "timeseries"
         }
       ],
@@ -3103,7 +3585,8 @@
               "legendFormat": "{{consumergroup}} / {{topic}}"
             }
           ],
-          "title": "Uncommitted Offset Lag by Topic",
+      "description": "Total broker log-end minus committed consumer-group offset, summed across partitions and shown by topic. This exporter view tracks durable group progress, unlike client read-position lag.",
+      "title": "Consumer Group Committed Lag — Total",
           "type": "timeseries"
         },
         {
@@ -3153,7 +3636,8 @@
               "legendFormat": "rolling {{consumer_group}} / {{topic}}"
             }
           ],
-          "title": "MSK CloudWatch Time Lag",
+      "description": "Amazon MSK consumer lag expressed as estimated time behind the head of the stream, sourced through the CloudWatch exporter. Available only for MSK-backed experiments.",
+      "title": "MSK CloudWatch Time Lag",
           "type": "timeseries"
         },
         {
@@ -3203,7 +3687,8 @@
               "legendFormat": "sum {{consumer_group}} / {{topic}}"
             }
           ],
-          "title": "MSK CloudWatch Offset Lag (Uncommitted)",
+      "description": "Amazon MSK consumer-group offset lag sourced through the CloudWatch exporter. Available only for MSK-backed experiments.",
+      "title": "MSK CloudWatch Offset Lag (Uncommitted)",
           "type": "timeseries"
         }
       ],
@@ -3216,7 +3701,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 13
       },
       "panels": [
         {
@@ -3307,13 +3792,14 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (${pod_grouping}) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "CPU sum {{pod_legend}}",
+              "expr": "1000 * sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
+              "legendFormat": "selected pods total",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Pod CPU",
+      "description": "Total CPU used by the selected demo application containers, summed from kubelet/cAdvisor counters. This shows aggregate deployment demand and naturally changes when the number of pods changes.",
+      "title": "Application Container CPU — Total",
           "type": "timeseries",
           "id": 73
         },
@@ -3381,8 +3867,8 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 12,
-            "y": 13
+            "x": 0,
+            "y": 21
           },
           "options": {
             "tooltip": {
@@ -3405,13 +3891,14 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((avg by (${pod_grouping}) (container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "Memory avg {{pod_legend}}",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})",
+              "legendFormat": "selected pods total",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Pod Memory",
+      "description": "Total non-readily-reclaimable memory for the selected demo application containers, summed from kubelet/cAdvisor working-set gauges. This shows aggregate deployment demand.",
+      "title": "Application Container Working Set — Total",
           "type": "timeseries",
           "id": 74
         },
@@ -3479,9 +3966,9 @@
           },
           "gridPos": {
             "h": 8,
-            "w": 24,
+            "w": 12,
             "x": 0,
-            "y": 21
+            "y": 29
           },
           "options": {
             "tooltip": {
@@ -3513,9 +4000,207 @@
           "title": "Application Context Switches",
           "type": "timeseries",
           "id": 105
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "mcores",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "1000 * avg(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
+              "legendFormat": "selected pods average",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+      "description": "Average CPU used per selected demo application pod, derived from kubelet/cAdvisor container counters. This remains interpretable across replica-count changes and brief rollout overlap.",
+      "title": "Application Container CPU — Average per Pod",
+          "type": "timeseries",
+          "id": 139
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "bytes",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 21
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "avg(container_memory_working_set_bytes{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"})",
+              "legendFormat": "selected pods average",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+      "description": "Average non-readily-reclaimable memory per selected demo application pod, derived from kubelet/cAdvisor working-set gauges. This remains interpretable across replica-count changes and brief rollout overlap.",
+      "title": "Application Container Working Set — Average per Pod",
+          "type": "timeseries",
+          "id": 140
         }
       ],
-      "title": "Pod Resources",
+      "title": "Application Resources",
       "type": "row",
       "id": 72
     },
@@ -3529,7 +4214,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 19
       },
       "id": 35,
       "panels": [
@@ -3575,7 +4260,8 @@
               "legendFormat": "{{job}} {{pod_legend}} / {{gc}}"
             }
           ],
-          "title": "Average GC Pause",
+      "description": "Average stop-the-world GC pause duration reported by Micrometer JVM instrumentation for the selected application pods.",
+      "title": "Average GC Pause",
           "type": "timeseries"
         },
         {
@@ -3625,7 +4311,8 @@
               "legendFormat": "{{job}} {{pod_legend}} / {{area}} max"
             }
           ],
-          "title": "JVM Memory",
+      "description": "JVM heap and non-heap memory used and committed, reported by Micrometer for the selected application pods.",
+      "title": "JVM Memory",
           "type": "timeseries"
         },
         {
@@ -3670,7 +4357,8 @@
               "legendFormat": "{{job}} {{pod_legend}} / {{gc}}"
             }
           ],
-          "title": "GC Pause Rate",
+      "description": "Number of JVM GC pauses per second, split by collector cause and action using Micrometer JVM counters.",
+      "title": "GC Pause Rate",
           "type": "timeseries"
         },
         {
@@ -3720,7 +4408,8 @@
               "legendFormat": "{{job}} {{pod_legend}} daemon"
             }
           ],
-          "title": "JVM Threads",
+      "description": "Current live, daemon, and peak JVM thread counts reported by Micrometer for the selected application pods.",
+      "title": "JVM Threads",
           "type": "timeseries"
         }
       ],
@@ -3737,7 +4426,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 20
       },
       "id": 94,
       "panels": [
@@ -3833,7 +4522,8 @@
               "refId": "A"
             }
           ],
-          "title": "Total CPU Usage",
+      "description": "Process-wide CPU utilization of the demo JVM from the Thread Stats agent. This complements container CPU with an in-process view.",
+      "title": "Total CPU Usage",
           "type": "timeseries"
         },
         {
@@ -3929,7 +4619,8 @@
               "refId": "A"
             }
           ],
-          "title": "Total CPU Time Rate",
+      "description": "Process CPU time consumed per second, sampled by the Thread Stats agent for the demo JVM.",
+      "title": "Total CPU Time Rate",
           "type": "timeseries"
         },
         {
@@ -4024,7 +4715,8 @@
               "refId": "A"
             }
           ],
-          "title": "Allocation Rate",
+      "description": "Estimated JVM allocation rate reported by the Thread Stats agent for the demo application process.",
+      "title": "Allocation Rate",
           "type": "timeseries"
         },
         {
@@ -4090,7 +4782,7 @@
           },
           "gridPos": {
             "h": 8,
-            "w": 24,
+            "w": 12,
             "x": 0,
             "y": 58
           },
@@ -4120,7 +4812,8 @@
               "refId": "A"
             }
           ],
-          "title": "Thread Count",
+      "description": "Thread count observed by the Thread Stats agent in each selected demo application JVM.",
+      "title": "Thread Count",
           "type": "timeseries"
         },
         {
@@ -4186,7 +4879,7 @@
           },
           "gridPos": {
             "h": 8,
-            "w": 24,
+            "w": 12,
             "x": 0,
             "y": 66
           },
@@ -4216,7 +4909,8 @@
               "refId": "A"
             }
           ],
-          "title": "Thread States",
+      "description": "Sampled JVM thread counts by Java thread state, reported by the Thread Stats agent.",
+      "title": "Thread States",
           "type": "timeseries"
         },
         {
@@ -4312,7 +5006,8 @@
               "refId": "A"
             }
           ],
-          "title": "Total CPU Time Rate by Category (Smooth Stacked)",
+      "description": "Thread CPU-time rate grouped by Thread Stats category. Categories are stacked to show both the total and its composition.",
+      "title": "CPU Time Rate by Category",
           "type": "timeseries"
         },
         {
@@ -4373,7 +5068,8 @@
               "refId": "A"
             }
           ],
-          "title": "User CPU Time Rate by Category (Smooth Stacked)",
+      "description": "Thread user-mode CPU-time rate grouped by Thread Stats category. Categories are stacked to show composition.",
+      "title": "User CPU Time Rate by Category",
           "type": "timeseries"
         },
         {
@@ -4434,7 +5130,8 @@
               "refId": "A"
             }
           ],
-          "title": "System CPU Time Rate by Category (Smooth Stacked)",
+      "description": "Thread system-mode CPU-time rate grouped by Thread Stats category. Categories are stacked to show composition.",
+      "title": "System CPU Time Rate by Category",
           "type": "timeseries"
         },
         {
@@ -4495,7 +5192,8 @@
               "refId": "A"
             }
           ],
-          "title": "Voluntary Context Switches by Category (Smooth Stacked)",
+      "description": "Voluntary context-switch rate grouped by Thread Stats category. Categories are stacked to expose blocking and waiting behavior.",
+      "title": "Voluntary Context Switches by Category",
           "type": "timeseries"
         },
         {
@@ -4556,7 +5254,8 @@
               "refId": "A"
             }
           ],
-          "title": "Non-voluntary Context Switches by Category (Smooth Stacked)",
+      "description": "Scheduler-forced context-switch rate grouped by Thread Stats category. Categories are stacked to expose CPU contention.",
+      "title": "Non-voluntary Context Switches by Category",
           "type": "timeseries"
         },
         {
@@ -4651,7 +5350,8 @@
               "refId": "A"
             }
           ],
-          "title": "Allocations by Category (Smooth Stacked)",
+      "description": "Estimated allocation rate grouped by Thread Stats category. Categories are stacked to show which work creates allocation pressure.",
+      "title": "Allocation Rate by Category",
           "type": "timeseries"
         },
         {
@@ -4746,7 +5446,8 @@
               "refId": "A"
             }
           ],
-          "title": "Total CPU Usage by Category (Smooth Stacked)",
+      "description": "Sampled CPU utilization grouped by Thread Stats category. Categories are stacked to show the process CPU composition.",
+      "title": "CPU Usage by Category",
           "type": "timeseries"
         }
       ],
@@ -4856,7 +5557,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Broker CPU",
+      "description": "CPU utilization of the internal-lab Kafka broker process, sourced from process-exporter host metrics.",
+      "title": "Kafka Broker CPU",
           "type": "timeseries",
           "id": 76
         },
@@ -4953,7 +5655,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Broker RSS",
+      "description": "Resident memory of the internal-lab Kafka broker process, sourced from process-exporter host metrics.",
+      "title": "Kafka Broker RSS",
           "type": "timeseries",
           "id": 77
         }
@@ -5070,7 +5773,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Total CPU Usage",
+      "description": "Process-wide CPU utilization of the internal-lab Kafka broker JVM from the Thread Stats agent.",
+      "title": "Kafka Total CPU Usage",
           "type": "timeseries"
         },
         {
@@ -5168,7 +5872,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Total CPU Time Rate",
+      "description": "Kafka broker JVM CPU-time rate sampled by the Thread Stats agent.",
+      "title": "Kafka Total CPU Time Rate",
           "type": "timeseries"
         },
         {
@@ -5265,7 +5970,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Allocation Rate",
+      "description": "Estimated allocation rate of the internal-lab Kafka broker JVM reported by the Thread Stats agent.",
+      "title": "Kafka Allocation Rate",
           "type": "timeseries"
         },
         {
@@ -5363,7 +6069,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread Count",
+      "description": "Kafka broker JVM thread count observed by the Thread Stats agent.",
+      "title": "Kafka Thread Count",
           "type": "timeseries"
         },
         {
@@ -5461,7 +6168,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Thread States",
+      "description": "Kafka broker JVM thread counts by Java thread state, reported by the Thread Stats agent.",
+      "title": "Kafka Thread States",
           "type": "timeseries"
         },
         {
@@ -5559,7 +6267,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Sampling Errors",
+      "description": "Thread Stats sampling failures in the Kafka broker JVM. A non-zero rate means the agent's other broker measurements may be incomplete.",
+      "title": "Kafka Sampling Errors",
           "type": "timeseries"
         }
       ],
@@ -5669,7 +6378,8 @@
               "refId": "A"
             }
           ],
-          "title": "Redis CPU",
+      "description": "CPU utilization of the internal-lab Redis process, sourced from process-exporter host metrics.",
+      "title": "Redis CPU",
           "type": "timeseries",
           "id": 79
         },
@@ -5766,7 +6476,8 @@
               "refId": "A"
             }
           ],
-          "title": "Redis Memory",
+      "description": "Resident memory of the internal-lab Redis process, sourced from process-exporter host metrics.",
+      "title": "Redis Memory",
           "type": "timeseries",
           "id": 80
         }
@@ -5781,7 +6492,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 18
       },
       "panels": [
         {
@@ -5871,13 +6582,14 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}}",
+              "expr": "(label_join((sum by (${pod_grouping}) (rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (${pod_grouping}) (rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "all commands {{pod_legend}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Redis Command Rate",
+      "description": "All Redis commands completed by the demo application per second, reported by Lettuce/Micrometer and aggregated independently of event type.",
+      "title": "Redis Command Rate — Total",
           "type": "timeseries",
           "id": 86
         },
@@ -5945,6 +6657,148 @@
           "gridPos": {
             "h": 8,
             "w": 12,
+            "x": 0,
+            "y": 33
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join(((1000 * sum by (command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}} avg",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join(((1000 * max by (command, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (command, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}} max",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}} p50",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}} p95",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, command, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}} p99",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+      "description": "Redis command latency reported by Lettuce/Micrometer, split by command. Use Duration statistic to select avg, rolling max, or a histogram percentile.",
+      "title": "Redis Command Latency",
+          "type": "timeseries",
+          "id": 87
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
             "x": 12,
             "y": 25
           },
@@ -5969,59 +6823,16 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "(label_join(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_sum{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")) / clamp_min(sum by (${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")), 1e-9)) and on() (vector(${duration_percentile}) == -1)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} avg",
+              "expr": "(label_join((sum by (command, ${pod_grouping}) (rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (command, ${pod_grouping}) (rate(lettuce_command_completion_seconds_count{pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{command}} {{pod_legend}}",
               "range": true,
               "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "(label_join(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * max by (${event_type_grouping}, ${pod_grouping}) (label_replace(lettuce_command_completion_seconds_max{pod=~\"$pod\"}, \"breakdown\", \"$1\", \"command\", \"(.+)\"))) and on() (vector(${duration_percentile}) == -2)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} max",
-              "range": true,
-              "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "(label_join(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.50, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.50)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p50",
-              "range": true,
-              "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "(label_join(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.95, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.95)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p95",
-              "range": true,
-              "refId": "D"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "(label_join(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace(((1000 * histogram_quantile(0.99, sum by (le, ${event_type_grouping}, ${pod_grouping}) (label_replace(rate(lettuce_command_completion_seconds_bucket{pod=~\"$pod\"}[$__rate_interval]), \"breakdown\", \"$1\", \"command\", \"(.+)\")))) and on() (vector(${duration_percentile}) == 0.99)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-              "legendFormat": "{{breakdown}}{{consumer_id}} {{pod_legend}} p99",
-              "range": true,
-              "refId": "E"
             }
           ],
-          "title": "Redis Command Latency",
+      "description": "Redis commands completed by the demo application per second, split by Redis command and aggregated independently of event type.",
+      "title": "Redis Command Rate — By Command",
           "type": "timeseries",
-          "id": 87
+          "id": 141
         }
       ],
       "title": "Redis Calls",
@@ -6129,7 +6940,8 @@
               "refId": "A"
             }
           ],
-          "title": "Producer Pool Size",
+      "description": "Active Kafka producer instances in the load generator's producer pool.",
+      "title": "Producer Pool Size",
           "type": "timeseries"
         },
         {
@@ -6241,7 +7053,8 @@
               "refId": "C"
             }
           ],
-          "title": "Producer Record Throughput",
+      "description": "Records sent successfully and records that failed in the Kafka load generator, using its application and Kafka client metrics.",
+      "title": "Producer Record Throughput",
           "type": "timeseries"
         },
         {
@@ -6342,7 +7155,8 @@
               "refId": "B"
             }
           ],
-          "title": "Kafka Producer Batch Size",
+      "description": "Average and maximum records per Kafka producer batch as reported by the Apache Kafka producer client.",
+      "title": "Kafka Producer Batch Size",
           "type": "timeseries"
         },
         {
@@ -6432,7 +7246,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Producer Records per Request",
+      "description": "Average number of records carried by each Kafka produce request, reported by the Apache Kafka producer client.",
+      "title": "Kafka Producer Records per Request",
           "type": "timeseries"
         },
         {
@@ -6522,7 +7337,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Producer Compression Ratio",
+      "description": "Average compressed batch size divided by uncompressed batch size in the Apache Kafka producer client. Lower values indicate stronger compression.",
+      "title": "Kafka Producer Compression Ratio",
           "type": "timeseries"
         },
         {
@@ -6623,7 +7439,8 @@
               "refId": "B"
             }
           ],
-          "title": "Kafka Producer Queue Latency",
+      "description": "Average and maximum time records wait in the Kafka producer accumulator before being sent.",
+      "title": "Kafka Producer Queue Latency",
           "type": "timeseries"
         },
         {
@@ -6746,7 +7563,8 @@
               "refId": "D"
             }
           ],
-          "title": "Kafka Producer Request Latency and Throttle",
+      "description": "Kafka producer request latency and broker throttle time reported by the Apache Kafka client.",
+      "title": "Kafka Producer Request Latency and Throttle",
           "type": "timeseries"
         },
         {
@@ -6836,7 +7654,8 @@
               "refId": "A"
             }
           ],
-          "title": "Kafka Producer Buffer Utilization",
+      "description": "Kafka producer buffer memory in use and available, reported by the Apache Kafka client.",
+      "title": "Kafka Producer Buffer Utilization",
           "type": "timeseries"
         },
         {
@@ -6948,7 +7767,8 @@
               "refId": "C"
             }
           ],
-          "title": "Kafka Producer Retries and Errors",
+      "description": "Kafka producer retry and error rates. Sustained non-zero values indicate broker, network, or delivery pressure.",
+      "title": "Kafka Producer Retries and Errors",
           "type": "timeseries"
         },
         {
@@ -7049,7 +7869,8 @@
               "refId": "B"
             }
           ],
-          "title": "Kafka Producer In-flight and Waiting",
+      "description": "Kafka producer requests currently in flight and application threads waiting for buffer memory.",
+      "title": "Kafka Producer In-flight and Waiting",
           "type": "timeseries"
         }
       ],
@@ -7068,6 +7889,64 @@
   "templating": {
     "list": [
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Application pods",
+        "multi": true,
+        "name": "pod",
+        "options": [],
+        "query": {
+          "query": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/pod=\"([^\\\"]+)\"/",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query",
+        "description": "Select the application pod instances included in application, consumer, JVM, and client-side dependency panels."
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "Combined",
+          "value": "__name__"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Pod grouping",
+        "multi": false,
+        "name": "pod_grouping",
+        "options": [
+          {
+            "selected": true,
+            "text": "Combined",
+            "value": "__name__"
+          },
+          {
+            "selected": false,
+            "text": "By pod",
+            "value": "pod"
+          }
+        ],
+        "query": "Combined : __name__,By pod : pod",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom",
+        "description": "Choose Combined to aggregate the selected application pods, or By pod to keep one series per pod. Each panel states whether the combined value is a sum, average, or maximum."
+      },
+      {
         "current": {
           "selected": true,
           "text": "avg",
@@ -7075,7 +7954,8 @@
         },
         "hide": 0,
         "includeAll": false,
-        "label": "Processing duration",
+        "label": "Duration statistic",
+        "description": "Select avg, rolling max, p50, p95, or p99 for processing duration, end-to-end latency, cauldron event gap, HTTP duration, and Redis command latency. Percentiles are estimated from Micrometer histogram buckets; max is the Micrometer rolling-window maximum rather than the maximum over the full dashboard range.",
         "multi": false,
         "name": "duration_percentile",
         "options": [
@@ -7111,88 +7991,33 @@
         "type": "custom"
       },
       {
-        "allValue": ".*",
         "current": {
           "selected": true,
-          "text": "All",
-          "value": "$__all"
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Application pods",
-        "multi": true,
-        "name": "pod",
-        "options": [],
-        "query": {
-          "query": "query_result(max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\"}[$__range]))",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
-        "regex": "/pod=\"([^\\\"]+)\"/",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "current": {
-          "selected": true,
-          "text": "split",
+          "text": "By type",
           "value": "breakdown"
         },
         "hide": 0,
         "includeAll": false,
-        "label": "Event type breakdown",
+        "label": "Event types",
         "multi": false,
         "name": "event_type_grouping",
         "options": [
           {
             "selected": true,
-            "text": "split",
+            "text": "By type",
             "value": "breakdown"
           },
           {
             "selected": false,
-            "text": "aggregated",
+            "text": "Combined",
             "value": "consumer_id"
           }
         ],
-        "query": "split : breakdown,aggregated : consumer_id",
+        "query": "By type : breakdown,Combined : consumer_id",
         "queryValue": "",
         "skipUrlSync": false,
-        "type": "custom"
-      },
-      {
-        "current": {
-          "selected": true,
-          "text": "total",
-          "value": "__name__"
-        },
-        "hide": 0,
-        "includeAll": false,
-        "label": "Metric breakdown",
-        "multi": false,
-        "name": "pod_grouping",
-        "options": [
-          {
-            "selected": true,
-            "text": "total",
-            "value": "__name__"
-          },
-          {
-            "selected": false,
-            "text": "by pod",
-            "value": "pod"
-          }
-        ],
-        "query": "total : __name__,by pod : pod",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "custom"
+        "type": "custom",
+        "description": "Choose Combined or By type for Order Events and Batch Events panels. This filter does not affect Cauldron, HTTP, or Redis panels."
       }
     ]
   },
@@ -7204,6 +8029,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 23,
+  "version": 24,
   "weekStart": ""
 }
