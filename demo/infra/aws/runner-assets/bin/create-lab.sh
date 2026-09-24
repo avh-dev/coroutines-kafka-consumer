@@ -664,6 +664,11 @@ helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm repo update
 
 KAFKA_MODE="$(infra_output kafka_mode)"
+python3 "${REPO_DIR}/demo/infra/shared/result_bundle/dashboard.py" \
+  "${REPO_DIR}/demo/infra/shared/grafana/dashboards/ckc-overview.json" \
+  "${RUNNER_HOME}/observability/grafana/dashboards/ckc-overview.json" \
+  --environment aws \
+  --kafka-mode "${KAFKA_MODE}"
 KUBERNETES_VERSION="$(infra_output kubernetes_version)"
 NODE_INSTANCE_TYPES="$(infra_output node_instance_types)"
 NODE_DESIRED_SIZE="$(infra_output node_desired_size)"

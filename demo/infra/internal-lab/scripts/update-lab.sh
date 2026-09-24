@@ -180,13 +180,22 @@ sync_internal_lab_assets() {
 }
 
 sync_runtime_test_assets() {
+  local materialized_dashboard="${STATE_DIR}/grafana/ckc-overview.json"
+
+  mkdir -p "$(dirname -- "${materialized_dashboard}")"
+  python3 "${REPO_ROOT}/demo/infra/shared/result_bundle/dashboard.py" \
+    "${REPO_ROOT}/demo/infra/shared/grafana/dashboards/ckc-overview.json" \
+    "${materialized_dashboard}" \
+    --environment internal-lab \
+    --kafka-mode kubernetes
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
-  sync_path "${REPO_ROOT}/demo/infra/shared/grafana/dashboards" "${LAB_ROOT}/grafana/dashboards"
+  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/grafana/dashboards'"
+  sync_file "${materialized_dashboard}" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
   ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
 }

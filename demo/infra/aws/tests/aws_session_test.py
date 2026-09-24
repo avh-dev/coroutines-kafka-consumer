@@ -76,6 +76,20 @@ class AwsSessionTest(unittest.TestCase):
         for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
             self.assertIn(f"--require-application {application}", export_script)
 
+    def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
+        create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
+
+        self.assertIn("result_bundle/dashboard.py", create_script)
+        self.assertIn("--environment aws", create_script)
+        self.assertIn('--kafka-mode "${KAFKA_MODE}"', create_script)
+        self.assertIn("result_bundle/dashboard.py", sync_script)
+        self.assertIn("--kafka-mode-context-dir /opt/ckc-runner/config", sync_script)
+        self.assertNotIn(
+            'cp "${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json"',
+            sync_script,
+        )
+
     def test_generated_helm_inputs_and_commands_are_exported_as_lab_evidence(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")

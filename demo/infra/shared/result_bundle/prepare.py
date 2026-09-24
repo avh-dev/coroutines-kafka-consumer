@@ -93,7 +93,13 @@ def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
     if environment not in {"aws", "internal-lab"}:
         raise ValueError(f"Unsupported evidence environment: {environment}")
     sys.path.insert(0, str(repo_root / "demo/infra/shared"))
-    from result_bundle.dashboard import parse_instant, patch_dashboard, result_log_window, result_window
+    from result_bundle.dashboard import (
+        environment_dashboard_options,
+        parse_instant,
+        patch_dashboard,
+        result_log_window,
+        result_window,
+    )
     from result_bundle.presentation import experiment_panel_markdown
 
     result_type = "experiment" if (result_dir / "summary.json").is_file() else "run"
@@ -151,16 +157,9 @@ def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
     if not source.is_file():
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text((repo_root / "demo/infra/shared/grafana/dashboards/ckc-overview.json").read_text(encoding="utf-8"), encoding="utf-8")
-    excluded_panels: set[str] = set()
-    if not any(metadata.get("kafka_mode") == "msk" for metadata in metadata_values):
-        excluded_panels.update({"MSK CloudWatch Time Lag", "MSK CloudWatch Offset Lag (Uncommitted)"})
-    environment_options = {
-        "aws": {
-            "excluded_row_titles": {"Host Services: Kafka Broker", "Host Services: Kafka Thread Stats", "Host Services: Redis"},
-            "substitutions": {'namespace="ckc-perf"': 'namespace="ckc-app"'},
-        },
-        "internal-lab": {"excluded_row_titles": set(), "substitutions": {}},
-    }[environment]
+    kafka_mode = "msk" if any(metadata.get("kafka_mode") == "msk" for metadata in metadata_values) else None
+    environment_options = environment_dashboard_options(environment, kafka_mode)
+    excluded_panels = set(environment_options["excluded_panel_titles"])
     excluded_rows = set(environment_options["excluded_row_titles"])
     if not has_parallel_consumer_target(metadata_values):
         excluded_rows.add("Confluent Parallel Consumer")

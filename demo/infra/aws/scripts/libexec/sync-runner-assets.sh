@@ -64,7 +64,7 @@ if [ -n "${ARTIFACT_BUCKET}" ]; then
     "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",
     "cp \"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/provisioning/datasources/loki.yml\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
-    "cp \"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json",
+    "python3 \"${REPO_TARGET}/demo/infra/shared/result_bundle/dashboard.py\" \"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json --environment aws --kafka-mode-context-dir /opt/ckc-runner/config",
     "echo synced=true",
     "echo repo_dir=${REPO_TARGET}"
   ]
@@ -91,7 +91,7 @@ else
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/dashboards/ckc.yml\\" /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/provisioning/datasources/prometheus.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml",
     "cp \\"${REPO_TARGET}/demo/infra/shared/result_bundle/restore/provisioning/datasources/loki.yml\\" /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml",
-    "cp \\"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json",
+    "python3 \\"${REPO_TARGET}/demo/infra/shared/result_bundle/dashboard.py\\" \\"${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json\\" /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json --environment aws --kafka-mode-context-dir /opt/ckc-runner/config",
     "echo synced=true",
     "echo repo_dir=${REPO_TARGET}"
   ]
