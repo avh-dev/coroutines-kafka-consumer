@@ -6,6 +6,8 @@ import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
+import avh.ckc.demo.consumer.kafkaConsumerFactoryWithClientMetrics
+import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -16,6 +18,7 @@ import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
+import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -26,7 +29,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.util.backoff.FixedBackOff
 
@@ -78,14 +80,18 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
 
     @Bean
     fun springKafkaCoroutinesNaiveOrderConsumerFactory(
-        properties: DemoApplicationProperties
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
     ): ConsumerFactory<String, OrderLifecycleEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.order) + mapOf(
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "order_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean
@@ -93,18 +99,26 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, OrderLifecycleEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, OrderLifecycleEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.order, properties)
+        batchListenerContainerFactory(
+            consumerFactory,
+            properties.consumers.order,
+            properties
+        )
 
     @Bean
     fun springKafkaCoroutinesNaiveBatchConsumerFactory(
-        properties: DemoApplicationProperties
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
     ): ConsumerFactory<String, BatchLifecycleEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "batch_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean
@@ -112,18 +126,26 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, BatchLifecycleEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, BatchLifecycleEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.batch, properties)
+        batchListenerContainerFactory(
+            consumerFactory,
+            properties.consumers.batch,
+            properties
+        )
 
     @Bean
     fun springKafkaCoroutinesNaiveTelemetryConsumerFactory(
-        properties: DemoApplicationProperties
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
     ): ConsumerFactory<String, CauldronTelemetryEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "cauldron_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean
@@ -131,7 +153,11 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
         consumerFactory: ConsumerFactory<String, CauldronTelemetryEvent>,
         properties: DemoApplicationProperties
     ): ConcurrentKafkaListenerContainerFactory<String, CauldronTelemetryEvent> =
-        batchListenerContainerFactory(consumerFactory, properties.consumers.telemetry, properties)
+        batchListenerContainerFactory(
+            consumerFactory,
+            properties.consumers.telemetry,
+            properties
+        )
 
     private fun <V> batchListenerContainerFactory(
         consumerFactory: ConsumerFactory<String, V>,

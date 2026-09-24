@@ -2,6 +2,8 @@ package avh.ckc.demo.consumer.springkafka
 
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
+import avh.ckc.demo.consumer.kafkaConsumerFactoryWithClientMetrics
+import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
 import avh.ckc.demo.consumer.requireSupportedBySpringKafka
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logRetryAttempt
@@ -11,6 +13,7 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.serialization.BatchLifecycleEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
+import io.micrometer.core.instrument.MeterRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -20,7 +23,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.kafka.listener.RetryListener
@@ -31,13 +33,19 @@ import org.springframework.util.backoff.FixedBackOff
 @ConditionalOnProperty(prefix = "demo.kafka", name = ["enabled"], havingValue = "true")
 class SpringKafkaProfileConfiguration {
     @Bean
-    fun orderOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, OrderLifecycleEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.order) + mapOf(
+    fun orderOrderConsumerFactory(
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
+    ): ConsumerFactory<String, OrderLifecycleEvent> =
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "order_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean
@@ -53,13 +61,19 @@ class SpringKafkaProfileConfiguration {
         }
 
     @Bean
-    fun batchOrderConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, BatchLifecycleEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
+    fun batchOrderConsumerFactory(
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
+    ): ConsumerFactory<String, BatchLifecycleEvent> =
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "batch_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean
@@ -75,13 +89,19 @@ class SpringKafkaProfileConfiguration {
         }
 
     @Bean
-    fun cauldronTelemetryConsumerFactory(properties: DemoApplicationProperties): ConsumerFactory<String, CauldronTelemetryEvent> =
-        DefaultKafkaConsumerFactory(
-            commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
+    fun cauldronTelemetryConsumerFactory(
+        properties: DemoApplicationProperties,
+        meterRegistry: MeterRegistry
+    ): ConsumerFactory<String, CauldronTelemetryEvent> =
+        kafkaConsumerFactoryWithClientMetrics(
+            consumerProperties = commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to true,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
-            )
+            ),
+            meterRegistry = meterRegistry,
+            consumerId = "cauldron_events",
+            enabled = properties.kafkaClientMetricsEnabled
         )
 
     @Bean

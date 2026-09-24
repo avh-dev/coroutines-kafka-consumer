@@ -20,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.core.MicrometerConsumerListener
 import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.test.context.ActiveProfiles
@@ -80,17 +81,17 @@ class SpringKafkaThreadPoolProfileContextTest(
         }
         val configuration = SpringKafkaThreadPoolProfileConfiguration()
 
-        val orderConsumerFactory = configuration.springKafkaThreadPoolOrderConsumerFactory(properties)
+        val orderConsumerFactory = configuration.springKafkaThreadPoolOrderConsumerFactory(properties, meterRegistry)
         val orderContainerFactory = configuration.springKafkaThreadPoolOrderListenerContainerFactory(
             orderConsumerFactory,
             properties
         )
-        val batchConsumerFactory = configuration.springKafkaThreadPoolBatchConsumerFactory(properties)
+        val batchConsumerFactory = configuration.springKafkaThreadPoolBatchConsumerFactory(properties, meterRegistry)
         val batchContainerFactory = configuration.springKafkaThreadPoolBatchListenerContainerFactory(
             batchConsumerFactory,
             properties
         )
-        val telemetryConsumerFactory = configuration.springKafkaThreadPoolTelemetryConsumerFactory(properties)
+        val telemetryConsumerFactory = configuration.springKafkaThreadPoolTelemetryConsumerFactory(properties, meterRegistry)
         val telemetryContainerFactory = configuration.springKafkaThreadPoolTelemetryListenerContainerFactory(
             telemetryConsumerFactory,
             properties
@@ -110,6 +111,9 @@ class SpringKafkaThreadPoolProfileContextTest(
         assertEquals("ckc-demo", batchConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
         assertEquals("ckc-demo", telemetryConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
         assertEquals(1_234, telemetryConsumerFactory.config()[ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG])
+        assertKafkaClientMetrics(orderConsumerFactory, "order_events")
+        assertKafkaClientMetrics(batchConsumerFactory, "batch_events")
+        assertKafkaClientMetrics(telemetryConsumerFactory, "cauldron_events")
         assertThreadPoolAdmissionRecovery(orderContainerFactory)
         assertThreadPoolAdmissionRecovery(batchContainerFactory)
         assertThreadPoolAdmissionRecovery(telemetryContainerFactory)
@@ -166,6 +170,15 @@ class SpringKafkaThreadPoolProfileContextTest(
         assertEquals(true, errorHandler.isAckAfterHandle)
         assertEquals(true, containerFactory.containerProperties.isStopImmediate)
         assertEquals(5_000L, containerFactory.containerProperties.shutdownTimeout)
+    }
+
+    private fun assertKafkaClientMetrics(factory: ConsumerFactory<*, *>, consumerId: String) {
+        val listener = (factory as DefaultKafkaConsumerFactory<*, *>).listeners.single()
+        assertIs<MicrometerConsumerListener<*, *>>(listener)
+        assertEquals(
+            listOf(io.micrometer.core.instrument.Tag.of("consumer_id", consumerId)),
+            ReflectionTestUtils.getField(listener, "tags")
+        )
     }
 
     @Suppress("UNCHECKED_CAST")

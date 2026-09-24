@@ -14,6 +14,7 @@ ckc:
     enabled: ${CKC_METRICS_ENABLED:true}
     implementation: CUSTOM
     micrometer:
+      kafka-client-metrics-enabled: ${KAFKA_CLIENT_METRICS_ENABLED:true}
       schemas:
         default:
           metric-prefix: demo

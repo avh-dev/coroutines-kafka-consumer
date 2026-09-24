@@ -25,41 +25,44 @@ class MetricsConfiguration {
     @Bean
     @Profile("ckc", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun micrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
-        MicrometerConsumerMetricsSchema(
-            meterRegistry = meterRegistry,
-            metricPrefix = "demo",
-            recordDrivenTags = recordDrivenTags(eventTypeTag)
-        )
+    fun micrometerConsumerMetricsSchema(
+        meterRegistry: MeterRegistry,
+        properties: DemoApplicationProperties
+    ): MicrometerConsumerMetricsSchema = demoMicrometerSchema(meterRegistry, properties)
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun springKafkaMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
-        MicrometerConsumerMetricsSchema(
-            meterRegistry = meterRegistry,
-            metricPrefix = "demo",
-            recordDrivenTags = recordDrivenTags(eventTypeTag)
-        )
+    fun springKafkaMicrometerConsumerMetricsSchema(
+        meterRegistry: MeterRegistry,
+        properties: DemoApplicationProperties
+    ): MicrometerConsumerMetricsSchema = demoMicrometerSchema(meterRegistry, properties)
 
     @Bean
     @Profile("spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
-        MicrometerConsumerMetricsSchema(
-            meterRegistry = meterRegistry,
-            metricPrefix = "demo",
-            recordDrivenTags = recordDrivenTags(eventTypeTag)
-        )
+    fun springKafkaCoroutinesNaiveMicrometerConsumerMetricsSchema(
+        meterRegistry: MeterRegistry,
+        properties: DemoApplicationProperties
+    ): MicrometerConsumerMetricsSchema = demoMicrometerSchema(meterRegistry, properties)
 
     @Bean
     @Profile("confluent-parallel", "confluent-parallel-reactor")
     @ConditionalOnProperty(prefix = "demo.consumers", name = ["metrics-implementation"], havingValue = "MICROMETER", matchIfMissing = true)
-    fun confluentParallelMicrometerConsumerMetricsSchema(meterRegistry: MeterRegistry): MicrometerConsumerMetricsSchema =
+    fun confluentParallelMicrometerConsumerMetricsSchema(
+        meterRegistry: MeterRegistry,
+        properties: DemoApplicationProperties
+    ): MicrometerConsumerMetricsSchema = demoMicrometerSchema(meterRegistry, properties)
+
+    private fun demoMicrometerSchema(
+        meterRegistry: MeterRegistry,
+        properties: DemoApplicationProperties
+    ): MicrometerConsumerMetricsSchema =
         MicrometerConsumerMetricsSchema(
             meterRegistry = meterRegistry,
             metricPrefix = "demo",
-            recordDrivenTags = recordDrivenTags(eventTypeTag)
+            recordDrivenTags = recordDrivenTags(eventTypeTag),
+            kafkaClientMetricsEnabled = properties.consumers.kafkaClientMetricsEnabled
         )
 
     @Bean

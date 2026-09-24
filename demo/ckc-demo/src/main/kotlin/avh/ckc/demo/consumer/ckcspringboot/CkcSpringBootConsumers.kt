@@ -162,7 +162,8 @@ class CkcSpringBootMetricsConfiguration {
             meterRegistry = meterRegistry,
             metricPrefix = schema.metricPrefix,
             staticTags = schema.staticTags.map { Tag.of(it.name, it.value) },
-            recordDrivenTags = schema.recordDrivenTags.map { RecordMetricTagDefinition(it.name, it.default) }
+            recordDrivenTags = schema.recordDrivenTags.map { RecordMetricTagDefinition(it.name, it.default) },
+            kafkaClientMetricsEnabled = ckcProperties.metrics.micrometer.kafkaClientMetricsEnabled
         )
     }
 
