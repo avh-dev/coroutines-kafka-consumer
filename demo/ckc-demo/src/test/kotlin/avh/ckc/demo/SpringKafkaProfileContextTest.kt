@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.core.MicrometerConsumerListener
 import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.test.context.ActiveProfiles
@@ -74,11 +75,11 @@ class SpringKafkaProfileContextTest(
         }
         val configuration = SpringKafkaProfileConfiguration()
 
-        val orderConsumerFactory = configuration.orderOrderConsumerFactory(properties)
+        val orderConsumerFactory = configuration.orderOrderConsumerFactory(properties, meterRegistry)
         val orderContainerFactory = configuration.orderLifecycleListenerContainerFactory(orderConsumerFactory, properties)
-        val batchConsumerFactory = configuration.batchOrderConsumerFactory(properties)
+        val batchConsumerFactory = configuration.batchOrderConsumerFactory(properties, meterRegistry)
         val batchContainerFactory = configuration.batchLifecycleListenerContainerFactory(batchConsumerFactory, properties)
-        val telemetryConsumerFactory = configuration.cauldronTelemetryConsumerFactory(properties)
+        val telemetryConsumerFactory = configuration.cauldronTelemetryConsumerFactory(properties, meterRegistry)
         val telemetryContainerFactory = configuration.cauldronTelemetryListenerContainerFactory(telemetryConsumerFactory, properties)
 
         assertEquals(ContainerProperties.AckMode.TIME, orderContainerFactory.containerProperties.ackMode)
@@ -96,6 +97,9 @@ class SpringKafkaProfileContextTest(
         assertEquals(8_192, batchConsumerFactory.config()[ConsumerConfig.FETCH_MIN_BYTES_CONFIG])
         assertEquals(8_192, telemetryConsumerFactory.config()[ConsumerConfig.FETCH_MIN_BYTES_CONFIG])
         assertEquals(1_234, telemetryConsumerFactory.config()[ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG])
+        assertKafkaClientMetrics(orderConsumerFactory, "order_events")
+        assertKafkaClientMetrics(batchConsumerFactory, "batch_events")
+        assertKafkaClientMetrics(telemetryConsumerFactory, "cauldron_events")
         assertProcessingRecovery(orderContainerFactory)
         assertProcessingRecovery(batchContainerFactory)
         assertProcessingRecovery(telemetryContainerFactory)
@@ -108,5 +112,14 @@ class SpringKafkaProfileContextTest(
         val errorHandler = ReflectionTestUtils.getField(factory, "commonErrorHandler")
 
         assertIs<DefaultErrorHandler>(errorHandler)
+    }
+
+    private fun assertKafkaClientMetrics(factory: ConsumerFactory<*, *>, consumerId: String) {
+        val listener = (factory as DefaultKafkaConsumerFactory<*, *>).listeners.single()
+        assertIs<MicrometerConsumerListener<*, *>>(listener)
+        assertEquals(
+            listOf(io.micrometer.core.instrument.Tag.of("consumer_id", consumerId)),
+            ReflectionTestUtils.getField(listener, "tags")
+        )
     }
 }

@@ -11,8 +11,26 @@ from pathlib import Path
 from typing import Any
 
 
+PARALLEL_CONSUMER_PROFILES = {"confluent-reactor", "confluent-parallel", "confluent-parallel-reactor"}
+
+
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def has_target_profile(metadata_values: list[dict[str, Any]], expected_profiles: set[str]) -> bool:
+    for metadata in metadata_values:
+        application = metadata.get("application")
+        if not isinstance(application, dict):
+            continue
+        profiles = {application.get("run_profile"), application.get("profile")}
+        if profiles & expected_profiles:
+            return True
+    return False
+
+
+def has_parallel_consumer_target(metadata_values: list[dict[str, Any]]) -> bool:
+    return has_target_profile(metadata_values, PARALLEL_CONSUMER_PROFILES)
 
 
 def log_labels(source: Path, logs_dir: Path, run_id: str) -> dict[str, str]:
@@ -143,6 +161,9 @@ def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
         },
         "internal-lab": {"excluded_row_titles": set(), "substitutions": {}},
     }[environment]
+    excluded_rows = set(environment_options["excluded_row_titles"])
+    if not has_parallel_consumer_target(metadata_values):
+        excluded_rows.add("Confluent Parallel Consumer")
     result = patch_dashboard(
         source,
         target,
@@ -150,7 +171,7 @@ def prepare(result_dir: Path, repo_root: Path, environment: str) -> None:
         markdown=markdown,
         start=start,
         end=end,
-        excluded_row_titles=environment_options["excluded_row_titles"],
+        excluded_row_titles=excluded_rows,
         excluded_panel_titles=excluded_panels,
         substitutions=environment_options["substitutions"],
     )

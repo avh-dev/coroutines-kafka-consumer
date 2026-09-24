@@ -7,10 +7,56 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard import metric_names_from_dashboard, patch_dashboard, result_log_window
+from prepare import has_parallel_consumer_target
 from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
+    def test_detects_parallel_consumer_targets_from_run_metadata(self) -> None:
+        self.assertTrue(has_parallel_consumer_target([
+            {"application": {"run_profile": "spring-kafka"}},
+            {"application": {"run_profile": "confluent-reactor", "profile": "confluent-parallel-reactor"}},
+        ]))
+
+    def test_rejects_non_parallel_consumer_targets(self) -> None:
+        self.assertFalse(has_parallel_consumer_target([
+            {"application": {"run_profile": "spring-kafka"}},
+            {"application": {"run_profile": "ckc"}},
+        ]))
+
+    def test_dashboard_contains_native_parallel_consumer_metrics(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        rows = [panel for panel in dashboard["panels"] if panel.get("title") == "Confluent Parallel Consumer"]
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual(12, len(rows[0]["panels"]))
+        expressions = [
+            target["expr"]
+            for panel in rows[0]["panels"]
+            for target in panel.get("targets", [])
+        ]
+        self.assertTrue(all('pod=~"$pod"' in expression for expression in expressions))
+        self.assertTrue(any("pc_inflight_records" in expression for expression in expressions))
+        self.assertTrue(any("pc_offsets_encoding_usage_total" in expression for expression in expressions))
+
+    def test_dashboard_contains_native_kafka_consumer_client_metrics(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        rows = [panel for panel in dashboard["panels"] if panel.get("title") == "Kafka Consumer Client Runtime"]
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual(12, len(rows[0]["panels"]))
+        expressions = [
+            target["expr"]
+            for panel in rows[0]["panels"]
+            for target in panel.get("targets", [])
+        ]
+        self.assertTrue(all('pod=~"$pod"' in expression for expression in expressions))
+        self.assertTrue(any("kafka_consumer_last_poll_seconds_ago" in expression for expression in expressions))
+        self.assertTrue(any("kafka_consumer_coordinator_commit_latency_max" in expression for expression in expressions))
+        self.assertTrue(any("kafka_consumer_fetch_manager_records_lag_max" in expression for expression in expressions))
+
     def test_application_context_switch_panel_uses_thread_stats_and_pod_filter(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))

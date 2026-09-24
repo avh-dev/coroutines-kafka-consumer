@@ -369,6 +369,7 @@
 | [INFRA-205](#infra-205) | Add separate baseline and degraded evidence windows to the 2k/s tail-latency comparison. | DONE |
 | [INFRA-206](#infra-206) | Add a Prometheus-sized post-degradation measurement window to the internal-lab smoke experiment. | DONE |
 | [INFRA-207](#infra-207) | Draw explicit start-to-end range brackets for every duration event on workload timelines. | DONE |
+| [INFRA-208](#infra-208) | Restore native CPC metrics and expose shared Kafka consumer client observability. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4240,3 +4241,15 @@ Expose the Kafka consumer lifecycle needed by metrics adapters without coupling 
 Allow `ckc-micrometer` schemas to bind native `kafka.consumer.*` meters with logical consumer and poll-loop tags.
 Keep native Kafka client metrics disabled by default so existing applications retain their current metric volume.
 Verification: all `ckc-core`, `ckc-micrometer`, and `ckc-spring-boot-starter` tests pass; whitespace validation passes.
+
+<a id="infra-208"></a>
+### INFRA-208 - Restore native consumer observability
+
+_Date: 2026-09-23_
+
+Restore native Confluent Parallel Consumer metrics and their dedicated Grafana section.
+Keep the full section in live dashboards while omitting it from evidence bundles whose run metadata contains no CPC targets.
+Correct the restored encoding and offset-payload views to match the metrics emitted by the current Parallel Consumer version.
+Bind native Apache Kafka consumer metrics for CKC, Spring Kafka, and Parallel Consumer with a common logical consumer tag.
+Add a shared Kafka client runtime dashboard covering poll health, fetches, commits, group coordination, and client-side lag.
+Verification: `ckc-core`, `ckc-micrometer`, and `ckc-demo` tests pass; shared result-bundle and internal-lab tests pass; whitespace validation passes.

@@ -183,6 +183,7 @@ demo:
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
+    kafka-client-metrics-enabled: ${KAFKA_CLIENT_METRICS_ENABLED:true}
     processing-dispatcher-type: ${PROCESSING_DISPATCHER_TYPE:AUTO}
     worker-dispatcher-threads: ${WORKER_DISPATCHER_THREADS:8}
     virtual-thread-name-prefix: ${PROCESSING_DISPATCHER_VIRTUAL_THREAD_NAME_PREFIX:demo-processing-virtual-}
@@ -232,6 +233,7 @@ management:
   metrics:
     distribution:
       percentiles-histogram:
+        pc.user.function.processing.time: true
         ckc.demo.model.call.duration: true
         ckc.demo.cauldron.telemetry.event.gap: true
         lettuce.command.completion: true

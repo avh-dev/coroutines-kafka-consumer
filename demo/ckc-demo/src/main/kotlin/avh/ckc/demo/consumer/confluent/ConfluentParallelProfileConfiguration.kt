@@ -2,6 +2,9 @@ package avh.ckc.demo.consumer.confluent
 
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
+import avh.ckc.demo.consumer.bindKafkaClientMetrics
+import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
+import avh.ckc.demo.consumer.micrometerMetricsEnabled
 import avh.ckc.demo.consumer.toConfluentProcessingOrder
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -13,6 +16,7 @@ import io.confluent.parallelconsumer.ParallelConsumerOptions
 import io.confluent.parallelconsumer.ParallelStreamProcessor
 import io.confluent.parallelconsumer.RecordContext
 import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -62,7 +66,7 @@ private class ConfluentParallelConsumerRuntime(
         running = false
         try {
             processors.forEach { it.processor.close() }
-            processors.forEach { it.kafkaClientMetrics.close() }
+            processors.forEach { it.kafkaClientMetrics?.close() }
             processors.forEach { it.thread.join(STOP_JOIN_TIMEOUT_MILLIS) }
         } finally {
             logger.info("Confluent Parallel Consumer runtime stopped")
@@ -83,6 +87,7 @@ private class ConfluentParallelConsumerRuntime(
     private fun orderProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "order-lifecycle",
+            consumerId = "order_events",
             topic = properties.topics.orderEvents,
             consumerProperties = commonConsumerProperties(properties.consumers.order) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
@@ -95,6 +100,7 @@ private class ConfluentParallelConsumerRuntime(
     private fun batchProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "batch-lifecycle",
+            consumerId = "batch_events",
             topic = properties.topics.batchEvents,
             consumerProperties = commonConsumerProperties(properties.consumers.batch) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
@@ -107,6 +113,7 @@ private class ConfluentParallelConsumerRuntime(
     private fun telemetryProcessors(): List<ManagedProcessor> =
         newManagedProcessors(
             name = "cauldron-telemetry",
+            consumerId = "cauldron_events",
             topic = properties.topics.cauldronEvents,
             consumerProperties = commonConsumerProperties(properties.consumers.telemetry) + mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
@@ -118,6 +125,7 @@ private class ConfluentParallelConsumerRuntime(
 
     private fun <V> newManagedProcessors(
         name: String,
+        consumerId: String,
         topic: String,
         consumerProperties: Map<String, Any>,
         runtime: DemoApplicationProperties.ConsumerRuntime,
@@ -131,13 +139,19 @@ private class ConfluentParallelConsumerRuntime(
             val consumer = KafkaConsumer<String, V>(
                 consumerProperties + mapOf(ConsumerConfig.CLIENT_ID_CONFIG to processorName)
             )
-            val kafkaClientMetrics = KafkaClientMetrics(consumer).apply {
-                bindTo(meterRegistry)
-            }
+            val kafkaClientMetrics = bindKafkaClientMetrics(
+                consumer = consumer,
+                meterRegistry = meterRegistry,
+                consumerId = consumerId,
+                pollLoopId = index,
+                enabled = properties.kafkaClientMetricsEnabled
+            )
             val processor = newProcessor<V>(
                 consumer = consumer,
                 runtime = runtime,
-                processorName = processorName
+                processorName = processorName,
+                consumerId = consumerId,
+                topic = topic
             )
             processor.subscribe(listOf(topic))
             ManagedProcessor(
@@ -155,7 +169,9 @@ private class ConfluentParallelConsumerRuntime(
     private fun <V> newProcessor(
         consumer: KafkaConsumer<String, V>,
         runtime: DemoApplicationProperties.ConsumerRuntime,
-        processorName: String
+        processorName: String,
+        consumerId: String,
+        topic: String
     ): ParallelStreamProcessor<String, V> {
         require(runtime.workerConcurrency > 0) {
             "demo.consumers.*.worker-concurrency must be > 0 for confluent-parallel"
@@ -165,6 +181,15 @@ private class ConfluentParallelConsumerRuntime(
             .commitMode(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC)
             .maxConcurrency(runtime.workerConcurrency)
             .consumer(consumer)
+            .meterRegistry(meterRegistry.takeIf { properties.micrometerMetricsEnabled })
+            .metricsTags(
+                Tags.of(
+                    "consumer_id", consumerId,
+                    "spring_profile", "confluent-parallel",
+                    "topic", topic
+                )
+            )
+            .pcInstanceTag(processorName)
             .build()
         return ParallelStreamProcessor.createEosStreamProcessor(options)
     }
@@ -190,6 +215,6 @@ private class ConfluentParallelConsumerRuntime(
 
 private data class ManagedProcessor(
     val processor: ParallelStreamProcessor<*, *>,
-    val kafkaClientMetrics: KafkaClientMetrics,
+    val kafkaClientMetrics: KafkaClientMetrics?,
     val thread: Thread
 )

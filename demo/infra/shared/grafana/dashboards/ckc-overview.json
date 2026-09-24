@@ -1883,6 +1883,1180 @@
         "h": 1,
         "w": 24,
         "x": 0,
+        "y": 16
+      },
+      "id": 45,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 17
+          },
+          "id": 46,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_inflight_records{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Inflight Records",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 17
+          },
+          "id": 47,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_waiting_records{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Waiting Records",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit",
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 25
+          },
+          "id": 48,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, ${pod_grouping}) (pc_dynamic_load_factor{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}}"
+            }
+          ],
+          "title": "PC Dynamic Load Factor",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 25
+          },
+          "id": 49,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, pcinstance, ${pod_grouping}) (pc_status{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{pcinstance}}"
+            }
+          ],
+          "title": "PC Status",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 33
+          },
+          "id": 52,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_incomplete_offsets_total{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} total"
+            },
+            {
+              "expr": "sum by (consumer_id, topic, ${pod_grouping}) (pc_partition_incomplete_offsets{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} partitions"
+            }
+          ],
+          "title": "PC Incomplete Offsets",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 33
+          },
+          "id": 53,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_seen_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} seen"
+            },
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_highest_completed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} completed"
+            },
+            {
+              "expr": "max by (consumer_id, topic, ${pod_grouping}) (pc_partition_latest_committed_offset{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "C",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{topic}} committed"
+            }
+          ],
+          "title": "PC Partition Offset Progress",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 41
+          },
+          "id": 54,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_shards{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} shards"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_shards_size{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} shard size"
+            }
+          ],
+          "title": "PC Shards",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 41
+          },
+          "id": 59,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_partitions_number{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} partitions"
+            },
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (pc_partitions_paused{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{pod}} paused"
+            }
+          ],
+          "title": "PC Partitions",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 49
+          },
+          "id": 55,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "1000 * sum by (consumer_id, ${pod_grouping}) (rate(pc_offsets_encoding_time_seconds_sum{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(pc_offsets_encoding_time_seconds_count{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} avg"
+            }
+          ],
+          "title": "PC Offset Encoding Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 49
+          },
+          "id": 56,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, encoding, ${pod_grouping}) (rate(pc_offsets_encoding_usage_total{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} / {{encoding}}"
+            }
+          ],
+          "title": "PC Offset Encoding Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 57
+          },
+          "id": 57,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(pc_metadata_space_used_sum{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(pc_metadata_space_used_count{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} avg"
+            }
+          ],
+          "title": "PC Offset Metadata Space Used",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 57
+          },
+          "id": 58,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, ${pod_grouping}) (rate(pc_payload_ratio_used_sum{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])) / clamp_min(sum by (consumer_id, ${pod_grouping}) (rate(pc_payload_ratio_used_count{pod=~\"$pod\", spring_profile=~\"confluent-parallel|confluent-parallel-reactor\"}[$__rate_interval])), 1e-9)",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{pod}} avg"
+            }
+          ],
+          "title": "PC Offset Payload Bytes per Offset",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Confluent Parallel Consumer",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 121,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Seconds since each Apache Kafka consumer last invoked poll(). A growing value indicates a stalled or stopped poll loop.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 18
+          },
+          "id": 122,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_last_poll_seconds_ago{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Last Poll Age",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Kafka client average and maximum delay between poll() invocations.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 18
+          },
+          "id": 123,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_time_between_poll_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} avg"
+            },
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_time_between_poll_max{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} max"
+            }
+          ],
+          "title": "Kafka Consumer Time Between Polls",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Fraction of the consumer loop spent inside poll() rather than between polls.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 26
+          },
+          "id": 124,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_poll_idle_ratio_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Poll Idle Ratio",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Records fetched from Kafka per second. This is client ingestion, not completed business processing.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 26
+          },
+          "id": 125,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_fetch_manager_records_consumed_rate{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Fetched Record Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Average number of records returned by each Kafka fetch request.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 34
+          },
+          "id": 126,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_fetch_manager_records_per_request_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Records per Fetch",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Apache Kafka consumer fetch-request latency.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 34
+          },
+          "id": 127,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_fetch_manager_fetch_latency_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} avg"
+            },
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_fetch_manager_fetch_latency_max{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} max"
+            }
+          ],
+          "title": "Kafka Consumer Fetch Latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Offset commit requests per second as observed by the Apache Kafka consumer.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 42
+          },
+          "id": 128,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_commit_rate{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Commit Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Apache Kafka consumer offset-commit latency.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 42
+          },
+          "id": 129,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "avg by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_commit_latency_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} avg"
+            },
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_commit_latency_max{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} max"
+            }
+          ],
+          "title": "Kafka Consumer Commit Latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Partitions currently assigned to each Apache Kafka consumer client.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 50
+          },
+          "id": 130,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_assigned_partitions{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Assigned Partitions",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Successful and failed consumer-group rebalance rates per hour.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 50
+          },
+          "id": 131,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_rebalance_rate_per_hour{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} successful / hour"
+            },
+            {
+              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_failed_rebalance_rate_per_hour{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} failed / hour"
+            }
+          ],
+          "title": "Kafka Consumer Rebalances",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Seconds since the last successful consumer-group heartbeat.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 58
+          },
+          "id": 132,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_last_heartbeat_seconds_ago{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Last Heartbeat Age",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Maximum client-observed gap between the current fetch position and broker log end. This differs from committed consumer-group lag.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 58
+          },
+          "id": 133,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_fetch_manager_records_lag_max{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "A",
+              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+            }
+          ],
+          "title": "Kafka Consumer Client-side Lag",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Kafka Consumer Client Runtime",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
         "y": 12
       },
       "id": 30,
@@ -2042,7 +3216,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 18
       },
       "panels": [
         {
@@ -2355,7 +3529,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 20
       },
       "id": 35,
       "panels": [
@@ -2464,7 +3638,7 @@
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "ops"
+              "unit": "short"
             },
             "overrides": []
           },
@@ -2563,7 +3737,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 19
       },
       "id": 94,
       "panels": [
@@ -3142,118 +4316,246 @@
           "type": "timeseries"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
-              "color": {"mode": "palette-classic"},
-              "custom": {
-                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
-                "fillOpacity": 45, "showPoints": "never",
-                "stacking": {"mode": "normal", "group": "A"}
+              "color": {
+                "mode": "palette-classic"
               },
-              "unit": "mcores", "decimals": 0
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "unit": "mcores",
+              "decimals": 0
             },
             "overrides": []
           },
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 34
+          },
           "id": 117,
           "options": {
-            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
-            "tooltip": {"mode": "multi", "sort": "none"}
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
           },
-          "targets": [{
-            "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "editorMode": "code",
-            "expr": "(label_join((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
-          }],
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((1000 * sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{category}} {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
           "title": "User CPU Time Rate by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
-              "color": {"mode": "palette-classic"},
-              "custom": {
-                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
-                "fillOpacity": 45, "showPoints": "never",
-                "stacking": {"mode": "normal", "group": "A"}
+              "color": {
+                "mode": "palette-classic"
               },
-              "unit": "mcores", "decimals": 0
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "unit": "mcores",
+              "decimals": 0
             },
             "overrides": []
           },
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 34
+          },
           "id": 118,
           "options": {
-            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
-            "tooltip": {"mode": "multi", "sort": "none"}
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
           },
-          "targets": [{
-            "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "editorMode": "code",
-            "expr": "(label_join((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
-          }],
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((clamp_min(1000 * (sum by (category, ${pod_grouping}) (rate(thread_stats_cpu_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval])) - sum by (category, ${pod_grouping}) (rate(thread_stats_user_seconds_total{job=\"ckc-demo\", pod=~\"$pod\"}[$__rate_interval]))), 0)) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{category}} {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
           "title": "System CPU Time Rate by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
-              "color": {"mode": "palette-classic"},
-              "custom": {
-                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
-                "fillOpacity": 45, "showPoints": "never",
-                "stacking": {"mode": "normal", "group": "A"}
+              "color": {
+                "mode": "palette-classic"
               },
-              "unit": "ops", "decimals": 0
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "unit": "ops",
+              "decimals": 0
             },
             "overrides": []
           },
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 42},
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 42
+          },
           "id": 119,
           "options": {
-            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
-            "tooltip": {"mode": "multi", "sort": "none"}
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
           },
-          "targets": [{
-            "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "editorMode": "code",
-            "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
-          }],
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"voluntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{category}} {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
           "title": "Voluntary Context Switches by Category (Smooth Stacked)",
           "type": "timeseries"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
-              "color": {"mode": "palette-classic"},
-              "custom": {
-                "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 1,
-                "fillOpacity": 45, "showPoints": "never",
-                "stacking": {"mode": "normal", "group": "A"}
+              "color": {
+                "mode": "palette-classic"
               },
-              "unit": "ops", "decimals": 0
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 45,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "unit": "ops",
+              "decimals": 0
             },
             "overrides": []
           },
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 42},
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 42
+          },
           "id": 120,
           "options": {
-            "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
-            "tooltip": {"mode": "multi", "sort": "none"}
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
           },
-          "targets": [{
-            "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "editorMode": "code",
-            "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
-            "legendFormat": "{{category}} {{pod_legend}}", "range": true, "refId": "A"
-          }],
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 1), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (category, ${pod_grouping}) (rate(thread_stats_context_switches_total{job=\"ckc-demo\", pod=~\"$pod\", type=\"involuntary\"}[$__rate_interval]))) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 1), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{category}} {{pod_legend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
           "title": "Non-voluntary Context Switches by Category (Smooth Stacked)",
           "type": "timeseries"
         },
@@ -3457,7 +4759,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 21
       },
       "panels": [
         {
@@ -3670,7 +4972,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 22
       },
       "id": 95,
       "panels": [
@@ -4270,7 +5572,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 23
       },
       "panels": [
         {
@@ -4736,7 +6038,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 24
       },
       "id": 106,
       "panels": [
