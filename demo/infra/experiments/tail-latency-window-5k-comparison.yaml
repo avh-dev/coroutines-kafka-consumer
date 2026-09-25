@@ -1,7 +1,7 @@
 schema_version: 2
-name: tail-latency-window-2k-comparison
+name: tail-latency-window-5k-comparison
 description: Compare a production-style Spring Kafka and JDK HTTP client baseline
-  with CKC and Confluent Parallel Consumer at 2k messages per second. Contrast a
+  with CKC and Confluent Parallel Consumer at 5k messages per second. Contrast a
   normal-latency baseline window with a five-minute window where the slowest 0.5%
   of downstream calls take one minute, creating sustained out-of-order completion
   and partition head-of-line blocking without injecting failures.
@@ -29,11 +29,11 @@ workload:
   load:
     shards: 1
     workers: 100
-    base_tps: 2000
+    base_tps: 5000
     producer_capacity_tps:
-      order: 2000
-      batch: 2000
-      telemetry: 2000
+      order: 5000
+      batch: 5000
+      telemetry: 5000
     load_profile: 0 -> (60s, warmup) -> 100 -> (660s, maximum) -> 100 -> (60s, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
