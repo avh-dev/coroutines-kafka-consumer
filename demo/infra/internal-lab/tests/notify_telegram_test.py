@@ -42,6 +42,10 @@ class NotifyTelegramTest(unittest.TestCase):
             "❌ Audit analysis failed",
             NOTIFY.message_for("audit_analysis_finished", {"analysis": [{"exit_code": 1}]}),
         )
+        self.assertEqual(
+            "⏹️ Experiment stopped",
+            NOTIFY.message_for("experiment_failed", {"exit_code": 130}),
+        )
 
     def test_report_ready_is_enabled_and_contains_report_path(self) -> None:
         self.assertIn("report_ready", NOTIFY.DEFAULT_EVENTS)

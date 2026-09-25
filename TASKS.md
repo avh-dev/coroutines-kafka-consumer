@@ -372,6 +372,7 @@
 | [INFRA-208](#infra-208) | Restore native CPC metrics and expose shared Kafka consumer client observability. | DONE |
 | [INFRA-209](#infra-209) | Refine runtime observability and make the shared Grafana dashboard easier to interpret across environments. | DONE |
 | [INFRA-210](#infra-210) | Introduce configurable bootstrap and a non-root runtime for the internal lab. | DONE |
+| [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4278,3 +4279,15 @@ Run subsequent synchronization and deployment work through that unprivileged acc
 Keep the configuration model extensible to the planned split application topology without implementing the second node in this task.
 The `lab.sh init/bootstrap/up` workflow now owns setup, the shared experiment runner resolves the installed runtime from the local YAML, and the only passwordless sudo command imports a fixed image archive into k3s.
 Verification: 82 internal-lab tests and three shared-runner tests passed with Python compilation, Bash syntax, and whitespace validation. A clean real bootstrap and two non-root updates completed on optilab; k3s and every persistent service are healthy, arbitrary passwordless sudo is denied, and CPU policy remains dynamic with turbo disabled by firmware.
+
+<a id="infra-211"></a>
+### INFRA-211 - Add a managed asynchronous experiment lifecycle
+
+_Date: 2026-09-25_
+
+Start experiments from the repository as detached user services and expose one command surface for start, status, logs, and stop.
+Prevent runtime synchronization while a managed experiment is active and retain enough state to identify the experiment and environment.
+Acquire a fixed 2 GHz CPU policy only for the experiment lifetime and restore the exact previous policy after success, failure, or stop.
+Install Telegram configuration without committing secrets and keep all ordinary lifecycle operations under the dedicated runtime user.
+The repository command now supports detached start, status, logs, and graceful stop; synchronization refuses to run while the managed service is active.
+Verification: 88 internal-lab tests and three shared-runner tests passed with Python compilation, Bash syntax, systemd unit validation, and whitespace checks. The installed service failure path restored the exact prior CPU policy, scoped sudo denied arbitrary commands, Telegram secrets remained mode `0600`, and persistent lab pods remained healthy; no workload experiment was started.

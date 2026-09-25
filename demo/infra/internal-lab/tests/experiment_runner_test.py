@@ -24,6 +24,14 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_managed_stop_signal_requests_graceful_target_cleanup(self) -> None:
+        RUNNER.STOP_REQUESTED.clear()
+        try:
+            RUNNER.request_managed_stop(2, None)
+            self.assertTrue(RUNNER.STOP_REQUESTED.is_set())
+        finally:
+            RUNNER.STOP_REQUESTED.clear()
+
     def test_report_only_run_notifies_after_generation_and_skips_archive_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import re
 import shlex
 import socket
 import subprocess
 import sys
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -28,6 +30,7 @@ UPDATE_SCRIPT = SCRIPT_DIR / "update-lab.sh"
 USER_PATTERN = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$")
 ADDRESS_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
 PATH_PATTERN = re.compile(r"^/[A-Za-z0-9._/-]+$")
+ENV_OVERRIDE_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*=.*$")
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,8 @@ class LabConfig:
     runtime_user: str
     lab_root: Path
     public_key: Path
+    telegram_env: Path
+    performance_cpu_khz: int
     nodes: tuple[Node, ...]
 
     @property
@@ -83,7 +88,7 @@ def load_config(path: Path) -> LabConfig:
         raise ValueError("lab configuration version must be 1")
     topology = _non_empty(root.get("topology"), "topology")
     if topology != "single-host":
-        raise ValueError(f"INFRA-210 supports topology=single-host; got {topology!r}")
+        raise ValueError(f"the current lab runtime supports topology=single-host; got {topology!r}")
     runtime = _mapping(root.get("runtime"), "runtime")
     runtime_user = _non_empty(runtime.get("user"), "runtime.user")
     if not USER_PATTERN.fullmatch(runtime_user):
@@ -93,6 +98,10 @@ def load_config(path: Path) -> LabConfig:
         raise ValueError("runtime.root must be a non-root absolute path")
     operator = _mapping(root.get("operator"), "operator")
     public_key = Path(_non_empty(operator.get("public_key"), "operator.public_key")).expanduser()
+    telegram_env = Path(str(operator.get("telegram_env") or "~/.config/ckc-lab/telegram.env")).expanduser()
+    performance_cpu_khz = int(runtime.get("performance_cpu_khz", 2_000_000))
+    if performance_cpu_khz < 0:
+        raise ValueError("runtime.performance_cpu_khz must be zero or a positive integer")
     nodes_value = _mapping(root.get("nodes"), "nodes")
     nodes: list[Node] = []
     for name, raw_node in nodes_value.items():
@@ -115,7 +124,7 @@ def load_config(path: Path) -> LabConfig:
     missing = required_roles - set(controllers[0].roles)
     if missing:
         raise ValueError(f"single-host controller is missing roles: {sorted(missing)}")
-    return LabConfig(path, topology, runtime_user, lab_root, public_key, tuple(nodes))
+    return LabConfig(path, topology, runtime_user, lab_root, public_key, telegram_env, performance_cpu_khz, tuple(nodes))
 
 
 def default_public_key() -> Path:
@@ -154,6 +163,8 @@ def init_command(args: argparse.Namespace) -> int:
     runtime_user = args.runtime_user
     lab_root = args.lab_root
     public_key = args.public_key
+    telegram_env = args.telegram_env
+    performance_cpu_khz = args.performance_cpu_khz
     if interactive:
         print("Internal lab setup\n")
         print("INFRA-210 configures the single-host topology. Split SUT support follows in a separate task.")
@@ -164,13 +175,22 @@ def init_command(args: argparse.Namespace) -> int:
         runtime_user = prompt("Lab runtime user", runtime_user)
         lab_root = prompt("Installed lab root", lab_root)
         public_key = prompt("Operator SSH public key", public_key)
+        telegram_env = prompt("Optional Telegram environment file", telegram_env)
+        performance_cpu_khz = int(prompt("Experiment CPU frequency in kHz (0 disables tuning)", str(performance_cpu_khz)))
     if not lab_address:
         lab_address = default_lab_address(host)
     document = {
         "version": 1,
         "topology": "single-host",
-        "operator": {"public_key": str(Path(public_key).expanduser())},
-        "runtime": {"user": runtime_user, "root": lab_root},
+        "operator": {
+            "public_key": str(Path(public_key).expanduser()),
+            "telegram_env": str(Path(telegram_env).expanduser()),
+        },
+        "runtime": {
+            "user": runtime_user,
+            "root": lab_root,
+            "performance_cpu_khz": performance_cpu_khz,
+        },
         "nodes": {
             "infra": {
                 "host": host,
@@ -196,12 +216,23 @@ def print_plan(config: LabConfig) -> None:
     print(f"  roles:        {', '.join(node.roles)}")
     print(f"  runtime user: {config.runtime_user}")
     print(f"  lab root:     {config.lab_root}")
+    frequency = "disabled" if config.performance_cpu_khz == 0 else f"{config.performance_cpu_khz} kHz"
+    print(f"  experiment CPU: {frequency}")
 
 
 def run(command: Sequence[str], *, dry_run: bool = False) -> None:
     print("+ " + shlex.join(str(value) for value in command))
     if not dry_run:
         subprocess.run([str(value) for value in command], check=True)
+
+
+def capture(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(value) for value in command],
+        check=check,
+        text=True,
+        capture_output=True,
+    )
 
 
 def bootstrap_arguments(config: LabConfig, public_key: Path) -> list[str]:
@@ -211,6 +242,7 @@ def bootstrap_arguments(config: LabConfig, public_key: Path) -> list[str]:
         "--lab-root", str(config.lab_root),
         "--node-ip", node.lab_address,
         "--authorized-key-file", str(public_key),
+        "--performance-cpu-khz", str(config.performance_cpu_khz),
     ]
 
 
@@ -258,6 +290,27 @@ def write_compatibility_environment(config: LabConfig) -> Path:
     return path
 
 
+def runtime_target(config: LabConfig) -> str:
+    node = config.infra
+    return f"{config.runtime_user}@{node.ssh_host}"
+
+
+def install_telegram_environment(config: LabConfig, *, dry_run: bool) -> None:
+    source = config.telegram_env.resolve()
+    if not source.is_file():
+        print(f"Telegram notifications are not configured; file not found: {source}")
+        return
+    target = runtime_target(config)
+    destination = config.lab_root / "config/telegram.env"
+    command = [
+        "ssh", target,
+        f"umask 077; cat > '{destination}.tmp' && mv '{destination}.tmp' '{destination}'",
+    ]
+    print("+ " + shlex.join(command) + " < [telegram environment redacted]")
+    if not dry_run:
+        subprocess.run(command, input=source.read_text(encoding="utf-8"), text=True, check=True)
+
+
 def up_command(args: argparse.Namespace) -> int:
     config = load_config(args.config.resolve())
     environment_path = write_compatibility_environment(config)
@@ -271,7 +324,132 @@ def up_command(args: argparse.Namespace) -> int:
     print("+ " + shlex.join(command))
     if not args.dry_run:
         subprocess.run(command, check=True, env=environment)
+    install_telegram_environment(config, dry_run=args.dry_run)
     return 0
+
+
+def resolve_repository_experiment(value: Path) -> Path:
+    catalog = (REPO_ROOT / "demo/infra/experiments").resolve()
+    candidate = value.resolve()
+    if not candidate.is_file():
+        candidate = (catalog / value).resolve()
+    if candidate.suffix != ".yaml" or not candidate.is_file() or candidate.parent != catalog:
+        raise ValueError(f"experiment must be a YAML file from {catalog}: {value}")
+    return candidate
+
+
+def managed_unit_properties(config: LabConfig) -> tuple[dict[str, str], dict[str, Any]]:
+    target = runtime_target(config)
+    result = capture([
+        "ssh", "-o", "BatchMode=yes", target,
+        "systemctl --user show ckc-experiment.service "
+        "--property=ActiveState --property=SubState --property=Result "
+        "--property=ExecMainStatus --property=ExecMainStartTimestamp --property=ExecMainExitTimestamp",
+    ])
+    properties = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            properties[key] = value
+    request_result = capture([
+        "ssh", "-o", "BatchMode=yes", target,
+        f"cat '{config.lab_root}/state/experiment/request.json' 2>/dev/null || true",
+    ], check=False)
+    try:
+        request = json.loads(request_result.stdout) if request_result.stdout.strip() else {}
+    except json.JSONDecodeError:
+        request = {"error": "managed request is not valid JSON"}
+    return properties, request if isinstance(request, dict) else {}
+
+
+def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int:
+    properties, request = managed_unit_properties(config)
+    document = {
+        "host": config.infra.host,
+        "runtime_user": config.runtime_user,
+        "experiment": request.get("experiment"),
+        "requested_at": request.get("requested_at"),
+        "env": request.get("env", []),
+        "active_state": properties.get("ActiveState", "unknown"),
+        "sub_state": properties.get("SubState", "unknown"),
+        "result": properties.get("Result", "unknown"),
+        "exit_code": properties.get("ExecMainStatus", ""),
+        "started_at": properties.get("ExecMainStartTimestamp", ""),
+        "ended_at": properties.get("ExecMainExitTimestamp", ""),
+    }
+    if json_output:
+        print(json.dumps(document, indent=2))
+        return 0
+    print(f"experiment:   {document['experiment'] or 'none'}")
+    print(f"environment:  internal-lab on {document['host']} as {document['runtime_user']}")
+    print(f"state:        {document['active_state']} ({document['sub_state']})")
+    print(f"result:       {document['result']}")
+    if document["exit_code"]:
+        print(f"exit code:    {document['exit_code']}")
+    if document["started_at"]:
+        print(f"started:      {document['started_at']}")
+    if document["ended_at"]:
+        print(f"ended:        {document['ended_at']}")
+    return 0
+
+
+def experiment_start_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config.resolve())
+    experiment = resolve_repository_experiment(args.experiment)
+    invalid_env = next((value for value in args.env if not ENV_OVERRIDE_PATTERN.fullmatch(value)), None)
+    if invalid_env is not None:
+        raise ValueError(f"experiment environment override must use UPPER_SNAKE_CASE=value: {invalid_env!r}")
+    if not args.no_update:
+        up_command(argparse.Namespace(config=args.config, dry_run=args.dry_run, force_rebuild=False))
+    target = runtime_target(config)
+    active = capture(["ssh", "-o", "BatchMode=yes", target, "systemctl --user is-active --quiet ckc-experiment.service"], check=False)
+    if active.returncode == 0:
+        raise ValueError("a managed experiment is already active; inspect it with 'lab.sh experiment status'")
+    request = {
+        "version": 1,
+        "experiment": experiment.name,
+        "environment": "internal-lab",
+        "host": config.infra.host,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "requested_by": getpass.getuser(),
+        "env": list(args.env),
+        "skip_archives": bool(args.skip_archives),
+    }
+    local_request = config.path.parent / "experiment-request.json"
+    local_request.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+    os.chmod(local_request, 0o600)
+    remote_request = config.lab_root / "state/experiment/request.json"
+    run(["scp", str(local_request), f"{target}:{remote_request}.tmp"], dry_run=args.dry_run)
+    run([
+        "ssh", target,
+        f"set -e; chmod 600 '{remote_request}.tmp'; mv '{remote_request}.tmp' '{remote_request}'; "
+        "systemctl --user reset-failed ckc-experiment.service >/dev/null 2>&1 || true; "
+        "systemctl --user start ckc-experiment.service",
+    ], dry_run=args.dry_run)
+    if args.dry_run:
+        return 0
+    return print_managed_status(config)
+
+
+def experiment_status_command(args: argparse.Namespace) -> int:
+    return print_managed_status(load_config(args.config.resolve()), json_output=args.json)
+
+
+def experiment_logs_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config.resolve())
+    target = runtime_target(config)
+    command = ["ssh", "-o", "BatchMode=yes", target, "tail"]
+    if args.follow:
+        command.append("-f")
+    command.extend(["-n", str(args.lines), str(config.lab_root / "logs/managed-experiment.log")])
+    run(command)
+    return 0
+
+
+def experiment_stop_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config.resolve())
+    run(["ssh", "-o", "BatchMode=yes", runtime_target(config), "systemctl", "--user", "stop", "ckc-experiment.service"])
+    return print_managed_status(config)
 
 
 def setup_command(args: argparse.Namespace) -> int:
@@ -280,6 +458,8 @@ def setup_command(args: argparse.Namespace) -> int:
             config=args.config, force=False, non_interactive=False, host="local",
             admin_user=getpass.getuser(), lab_address="", runtime_user="ckc-lab",
             lab_root="/opt/ckc-lab", public_key=str(default_public_key()),
+            telegram_env=str(Path.home() / ".config/ckc-lab/telegram.env"),
+            performance_cpu_khz=2_000_000,
         )
         init_command(init_args)
     bootstrap_command(argparse.Namespace(config=args.config, dry_run=args.dry_run))
@@ -299,6 +479,8 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--runtime-user", default="ckc-lab")
     initialize.add_argument("--lab-root", default="/opt/ckc-lab")
     initialize.add_argument("--public-key", default=str(default_public_key()))
+    initialize.add_argument("--telegram-env", default=str(Path.home() / ".config/ckc-lab/telegram.env"))
+    initialize.add_argument("--performance-cpu-khz", type=int, default=2_000_000)
     initialize.set_defaults(handler=init_command)
     bootstrap = commands.add_parser("bootstrap", help="Prepare the host through one privileged operation.")
     bootstrap.add_argument("--dry-run", action="store_true")
@@ -310,6 +492,24 @@ def parser() -> argparse.ArgumentParser:
     setup = commands.add_parser("setup", help="Run init when needed, then bootstrap and deploy.")
     setup.add_argument("--dry-run", action="store_true")
     setup.set_defaults(handler=setup_command)
+    experiment = commands.add_parser("experiment", help="Manage the detached internal-lab experiment service.")
+    experiment_commands = experiment.add_subparsers(dest="experiment_command", required=True)
+    start = experiment_commands.add_parser("start", help="Update the lab and start one detached experiment.")
+    start.add_argument("experiment", type=Path)
+    start.add_argument("--env", action="append", default=[])
+    start.add_argument("--skip-archives", action="store_true")
+    start.add_argument("--no-update", action="store_true")
+    start.add_argument("--dry-run", action="store_true")
+    start.set_defaults(handler=experiment_start_command)
+    status = experiment_commands.add_parser("status", help="Show the current or most recent experiment state.")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(handler=experiment_status_command)
+    logs = experiment_commands.add_parser("logs", help="Read the managed experiment service log.")
+    logs.add_argument("-n", "--lines", type=int, default=100)
+    logs.add_argument("-f", "--follow", action="store_true")
+    logs.set_defaults(handler=experiment_logs_command)
+    stop = experiment_commands.add_parser("stop", help="Gracefully stop the active experiment.")
+    stop.set_defaults(handler=experiment_stop_command)
     return root
 
 

@@ -172,11 +172,13 @@ sync_internal_lab_assets() {
   done
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
+  sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/systemd" "${LAB_ROOT}/systemd"
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/notify'"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
+  sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify.sh" "${LAB_ROOT}/notify/notify.sh"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
-  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/libexec/'*.py '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.sh '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }
 
 sync_runtime_test_assets() {
@@ -242,6 +244,10 @@ LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"
 LAB_NODE_IP="${LAB_NODE_IP:-$(resolve_host_ip "${LAB_HOST}")}"
 if [[ -z "${LAB_NODE_IP}" ]]; then
   echo "Unable to resolve lab host: ${LAB_HOST}" >&2
+  exit 1
+fi
+if ssh "${LAB_TARGET}" "systemctl --user is-active --quiet ckc-experiment.service"; then
+  echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
 fi
 sync_path() {
@@ -382,6 +388,8 @@ if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
   sync_internal_lab_assets
   record_remote_fingerprint "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"
 fi
+
+ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/install-user-service.sh'"
 
 if [[ "${RUNTIME_TEST_ASSETS_CHANGED}" -eq 1 ]]; then
   sync_runtime_test_assets

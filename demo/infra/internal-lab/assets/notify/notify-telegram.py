@@ -76,6 +76,8 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         return "🏁 Experiment completed"
     if event == "experiment_failed":
         exit_code = payload.get("exit_code")
+        if exit_code == 130:
+            return "⏹️ Experiment stopped"
         suffix = "" if exit_code is None else f" · exit {exit_code}"
         return f"❌ Experiment failed{suffix}"
     if event == "report_ready":

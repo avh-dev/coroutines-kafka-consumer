@@ -1,0 +1,22 @@
+[Unit]
+Description=CKC managed internal-lab experiment
+After=default.target
+
+[Service]
+Type=exec
+WorkingDirectory=@LAB_ROOT@
+Environment=LAB_ROOT=@LAB_ROOT@
+Environment=KUBECONFIG=%h/.kube/config
+ExecStartPre=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-acquire
+ExecStart=@LAB_ROOT@/libexec/managed-experiment.py
+ExecStopPost=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-release
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=5min
+SuccessExitStatus=130 SIGINT
+StandardInput=null
+StandardOutput=append:@LAB_ROOT@/logs/managed-experiment.log
+StandardError=append:@LAB_ROOT@/logs/managed-experiment.log
+
+[Install]
+WantedBy=default.target

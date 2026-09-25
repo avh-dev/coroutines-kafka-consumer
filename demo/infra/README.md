@@ -36,7 +36,7 @@ Choose one self-contained file from `demo/infra/experiments` and select an
 environment declared by that file:
 
 ```sh
-demo/infra/run-experiment.sh demo/infra/experiments/smoke.yaml --environment internal-lab
+demo/infra/internal-lab/scripts/lab.sh experiment start demo/infra/experiments/smoke.yaml
 demo/infra/run-experiment.sh demo/infra/experiments/aws-smoke.yaml --environment aws
 ```
 

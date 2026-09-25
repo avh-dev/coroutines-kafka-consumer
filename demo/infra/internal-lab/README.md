@@ -43,27 +43,52 @@ installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
 service logs under `logs`, and run results under `results`.
 
 The runtime user belongs to the Docker group and owns the lab files. Its only
-passwordless sudo permission is the exact no-argument image-import helper
-`/usr/local/libexec/ckc-lab/import-k3s-images`; arbitrary `docker`, `k3s`, shell,
-and wildcard sudo rules are deliberately not granted. CPU frequency is not
-changed by bootstrap. Experiment-scoped performance tuning is handled separately
-by the experiment lifecycle.
+passwordless sudo permissions are three exact no-argument helpers: image import,
+CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,
+`k3s`, shell, and wildcard sudo rules are deliberately not granted. Bootstrap
+does not change the active CPU policy.
 
-## Run an experiment
+## Manage an experiment
 
-Always start from the repository-level command and one self-contained experiment
-file:
+Start one experiment from the repository checkout. The command updates the lab
+first and returns after the user service has started; closing the terminal does
+not stop the run.
 
 ```bash
-demo/infra/run-experiment.sh \
-  demo/infra/experiments/smoke.yaml \
-  --environment internal-lab
+demo/infra/internal-lab/scripts/lab.sh experiment start \
+  demo/infra/experiments/smoke.yaml
 ```
 
-The shared adapter reads the local lab configuration and uses one bounded
-non-interactive SSH command to `ckc-lab` on the configured controller. The scripts under
+Inspect or control it from any later shell in the same checkout:
+
+```bash
+demo/infra/internal-lab/scripts/lab.sh experiment status
+demo/infra/internal-lab/scripts/lab.sh experiment logs
+demo/infra/internal-lab/scripts/lab.sh experiment logs --follow
+demo/infra/internal-lab/scripts/lab.sh experiment stop
+```
+
+`start` refuses a second concurrent experiment, and `lab.sh up` refuses to
+replace runtime files while an experiment is active. Add `--no-update` only when
+the installed runtime is already known to match the checkout. `status --json`
+provides a machine-readable view of the current or most recent request.
+
+The managed user service acquires the configured CPU policy immediately before
+the run and restores the exact previous minimum, maximum, and governor in
+`ExecStopPost` after success, failure, or an explicit stop. The default experiment
+frequency is 2,000,000 kHz; set `runtime.performance_cpu_khz: 0` in `lab.yaml` to
+disable tuning. Turbo state is never modified.
+
+The shared adapter and lifecycle commands read the local lab configuration and
+use bounded non-interactive SSH commands to `ckc-lab` on the configured controller. The scripts under
 `assets/bin` and `assets/libexec` consume generated target files internally;
 they are not additional workload configuration interfaces.
+
+The optional Telegram environment file defaults to
+`~/.config/ckc-lab/telegram.env`. `lab.sh up` transfers it without printing its
+contents and installs it as `/opt/ckc-lab/config/telegram.env` with mode `0600`.
+The managed notification hook sources this file for experiment progress and
+completion messages. Missing Telegram configuration simply disables the hook.
 
 An experiment contains:
 
@@ -199,12 +224,11 @@ After shared orchestration, reporting, dashboard, audit, or bundle changes:
 6. verify Kafka exporter metrics and inspect the generated report;
 7. open the produced evidence through the shared offline restore kit.
 
-To prepare a non-interactive smoke run (do not launch it as an installation
-check):
+To prepare a smoke run without launching it as an installation check:
 
 ```bash
-ssh -o BatchMode=yes ckc-lab@optilab \
-  'LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh smoke'
+demo/infra/internal-lab/scripts/lab.sh experiment start --dry-run \
+  demo/infra/experiments/smoke.yaml
 ```
 
 ## Diagnostics

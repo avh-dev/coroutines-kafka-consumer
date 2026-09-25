@@ -22,6 +22,13 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertNotIn("apt-get", script)
         self.assertNotIn("chown", script)
 
+    def test_update_refuses_to_mutate_an_active_managed_experiment(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('systemctl --user is-active --quiet ckc-experiment.service', script)
+        self.assertIn("stop it before updating the lab", script)
+        self.assertIn("install-user-service.sh", script)
+
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 
