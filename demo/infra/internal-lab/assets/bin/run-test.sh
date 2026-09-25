@@ -64,6 +64,15 @@ DIAGNOSTIC_STEPS_JSON="${DIAGNOSTIC_STEPS_JSON:-[]}"
 EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED:-false}"
 EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED:-true}"
 
+progress_step() {
+  [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ] || return 0
+  mark_target_start="${3:-}"
+  extra_args=()
+  [ "${mark_target_start}" = "mark-target-start" ] && extra_args+=(--mark-target-start)
+  python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+    --file "${EXPERIMENT_PROGRESS_FILE}" --step "$1" --label "$2" "${extra_args[@]}" >/dev/null 2>&1 || true
+}
+
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
@@ -1546,6 +1555,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
 fi
 
+progress_step "running_target" "running target workload" "mark-target-start"
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_HOST}" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
@@ -1861,6 +1871,7 @@ finalize_audit_log() {
 if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
+  progress_step "draining" "draining consumer lag"
   DRAIN_WAIT_EXIT_CODE=0
   python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
@@ -1889,6 +1900,7 @@ archive_analyzed_audit_log() {
 
 echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+  progress_step "finalizing_target" "finalizing target evidence"
   echo "Finalizing Fluent Bit audit log."
   if ! finalize_audit_log; then
     write_run_status "failed" 1

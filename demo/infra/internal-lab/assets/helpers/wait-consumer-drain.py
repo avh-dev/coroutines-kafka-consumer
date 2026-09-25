@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker
+from experiment_progress import ProgressWriter
 
 
 PROCESSING_TOTAL_QUERY = (
@@ -213,6 +216,8 @@ def main() -> int:
     args = parse_args()
     deadline = time.monotonic() + args.timeout_seconds
     tracker = ConsumerDrainTracker(args.stable_seconds, args.idle_seconds)
+    progress_path = os.environ.get("EXPERIMENT_PROGRESS_FILE", "")
+    progress = ProgressWriter(Path(progress_path), os.environ.get("EXPERIMENT_NAME", "")) if progress_path else None
 
     while time.monotonic() < deadline:
         lag, source = query_lag_with_fallback(args)
@@ -225,6 +230,14 @@ def main() -> int:
             f"consumer lag={lag_text}, processed={processed_text}, source={source}, "
             f"stable_for={tracker.stable_for(now):.0f}s, idle_for={tracker.idle_for(now):.0f}s"
         )
+        if progress is not None:
+            progress.update("draining", "draining consumer lag", details={
+                "lag": lag,
+                "processed": processed,
+                "source": source,
+                "stable_for_seconds": round(tracker.stable_for(now)),
+                "idle_for_seconds": round(tracker.idle_for(now)),
+            })
         if outcome == DRAINED:
             return 0
         if outcome == IDLE:

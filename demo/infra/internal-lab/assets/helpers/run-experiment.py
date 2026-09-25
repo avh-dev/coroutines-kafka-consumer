@@ -27,6 +27,7 @@ if SHARED_ROOT.is_dir():
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import parse_load_profile
 from experiment_notifications import notify
+from experiment_progress import ProgressWriter
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
 from result_bundle import collect as collect_evidence
 from result_bundle import finalize as finalize_artifacts
@@ -62,6 +63,19 @@ KAFKA_LAB_ENV_KEYS = {
 }
 STOP_REQUESTED = threading.Event()
 FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
+PROGRESS_WRITER: ProgressWriter | None = None
+
+
+def update_progress(
+    step: str,
+    label: str,
+    *,
+    status: str = "active",
+    target: dict[str, Any] | None | object = ...,
+    details: dict[str, Any] | None | object = ...,
+) -> None:
+    if PROGRESS_WRITER is not None:
+        PROGRESS_WRITER.update(step, label, status=status, target=target, details=details)
 
 
 def request_managed_stop(_signum: int, _frame: object) -> None:
@@ -717,6 +731,21 @@ def run_one(
     log_file.flush()
     print(f"\n=== Running experiment target {index}/{total}: {name} ===", flush=True)
     print(f"Expected load phase duration: {format_duration(expected_seconds)}", flush=True)
+    update_progress(
+        "preparing_target",
+        "preparing target",
+        target={
+            "index": index,
+            "total": total,
+            "name": name,
+            "preparation_started_at": started_at.isoformat(),
+            "expected_duration_seconds": expected_seconds,
+        },
+        details=None,
+    )
+    env["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
+    if expected_seconds is not None:
+        env["EXPERIMENT_TARGET_EXPECTED_SECONDS"] = str(expected_seconds)
     notify(hook, "test_started", {"name": name, "profile": profile, "deployment": deployment, "test_definition": test_definition, "index": index, "total": total}, log_dir)
 
     process = subprocess.Popen(
@@ -1030,8 +1059,20 @@ def run_experiment(
         notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
         if auditable_runs:
             print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
+            update_progress(
+                "analyzing_audit",
+                "analyzing audit",
+                target=None,
+                details={"run": 0, "total": len(auditable_runs)},
+            )
             notify(hook, "audit_analysis_started", {"experiment": experiment_name, "auditable_runs": len(auditable_runs)}, log_dir)
-            for result in auditable_runs:
+            for analysis_index, result in enumerate(auditable_runs, start=1):
+                update_progress(
+                    "analyzing_audit",
+                    "analyzing audit",
+                    target=None,
+                    details={"run": analysis_index, "total": len(auditable_runs)},
+                )
                 analysis_results.append(
                     analyze_one(
                         lab_root,
@@ -1105,6 +1146,7 @@ def ensure_application_quiesced(context: dict[str, Any], lab_root: Path) -> dict
 
 
 def run_main() -> int:
+    global PROGRESS_WRITER
     FAILURE_NOTIFICATION_CONTEXT.clear()
     lifecycle_started = time.monotonic()
     STOP_REQUESTED.clear()
@@ -1134,10 +1176,16 @@ def run_main() -> int:
     experiment_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_dir = result_root / experiment_set_id
     log_dir.mkdir(parents=True, exist_ok=True)
+    experiment_names = ", ".join(path.stem for path in selected)
+    PROGRESS_WRITER = ProgressWriter(
+        Path(os.environ.get("EXPERIMENT_PROGRESS_FILE", lab_root / "state/experiment/progress.json")),
+        experiment_names,
+    )
+    update_progress("preparing_experiment", "preparing experiment", target=None, details=None)
     FAILURE_NOTIFICATION_CONTEXT.update({
         "hook": hook,
         "log_dir": log_dir,
-        "experiment": ", ".join(path.stem for path in selected),
+        "experiment": experiment_names,
         "started": lifecycle_started,
         "terminal_sent": False,
         "lab_root": lab_root,
@@ -1149,6 +1197,7 @@ def run_main() -> int:
         if summary_interrupted(summary):
             break
 
+    update_progress("stopping_applications", "stopping application workloads", target=None, details=None)
     application_cleanup = ensure_application_quiesced(FAILURE_NOTIFICATION_CONTEXT, lab_root)
 
     summary_path = log_dir / "summary.json"
@@ -1164,6 +1213,7 @@ def run_main() -> int:
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nExperiment summary: {summary_path}")
     reports = []
+    update_progress("generating_report", "generating experiment report", target=None, details=None)
     try:
         reports = generate_experiment_reports(summary_path, lab_root, args.prometheus_url)
     except Exception as error:
@@ -1209,6 +1259,13 @@ def run_main() -> int:
             "cleanup_status": application_cleanup["status"],
         }, log_dir)
         FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
+        update_progress(
+            "completed" if document["exit_code"] == 0 else "failed",
+            "experiment completed" if document["exit_code"] == 0 else "experiment failed",
+            status="completed" if document["exit_code"] == 0 else "failed",
+            target=None,
+            details={"exit_code": document["exit_code"]},
+        )
         return int(document["exit_code"])
     evidence_runs = [
         Path(str(target["run_dir"]))
@@ -1217,6 +1274,7 @@ def run_main() -> int:
         if target.get("run_dir") and Path(str(target["run_dir"])).is_dir()
     ]
     dashboard_source = lab_root / "grafana/dashboards/ckc-overview.json"
+    update_progress("collecting_evidence", "collecting metrics and logs", target=None, details=None)
     collection = collect_evidence(
         result_root=log_dir,
         run_dirs=evidence_runs,
@@ -1236,6 +1294,7 @@ def run_main() -> int:
             prepare_evidence(log_dir, lab_root, "internal-lab")
         except Exception as error:
             document["evidence_preparation_error"] = str(error)
+    update_progress("creating_bundles", "creating evidence bundles", target=None, details=None)
     artifacts = finalize_artifacts(
         result_root=log_dir,
         report_dir=reports[0].parent if reports else log_dir / "missing-report",
@@ -1270,6 +1329,13 @@ def run_main() -> int:
         "cleanup_status": application_cleanup["status"],
     }, log_dir)
     FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
+    update_progress(
+        "completed" if document["exit_code"] == 0 else "failed",
+        "experiment completed" if document["exit_code"] == 0 else "experiment failed",
+        status="completed" if document["exit_code"] == 0 else "failed",
+        target=None,
+        details={"exit_code": document["exit_code"]},
+    )
     return int(document["exit_code"])
 
 
@@ -1294,6 +1360,12 @@ def main() -> int:
                 Path(context["log_dir"]),
             )
             context["terminal_sent"] = True
+        update_progress(
+            "interrupted" if isinstance(error, (KeyboardInterrupt, InterruptedError)) else "failed",
+            "experiment interrupted" if isinstance(error, (KeyboardInterrupt, InterruptedError)) else "experiment failed",
+            status="interrupted" if isinstance(error, (KeyboardInterrupt, InterruptedError)) else "failed",
+            details={"error": str(error)[:1000]},
+        )
         raise
 
 

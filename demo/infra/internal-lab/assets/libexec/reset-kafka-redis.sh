@@ -321,7 +321,15 @@ elif [ -n "${KAFKA_RUNTIME_PREVIOUS}" ] && [ "${KAFKA_RUNTIME_PREVIOUS}" != "${K
   KAFKA_WARMUP_REASON="Kafka broker containers restarted since the previous target"
 fi
 if [ -n "${KAFKA_WARMUP_REASON}" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
+  if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+    python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+      --file "${EXPERIMENT_PROGRESS_FILE}" --step warming_kafka --label "warming Kafka" >/dev/null 2>&1 || true
+  fi
   warm_apache_kafka "${KAFKA_WARMUP_REASON}"
+  if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+    python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+      --file "${EXPERIMENT_PROGRESS_FILE}" --step preparing_target --label "preparing target" >/dev/null 2>&1 || true
+  fi
 fi
 record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"
 docker exec ckc-perf-redis redis-cli FLUSHALL

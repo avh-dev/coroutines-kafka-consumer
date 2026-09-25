@@ -124,6 +124,15 @@ replace runtime files while an experiment is active. Add `--no-update` only when
 the installed runtime is already known to match the checkout. `status --json`
 provides a machine-readable view of the current or most recent request.
 
+The orchestrator atomically maintains
+`/opt/ckc-lab/state/experiment/progress.json`. Human-readable `status` shows the
+current lifecycle step, target number and name, workload elapsed time and ETA,
+and the latest consumer lag while draining. Preparation, Kafka warm-up, audit
+analysis, report generation, evidence collection, bundle creation, application
+shutdown, completion, interruption, and failure are explicit states. The same
+document is included under `progress` by `status --json` and remains available
+after the service exits.
+
 The managed user service acquires the configured CPU policy on every configured
 node immediately before
 the run and restores the exact previous minimum, maximum, and governor in
