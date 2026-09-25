@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 LAB_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/lab.py"
@@ -53,6 +54,7 @@ nodes:
         self.assertEqual("ckc-lab", config.runtime_user)
         self.assertEqual("192.0.2.10", config.infra.lab_address)
         self.assertEqual("alexey", config.infra.admin_user)
+        self.assertEqual(2_000_000, config.performance_cpu_khz)
 
     def test_rejects_future_split_topology_in_foundation_task(self) -> None:
         with self.assertRaisesRegex(ValueError, "supports topology=single-host"):
@@ -67,13 +69,39 @@ nodes:
         self.assertIn("LAB_USER=ckc-lab", environment)
         self.assertIn("LAB_ROOT=/opt/ckc-lab", environment)
 
-    def test_bootstrap_has_one_exact_passwordless_sudo_helper(self) -> None:
+    def test_bootstrap_limits_passwordless_sudo_to_exact_helpers(self) -> None:
         script = BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("NOPASSWD: /usr/local/libexec/ckc-lab/import-k3s-images", script)
+        self.assertIn("/usr/local/libexec/ckc-lab/cpu-performance-acquire", script)
+        self.assertIn("/usr/local/libexec/ckc-lab/cpu-performance-release", script)
         self.assertNotIn("NOPASSWD: ALL", script)
         self.assertNotIn("cpupower frequency-set", script)
+        self.assertNotIn("intel_pstate/no_turbo", script)
+        self.assertIn("cpu-policy.snapshot", script)
         self.assertIn('usermod -aG docker "${RUNTIME_USER}"', script)
+
+    @mock.patch.object(LAB, "capture")
+    @mock.patch.object(LAB, "run")
+    def test_start_writes_request_and_uses_user_systemd(self, run: mock.Mock, capture: mock.Mock) -> None:
+        config_path = self.write_config()
+        capture.return_value = mock.Mock(returncode=3)
+        args = mock.Mock(
+            config=config_path,
+            experiment=Path("smoke.yaml"),
+            no_update=True,
+            dry_run=True,
+            env=["AUDIT_LOG_ENABLED=true"],
+            skip_archives=False,
+        )
+
+        self.assertEqual(0, LAB.experiment_start_command(args))
+
+        request = (self.root / "experiment-request.json").read_text(encoding="utf-8")
+        self.assertIn('"experiment": "smoke.yaml"', request)
+        self.assertIn('"AUDIT_LOG_ENABLED=true"', request)
+        command = " ".join(str(value) for value in run.call_args_list[-1].args[0])
+        self.assertIn("systemctl --user start ckc-experiment.service", command)
 
 
 if __name__ == "__main__":

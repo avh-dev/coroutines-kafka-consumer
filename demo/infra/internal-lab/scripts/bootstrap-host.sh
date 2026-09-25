@@ -11,6 +11,7 @@ RUNTIME_USER=""
 LAB_ROOT=""
 NODE_IP=""
 AUTHORIZED_KEY_FILE=""
+PERFORMANCE_CPU_KHZ="2000000"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,6 +19,7 @@ while [[ $# -gt 0 ]]; do
     --lab-root) LAB_ROOT="${2:?--lab-root requires a value}"; shift 2 ;;
     --node-ip) NODE_IP="${2:?--node-ip requires a value}"; shift 2 ;;
     --authorized-key-file) AUTHORIZED_KEY_FILE="${2:?--authorized-key-file requires a value}"; shift 2 ;;
+    --performance-cpu-khz) PERFORMANCE_CPU_KHZ="${2:?--performance-cpu-khz requires a value}"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -32,6 +34,10 @@ if [[ "${LAB_ROOT}" != /* || "${LAB_ROOT}" == "/" || ! "${LAB_ROOT}" =~ ^/[A-Za-
 fi
 if [[ ! "${NODE_IP}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
   echo "Invalid node address: ${NODE_IP}" >&2
+  exit 1
+fi
+if [[ ! "${PERFORMANCE_CPU_KHZ}" =~ ^[0-9]+$ ]]; then
+  echo "Performance CPU frequency must be a non-negative integer in kHz: ${PERFORMANCE_CPU_KHZ}" >&2
   exit 1
 fi
 if [[ ! -s "${AUTHORIZED_KEY_FILE}" ]]; then
@@ -109,6 +115,7 @@ chmod 0600 "${RUNTIME_HOME}/.kube/config"
 install -d -m 0755 /etc/ckc-lab /usr/local/libexec/ckc-lab
 cat > /etc/ckc-lab/host.env <<EOF
 LAB_ROOT=${LAB_ROOT}
+PERFORMANCE_CPU_KHZ=${PERFORMANCE_CPU_KHZ}
 EOF
 chmod 0644 /etc/ckc-lab/host.env
 cat > /usr/local/libexec/ckc-lab/import-k3s-images <<'EOF'
@@ -124,8 +131,92 @@ fi
 k3s ctr images import "${archive}"
 EOF
 chmod 0755 /usr/local/libexec/ckc-lab/import-k3s-images
+cat > /usr/local/libexec/ckc-lab/cpu-performance-acquire <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1091
+source /etc/ckc-lab/host.env
+STATE_DIR=/run/ckc-lab
+STATE_FILE=${STATE_DIR}/cpu-policy.snapshot
+LOCK_FILE=${STATE_DIR}/cpu-policy.lock
+install -d -m 0755 -o root -g root "${STATE_DIR}"
+exec 9>"${LOCK_FILE}"
+flock -x 9
+if [[ -e "${STATE_FILE}" ]]; then
+  echo "A CKC CPU performance lease is already active." >&2
+  exit 1
+fi
+if [[ "${PERFORMANCE_CPU_KHZ}" -eq 0 ]]; then
+  printf 'disabled\n' > "${STATE_FILE}"
+  exit 0
+fi
+policies=(/sys/devices/system/cpu/cpufreq/policy*)
+if [[ ! -e "${policies[0]}" ]]; then
+  printf 'unavailable\n' > "${STATE_FILE}"
+  exit 0
+fi
+temporary="${STATE_FILE}.tmp"
+: > "${temporary}"
+for policy in "${policies[@]}"; do
+  minimum="$(<"${policy}/scaling_min_freq")"
+  maximum="$(<"${policy}/scaling_max_freq")"
+  governor="$(<"${policy}/scaling_governor")"
+  hardware_minimum="$(<"${policy}/cpuinfo_min_freq")"
+  hardware_maximum="$(<"${policy}/cpuinfo_max_freq")"
+  if (( PERFORMANCE_CPU_KHZ < hardware_minimum || PERFORMANCE_CPU_KHZ > hardware_maximum )); then
+    rm -f "${temporary}"
+    echo "Requested ${PERFORMANCE_CPU_KHZ} kHz is outside ${policy} hardware range ${hardware_minimum}-${hardware_maximum}." >&2
+    exit 1
+  fi
+  printf '%s|%s|%s|%s\n' "${policy}" "${minimum}" "${maximum}" "${governor}" >> "${temporary}"
+done
+mv "${temporary}" "${STATE_FILE}"
+restore_on_error() {
+  flock -u 9
+  /usr/local/libexec/ckc-lab/cpu-performance-release || true
+}
+trap restore_on_error ERR
+for policy in "${policies[@]}"; do
+  printf '%s\n' performance > "${policy}/scaling_governor"
+  hardware_minimum="$(<"${policy}/cpuinfo_min_freq")"
+  printf '%s\n' "${hardware_minimum}" > "${policy}/scaling_min_freq"
+  printf '%s\n' "${PERFORMANCE_CPU_KHZ}" > "${policy}/scaling_max_freq"
+  printf '%s\n' "${PERFORMANCE_CPU_KHZ}" > "${policy}/scaling_min_freq"
+done
+trap - ERR
+echo "CKC CPU performance lease acquired at ${PERFORMANCE_CPU_KHZ} kHz."
+EOF
+chmod 0755 /usr/local/libexec/ckc-lab/cpu-performance-acquire
+cat > /usr/local/libexec/ckc-lab/cpu-performance-release <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR=/run/ckc-lab
+STATE_FILE=${STATE_DIR}/cpu-policy.snapshot
+LOCK_FILE=${STATE_DIR}/cpu-policy.lock
+install -d -m 0755 -o root -g root "${STATE_DIR}"
+exec 9>"${LOCK_FILE}"
+flock -x 9
+if [[ ! -e "${STATE_FILE}" ]]; then
+  exit 0
+fi
+if grep -qxE 'disabled|unavailable' "${STATE_FILE}"; then
+  rm -f "${STATE_FILE}"
+  exit 0
+fi
+while IFS='|' read -r policy minimum maximum governor; do
+  [[ -d "${policy}" ]] || continue
+  hardware_maximum="$(<"${policy}/cpuinfo_max_freq")"
+  printf '%s\n' "${hardware_maximum}" > "${policy}/scaling_max_freq"
+  printf '%s\n' "${minimum}" > "${policy}/scaling_min_freq"
+  printf '%s\n' "${maximum}" > "${policy}/scaling_max_freq"
+  printf '%s\n' "${governor}" > "${policy}/scaling_governor"
+done < "${STATE_FILE}"
+rm -f "${STATE_FILE}"
+echo "CKC CPU performance lease released and the previous policy restored."
+EOF
+chmod 0755 /usr/local/libexec/ckc-lab/cpu-performance-release
 cat > /etc/sudoers.d/ckc-lab <<EOF
-${RUNTIME_USER} ALL=(root) NOPASSWD: /usr/local/libexec/ckc-lab/import-k3s-images
+${RUNTIME_USER} ALL=(root) NOPASSWD: /usr/local/libexec/ckc-lab/import-k3s-images, /usr/local/libexec/ckc-lab/cpu-performance-acquire, /usr/local/libexec/ckc-lab/cpu-performance-release
 EOF
 chmod 0440 /etc/sudoers.d/ckc-lab
 visudo -cf /etc/sudoers.d/ckc-lab >/dev/null

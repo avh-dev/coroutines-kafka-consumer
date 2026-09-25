@@ -83,19 +83,22 @@ For a forum topic, also set `TELEGRAM_THREAD_ID` to the topic id.
 
 ### 3. Enable the hook
 
-Create a local wrapper named `/opt/ckc-lab/notify/notify.sh`. This wrapper is
-not managed by `update-lab`, so your token stays on the server:
+Store the variables on the operator machine in
+`~/.config/ckc-lab/telegram.env`:
 
 ```sh
-cat > /opt/ckc-lab/notify/notify.sh <<'EOF'
-#!/usr/bin/env sh
+install -d -m 0700 ~/.config/ckc-lab
+cat > ~/.config/ckc-lab/telegram.env <<'EOF'
 export TELEGRAM_BOT_TOKEN='replace-me'
 export TELEGRAM_CHAT_ID='replace-me'
 # export TELEGRAM_THREAD_ID='replace-me'
-exec /opt/ckc-lab/notify/notify-telegram.py "$@"
 EOF
-chmod 0750 /opt/ckc-lab/notify/notify.sh
+chmod 0600 ~/.config/ckc-lab/telegram.env
+demo/infra/internal-lab/scripts/lab.sh up
 ```
+
+`lab.sh up` transfers the file with mode `0600`. The managed `notify.sh` wrapper
+sources it at event time; the secret is never stored in the repository.
 
 By default, the Telegram example sends only high-signal experiment-level events.
 The experiment start and report-ready messages include identifying details. Progress

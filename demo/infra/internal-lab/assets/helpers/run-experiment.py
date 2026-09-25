@@ -59,6 +59,11 @@ KAFKA_LAB_ENV_KEYS = {
     "LAB_KAFKA_MEMORY_PER_BROKER",
     "LAB_KAFKA_HEAP_PER_BROKER",
 }
+STOP_REQUESTED = threading.Event()
+
+
+def request_managed_stop(_signum: int, _frame: object) -> None:
+    STOP_REQUESTED.set()
 
 
 def parse_args() -> argparse.Namespace:
@@ -758,8 +763,10 @@ def run_one(
             try:
                 stop_queue.get_nowait()
             except queue.Empty:
-                pass
+                queue_requested = False
             else:
+                queue_requested = True
+            if (queue_requested or STOP_REQUESTED.is_set()) and not stop_requested:
                 stop_requested = True
                 print("Stopping experiment by user request. Waiting for current target cleanup.", flush=True)
                 log_file.write("Stopping experiment by user request.\n")
@@ -1061,6 +1068,9 @@ def summary_interrupted(summary: dict[str, Any]) -> bool:
 
 
 def main() -> int:
+    STOP_REQUESTED.clear()
+    signal.signal(signal.SIGINT, request_managed_stop)
+    signal.signal(signal.SIGTERM, request_managed_stop)
     args = parse_args()
     lab_root = Path(args.lab_root)
     experiment_dir = Path(args.experiment_dir)
