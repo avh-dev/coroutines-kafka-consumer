@@ -201,6 +201,41 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("lab_profile", state["config"])
         self.assertEqual("ckc", target["profile"])
         self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
+        self.assertEqual(1, target["replicas"])
+        self.assertEqual(10, target["base_tps"])
+        self.assertEqual(80, target["duration_seconds"])
+        self.assertEqual(80, state["config"]["expected_duration_seconds"])
+        self.assertEqual({
+            "implementation": "apache-kafka",
+            "topology": "cluster",
+            "brokers": 3,
+            "replication_factor": 3,
+            "mode": "kubernetes",
+        }, state["config"]["kafka"])
+
+    def test_aws_warms_new_kafka_once_with_notification_and_start_annotation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"].update({
+                "experiment_name": "comparison",
+                "kafka": {"replication_factor": 3},
+            })
+            with patch.object(controller, "notify") as notify, patch.object(controller, "ssm") as ssm:
+                controller.warm_kafka()
+
+        notify.assert_called_once()
+        self.assertEqual("kafka_warmup_started", notify.call_args.args[0])
+        command = ssm.call_args.args[0]
+        self.assertIn("demo/infra/shared/kafka_warmup/run.py", command)
+        self.assertIn("'--backend', 'kubernetes'", command)
+        self.assertIn("'--grafana-url', 'http://127.0.0.1:3000'", command)
+        self.assertIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
+        self.assertNotIn("warmup_completed", command)
+        self.assertEqual("completed", controller.state["kafka_warmup"]["status"])
+
+    def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
+        sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
+        self.assertIn("demo/infra/shared/kafka_warmup", sync_script)
 
     def test_new_state_rejects_unsafe_session_name(self) -> None:
         base = SimpleNamespace(

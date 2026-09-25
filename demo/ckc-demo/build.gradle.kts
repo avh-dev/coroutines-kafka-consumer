@@ -28,6 +28,7 @@ val armeriaVersion = "1.39.0"
 val parallelConsumerVersion = "0.5.3.3"
 val serializationVersion = "1.7.1"
 val springBootVersion = "3.5.10"
+val threadStatsVersion = providers.gradleProperty("threadStatsVersion").get()
 
 dependencies {
     implementation(project(":ckc-core"))
@@ -37,7 +38,7 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("reflect"))
     implementation(kotlin("stdlib"))
-    implementation("dev.avh.threadstats:thread-stats-spring-boot-starter:0.1.0-SNAPSHOT") {
+    implementation("dev.avh.threadstats:thread-stats-spring-boot-starter:$threadStatsVersion") {
         exclude(group = "org.springframework.boot", module = "spring-boot-autoconfigure")
     }
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")

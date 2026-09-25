@@ -64,6 +64,15 @@ DIAGNOSTIC_STEPS_JSON="${DIAGNOSTIC_STEPS_JSON:-[]}"
 EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED:-false}"
 EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED:-true}"
 
+progress_step() {
+  [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ] || return 0
+  mark_target_start="${3:-}"
+  extra_args=()
+  [ "${mark_target_start}" = "mark-target-start" ] && extra_args+=(--mark-target-start)
+  python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+    --file "${EXPERIMENT_PROGRESS_FILE}" --step "$1" --label "$2" "${extra_args[@]}" >/dev/null 2>&1 || true
+}
+
 usage() {
   cat <<EOF
 Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment profile]
@@ -1155,6 +1164,7 @@ fi
 
 mkdir -p "${LOG_DIR}" "${PID_DIR}"
 RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
+ORCHESTRATION_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 reset_chaos_state() {
   CHAOS_STEPS_JSON="${CHAOS_STEPS_JSON:-[]}" \
@@ -1288,7 +1298,7 @@ KAFKA_PRODUCER_COMPRESSION_TYPE="${KAFKA_PRODUCER_COMPRESSION_TYPE:-lz4}"
 KAFKA_PRODUCER_BUFFER_MEMORY="${KAFKA_PRODUCER_BUFFER_MEMORY:-33554432}"
 
 write_run_metadata() {
-  export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
+  export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT ORCHESTRATION_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION LAB_KAFKA_TOPOLOGY KAFKA_BOOTSTRAP_HOST PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED JDK_HTTP_CLIENT_EXECUTOR MODEL_SYNC_HTTP_CLIENT WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
   export LAB_KAFKA_BROKER_COUNT LAB_KAFKA_REPLICATION_FACTOR LAB_KAFKA_MIN_INSYNC_REPLICAS LAB_KAFKA_CPU_PER_BROKER LAB_KAFKA_MEMORY_PER_BROKER LAB_KAFKA_HEAP_PER_BROKER
   export RUN_PROFILE RUN_PLAN_PATH REPLICA_COUNT PROCESSING_DISPATCHER_TYPE ORDER_PROCESSING_MODE BATCH_PROCESSING_MODE TELEMETRY_PROCESSING_MODE
@@ -1352,6 +1362,7 @@ def optional_json_file(path: str) -> dict | None:
 
 metadata = {
     "run_id": env("RUN_ID"),
+    "orchestration_started_at": env("ORCHESTRATION_STARTED_AT"),
     "started_at": env("RUN_STARTED_AT"),
     "deployment": basename_without_yaml(env("DEPLOYMENT_PROFILE")),
     "test_definition": basename_without_yaml(env("TEST_DEFINITION")),
@@ -1544,6 +1555,7 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   fi
 fi
 
+progress_step "running_target" "running target workload" "mark-target-start"
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_HOST}" \
 TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
@@ -1859,6 +1871,7 @@ finalize_audit_log() {
 if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; then
   echo
   echo "Waiting for demo consumer lag to drain before audit collection."
+  progress_step "draining" "draining consumer lag"
   DRAIN_WAIT_EXIT_CODE=0
   python3 "${LAB_ROOT}/helpers/wait-consumer-drain.py" \
     --prometheus-url "http://127.0.0.1:30090" \
@@ -1887,6 +1900,7 @@ archive_analyzed_audit_log() {
 
 echo
 if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+  progress_step "finalizing_target" "finalizing target evidence"
   echo "Finalizing Fluent Bit audit log."
   if ! finalize_audit_log; then
     write_run_status "failed" 1

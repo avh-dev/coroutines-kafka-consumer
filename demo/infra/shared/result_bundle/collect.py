@@ -31,9 +31,23 @@ def run_window(run_dir: Path) -> tuple[datetime | None, datetime | None]:
     start = parse_instant(status.get("started_at") or metadata.get("started_at"))
     end = parse_instant(status.get("ended_at")) or datetime.now(timezone.utc)
     return (
-        start - timedelta(minutes=2) if start else None,
+        start,
         end + timedelta(minutes=2) if end else None,
     )
+
+
+def log_window(run_dir: Path) -> tuple[datetime | None, datetime | None]:
+    status = load_json(run_dir / "run-status.json")
+    metadata = load_json(run_dir / "run-metadata.json")
+    measurement_start = parse_instant(status.get("started_at") or metadata.get("started_at"))
+    orchestration_start = parse_instant(
+        status.get("orchestration_started_at") or metadata.get("orchestration_started_at")
+    )
+    end = parse_instant(status.get("ended_at")) or datetime.now(timezone.utc)
+    start = orchestration_start or (
+        measurement_start - timedelta(minutes=2) if measurement_start else None
+    )
+    return start, end + timedelta(minutes=2)
 
 
 def combined_window(run_dirs: Iterable[Path]) -> tuple[datetime | None, datetime | None]:
@@ -53,7 +67,7 @@ def http_json(base_url: str, path: str, params: dict[str, str], timeout: int = 1
 
 
 def export_loki_run(run_dir: Path, loki_url: str, selector: str, limit: int = 5000) -> dict[str, Any]:
-    start, end = run_window(run_dir)
+    start, end = log_window(run_dir)
     if not start or not end:
         raise ValueError(f"Loki export requires a known run window: {run_dir}")
     cursor = int(start.timestamp() * 1_000_000_000)

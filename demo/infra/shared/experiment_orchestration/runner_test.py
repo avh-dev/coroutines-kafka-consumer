@@ -24,6 +24,8 @@ class SharedExperimentRunnerTest(unittest.TestCase):
             build_images=False,
             internal_lab_host="optilab",
             internal_lab_user="ckc-lab",
+            notify_hook="",
+            telegram_env=Path("/home/test/.config/ckc-lab/telegram.env"),
         )
 
     def setUp(self) -> None:
@@ -39,6 +41,8 @@ class SharedExperimentRunnerTest(unittest.TestCase):
         self.assertIn("demo/infra/aws/scripts/run-experiment.py", command[1])
         self.assertIn("eu-central-1", command)
         self.assertIn("--skip-build-images", command)
+        self.assertIn("--telegram-env", command)
+        self.assertIn("/home/test/.config/ckc-lab/telegram.env", command)
 
     def test_internal_lab_adapter_uses_bounded_noninteractive_runtime_ssh(self) -> None:
         request = self.request("internal-lab")
@@ -56,6 +60,16 @@ class SharedExperimentRunnerTest(unittest.TestCase):
         experiment = mock.Mock(environment_definition={"region": "eu-central-1"})
         command = AwsAdapter().command(request, experiment)
         self.assertNotIn("AUDIT_LOG_ENABLED=true", command)
+
+    def test_notification_hook_is_passed_only_to_the_selected_controller(self) -> None:
+        request = self.request("aws")
+        request = RunRequest(**{**request.__dict__, "notify_hook": "/tmp/operator-notify"})
+        experiment = mock.Mock(environment_definition={"region": "eu-central-1"})
+        aws_command = AwsAdapter().command(request, experiment)
+        internal_command = InternalLabAdapter().command(request, experiment)
+
+        self.assertEqual("/tmp/operator-notify", aws_command[aws_command.index("--notify-hook") + 1])
+        self.assertIn("--notify-hook /tmp/operator-notify", internal_command[-1])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -440,6 +441,15 @@ def install_telegram_environment(config: LabConfig, *, dry_run: bool) -> None:
         return
     target = runtime_target(config)
     destination = config.lab_root / "config/telegram.env"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    if not dry_run:
+        remote_digest = capture([
+            "ssh", "-o", "BatchMode=yes", target,
+            f"sha256sum '{destination}' 2>/dev/null | awk '{{print $1}}'",
+        ], check=False).stdout.strip()
+        if remote_digest == digest:
+            print("Telegram environment is already current; no secret transferred.")
+            return
     command = [
         "ssh", target,
         f"umask 077; cat > '{destination}.tmp' && mv '{destination}.tmp' '{destination}'",
@@ -452,9 +462,6 @@ def install_telegram_environment(config: LabConfig, *, dry_run: bool) -> None:
 def up_command(args: argparse.Namespace) -> int:
     config = load_config(args.config.resolve())
     environment_path = write_compatibility_environment(config)
-    node = config.infra
-    target = f"{config.runtime_user}@{node.ssh_host}"
-    run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", target, "true"], dry_run=args.dry_run)
     command = [str(UPDATE_SCRIPT)]
     if args.force_rebuild:
         command.append("--force-rebuild")
@@ -476,7 +483,19 @@ def resolve_repository_experiment(value: Path) -> Path:
     return candidate
 
 
-def managed_unit_properties(config: LabConfig) -> tuple[dict[str, str], dict[str, Any]]:
+def remote_json(config: LabConfig, path: Path) -> dict[str, Any]:
+    result = capture([
+        "ssh", "-o", "BatchMode=yes", runtime_target(config),
+        f"cat '{path}' 2>/dev/null || true",
+    ], check=False)
+    try:
+        value = json.loads(result.stdout) if result.stdout.strip() else {}
+    except json.JSONDecodeError:
+        return {"error": f"{path.name} is not valid JSON"}
+    return value if isinstance(value, dict) else {}
+
+
+def managed_unit_properties(config: LabConfig) -> tuple[dict[str, str], dict[str, Any], dict[str, Any]]:
     target = runtime_target(config)
     result = capture([
         "ssh", "-o", "BatchMode=yes", target,
@@ -489,19 +508,29 @@ def managed_unit_properties(config: LabConfig) -> tuple[dict[str, str], dict[str
         key, separator, value = line.partition("=")
         if separator:
             properties[key] = value
-    request_result = capture([
-        "ssh", "-o", "BatchMode=yes", target,
-        f"cat '{config.lab_root}/state/experiment/request.json' 2>/dev/null || true",
-    ], check=False)
+    request = remote_json(config, config.lab_root / "state/experiment/request.json")
+    progress = remote_json(config, config.lab_root / "state/experiment/progress.json")
+    return properties, request, progress
+
+
+def parse_utc(value: Any) -> datetime | None:
+    if not value:
+        return None
     try:
-        request = json.loads(request_result.stdout) if request_result.stdout.strip() else {}
-    except json.JSONDecodeError:
-        request = {"error": "managed request is not valid JSON"}
-    return properties, request if isinstance(request, dict) else {}
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def compact_duration(seconds: float) -> str:
+    value = max(0, int(seconds))
+    hours, remainder = divmod(value, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {secs:02d}s"
 
 
 def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int:
-    properties, request = managed_unit_properties(config)
+    properties, request, progress = managed_unit_properties(config)
     document = {
         "host": config.infra.host,
         "runtime_user": config.runtime_user,
@@ -514,6 +543,7 @@ def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int
         "exit_code": properties.get("ExecMainStatus", ""),
         "started_at": properties.get("ExecMainStartTimestamp", ""),
         "ended_at": properties.get("ExecMainExitTimestamp", ""),
+        "progress": progress,
     }
     if json_output:
         print(json.dumps(document, indent=2))
@@ -522,6 +552,31 @@ def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int
     print(f"environment:  internal-lab on {document['host']} as {document['runtime_user']}")
     print(f"state:        {document['active_state']} ({document['sub_state']})")
     print(f"result:       {document['result']}")
+    if progress.get("label"):
+        print(f"step:         {progress['label']}")
+    target = progress.get("target")
+    if isinstance(target, dict) and target:
+        position = f"{target.get('index', '?')}/{target.get('total', '?')}"
+        print(f"target:       {position} — {target.get('name') or 'unknown'}")
+        target_started = parse_utc(target.get("started_at"))
+        if target_started:
+            target_end = (
+                parse_utc(progress.get("ended_at"))
+                if progress.get("status") != "active"
+                else None
+            ) or datetime.now(timezone.utc)
+            elapsed = (target_end - target_started).total_seconds()
+            print(f"elapsed:      {compact_duration(elapsed)}")
+            expected = target.get("expected_duration_seconds")
+            if progress.get("step") == "running_target" and expected is not None:
+                print(f"target ETA:   {compact_duration(max(0, float(expected) - elapsed))}")
+    elif (progress_started := parse_utc(progress.get("started_at"))):
+        progress_end = parse_utc(progress.get("ended_at")) or datetime.now(timezone.utc)
+        print(f"elapsed:      {compact_duration((progress_end - progress_started).total_seconds())}")
+    details = progress.get("details")
+    if progress.get("step") == "draining" and isinstance(details, dict):
+        lag = details.get("lag")
+        print(f"consumer lag: {'unknown' if lag is None else lag}")
     if document["exit_code"]:
         print(f"exit code:    {document['exit_code']}")
     if document["started_at"]:
@@ -561,6 +616,7 @@ def experiment_start_command(args: argparse.Namespace) -> int:
     run([
         "ssh", target,
         f"set -e; chmod 600 '{remote_request}.tmp'; mv '{remote_request}.tmp' '{remote_request}'; "
+        f"rm -f '{config.lab_root}/state/experiment/progress.json'; "
         "systemctl --user reset-failed ckc-experiment.service >/dev/null 2>&1 || true; "
         "systemctl --user start ckc-experiment.service",
     ], dry_run=args.dry_run)

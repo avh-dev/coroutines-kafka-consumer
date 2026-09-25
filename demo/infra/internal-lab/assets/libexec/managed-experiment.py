@@ -47,6 +47,7 @@ def main() -> int:
         command.append("--skip-archives")
 
     environment = dict(os.environ)
+    environment["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
     notify_hook = lab_root / "notify/notify.sh"
     if notify_hook.is_file() and os.access(notify_hook, os.X_OK):
         environment["CKC_NOTIFY_HOOK"] = str(notify_hook)

@@ -375,6 +375,11 @@
 | [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
+| [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
+| [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
+| [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
+| [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
+| [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4319,3 +4324,64 @@ Re-run the managed two-host smoke and verify diagnostics, metrics, audit analysi
 Pod captures now retain the container's existing root identity explicitly, while host capture continues under the capability-limited runtime user.
 Promtool writes TSDB blocks with the caller's UID/GID, preventing root-owned metadata from breaking evidence collection.
 Verification: the two-host smoke completed with exit code 0; all three required captures succeeded, collection reported no errors, Loki exported 1,603 records, Prometheus exported 7,210 series and 79,538 samples into one block, and audit matched all 108,598 publications without missing terminal outcomes or duplicates. Application pods ran on optilab2, supporting workloads stayed on optilab, and both hosts restored their pre-experiment CPU policies.
+
+<a id="infra-214"></a>
+### INFRA-214 - Unify experiment lifecycle notifications
+
+_Date: 2026-09-25_
+
+Define one high-signal notification contract for internal-lab and AWS experiment controllers.
+Include environment, Kafka shape, target details, and planned workload duration in the start notification.
+Emit report and bundle readiness in lifecycle order and reserve the terminal completion event for fully finalized artifacts and cleanup state.
+Keep Telegram credentials local to the controller environment and never transport them into disposable AWS infrastructure.
+The shared notifier now renders detailed starts, measurement completion, report readiness, bundle readiness, and exactly one terminal success or failure event in lifecycle order.
+Internal-lab delays completion until final artifacts exist and reports artifact-stage failures; AWS sends from the checkout-local controller and includes verified cleanup state without copying Telegram secrets into cloud resources.
+Verification: 96 internal-lab tests, 30 AWS tests, and 29 shared notification/orchestration tests passed with Python compilation, Bash syntax, and whitespace checks. The updated runtime was installed on optilab without rebuilding workloads, its installed renderer produced the expected detailed messages, and the local AWS controller safely recognized the configured Telegram keys without exposing their values. No experiment was launched.
+
+<a id="infra-215"></a>
+### INFRA-215 - Quiesce internal-lab application workloads after experiments
+
+_Date: 2026-09-25_
+
+Scale the demo application and its stubs to zero after the final target has drained.
+Run cleanup after success, failure, managed stop, and artifact-finalization errors while preserving deployment objects for inspection.
+Complete the terminal lifecycle notification only after the idle state is verified.
+The non-root runtime now deletes the application HPA, scales both application deployments to zero, and waits until their pods are gone without stopping persistent dependencies.
+Cleanup is idempotent, runs on normal and exceptional lifecycle paths, affects the final exit status when incomplete, and contributes verified application and cleanup state to the terminal notification.
+Verification: 98 internal-lab tests passed with Python compilation, POSIX shell syntax, and whitespace checks. The helper was installed and exercised on optilab: it reduced `ckc-demo` from two replicas and `ckc-demo-stubs` from one replica to zero, left no workload pods, and retained both Prometheus and log-collector pods. No experiment was launched.
+
+<a id="infra-216"></a>
+### INFRA-216 - Add conditional Kafka warm-up
+
+_Date: 2026-09-25_
+
+Detect actual broker creation or replacement instead of warming Kafka before every internal-lab target.
+Run one fixed three-minute producer-and-consumer workload after redeployment, notify Telegram once, and mark only its start in live Grafana.
+Keep warm-up logs, topics, identities, and metrics outside the measured run evidence; warm every newly provisioned AWS Kafka runtime once.
+The shared warm-up now drives 1,800,000 one-kilobyte records at 10,000 records/s through a temporary 12-partition topic, cleans its topic and group, and emits only a start notification and annotation.
+Internal-lab fingerprints the selected containers by identity and actual start time, so stable target resets skip warm-up while creation, topology replacement, and out-of-band restarts trigger it once. AWS warms every disposable Kafka runtime, then starts a fresh VictoriaMetrics store so warm-up samples cannot enter the evidence archive.
+Measurement metrics now begin exactly at workload start while Loki retains the earlier orchestration and application-startup window. Verification: 101 internal-lab tests, 32 AWS tests, and six focused shared warm-up/result-window tests passed with Python compilation, shell syntax, and whitespace checks. The updated runtime was installed on optilab without rebuilding images; its helper and reset script were verified, both application deployments remain at zero, and no experiment was launched.
+
+<a id="infra-217"></a>
+### INFRA-217 - Show live managed experiment progress
+
+_Date: 2026-09-25_
+
+Persist atomic machine-readable progress from the internal-lab experiment orchestrator.
+Report the current lifecycle step, target identity, elapsed time, estimated remaining workload time, and drain state through `lab.sh experiment status`.
+Retain the final progress document for post-run inspection without inferring state from free-form logs.
+The runner now updates one atomic progress document across preparation, conditional Kafka warm-up, target workload, consumer drain, audit analysis, application quiescing, reporting, evidence collection, bundle creation, and terminal states.
+Managed status renders the target position and name, workload elapsed time and ETA, and live drain lag; JSON status exposes the complete progress document for automation. Terminal elapsed time is frozen at completion or failure, and each new request clears stale progress before systemd starts it.
+Verification: 105 internal-lab tests passed with Bash/POSIX shell syntax, Python compilation, and whitespace checks. The runtime was installed on optilab, a temporary drain progress record rendered correctly through the real status command, the record was removed afterward, and both application deployments were returned to zero replicas. No experiment was launched for this task.
+
+<a id="infra-218"></a>
+### INFRA-218 - Restore fast incremental lab updates
+
+_Date: 2026-09-25_
+
+Resolve the Thread Stats starter and Java agent from one declared dependency version without building the neighboring project during lab updates.
+Add an aggregate update fingerprint so an unchanged checkout reaches experiment start after one bounded remote freshness check.
+Keep changed experiment and runtime synchronization delta-based for remote operation over ordinary Wi-Fi links.
+The update now reuses local Maven snapshot artifacts, falls back to normal Gradle repository resolution for the agent, skips unchanged Telegram credentials, and uses rsync for changed files when available.
+Fingerprint ordering is fixed to the C locale; installations written by the initial locale-dependent implementation migrate their metadata without rebuilding or transferring artifacts.
+Verification: 107 internal-lab tests, Bash and Python syntax checks, Gradle agent staging and demo compilation, and whitespace checks passed. A real optilab update completed without building Thread Stats; the existing `en_US.UTF-8` fingerprint migrated without a Docker rebuild, and immediate unchanged runs under both `en_US.UTF-8` and `C` transferred no files and completed in 0.83 and 0.81 seconds. Both application deployments remained at zero replicas afterward.

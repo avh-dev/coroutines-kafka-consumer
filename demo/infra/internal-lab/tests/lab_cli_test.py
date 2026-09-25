@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -148,7 +150,33 @@ nodes:
         self.assertIn('"experiment": "smoke.yaml"', request)
         self.assertIn('"AUDIT_LOG_ENABLED=true"', request)
         command = " ".join(str(value) for value in run.call_args_list[-1].args[0])
+        self.assertIn("progress.json", command)
+        self.assertIn("rm -f", command)
         self.assertIn("systemctl --user start ckc-experiment.service", command)
+
+    @mock.patch.object(LAB, "managed_unit_properties")
+    def test_status_shows_live_target_eta_and_drain_lag(self, properties: mock.Mock) -> None:
+        config = LAB.load_config(self.write_config())
+        properties.return_value = (
+            {"ActiveState": "active", "SubState": "running", "Result": "success"},
+            {"experiment": "smoke.yaml"},
+            {
+                "label": "draining consumer lag",
+                "step": "draining",
+                "started_at": "2026-09-25T10:00:00Z",
+                "target": {"index": 1, "total": 1, "name": "ckc", "started_at": "2026-09-25T10:01:00Z"},
+                "details": {"lag": 42},
+            },
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            LAB.print_managed_status(config)
+
+        rendered = output.getvalue()
+        self.assertIn("step:         draining consumer lag", rendered)
+        self.assertIn("target:       1/1 — ckc", rendered)
+        self.assertIn("consumer lag: 42", rendered)
 
 
 if __name__ == "__main__":

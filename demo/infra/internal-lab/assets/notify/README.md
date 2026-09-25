@@ -22,14 +22,16 @@ Common event names:
 - `experiment_started`
 - `test_started`
 - `test_finished`
-- `experiment_runs_finished`
+- `measurements_finished`
 - `audit_analysis_started`
 - `audit_analysis_finished`
 - `audit_run_analysis_started`
 - `audit_run_analysis_finished`
-- `experiment_finished`
-- `experiment_failed`
+- `kafka_warmup_started`
 - `report_ready` — emitted after `report.md` has been written
+- `bundle_ready` — emitted after the evidence and audit archives are finalized
+- `experiment_completed` — the last successful lifecycle event
+- `experiment_failed`
 
 For quick tuning iterations, retain the generated report while skipping evidence
 collection and both final archives:
@@ -101,20 +103,21 @@ demo/infra/internal-lab/scripts/lab.sh up
 sources it at event time; the secret is never stored in the repository.
 
 By default, the Telegram example sends only high-signal experiment-level events.
-The experiment start and report-ready messages include identifying details. Progress
-events are one-line phase transitions with stable status icons and explicit
-`started`, `completed`, or `failed` wording.
+The first message identifies the environment, Kafka shape, targets, and expected
+workload duration. Report and bundle readiness are emitted in that order, and the
+terminal completion event is sent only after final artifacts exist. Warm-up is
+reported only when it actually runs.
 Override this with a comma-separated allowlist:
 
 ```sh
-export TELEGRAM_EVENTS='experiment_started,experiment_finished,experiment_failed'
+export TELEGRAM_EVENTS='experiment_started,bundle_ready,experiment_completed,experiment_failed'
 ```
 
 ### 4. Test it
 
 ```sh
 cat > /tmp/ckc-notify-test.json <<'EOF'
-{"experiment":"manual-test","targets":1,"exit_code":0}
+{"experiment":"manual-test","environment":{"name":"internal-lab","detail":"optilab"},"kafka":{"implementation":"apache-kafka","topology":"single","brokers":1},"targets":[{"name":"ckc","profile":"ckc","replicas":2,"base_tps":1000,"duration_seconds":120}],"expected_duration_seconds":120}
 EOF
 /opt/ckc-lab/notify/notify.sh experiment_started /tmp/ckc-notify-test.json
 ```

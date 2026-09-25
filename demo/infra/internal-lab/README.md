@@ -93,6 +93,15 @@ After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
 service logs under `logs`, and run results under `results`.
 
+`up` compares one aggregate checkout fingerprint with the installed lab before
+it mutates the remote host. An unchanged checkout exits without running Gradle
+or transferring files; a changed checkout synchronizes only the affected
+artifacts. The demo starter and Java agent use the same `threadStatsVersion`
+from `gradle.properties`. Snapshot artifacts are normally taken from the local
+Maven repository; if the agent is absent there, Gradle resolves it from the
+configured Maven repositories. Updating the lab never builds the neighboring
+Thread Stats checkout.
+
 The runtime user belongs to the Docker group and owns the lab files. Its only
 passwordless sudo permissions are three exact no-argument helpers: image import,
 CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,
@@ -124,12 +133,27 @@ replace runtime files while an experiment is active. Add `--no-update` only when
 the installed runtime is already known to match the checkout. `status --json`
 provides a machine-readable view of the current or most recent request.
 
+The orchestrator atomically maintains
+`/opt/ckc-lab/state/experiment/progress.json`. Human-readable `status` shows the
+current lifecycle step, target number and name, workload elapsed time and ETA,
+and the latest consumer lag while draining. Preparation, Kafka warm-up, audit
+analysis, report generation, evidence collection, bundle creation, application
+shutdown, completion, interruption, and failure are explicit states. The same
+document is included under `progress` by `status --json` and remains available
+after the service exits.
+
 The managed user service acquires the configured CPU policy on every configured
 node immediately before
 the run and restores the exact previous minimum, maximum, and governor in
 `ExecStopPost` after success, failure, or an explicit stop. The default experiment
 frequency is 2,000,000 kHz; set `runtime.performance_cpu_khz: 0` in `lab.yaml` to
 disable tuning. Turbo state is never modified.
+
+After the final target drains, the runner deletes the application HPA and scales
+both `ckc-demo` and `ckc-demo-stubs` to zero. This cleanup also runs after a
+failed or explicitly stopped experiment and before its terminal notification.
+The Deployment objects remain available for inspection, while Kafka, Redis,
+Prometheus, Loki, and Grafana stay online for result analysis and the next run.
 
 The shared adapter and lifecycle commands read the local lab configuration and
 use bounded non-interactive SSH commands to `ckc-lab` on the configured controller. The scripts under
@@ -183,6 +207,16 @@ Kafka Thread Stats use dedicated host ports `9414`, `9415`, and `9416`; port
 The installed lab currently accepts exactly one broker for `single` and three
 brokers for `cluster`; replication cannot exceed that broker count, and minimum
 ISR cannot exceed replication. Memory and heap values use `Mi` or `Gi`.
+
+The runner records the IDs and actual start times of the selected broker
+containers. When Apache Kafka is created, replaced, or found to have restarted
+since the previous target, it runs one fixed three-minute warm-up at 10,000
+records/s before deploying the measured workload. A normal topic reset between
+targets does not repeat the warm-up. Telegram receives one warm-up-start event,
+and Grafana receives one start annotation; the following target-start annotation
+is the end boundary, so no separate warm-up-end annotation is created. Warm-up
+traffic remains visible in the live lab dashboard but is outside the exported
+measurement window and is not included in the evidence metrics.
 
 The legacy `kafka_topology: single|cluster` field and the one-off
 `--kafka-topology` flag remain available, but canonical experiments should own

@@ -32,6 +32,35 @@ class ExperimentRunnerTest(unittest.TestCase):
         finally:
             RUNNER.STOP_REQUESTED.clear()
 
+    def test_application_cleanup_reports_verified_idle_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            helper = root / "libexec/quiesce-application.sh"
+            helper.parent.mkdir()
+            helper.write_text("#!/bin/sh\n", encoding="utf-8")
+            with patch.object(RUNNER.subprocess, "run", return_value=RUNNER.subprocess.CompletedProcess(
+                [str(helper)], 0, "Internal-lab application workloads are stopped.\n", ""
+            )) as run:
+                result = RUNNER.quiesce_application(root)
+
+        self.assertEqual({"status": "clean", "application_state": "stopped (0 replicas)"}, result)
+        run.assert_called_once_with([str(helper)], text=True, capture_output=True, check=False)
+
+    def test_application_cleanup_failure_is_terminal_and_not_retried(self) -> None:
+        context: dict = {}
+        failure = {
+            "status": "incomplete",
+            "application_state": "cleanup incomplete",
+            "exit_code": 1,
+            "error": "pods remain",
+        }
+        with patch.object(RUNNER, "quiesce_application", return_value=failure) as cleanup:
+            first = RUNNER.ensure_application_quiesced(context, Path("/opt/ckc-lab"))
+            second = RUNNER.ensure_application_quiesced(context, Path("/opt/ckc-lab"))
+
+        self.assertIs(first, second)
+        cleanup.assert_called_once()
+
     def test_report_only_run_notifies_after_generation_and_skips_archive_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -63,6 +92,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                 patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
                 patch.object(RUNNER, "run_experiment", return_value=completed),
                 patch.object(RUNNER, "generate_experiment_reports", return_value=[report]),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
                 patch.object(RUNNER, "notify") as notify,
                 patch.object(RUNNER, "collect_evidence", side_effect=AssertionError("collection must be skipped")),
                 patch.object(RUNNER, "finalize_artifacts", side_effect=AssertionError("finalization must be skipped")),
@@ -72,8 +102,82 @@ class ExperimentRunnerTest(unittest.TestCase):
             ready = [call for call in notify.call_args_list if call.args[1] == "report_ready"]
             self.assertEqual(1, len(ready))
             self.assertEqual([str(report)], ready[0].args[2]["reports"])
+            events = [call.args[1] for call in notify.call_args_list]
+            self.assertEqual(["report_ready", "experiment_completed"], events)
             summary = next((root / "results").glob("*/summary.json"))
             self.assertEqual(["evidence", "audit"], json.loads(summary.read_text())["archives_skipped"])
+
+    def test_bundle_ready_precedes_terminal_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            experiment_dir = root / "experiments"
+            experiment_dir.mkdir()
+            (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
+            report = root / "reports/comparison/report.md"
+            args = argparse.Namespace(
+                experiments=["comparison"], all=False, env=[], lab_root=str(root),
+                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
+                result_dir=str(root / "results"), prometheus_url="http://prometheus",
+                notify_hook="", skip_archives=False,
+            )
+            completed = {"experiment": "comparison", "targets": [], "exit_code": 0}
+            artifacts = {
+                "root": root / "final",
+                "report": root / "final/report.md",
+                "evidence": root / "final/evidence.tar.gz",
+                "audit": root / "final/audit.tar.gz",
+            }
+            with (
+                patch.object(RUNNER, "parse_args", return_value=args),
+                patch.object(RUNNER, "selected_experiment_env", return_value={}),
+                patch.object(RUNNER, "interactive_global_env", return_value={}),
+                patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
+                patch.object(RUNNER, "run_experiment", return_value=completed),
+                patch.object(RUNNER, "generate_experiment_reports", return_value=[report]),
+                patch.object(RUNNER, "collect_evidence", return_value={"errors": []}),
+                patch.object(RUNNER, "finalize_artifacts", return_value=artifacts),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
+                patch.object(RUNNER, "notify") as notify,
+            ):
+                self.assertEqual(0, RUNNER.main())
+
+            self.assertEqual(
+                ["report_ready", "bundle_ready", "experiment_completed"],
+                [call.args[1] for call in notify.call_args_list],
+            )
+            self.assertEqual(
+                str(artifacts["evidence"]),
+                next(call for call in notify.call_args_list if call.args[1] == "bundle_ready").args[2]["artifacts"]["evidence"],
+            )
+
+    def test_artifact_failure_emits_terminal_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            experiment_dir = root / "experiments"
+            experiment_dir.mkdir()
+            (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
+            args = argparse.Namespace(
+                experiments=["comparison"], all=False, env=[], lab_root=str(root),
+                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
+                result_dir=str(root / "results"), prometheus_url="http://prometheus",
+                notify_hook="", skip_archives=False,
+            )
+            with (
+                patch.object(RUNNER, "parse_args", return_value=args),
+                patch.object(RUNNER, "selected_experiment_env", return_value={}),
+                patch.object(RUNNER, "interactive_global_env", return_value={}),
+                patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
+                patch.object(RUNNER, "run_experiment", return_value={"experiment": "comparison", "targets": [], "exit_code": 0}),
+                patch.object(RUNNER, "generate_experiment_reports", return_value=[root / "report.md"]),
+                patch.object(RUNNER, "collect_evidence", side_effect=RuntimeError("collection failed")),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
+                patch.object(RUNNER, "notify") as notify,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "collection failed"):
+                    RUNNER.main()
+
+            self.assertEqual("experiment_failed", notify.call_args_list[-1].args[1])
+            self.assertEqual("collection failed", notify.call_args_list[-1].args[2]["error"])
 
     def test_generated_deployment_plan_owns_stub_replicas(self) -> None:
         command = RUNNER.command_for_run(
@@ -184,7 +288,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
-                patch.object(RUNNER, "notify"),
+                patch.object(RUNNER, "notify") as notify,
             ):
                 summary = RUNNER.run_experiment(
                     experiment,
@@ -206,6 +310,14 @@ class ExperimentRunnerTest(unittest.TestCase):
             self.assertEqual(4, yaml.safe_load(Path(calls[0]["resolved_test_path"]).read_text())["load_test"]["workers"])
             self.assertEqual(20, yaml.safe_load(Path(calls[1]["resolved_test_path"]).read_text())["load_test"]["workers"])
             self.assertEqual(2, len(summary["target_resolved_tests"]))
+            start = next(call for call in notify.call_args_list if call.args[1] == "experiment_started")
+            self.assertEqual("internal-lab", start.args[2]["environment"]["name"])
+            self.assertEqual("cluster", start.args[2]["kafka"]["topology"])
+            self.assertEqual(["baseline", "ckc"], [target["name"] for target in start.args[2]["targets"]])
+            self.assertEqual(240, start.args[2]["expected_duration_seconds"])
+            events = [call.args[1] for call in notify.call_args_list]
+            self.assertIn("measurements_finished", events)
+            self.assertNotIn("experiment_finished", events)
 
 
 if __name__ == "__main__":

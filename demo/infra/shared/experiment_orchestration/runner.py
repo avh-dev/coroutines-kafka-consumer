@@ -24,6 +24,8 @@ class RunRequest:
     build_images: bool
     internal_lab_host: str
     internal_lab_user: str
+    notify_hook: str
+    telegram_env: Path
 
 
 class EnvironmentAdapter(Protocol):
@@ -56,6 +58,9 @@ class AwsAdapter:
             region,
         ]
         command.append("--build-images" if request.build_images else "--skip-build-images")
+        if request.notify_hook:
+            command.extend(["--notify-hook", request.notify_hook])
+        command.extend(["--telegram-env", str(request.telegram_env)])
         return command
 
 
@@ -71,6 +76,8 @@ class InternalLabAdapter:
         ]
         for value in request.env:
             arguments.extend(["--env", value])
+        if request.notify_hook:
+            arguments.extend(["--notify-hook", request.notify_hook])
         remote = " ".join(shlex.quote(value) for value in arguments)
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"{request.internal_lab_user}@{request.internal_lab_host}", remote]
 
@@ -118,6 +125,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--internal-lab-host")
     parser.add_argument("--internal-lab-user")
     parser.add_argument("--env", action="append", default=[])
+    parser.add_argument("--notify-hook", default="")
+    parser.add_argument("--telegram-env", type=Path, default=Path("~/.config/ckc-lab/telegram.env"))
     images = parser.add_mutually_exclusive_group()
     images.add_argument("--build-images", dest="build_images", action="store_true")
     images.add_argument("--skip-build-images", dest="build_images", action="store_false")
@@ -155,5 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         build_images=bool(args.build_images),
         internal_lab_host=internal_lab_host,
         internal_lab_user=internal_lab_user,
+        notify_hook=args.notify_hook,
+        telegram_env=args.telegram_env.expanduser().resolve(),
     )
     return run(request)
