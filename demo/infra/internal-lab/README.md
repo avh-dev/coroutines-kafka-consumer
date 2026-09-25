@@ -89,6 +89,11 @@ flowchart LR
   application -->|Kafka / Redis / audit| services
 ```
 
+Generated experiment reports use the observed pod-to-node placement. A split
+lab is drawn as separate controller and application-worker hosts, including
+their k3s server/agent boundaries and the configured IP network between them;
+single-host installations retain the compact combined topology.
+
 After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
 service logs under `logs`, and run results under `results`.

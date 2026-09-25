@@ -217,6 +217,41 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         names = workloads.get(role)
         return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
 
+    controller_name = str(environment.get("cluster_name") or (nodes[0].get("name") if nodes else "controller"))
+    application_nodes = [str(value) for value in workloads.get("application", []) if value]
+    worker_names = [name for name in application_nodes if name != controller_name]
+    split_internal_lab = kafka_mode == "docker" and bool(worker_names)
+    hosts = {
+        str(value.get("name")): value
+        for value in environment.get("hosts", [])
+        if isinstance(value, dict) and value.get("name")
+    }
+    nodes_by_name = {str(node.get("name")): node for node in nodes if node.get("name")}
+
+    def host_summary(
+        name: str,
+        fallback_hardware: dict[str, Any] | None = None,
+        *,
+        include_model: bool = True,
+    ) -> str:
+        host = hosts.get(name, {})
+        node = host.get("node") if isinstance(host.get("node"), dict) else nodes_by_name.get(name, {})
+        host_hardware = host.get("hardware") if isinstance(host.get("hardware"), dict) else (fallback_hardware or {})
+        cpu = host_hardware.get("logical_cpus") or node.get("cpu") or node.get("allocatable_cpu")
+        memory_bytes = host_hardware.get("memory_bytes")
+        memory_label = ""
+        if memory_bytes:
+            memory_label = f"{int(memory_bytes) / (1024 ** 3):.0f} GiB RAM"
+        elif match := re.fullmatch(r"(\d+)(Ki|Mi|Gi)", str(node.get("memory") or node.get("allocatable_memory") or "")):
+            memory_gib = int(match.group(1)) * {"Ki": 1 / (1024 * 1024), "Mi": 1 / 1024, "Gi": 1}[match.group(2)]
+            memory_label = f"{memory_gib:.1f} GiB RAM"
+        return " · ".join(part for part in [
+            str(host_hardware.get("cpu_model") or "") if include_model else "",
+            f"{cpu} logical CPUs" if cpu else "",
+            memory_label,
+            str(node.get("os_image") or ""),
+        ] if part)
+
     if kafka_mode != "docker":
         # Managed environments retain distinct Kubernetes and service boundaries.
         body = [
@@ -243,6 +278,88 @@ def environment_topology_svg(report: ExperimentReport) -> str:
             '<line x1="680" y1="170" x2="305" y2="190" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<line x1="305" y1="205" x2="350" y2="205" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<line x1="305" y1="225" x2="680" y2="320" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        ]
+    elif split_internal_lab:
+        width, height = 1200, 900
+        worker_name = worker_names[0]
+        controller_summary = host_summary(controller_name, hardware)
+        worker_host = hosts.get(worker_name, {})
+        worker_hardware = worker_host.get("hardware") if isinstance(worker_host.get("hardware"), dict) else {}
+        worker_model = str(worker_hardware.get("cpu_model") or "")
+        worker_summary = host_summary(worker_name, include_model=False)
+        body = [
+            f'<text class="title" x="30" y="32">Resolved two-host environment · {esc(provider)}</text>',
+            '<rect x="20" y="52" width="760" height="810" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="42" y="80">Controller host · {esc(controller_name)}</text>',
+            f'<text class="muted" x="42" y="100">{esc(controller_summary)}</text>',
+            '<rect x="805" y="52" width="375" height="810" rx="12" fill="#fafafa" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="827" y="80">Application worker · {esc(worker_name)}</text>',
+            f'<text class="muted" x="827" y="100">{esc(worker_model or worker_summary)}</text>',
+            f'<text class="muted" x="827" y="118">{esc(worker_summary)}</text>' if worker_model else '',
+            '<rect x="45" y="130" width="300" height="105" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 61, 148, 30),
+            '<text class="card-title" x="103" y="167">Load generator</text>',
+            f'<text class="muted" x="61" y="198">{esc(java_label("load_generator"))} · host process</text>',
+            f'<text class="muted" x="61" y="217">{esc(str(load_test.get("workers") or "—"))} workers · no CPU/RAM limit</text>',
+            '<rect x="45" y="275" width="300" height="545" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 292, 32),
+            f'<text class="card-title" x="108" y="312">Kubernetes server · {esc(platform)} {esc(version)}</text>',
+            '<text class="muted" x="65" y="338">Control plane and supporting workloads</text>',
+            '<rect x="70" y="380" width="250" height="100" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 86, 397, 30),
+            '<text class="card-title" x="128" y="416">CKC demo stubs</text>',
+            f'<text class="muted" x="86" y="446">{esc(java_label("stubs"))} · {esc(placement("stubs"))}</text>',
+            '<rect x="70" y="520" width="250" height="265" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="88" y="547">Observability inside Kubernetes</text>',
+            service_icon("prometheus", 88, 575, 26),
+            f'<text class="muted" x="122" y="592">{esc(component_title("Prometheus"))} · metrics store</text>',
+            service_icon("alloy", 88, 615, 26),
+            f'<text class="muted" x="122" y="632">{esc(component_title("Grafana Alloy"))} · pod logs</text>',
+            '<text class="muted" x="88" y="682">k3s control plane, stubs and telemetry</text>',
+            f'<text class="muted" x="88" y="704">{esc(placement("producer"))}</text>',
+            '<rect x="380" y="130" width="375" height="690" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
+            service_icon("environment-docker", 400, 147, 32),
+            '<text class="card-title" x="443" y="167">Docker host services</text>',
+            f'<text class="muted" x="400" y="194">Runs on controller · {esc(controller_name)}</text>',
+            '<rect x="405" y="235" width="325" height="105" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            service_icon("apache-kafka", 421, 252, 30),
+            f'<text class="card-title" x="463" y="271">{esc(kafka_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="421" y="300">{esc(kafka_line)}</text>',
+            f'<text class="muted" x="421" y="321">{esc(java_label("kafka"))}</text>',
+            '<rect x="405" y="375" width="325" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            service_icon("redis-service", 421, 392, 30),
+            f'<text class="card-title" x="463" y="411">{esc(redis_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="421" y="442">{esc(redis_line.replace("Docker container · ", ""))}</text>',
+            '<rect x="405" y="505" width="325" height="280" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="423" y="532">Observability inside Docker</text>',
+            service_icon("kafka-exporter", 423, 555, 24),
+            f'<text class="muted" x="454" y="571">{esc(component_title("Kafka exporter"))} · broker metrics</text>',
+            service_icon("process-exporter", 423, 590, 24),
+            f'<text class="muted" x="454" y="606">{esc(component_title("process-exporter"))} · process metrics</text>',
+            service_icon("fluent-bit", 423, 625, 24),
+            f'<text class="muted" x="454" y="641">{esc(component_title("Fluent Bit"))} · audit transport</text>',
+            service_icon("loki", 423, 660, 24),
+            f'<text class="muted" x="454" y="676">{esc(component_title("Loki"))} · log storage</text>',
+            service_icon("grafana", 423, 695, 24),
+            f'<text class="muted" x="454" y="711">{esc(component_title("Grafana"))} · dashboards</text>',
+            '<rect x="830" y="145" width="325" height="675" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 850, 162, 32),
+            f'<text class="card-title" x="893" y="182">Kubernetes agent · {esc(platform)} {esc(version)}</text>',
+            '<text class="muted" x="850" y="209">Application-only worker</text>',
+            '<rect x="855" y="275" width="275" height="145" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 871, 294, 30),
+            '<text class="card-title" x="913" y="313">CKC demo app</text>',
+            f'<text class="muted" x="871" y="346">1 pod per target · {esc(java_label("application"))}</text>',
+            f'<text class="muted" x="871" y="370">{esc(app_requests)}</text>',
+            f'<text class="muted" x="871" y="393">{esc(app_limits)}</text>' if app_limits else '',
+            '<text class="muted" x="850" y="780">No Docker lab services on this host</text>',
+            '<path d="M345 182 H365 V287 H405" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M730 287 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M855 330 H780 V420 H730" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path d="M855 355 H790 V430 H320" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<text class="axis-label" x="792" y="260" text-anchor="middle">Configured IP network</text>',
+            '<text class="muted" x="42" y="846">Controller: orchestration, load generation, dependencies and observability</text>',
+            '<text class="muted" x="1158" y="846" text-anchor="end">Worker: measured application only</text>',
         ]
     else:
         body = [

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import subprocess
@@ -21,6 +22,11 @@ def command_json(arguments: list[str]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def command_text(arguments: list[str]) -> str:
+    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    return result.stdout if result.returncode == 0 else ""
 
 
 def java_version(arguments: list[str]) -> str | None:
@@ -82,8 +88,12 @@ def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[st
     return {"platform": "k3s", "version": server.get("gitVersion")}, nodes, workloads
 
 
-def hardware_evidence() -> dict[str, Any]:
-    lscpu = command_json(["lscpu", "--json"])
+def hardware_evidence(target: str | None = None) -> dict[str, Any]:
+    ssh = (
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", target]
+        if target else []
+    )
+    lscpu = command_json([*ssh, "lscpu --json"] if target else ["lscpu", "--json"])
     fields = {
         str(item.get("field") or "").rstrip(":"): str(item.get("data") or "").strip()
         for item in lscpu.get("lscpu", [])
@@ -91,29 +101,38 @@ def hardware_evidence() -> dict[str, Any]:
     }
     memory_bytes = None
     try:
-        line = next(line for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines() if line.startswith("MemTotal:"))
+        meminfo = command_text([*ssh, "cat /proc/meminfo"]) if target else Path("/proc/meminfo").read_text(encoding="utf-8")
+        line = next(line for line in meminfo.splitlines() if line.startswith("MemTotal:"))
         memory_bytes = int(line.split()[1]) * 1024
     except (FileNotFoundError, StopIteration, IndexError, ValueError):
         pass
     frequency: dict[str, Any] = {}
-    policy_paths = sorted(Path("/sys/devices/system/cpu/cpufreq").glob("policy*"))
+    if target:
+        configured_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq 2>/dev/null"])
+        hardware_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/cpuinfo_max_freq 2>/dev/null"])
+        governor_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/scaling_governor 2>/dev/null"])
+        configured_max = [round(int(value) / 1000) for value in configured_output.split() if value.isdigit()]
+        hardware_max = [round(int(value) / 1000) for value in hardware_output.split() if value.isdigit()]
+        governors = sorted(set(governor_output.split()))
+    else:
+        policy_paths = sorted(Path("/sys/devices/system/cpu/cpufreq").glob("policy*"))
 
-    def frequency_values(name: str) -> list[int]:
-        values = []
-        for policy in policy_paths:
-            try:
-                values.append(round(int((policy / name).read_text(encoding="utf-8").strip()) / 1000))
-            except (FileNotFoundError, ValueError):
-                continue
-        return values
+        def frequency_values(name: str) -> list[int]:
+            values = []
+            for policy in policy_paths:
+                try:
+                    values.append(round(int((policy / name).read_text(encoding="utf-8").strip()) / 1000))
+                except (FileNotFoundError, ValueError):
+                    continue
+            return values
 
-    configured_max = frequency_values("scaling_max_freq")
-    hardware_max = frequency_values("cpuinfo_max_freq")
-    governors = sorted({
-        value
-        for policy in policy_paths
-        if (value := ((policy / "scaling_governor").read_text(encoding="utf-8").strip() if (policy / "scaling_governor").is_file() else ""))
-    })
+        configured_max = frequency_values("scaling_max_freq")
+        hardware_max = frequency_values("cpuinfo_max_freq")
+        governors = sorted({
+            value
+            for policy in policy_paths
+            if (value := ((policy / "scaling_governor").read_text(encoding="utf-8").strip() if (policy / "scaling_governor").is_file() else ""))
+        })
     if configured_max:
         frequency["configured_max_mhz"] = max(configured_max)
     if hardware_max:
@@ -132,6 +151,31 @@ def hardware_evidence() -> dict[str, Any]:
     }
 
 
+def resolved_hosts(
+    controller: str,
+    nodes: list[dict[str, Any]],
+    workloads: dict[str, list[str]],
+    controller_hardware: dict[str, Any],
+) -> list[dict[str, Any]]:
+    nodes_by_name = {str(node.get("name")): node for node in nodes if node.get("name")}
+    hosts = [{
+        "name": controller,
+        "role": "controller",
+        "node": nodes_by_name.get(controller, {}),
+        "hardware": controller_hardware,
+    }]
+    worker_names = sorted(set(workloads.get("application", [])) - {controller})
+    worker_target = os.environ.get("LAB_APPLICATION_TARGET")
+    for worker in worker_names:
+        hosts.append({
+            "name": worker,
+            "role": "application-worker",
+            "node": nodes_by_name.get(worker, {}),
+            "hardware": hardware_evidence(worker_target) if worker_target and len(worker_names) == 1 else {},
+        })
+    return hosts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add resolved internal-lab environment evidence to run metadata")
     parser.add_argument("--metadata", type=Path, required=True)
@@ -141,6 +185,7 @@ def main() -> int:
     kubernetes, nodes, workloads = kubernetes_evidence()
     host = platform.node()
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
+    controller_hardware = hardware_evidence()
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
     topology = str((metadata.get("kafka") or {}).get("topology") or "single")
     kafka_metadata = metadata.get("kafka") or {}
@@ -169,7 +214,8 @@ def main() -> int:
         "cluster_name": host,
         "kubernetes": kubernetes,
         "nodes": nodes,
-        "hardware": hardware_evidence(),
+        "hardware": controller_hardware,
+        "hosts": resolved_hosts(host, nodes, workloads, controller_hardware),
         "java": {key: value for key, value in java.items() if value},
         "workloads": workloads,
         "kafka": {

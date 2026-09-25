@@ -688,6 +688,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("## Results", markdown)
             self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
+
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
             self.assertNotIn('class="status-fail"', markdown)
@@ -991,6 +992,50 @@ class ExperimentReportTest(unittest.TestCase):
                 "run-a-thread-stats-collector.log",
             ):
                 self.assertTrue((report_dir / "raw" / name).is_file())
+
+    def test_environment_topology_separates_the_application_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            metadata_path = root / "results/runs/run-a/run-metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            environment = metadata["environment_evidence"]
+            environment["provider"] = "bare metal"
+            environment["cluster_name"] = "optilab"
+            environment["nodes"].append({
+                "name": "optilab2",
+                "cpu": "6",
+                "memory": "7962564Ki",
+                "allocatable_cpu": "6",
+                "allocatable_memory": "7962564Ki",
+                "architecture": "amd64",
+                "os_image": "Ubuntu 24.04 LTS",
+            })
+            environment["workloads"]["application"] = ["optilab2"]
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+            with patch(
+                "experiment_report.analyze.collect_standard_measurements",
+                return_value={name: None for name in STANDARD_MEASUREMENTS},
+            ):
+                outputs = generate_experiment_reports(
+                    summary_path,
+                    root / "lab",
+                    generated_at=datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc),
+                )
+
+            svg = (outputs[0].parent / "environment-topology.svg").read_text(encoding="utf-8")
+            ET.fromstring(svg)
+            self.assertIn('width="1200"', svg)
+            self.assertIn("Resolved two-host environment", svg)
+            self.assertIn("Controller host · optilab", svg)
+            self.assertIn("Application worker · optilab2", svg)
+            self.assertIn("Docker host services", svg)
+            self.assertIn("Kubernetes server", svg)
+            self.assertIn("Kubernetes agent", svg)
+            self.assertIn("Configured IP network", svg)
+            self.assertIn("Worker: measured application only", svg)
+            self.assertNotIn("All shown components share this physical host", svg)
 
     def test_measurement_sla_uses_standard_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

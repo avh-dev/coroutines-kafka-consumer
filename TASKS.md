@@ -380,7 +380,7 @@
 | [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
 | [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
 | [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
-| [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | IN_PROGRESS |
+| [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4395,3 +4395,5 @@ _Date: 2026-09-25_
 Capture controller and application-worker host facts separately while retaining actual Kubernetes pod placement.
 Render distinct physical-host and Kubernetes boundaries for a two-host internal lab, with Docker and controller workloads on the controller and the demo application on its worker.
 Preserve the existing compact single-host topology and describe the inter-host connection without assuming a direct cable or fixed network speed.
+Environment snapshots now retain per-host roles, Kubernetes node facts, and local or runtime-SSH hardware evidence. The renderer also derives split placement from legacy `nodes` and `workloads` snapshots, so saved two-host experiments can be regenerated without another workload run.
+Verification: 110 internal-lab tests passed with Python compilation, Bash syntax, and whitespace checks. The runtime update synchronized only assets and report code without rebuilding images; real worker evidence identified optilab2 independently. The latest smoke report, lightweight report ZIP, canonical final report, and evidence archive were regenerated from preserved data and all contain separate optilab controller and optilab2 application-worker boundaries connected by a configured IP network. Both application deployments remained at zero replicas.
