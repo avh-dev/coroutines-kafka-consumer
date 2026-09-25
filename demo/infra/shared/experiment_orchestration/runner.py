@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shlex
 import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
+
+import yaml
 
 from .definition import ResolvedExperiment, resolve_experiment_definition
 
@@ -22,6 +23,7 @@ class RunRequest:
     env: tuple[str, ...]
     build_images: bool
     internal_lab_host: str
+    internal_lab_user: str
 
 
 class EnvironmentAdapter(Protocol):
@@ -61,17 +63,16 @@ class InternalLabAdapter:
     name = "internal-lab"
 
     def command(self, request: RunRequest, experiment: ResolvedExperiment) -> list[str]:
-        helper = request.repo_root / "demo/infra/internal-lab/assets/helpers/run-experiment.py"
+        helper = request.lab_root / "helpers/run-experiment.py"
+        installed_experiment = request.lab_root / "experiments" / request.experiment.name
         arguments = [
-            "python3", str(helper), str(request.experiment),
+            "python3", str(helper), str(installed_experiment),
             "--lab-root", str(request.lab_root),
         ]
         for value in request.env:
             arguments.extend(["--env", value])
-        if os.geteuid() == 0:
-            return arguments
         remote = " ".join(shlex.quote(value) for value in arguments)
-        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"root@{request.internal_lab_host}", remote]
+        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"{request.internal_lab_user}@{request.internal_lab_host}", remote]
 
 
 ADAPTERS: dict[str, EnvironmentAdapter] = {
@@ -113,8 +114,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("experiment", type=Path)
     parser.add_argument("--environment", required=True, choices=sorted(ADAPTERS))
     parser.add_argument("--work-dir", type=Path, default=Path(".demo-infra/experiments"))
-    parser.add_argument("--lab-root", type=Path, default=Path("/opt/ckc-lab"))
-    parser.add_argument("--internal-lab-host", default="optilab")
+    parser.add_argument("--lab-root", type=Path)
+    parser.add_argument("--internal-lab-host")
+    parser.add_argument("--internal-lab-user")
     parser.add_argument("--env", action="append", default=[])
     images = parser.add_mutually_exclusive_group()
     images.add_argument("--build-images", dest="build_images", action="store_true")
@@ -129,14 +131,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     experiment = args.experiment.resolve()
     if not experiment.is_file():
         raise FileNotFoundError(f"Experiment was not found: {experiment}")
+    lab_root = args.lab_root or Path("/opt/ckc-lab")
+    internal_lab_host = args.internal_lab_host or "optilab"
+    internal_lab_user = args.internal_lab_user or "ckc-lab"
+    lab_config_path = repo_root / ".demo-infra/internal-lab/lab.yaml"
+    if args.environment == "internal-lab" and lab_config_path.is_file():
+        lab_config = yaml.safe_load(lab_config_path.read_text(encoding="utf-8")) or {}
+        runtime = lab_config.get("runtime") or {}
+        nodes = lab_config.get("nodes") or {}
+        controller = next((node for node in nodes.values() if "controller" in (node.get("roles") or [])), {})
+        lab_root = args.lab_root or Path(runtime.get("root") or "/opt/ckc-lab")
+        internal_lab_user = args.internal_lab_user or str(runtime.get("user") or "ckc-lab")
+        internal_lab_host = args.internal_lab_host or str(controller.get("host") or "optilab")
+        if internal_lab_host == "local":
+            internal_lab_host = "127.0.0.1"
     request = RunRequest(
         repo_root=repo_root,
         experiment=experiment,
         environment=args.environment,
         work_dir=args.work_dir.resolve(),
-        lab_root=args.lab_root,
+        lab_root=lab_root,
         env=tuple(args.env),
         build_images=bool(args.build_images),
-        internal_lab_host=args.internal_lab_host,
+        internal_lab_host=internal_lab_host,
+        internal_lab_user=internal_lab_user,
     )
     return run(request)

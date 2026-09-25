@@ -5,23 +5,49 @@ experiments. Kafka, Redis, VictoriaMetrics, Loki, Grafana, and the audit receive
 remain installed between runs; experiment-owned application and stubs resources
 are generated and replaced for each target.
 
-## Install and update
+## Configure and install
 
-This checkout runs directly on the Linux host `optilab`. Install the lab once:
-
-```bash
-demo/infra/internal-lab/scripts/install-lab.sh
-```
-
-Synchronize shared orchestration, dashboards, reporting, experiments, and changed
-images after repository updates:
+The operator can run the repository on the lab host, on a laptop, or on another
+Linux machine with SSH access to the lab host. Start the setup wizard:
 
 ```bash
-demo/infra/internal-lab/scripts/update-lab.sh
+demo/infra/internal-lab/scripts/lab.sh init
+demo/infra/internal-lab/scripts/lab.sh bootstrap
+demo/infra/internal-lab/scripts/lab.sh up
 ```
 
-The installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
+`init` creates the local, untracked
+`.demo-infra/internal-lab/lab.yaml`. `bootstrap` is the only normally privileged
+phase: it installs Ubuntu packages, Docker and k3s, creates the `ckc-lab` system
+user, installs its SSH key, and prepares `/opt/ckc-lab`. `up` builds and
+synchronizes the lab through `ckc-lab`; it does not SSH as root or install
+packages.
+
+For automation, configuration can be generated without prompts:
+
+```bash
+demo/infra/internal-lab/scripts/lab.sh init --non-interactive \
+  --host optilab \
+  --admin-user alexey \
+  --lab-address 192.168.1.20 \
+  --public-key ~/.ssh/id_ed25519.pub
+```
+
+The configured addresses may use an ordinary home LAN, routed network, or a
+direct cable; no dedicated link or interface name is assumed. The first
+foundation topology is `single-host`. A later topology task adds application
+placement on a second node without changing the bootstrap model.
+
+After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
+installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
 service logs under `logs`, and run results under `results`.
+
+The runtime user belongs to the Docker group and owns the lab files. Its only
+passwordless sudo permission is the exact no-argument image-import helper
+`/usr/local/libexec/ckc-lab/import-k3s-images`; arbitrary `docker`, `k3s`, shell,
+and wildcard sudo rules are deliberately not granted. CPU frequency is not
+changed by bootstrap. Experiment-scoped performance tuning is handled separately
+by the experiment lifecycle.
 
 ## Run an experiment
 
@@ -34,8 +60,8 @@ demo/infra/run-experiment.sh \
   --environment internal-lab
 ```
 
-When the installed result directory requires root access, the shared adapter
-uses one bounded non-interactive SSH command to `root@optilab`. The scripts under
+The shared adapter reads the local lab configuration and uses one bounded
+non-interactive SSH command to `ckc-lab` on the configured controller. The scripts under
 `assets/bin` and `assets/libexec` consume generated target files internally;
 they are not additional workload configuration interfaces.
 
@@ -173,10 +199,11 @@ After shared orchestration, reporting, dashboard, audit, or bundle changes:
 6. verify Kafka exporter metrics and inspect the generated report;
 7. open the produced evidence through the shared offline restore kit.
 
-For a non-interactive privileged smoke run:
+To prepare a non-interactive smoke run (do not launch it as an installation
+check):
 
 ```bash
-ssh -o BatchMode=yes root@optilab \
+ssh -o BatchMode=yes ckc-lab@optilab \
   'LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/run-experiment.sh smoke'
 ```
 

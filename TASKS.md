@@ -371,6 +371,7 @@
 | [INFRA-207](#infra-207) | Draw explicit start-to-end range brackets for every duration event on workload timelines. | DONE |
 | [INFRA-208](#infra-208) | Restore native CPC metrics and expose shared Kafka consumer client observability. | DONE |
 | [INFRA-209](#infra-209) | Refine runtime observability and make the shared Grafana dashboard easier to interpret across environments. | DONE |
+| [INFRA-210](#infra-210) | Introduce configurable bootstrap and a non-root runtime for the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4265,3 +4266,15 @@ Replace noisy per-partition offset-tracker series with aggregate total and maxim
 Visualize CKC offset commit metadata payload size, compression effectiveness, and size-limit utilization in purpose-specific panels.
 Clarify panel and filter semantics, split aggregate and per-pod resources, and improve Redis, Kafka lag, Parallel Consumer, and Thread Stats views.
 Keep one canonical dashboard while materializing only environment-relevant host-service and MSK panels for live labs and evidence bundles.
+
+<a id="infra-210"></a>
+### INFRA-210 - Introduce configurable non-root internal-lab bootstrap
+
+_Date: 2026-09-25_
+
+Replace the root-owned single-host installer state with a validated local lab configuration and an interactive setup path.
+Use one privileged, idempotent bootstrap phase to prepare the host and create a dedicated runtime user.
+Run subsequent synchronization and deployment work through that unprivileged account while retaining the current single-host experiment behavior.
+Keep the configuration model extensible to the planned split application topology without implementing the second node in this task.
+The `lab.sh init/bootstrap/up` workflow now owns setup, the shared experiment runner resolves the installed runtime from the local YAML, and the only passwordless sudo command imports a fixed image archive into k3s.
+Verification: 82 internal-lab tests and three shared-runner tests passed with Python compilation, Bash syntax, and whitespace validation. A clean real bootstrap and two non-root updates completed on optilab; k3s and every persistent service are healthy, arbitrary passwordless sudo is denied, and CPU policy remains dynamic with turbo disabled by firmware.

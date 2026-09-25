@@ -3,6 +3,7 @@
 set -eu
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
+export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 LOG_DIR="${LAB_ROOT}/logs"
 PID_DIR="${LAB_ROOT}/state/pids"

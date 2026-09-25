@@ -127,7 +127,7 @@ def compress_capture(raw_path: Path) -> tuple[Path, str, str]:
 def tcpdump_command(interface: str, snaplen: int, duration: int, destination: str, capture_filter: str) -> list[str]:
     return [
         "timeout", "--preserve-status", "--signal", "INT", "--kill-after", "2s", f"{duration + 1}s",
-        "tcpdump", "-i", interface, "-nn", "-Z", "root", "-s", str(snaplen),
+        "tcpdump", "-i", interface, "-nn", "-s", str(snaplen),
         "-G", str(duration), "-W", "1", "-w", destination,
         *shlex.split(capture_filter),
     ]

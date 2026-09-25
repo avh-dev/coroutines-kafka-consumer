@@ -100,15 +100,15 @@ remote_image_is_current() {
   local service="$1"
   local fingerprint="$2"
 
-  ssh "root@${LAB_HOST}" \
-    "test \"\$(cat '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}' && k3s ctr images list -q | grep -Fxq 'docker.io/ckc-perf/${service}:latest'"
+  ssh "${LAB_TARGET}" \
+    "test \"\$(cat '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
 }
 
 remote_fingerprint_matches() {
   local name="$1"
   local fingerprint="$2"
 
-  ssh "root@${LAB_HOST}" \
+  ssh "${LAB_TARGET}" \
     "test \"\$(cat '${LAB_ROOT}/state/fingerprints/${name}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
 }
 
@@ -120,7 +120,7 @@ remote_paths_exist() {
   for path in "${paths[@]}"; do
     command="${command} test -e '$(printf "%q" "${path}")';"
   done
-  ssh "root@${LAB_HOST}" "${command}"
+  ssh "${LAB_TARGET}" "${command}"
 }
 
 build_thread_stats_agent() {
@@ -160,23 +160,23 @@ record_remote_fingerprint() {
   local name="$1"
   local fingerprint="$2"
 
-  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/state/fingerprints' && printf '%s\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/${name}.fingerprint'"
+  ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/state/fingerprints' && printf '%s\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/${name}.fingerprint'"
 }
 
 sync_internal_lab_assets() {
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
-  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/helpers'"
+  ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/helpers'"
   for helper in "${REPO_ROOT}/demo/infra/internal-lab/assets/helpers/"*.py; do
     sync_file "${helper}" "${LAB_ROOT}/helpers/$(basename "${helper}")"
   done
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/compose" "${LAB_ROOT}/docker/compose"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/k8s" "${LAB_ROOT}/k8s"
-  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/notify'"
+  ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/notify'"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }
 
 sync_runtime_test_assets() {
@@ -194,10 +194,10 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
-  ssh "root@${LAB_HOST}" "mkdir -p '${LAB_ROOT}/grafana/dashboards'"
+  ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/grafana/dashboards'"
   sync_file "${materialized_dashboard}" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
   sync_path "${REPO_ROOT}/demo/infra/shared/grafana/provisioning/dashboards" "${LAB_ROOT}/grafana/provisioning/dashboards"
-  ssh "root@${LAB_HOST}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
+  ssh "${LAB_TARGET}" "rm -rf '${LAB_ROOT}/test-definitions' '${LAB_ROOT}/variants' '${LAB_ROOT}/test-bundles'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -218,13 +218,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -f "${STATE_DIR}/lab.env" ]]; then
-  echo "Lab state was not found. Run demo/infra/internal-lab/scripts/install-lab.sh first." >&2
+LAB_ENV_PATH="${CKC_LAB_ENV:-${STATE_DIR}/lab.env}"
+if [[ ! -f "${LAB_ENV_PATH}" ]]; then
+  echo "Lab state was not found: ${LAB_ENV_PATH}. Run demo/infra/internal-lab/scripts/lab.sh init first." >&2
   exit 1
 fi
 
 # shellcheck disable=SC1091
-source "${STATE_DIR}/lab.env"
+source "${LAB_ENV_PATH}"
 
 LAB_ROOT="${LAB_ROOT:-${DEFAULT_LAB_ROOT}}"
 if [[ "${LAB_ROOT}" = "${LEGACY_LAB_ROOT}" ]]; then
@@ -232,10 +233,13 @@ if [[ "${LAB_ROOT}" = "${LEGACY_LAB_ROOT}" ]]; then
 fi
 LAB_HOST="${LAB_HOST:-}"
 if [[ -z "${LAB_HOST:-}" ]]; then
-  echo "LAB_HOST is missing from ${STATE_DIR}/lab.env. Run demo/infra/internal-lab/scripts/install-lab.sh first." >&2
+  echo "LAB_HOST is missing from ${LAB_ENV_PATH}." >&2
   exit 1
 fi
-LAB_NODE_IP="$(resolve_host_ip "${LAB_HOST}")"
+LAB_SSH_HOST="${LAB_SSH_HOST:-${LAB_HOST}}"
+LAB_USER="${LAB_USER:-ckc-lab}"
+LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"
+LAB_NODE_IP="${LAB_NODE_IP:-$(resolve_host_ip "${LAB_HOST}")}"
 if [[ -z "${LAB_NODE_IP}" ]]; then
   echo "Unable to resolve lab host: ${LAB_HOST}" >&2
   exit 1
@@ -244,17 +248,16 @@ sync_path() {
   local source_path="$1"
   local target_path="$2"
 
-  ssh "root@${LAB_HOST}" "mkdir -p '$(printf "%q" "${target_path}")'"
+  ssh "${LAB_TARGET}" "mkdir -p '$(printf "%q" "${target_path}")'"
 
   if command -v rsync >/dev/null 2>&1; then
-    rsync -az --delete --no-owner --no-group --exclude '__pycache__/' --exclude '*.pyc' "${source_path%/}/" "root@${LAB_HOST}:${target_path%/}/"
-    ssh "root@${LAB_HOST}" "chown -R root:root '$(printf "%q" "${target_path}")'"
+    rsync -az --delete --no-owner --no-group --exclude '__pycache__/' --exclude '*.pyc' "${source_path%/}/" "${LAB_TARGET}:${target_path%/}/"
     return
   fi
 
   echo "rsync was not found; using tar over ssh for ${source_path}."
-  ssh "root@${LAB_HOST}" "rm -rf '$(printf "%q" "${target_path}")' && mkdir -p '$(printf "%q" "${target_path}")'"
-  tar --exclude='__pycache__' --exclude='*.pyc' -C "${source_path}" -cf - . | ssh "root@${LAB_HOST}" "tar --no-same-owner -C '${target_path}' -xf - && chown -R root:root '${target_path}'"
+  ssh "${LAB_TARGET}" "rm -rf '$(printf "%q" "${target_path}")' && mkdir -p '$(printf "%q" "${target_path}")'"
+  tar --exclude='__pycache__' --exclude='*.pyc' -C "${source_path}" -cf - . | ssh "${LAB_TARGET}" "tar --no-same-owner -C '${target_path}' -xf -"
 }
 
 sync_file() {
@@ -263,12 +266,11 @@ sync_file() {
   local target_dir
 
   target_dir="$(dirname "${target_path}")"
-  ssh "root@${LAB_HOST}" "mkdir -p '$(printf "%q" "${target_dir}")'"
-  scp "${source_path}" "root@${LAB_HOST}:${target_path}"
-  ssh "root@${LAB_HOST}" "chown root:root '$(printf "%q" "${target_path}")'"
+  ssh "${LAB_TARGET}" "mkdir -p '$(printf "%q" "${target_dir}")'"
+  scp "${source_path}" "${LAB_TARGET}:${target_path}"
 }
 
-ssh "root@${LAB_HOST}" "
+ssh "${LAB_TARGET}" "
   if [ -f '${LEGACY_LAB_ROOT}/docker/compose/docker-compose.host-services.yml' ]; then
     LAB_ROOT='${LEGACY_LAB_ROOT}' LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' docker compose -p ckc-internal-lab -f '${LEGACY_LAB_ROOT}/docker/compose/docker-compose.host-services.yml' down --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -279,12 +281,15 @@ ssh "root@${LAB_HOST}" "
   rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/workspace' '${LAB_ROOT}/shared' '${LAB_ROOT}/build-context' '${LAB_ROOT}/build' '${LAB_ROOT}/compose' '${LAB_ROOT}/runtime' '${LAB_ROOT}/images' '${LAB_ROOT}/fingerprints' '${LAB_ROOT}/generated' '${LAB_ROOT}/pids' '${LAB_ROOT}/audit' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/docker-compose.host-services.yml' '${LAB_ROOT}/process-exporter.yml' '${LAB_ROOT}/fluent-bit.yaml'
   mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/load-test-runtime' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
 "
-ssh "root@${LAB_HOST}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
+ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
 EOF
-ssh "root@${LAB_HOST}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 && command -v tshark >/dev/null 2>&1 || (export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y python3-yaml tcpdump tshark)"
+if ! ssh "${LAB_TARGET}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 && command -v tshark >/dev/null 2>&1"; then
+  echo "Lab prerequisites are missing on ${LAB_TARGET}; run lab.sh bootstrap before lab.sh up." >&2
+  exit 1
+fi
 
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
@@ -393,7 +398,7 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${LOAD_TEST_RUNTIME_CHANGED}" -eq 1 ]]; then
   sync_path "${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test" "${LAB_ROOT}/load-test-runtime"
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/load-test-runtime/bin/'*"
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/load-test-runtime/bin/'*"
   record_remote_fingerprint "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"
 fi
 if [[ "${THREAD_STATS_AGENT_CHANGED}" -eq 1 ]]; then
@@ -402,17 +407,15 @@ if [[ "${THREAD_STATS_AGENT_CHANGED}" -eq 1 ]]; then
 fi
 
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/docker/build/demo/build/install/ckc-demo/bin/'*"
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/demo/build/install/ckc-demo/bin/'*"
 fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
-  ssh "root@${LAB_HOST}" "chmod +x '${LAB_ROOT}/docker/build/demo-stubs/build/install/ckc-demo-stubs/bin/'*"
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/demo-stubs/build/install/ckc-demo-stubs/bin/'*"
 fi
 if [[ "${BASE_DEPLOY_CHANGED}" -eq 1 ]]; then
-  ssh "root@${LAB_HOST}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
+  ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
   record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
 fi
-
-ssh "root@${LAB_HOST}" "find '${LAB_ROOT}' -mindepth 1 -maxdepth 1 ! -name prometheus -exec chown -R root:root {} +"
 
 REBUILD_ARGS=()
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
@@ -422,16 +425,16 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("demo-stubs=${DEMO_STUBS_FINGERPRINT}")
 fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
-  ssh "root@${LAB_HOST}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
+  ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
-  if ssh "root@${LAB_HOST}" "kubectl -n ckc-perf get deploy ckc-demo >/dev/null 2>&1"; then
-    ssh "root@${LAB_HOST}" "kubectl -n ckc-perf rollout restart deploy/ckc-demo && kubectl -n ckc-perf rollout status deploy/ckc-demo --timeout=240s"
+  if ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy ckc-demo >/dev/null 2>&1"; then
+    ssh "${LAB_TARGET}" "export KUBECONFIG=\"\$HOME/.kube/config\"; kubectl -n ckc-perf rollout restart deploy/ckc-demo && kubectl -n ckc-perf rollout status deploy/ckc-demo --timeout=240s"
     DEMO_DEPLOY_RESTARTED=1
   fi
 fi
-if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] && ssh "root@${LAB_HOST}" "kubectl -n ckc-perf get deploy ckc-demo-stubs >/dev/null 2>&1"; then
-  ssh "root@${LAB_HOST}" "kubectl -n ckc-perf rollout restart deploy/ckc-demo-stubs && kubectl -n ckc-perf rollout status deploy/ckc-demo-stubs --timeout=240s"
+if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] && ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy ckc-demo-stubs >/dev/null 2>&1"; then
+  ssh "${LAB_TARGET}" "export KUBECONFIG=\"\$HOME/.kube/config\"; kubectl -n ckc-perf rollout restart deploy/ckc-demo-stubs && kubectl -n ckc-perf rollout status deploy/ckc-demo-stubs --timeout=240s"
 fi
 
 echo "Internal lab is updated."
