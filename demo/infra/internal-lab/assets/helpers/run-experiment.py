@@ -1071,6 +1071,36 @@ def summary_interrupted(summary: dict[str, Any]) -> bool:
     return any(target.get("interrupted") for target in summary.get("targets", []))
 
 
+def quiesce_application(lab_root: Path) -> dict[str, Any]:
+    helper = lab_root / "libexec/quiesce-application.sh"
+    if not helper.is_file():
+        result = {"status": "incomplete", "application_state": "cleanup helper missing", "error": str(helper)}
+        print(f"Application cleanup failed: {helper} is missing.", file=sys.stderr)
+        return result
+    completed = subprocess.run([str(helper)], text=True, capture_output=True, check=False)
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    if completed.returncode == 0:
+        return {"status": "clean", "application_state": "stopped (0 replicas)"}
+    error = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
+    print(f"Application cleanup failed: {error}", file=sys.stderr)
+    return {
+        "status": "incomplete",
+        "application_state": "cleanup incomplete",
+        "exit_code": completed.returncode,
+        "error": error,
+    }
+
+
+def ensure_application_quiesced(context: dict[str, Any], lab_root: Path) -> dict[str, Any]:
+    cleanup = context.get("application_cleanup")
+    if isinstance(cleanup, dict):
+        return cleanup
+    cleanup = quiesce_application(lab_root)
+    context["application_cleanup"] = cleanup
+    return cleanup
+
+
 def run_main() -> int:
     FAILURE_NOTIFICATION_CONTEXT.clear()
     lifecycle_started = time.monotonic()
@@ -1107,6 +1137,7 @@ def run_main() -> int:
         "experiment": ", ".join(path.stem for path in selected),
         "started": lifecycle_started,
         "terminal_sent": False,
+        "lab_root": lab_root,
     })
     summaries = []
     for experiment_path in selected:
@@ -1115,13 +1146,18 @@ def run_main() -> int:
         if summary_interrupted(summary):
             break
 
+    application_cleanup = ensure_application_quiesced(FAILURE_NOTIFICATION_CONTEXT, lab_root)
+
     summary_path = log_dir / "summary.json"
     document = {
         "experiment_set_id": experiment_set_id,
         "result_dir": str(log_dir),
         "experiments": summaries,
         "exit_code": next((experiment["exit_code"] for experiment in summaries if experiment["exit_code"] != 0), 0),
+        "application_cleanup": application_cleanup,
     }
+    if application_cleanup["status"] != "clean" and document["exit_code"] == 0:
+        document["exit_code"] = 1
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nExperiment summary: {summary_path}")
     reports = []
@@ -1166,6 +1202,8 @@ def run_main() -> int:
                 for summary in summaries
                 for target in summary.get("targets", [])
             ),
+            "application_state": application_cleanup["application_state"],
+            "cleanup_status": application_cleanup["status"],
         }, log_dir)
         FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
         return int(document["exit_code"])
@@ -1225,6 +1263,8 @@ def run_main() -> int:
             for summary in summaries
             for target in summary.get("targets", [])
         ),
+        "application_state": application_cleanup["application_state"],
+        "cleanup_status": application_cleanup["status"],
     }, log_dir)
     FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
     return int(document["exit_code"])
@@ -1236,6 +1276,7 @@ def main() -> int:
     except BaseException as error:
         context = FAILURE_NOTIFICATION_CONTEXT
         if context and not context.get("terminal_sent"):
+            cleanup = ensure_application_quiesced(context, Path(context["lab_root"]))
             notify(
                 context.get("hook"),
                 "experiment_failed",
@@ -1244,6 +1285,8 @@ def main() -> int:
                     "exit_code": 130 if isinstance(error, KeyboardInterrupt) else 1,
                     "elapsed_seconds": time.monotonic() - float(context.get("started") or time.monotonic()),
                     "error": str(error)[:1000],
+                    "application_state": cleanup["application_state"],
+                    "cleanup_status": cleanup["status"],
                 },
                 Path(context["log_dir"]),
             )

@@ -131,6 +131,12 @@ the run and restores the exact previous minimum, maximum, and governor in
 frequency is 2,000,000 kHz; set `runtime.performance_cpu_khz: 0` in `lab.yaml` to
 disable tuning. Turbo state is never modified.
 
+After the final target drains, the runner deletes the application HPA and scales
+both `ckc-demo` and `ckc-demo-stubs` to zero. This cleanup also runs after a
+failed or explicitly stopped experiment and before its terminal notification.
+The Deployment objects remain available for inspection, while Kafka, Redis,
+Prometheus, Loki, and Grafana stay online for result analysis and the next run.
+
 The shared adapter and lifecycle commands read the local lab configuration and
 use bounded non-interactive SSH commands to `ckc-lab` on the configured controller. The scripts under
 `assets/bin` and `assets/libexec` consume generated target files internally;

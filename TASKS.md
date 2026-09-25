@@ -376,7 +376,7 @@
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
 | [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
-| [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | IN_PROGRESS |
+| [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4343,3 +4343,6 @@ _Date: 2026-09-25_
 Scale the demo application and its stubs to zero after the final target has drained.
 Run cleanup after success, failure, managed stop, and artifact-finalization errors while preserving deployment objects for inspection.
 Complete the terminal lifecycle notification only after the idle state is verified.
+The non-root runtime now deletes the application HPA, scales both application deployments to zero, and waits until their pods are gone without stopping persistent dependencies.
+Cleanup is idempotent, runs on normal and exceptional lifecycle paths, affects the final exit status when incomplete, and contributes verified application and cleanup state to the terminal notification.
+Verification: 98 internal-lab tests passed with Python compilation, POSIX shell syntax, and whitespace checks. The helper was installed and exercised on optilab: it reduced `ckc-demo` from two replicas and `ckc-demo-stubs` from one replica to zero, left no workload pods, and retained both Prometheus and log-collector pods. No experiment was launched.

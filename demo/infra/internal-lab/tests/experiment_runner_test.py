@@ -32,6 +32,35 @@ class ExperimentRunnerTest(unittest.TestCase):
         finally:
             RUNNER.STOP_REQUESTED.clear()
 
+    def test_application_cleanup_reports_verified_idle_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            helper = root / "libexec/quiesce-application.sh"
+            helper.parent.mkdir()
+            helper.write_text("#!/bin/sh\n", encoding="utf-8")
+            with patch.object(RUNNER.subprocess, "run", return_value=RUNNER.subprocess.CompletedProcess(
+                [str(helper)], 0, "Internal-lab application workloads are stopped.\n", ""
+            )) as run:
+                result = RUNNER.quiesce_application(root)
+
+        self.assertEqual({"status": "clean", "application_state": "stopped (0 replicas)"}, result)
+        run.assert_called_once_with([str(helper)], text=True, capture_output=True, check=False)
+
+    def test_application_cleanup_failure_is_terminal_and_not_retried(self) -> None:
+        context: dict = {}
+        failure = {
+            "status": "incomplete",
+            "application_state": "cleanup incomplete",
+            "exit_code": 1,
+            "error": "pods remain",
+        }
+        with patch.object(RUNNER, "quiesce_application", return_value=failure) as cleanup:
+            first = RUNNER.ensure_application_quiesced(context, Path("/opt/ckc-lab"))
+            second = RUNNER.ensure_application_quiesced(context, Path("/opt/ckc-lab"))
+
+        self.assertIs(first, second)
+        cleanup.assert_called_once()
+
     def test_report_only_run_notifies_after_generation_and_skips_archive_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -63,6 +92,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                 patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
                 patch.object(RUNNER, "run_experiment", return_value=completed),
                 patch.object(RUNNER, "generate_experiment_reports", return_value=[report]),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
                 patch.object(RUNNER, "notify") as notify,
                 patch.object(RUNNER, "collect_evidence", side_effect=AssertionError("collection must be skipped")),
                 patch.object(RUNNER, "finalize_artifacts", side_effect=AssertionError("finalization must be skipped")),
@@ -106,6 +136,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                 patch.object(RUNNER, "generate_experiment_reports", return_value=[report]),
                 patch.object(RUNNER, "collect_evidence", return_value={"errors": []}),
                 patch.object(RUNNER, "finalize_artifacts", return_value=artifacts),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
                 patch.object(RUNNER, "notify") as notify,
             ):
                 self.assertEqual(0, RUNNER.main())
@@ -139,6 +170,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                 patch.object(RUNNER, "run_experiment", return_value={"experiment": "comparison", "targets": [], "exit_code": 0}),
                 patch.object(RUNNER, "generate_experiment_reports", return_value=[root / "report.md"]),
                 patch.object(RUNNER, "collect_evidence", side_effect=RuntimeError("collection failed")),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}),
                 patch.object(RUNNER, "notify") as notify,
             ):
                 with self.assertRaisesRegex(RuntimeError, "collection failed"):
