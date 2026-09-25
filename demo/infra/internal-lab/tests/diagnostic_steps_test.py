@@ -137,13 +137,23 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertEqual("auto", result["configured_interface"])
         self.assertEqual("eth0", result["command"][result["command"].index("-i") + 1])
 
-    def test_tcpdump_uses_its_duration_rotation_and_keeps_root_identity(self) -> None:
+    def test_host_tcpdump_uses_duration_rotation_without_forcing_an_identity(self) -> None:
         command = diagnostic_runner.tcpdump_command("any", 0, 10, "/captures/test-%s.pcap", "tcp port 9092")
         self.assertIn("-G", command)
         self.assertIn("-W", command)
         self.assertEqual("11s", command[command.index("--kill-after") + 2])
         self.assertNotIn("-Z", command)
         self.assertIn("%s", command[command.index("-w") + 1])
+
+    def test_pod_tcpdump_keeps_root_identity_without_extra_capabilities(self) -> None:
+        step = self.normalize(
+            [{"at": 0, "duration": "5s", "type": "tcpdump", "name": "consumer", "targets": ["application"]}]
+        )[0]
+        with tempfile.TemporaryDirectory() as directory:
+            args = type("Args", (), {"output_dir": directory, "pod_interface": "eth0", "dry_run": True})()
+            result = diagnostic_runner.capture_pod(step, "application", "ckc-perf", "demo-0", "demo", args)
+
+        self.assertEqual("root", result["command"][result["command"].index("-Z") + 1])
 
     def test_disjoint_targets_at_the_same_offset_start_independently(self) -> None:
         steps = self.normalize(
