@@ -1025,6 +1025,7 @@ class ExperimentReportTest(unittest.TestCase):
                         "cpu_model": "Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz",
                         "logical_cpus": "6",
                         "memory_bytes": 8 * 1024 ** 3,
+                        "frequency": {"configured_max_mhz": 2000, "hardware_max_mhz": 2100},
                     },
                 },
             ]
@@ -1052,11 +1053,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Kubernetes agent", svg)
             self.assertIn("i5-8500T CPU @ 2.10GHz", svg)
             self.assertIn("6 logical CPUs · 8 GiB RAM", svg)
+            self.assertEqual(2, svg.count("CPU capped at 2 GHz"))
             self.assertIn("Worker: measured application only", svg)
             self.assertNotIn("No Docker lab services", svg)
             self.assertNotIn("Configured IP network", svg)
-            self.assertIn('M870 390 H795 V445 H730', svg)
-            self.assertIn('M1000 420 V485 H350 V430 H320', svg)
+            self.assertIn('data-flow="load-to-kafka" d="M345 182.5 H362.5 V287.5 H405"', svg)
+            self.assertIn('data-flow="kafka-to-application" d="M730 287.5 H795 V323.3 H870"', svg)
+            self.assertIn('data-flow="application-to-redis" d="M870 371.7 H795 V420 H730"', svg)
+            self.assertIn('data-flow="application-to-stubs" d="M1000 420 V485 H362.5 V430 H320"', svg)
             self.assertNotIn("All shown components share this physical host", svg)
             self.assertIn("whether directly connected or routed through the local network", markdown)
 

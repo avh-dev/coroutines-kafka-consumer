@@ -231,13 +231,13 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     def host_summary(
         name: str,
         fallback_hardware: dict[str, Any] | None = None,
-        *,
-        include_model: bool = True,
-    ) -> str:
+    ) -> tuple[str, str]:
         host = hosts.get(name, {})
         node = host.get("node") if isinstance(host.get("node"), dict) else nodes_by_name.get(name, {})
         host_hardware = host.get("hardware") if isinstance(host.get("hardware"), dict) else (fallback_hardware or {})
         cpu = host_hardware.get("logical_cpus") or node.get("cpu") or node.get("allocatable_cpu")
+        host_frequency = host_hardware.get("frequency") if isinstance(host_hardware.get("frequency"), dict) else {}
+        configured_max_mhz = host_frequency.get("configured_max_mhz")
         memory_bytes = host_hardware.get("memory_bytes")
         memory_label = ""
         if memory_bytes:
@@ -245,12 +245,13 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         elif match := re.fullmatch(r"(\d+)(Ki|Mi|Gi)", str(node.get("memory") or node.get("allocatable_memory") or "")):
             memory_gib = int(match.group(1)) * {"Ki": 1 / (1024 * 1024), "Mi": 1 / 1024, "Gi": 1}[match.group(2)]
             memory_label = f"{memory_gib:.1f} GiB RAM"
-        return " · ".join(part for part in [
-            str(host_hardware.get("cpu_model") or "") if include_model else "",
+        model = str(host_hardware.get("cpu_model") or "")
+        details = " · ".join(part for part in [
             f"{cpu} logical CPUs" if cpu else "",
             memory_label,
-            str(node.get("os_image") or ""),
+            f"CPU capped at {float(configured_max_mhz) / 1000:g} GHz" if configured_max_mhz else "",
         ] if part)
+        return model, details
 
     if kafka_mode != "docker":
         # Managed environments retain distinct Kubernetes and service boundaries.
@@ -282,16 +283,14 @@ def environment_topology_svg(report: ExperimentReport) -> str:
     elif split_internal_lab:
         width, height = 1200, 900
         worker_name = worker_names[0]
-        controller_summary = host_summary(controller_name, hardware)
-        worker_host = hosts.get(worker_name, {})
-        worker_hardware = worker_host.get("hardware") if isinstance(worker_host.get("hardware"), dict) else {}
-        worker_model = str(worker_hardware.get("cpu_model") or "")
-        worker_summary = host_summary(worker_name, include_model=False)
+        controller_model, controller_summary = host_summary(controller_name, hardware)
+        worker_model, worker_summary = host_summary(worker_name)
         body = [
             f'<text class="title" x="30" y="32">Resolved two-host environment · {esc(provider)}</text>',
             '<rect x="20" y="52" width="750" height="810" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="42" y="80">Controller host · {esc(controller_name)}</text>',
-            f'<text class="muted" x="42" y="100">{esc(controller_summary)}</text>',
+            f'<text class="muted" x="42" y="100">{esc(controller_model or controller_summary)}</text>',
+            f'<text class="muted" x="42" y="118">{esc(controller_summary)}</text>' if controller_model else '',
             '<rect x="820" y="52" width="360" height="810" rx="12" fill="#fafafa" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="842" y="80">Application worker · {esc(worker_name)}</text>',
             f'<text class="muted" x="842" y="100">{esc(worker_model or worker_summary)}</text>',
@@ -352,10 +351,10 @@ def environment_topology_svg(report: ExperimentReport) -> str:
             f'<text class="muted" x="886" y="346">1 pod per target · {esc(java_label("application"))}</text>',
             f'<text class="muted" x="886" y="370">{esc(app_requests)}</text>',
             f'<text class="muted" x="886" y="393">{esc(app_limits)}</text>' if app_limits else '',
-            '<path d="M345 182 H365 V287 H405" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M730 287 H870" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M870 390 H795 V445 H730" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M1000 420 V485 H350 V430 H320" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="load-to-kafka" d="M345 182.5 H362.5 V287.5 H405" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="kafka-to-application" d="M730 287.5 H795 V323.3 H870" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-redis" d="M870 371.7 H795 V420 H730" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-stubs" d="M1000 420 V485 H362.5 V430 H320" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<text class="muted" x="42" y="846">Controller: orchestration, load generation, dependencies and observability</text>',
             '<text class="muted" x="1158" y="846" text-anchor="end">Worker: measured application only</text>',
         ]
