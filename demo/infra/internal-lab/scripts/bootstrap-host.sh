@@ -143,7 +143,7 @@ K3S_NETWORK_CONFIG_CHANGED=false
 FLANNEL_INTERFACE=""
 if [[ -n "${NETWORK_PEER_ADDRESS}" ]]; then
   route="$(ip -o route get "${NETWORK_PEER_ADDRESS}" 2>/dev/null | head -n 1)"
-  FLANNEL_INTERFACE="$(awk '{for (index = 1; index <= NF; index++) if ($index == "dev") {print $(index + 1); exit}}' <<<"${route}")"
+  FLANNEL_INTERFACE="$(awk '{for (field = 1; field <= NF; field++) if ($field == "dev") {print $(field + 1); exit}}' <<<"${route}")"
   if [[ -z "${FLANNEL_INTERFACE}" || ! "${FLANNEL_INTERFACE}" =~ ^[A-Za-z0-9_.:-]+$ ]] || ! ip link show "${FLANNEL_INTERFACE}" >/dev/null 2>&1; then
     echo "Unable to resolve the network interface used to reach ${NETWORK_PEER_ADDRESS}." >&2
     exit 1

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -138,6 +139,19 @@ nodes:
         self.assertIn("ethtool", script)
         self.assertIn("flannel-iface:", script)
         self.assertIn('ip -o route get "${NETWORK_PEER_ADDRESS}"', script)
+
+    def test_bootstrap_route_parser_extracts_interface_with_ubuntu_awk(self) -> None:
+        route = "10.10.20.3 dev eno1 src 10.10.20.2 uid 0 cache\n"
+        parser = (
+            "{for (field = 1; field <= NF; field++) "
+            'if ($field == "dev") {print $(field + 1); exit}}'
+        )
+
+        result = subprocess.run(
+            ["awk", parser], input=route, text=True, capture_output=True, check=True,
+        )
+
+        self.assertEqual("eno1", result.stdout.strip())
 
     @mock.patch.object(LAB, "capture")
     @mock.patch.object(LAB, "run")
