@@ -49,6 +49,7 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertNotIn("internal-lab/workloads", script)
         self.assertIn("demo/infra/shared/result_bundle", script)
         self.assertIn("demo/infra/shared/experiment_notifications", script)
+        self.assertIn("demo/infra/shared/kafka_warmup", script)
 
     def test_materializes_the_shared_dashboard_for_internal_lab(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")

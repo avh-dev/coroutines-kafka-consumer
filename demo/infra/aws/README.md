@@ -97,6 +97,14 @@ are sent only after their corresponding phase has finished; the terminal event
 also reports verified AWS cleanup state. Use `--telegram-env PATH` to select a
 different local secret file or `--notify-hook PATH` to provide another hook.
 
+Every AWS session provisions a new Kafka runtime, so the controller runs the
+same fixed three-minute, 10,000 records/s warm-up once after `create-lab` and
+before the first target. It sends one warm-up-start notification and creates one
+Grafana start annotation; there is deliberately no warm-up-end annotation
+because the next target-start annotation supplies that boundary. After warm-up,
+the runner starts a fresh VictoriaMetrics store, keeping warm-up samples out of
+the downloaded evidence archive while retaining the Grafana annotation.
+
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
 20-minute CKC definition deliberately runs the processing dispatcher on one

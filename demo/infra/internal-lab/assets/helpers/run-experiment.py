@@ -704,6 +704,9 @@ def run_one(
     env.setdefault("EXPERIMENT_TARGET_INDEX", str(index))
     env.setdefault("EXPERIMENT_TARGET_TOTAL", str(total))
     env.setdefault("EXPERIMENT_RUN_ANNOTATION_LABEL", str(test.get("run_annotation_label") or name))
+    if hook is not None:
+        env.setdefault("CKC_NOTIFY_HOOK", str(hook))
+        env.setdefault("CKC_NOTIFICATION_DIR", str(log_dir / "notifications"))
     command = command_for_run(run_test, test, resolved_test_path, env)
     expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
@@ -723,7 +726,7 @@ def run_one(
         stdin=subprocess.DEVNULL,
         text=True,
         bufsize=1,
-        env={**os.environ, "LAB_ROOT": str(lab_root)},
+        env={**os.environ, **env, "LAB_ROOT": str(lab_root)},
     )
     output: queue.Queue[str] = queue.Queue()
     stop_queue: queue.Queue[str] = queue.Queue()

@@ -203,6 +203,7 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_notifications" "${LAB_ROOT}/helpers/experiment_notifications"
+  sync_path "${REPO_ROOT}/demo/infra/shared/kafka_warmup" "${LAB_ROOT}/helpers/kafka_warmup"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"

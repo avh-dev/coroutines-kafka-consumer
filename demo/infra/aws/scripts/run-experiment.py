@@ -572,6 +572,52 @@ class SessionController:
             "environment": {"name": "aws", "detail": config["region"]},
         })
 
+    def warm_kafka(self) -> None:
+        config = self.config
+        environment = config["aws_environment"]
+        context_path = f"/opt/ckc-runner/config/load-lab-{environment}.json"
+        reason = "new disposable AWS Kafka runtime"
+        payload = {
+            "experiment": config["experiment_name"],
+            "duration_seconds": 180,
+            "rate": 10_000,
+            "record_size_bytes": 1024,
+            "partitions": 12,
+            "replication_factor": config["kafka"]["replication_factor"],
+            "reason": reason,
+        }
+        self.phase("WARMING_KAFKA")
+        self.notify("kafka_warmup_started", payload)
+        command = "\n".join([
+            "set -euo pipefail",
+            "python3 - <<'PY'",
+            "import json",
+            "import subprocess",
+            "from pathlib import Path",
+            f"context = json.loads(Path({context_path!r}).read_text(encoding='utf-8'))",
+            "subprocess.run([",
+            "    'python3', '/opt/ckc-runner/assets/repo/demo/infra/shared/kafka_warmup/run.py',",
+            "    '--backend', 'kubernetes',",
+            "    '--bootstrap-server', str(context['kafka_bootstrap']),",
+            "    '--replication-factor', str(context['kafka_topic_replication_factor']),",
+            f"    '--reason', {reason!r},",
+            f"    '--experiment', {config['experiment_name']!r},",
+            "    '--log-file', '/opt/ckc-runner/logs/kafka-warmup.log',",
+            "    '--grafana-url', 'http://127.0.0.1:3000',",
+            "    '--namespace', 'ckc-loadtest',",
+            "    '--kubeconfig', str(context['kubeconfig_path']),",
+            "], check=True)",
+            "PY",
+            "docker stop --time 30 prometheus >/dev/null",
+            "find /opt/ckc-runner/prometheus -mindepth 1 -delete",
+            "docker start prometheus >/dev/null",
+            "for attempt in $(seq 1 60); do curl -fsS http://127.0.0.1:8428/health >/dev/null && break; sleep 1; done",
+            "curl -fsS http://127.0.0.1:8428/health >/dev/null",
+        ])
+        self.ssm(command, "warm new AWS Kafka runtime", 900)
+        self.state["kafka_warmup"] = {**payload, "status": "completed", "completed_at": utc_text()}
+        self.save()
+
     def collect(self) -> None:
         config = self.config
         targets = self.state.get("target_results") or config.get("targets") or []
@@ -1205,6 +1251,9 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         "implementation": "apache-kafka",
         "topology": "cluster" if kafka_brokers and int(kafka_brokers) > 1 else "single",
         "brokers": kafka_brokers,
+        "replication_factor": int(
+            kafka_lab.get("replication_factor") or min(3, int(kafka_brokers or 1))
+        ),
         "mode": kafka_lab.get("mode"),
     }
     return {
@@ -1329,6 +1378,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, terminate)
     try:
         controller.create(args.build_images)
+        controller.warm_kafka()
         try:
             controller.execute_test()
         except BaseException as error:

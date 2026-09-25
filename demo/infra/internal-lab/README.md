@@ -190,6 +190,16 @@ The installed lab currently accepts exactly one broker for `single` and three
 brokers for `cluster`; replication cannot exceed that broker count, and minimum
 ISR cannot exceed replication. Memory and heap values use `Mi` or `Gi`.
 
+The runner records the IDs and actual start times of the selected broker
+containers. When Apache Kafka is created, replaced, or found to have restarted
+since the previous target, it runs one fixed three-minute warm-up at 10,000
+records/s before deploying the measured workload. A normal topic reset between
+targets does not repeat the warm-up. Telegram receives one warm-up-start event,
+and Grafana receives one start annotation; the following target-start annotation
+is the end boundary, so no separate warm-up-end annotation is created. Warm-up
+traffic remains visible in the live lab dashboard but is outside the exported
+measurement window and is not included in the evidence metrics.
+
 The legacy `kafka_topology: single|cluster` field and the one-off
 `--kafka-topology` flag remain available, but canonical experiments should own
 the complete fixed Kafka setting above. Use separate experiment files when Kafka

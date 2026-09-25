@@ -377,7 +377,7 @@
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
 | [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
 | [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
-| [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | IN_PROGRESS |
+| [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4356,3 +4356,6 @@ _Date: 2026-09-25_
 Detect actual broker creation or replacement instead of warming Kafka before every internal-lab target.
 Run one fixed three-minute producer-and-consumer workload after redeployment, notify Telegram once, and mark only its start in live Grafana.
 Keep warm-up logs, topics, identities, and metrics outside the measured run evidence; warm every newly provisioned AWS Kafka runtime once.
+The shared warm-up now drives 1,800,000 one-kilobyte records at 10,000 records/s through a temporary 12-partition topic, cleans its topic and group, and emits only a start notification and annotation.
+Internal-lab fingerprints the selected containers by identity and actual start time, so stable target resets skip warm-up while creation, topology replacement, and out-of-band restarts trigger it once. AWS warms every disposable Kafka runtime, then starts a fresh VictoriaMetrics store so warm-up samples cannot enter the evidence archive.
+Measurement metrics now begin exactly at workload start while Loki retains the earlier orchestration and application-startup window. Verification: 101 internal-lab tests, 32 AWS tests, and six focused shared warm-up/result-window tests passed with Python compilation, shell syntax, and whitespace checks. The updated runtime was installed on optilab without rebuilding images; its helper and reset script were verified, both application deployments remain at zero, and no experiment was launched.
