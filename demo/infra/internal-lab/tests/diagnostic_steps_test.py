@@ -142,7 +142,7 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertIn("-G", command)
         self.assertIn("-W", command)
         self.assertEqual("11s", command[command.index("--kill-after") + 2])
-        self.assertEqual("root", command[command.index("-Z") + 1])
+        self.assertNotIn("-Z", command)
         self.assertIn("%s", command[command.index("-w") + 1])
 
     def test_disjoint_targets_at_the_same_offset_start_independently(self) -> None:

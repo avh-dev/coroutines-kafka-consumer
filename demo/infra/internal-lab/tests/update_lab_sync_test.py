@@ -5,19 +5,22 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/update-lab.sh"
-INSTALL_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/install-lab.sh"
 RUN_TEST = Path(__file__).resolve().parents[1] / "assets/bin/run-test.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
     def test_lab_entrypoints_install_thread_stats_starter_and_agent(self) -> None:
-        for script_path in (SCRIPT, INSTALL_SCRIPT):
-            script = script_path.read_text(encoding="utf-8")
-            self.assertIn(
-                "-pl thread-stats-agent,thread-stats-spring-boot-starter",
-                script,
-            )
-            self.assertIn("-am install", script)
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("-pl thread-stats-agent,thread-stats-spring-boot-starter", script)
+        self.assertIn("-am install", script)
+
+    def test_update_uses_runtime_user_and_no_privileged_package_install(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"', script)
+        self.assertNotIn('ssh "root@', script)
+        self.assertNotIn("apt-get", script)
+        self.assertNotIn("chown", script)
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")

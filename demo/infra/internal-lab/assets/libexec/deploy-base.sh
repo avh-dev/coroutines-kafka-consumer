@@ -13,7 +13,7 @@ K8S_DIR="${K8S_DIR:-${LAB_ROOT}/k8s}"
 COMPOSE_DIR="${COMPOSE_DIR:-${LAB_ROOT}/docker/compose}"
 GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
 GENERATED_DIR="${LAB_ROOT}/state/generated"
-export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
 KAFKA_THREAD_STATS_JOB="ckc-kafka-thread-stats"
 LOAD_TEST_METRICS_JOB="ckc-load-test"
@@ -78,8 +78,6 @@ restart_prometheus() {
 mkdir -p "${GENERATED_DIR}"
 mkdir -p "${LAB_ROOT}/prometheus"
 mkdir -p "${LAB_ROOT}/loki"
-chown -R 65534:65534 "${LAB_ROOT}/prometheus"
-chown -R 10001:10001 "${LAB_ROOT}/loki"
 
 sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
   "${K8S_DIR}/external-services.yaml.tpl" \

@@ -45,7 +45,7 @@ done
 
 # shellcheck disable=SC2086
 docker save ${image_names} -o "${image_tar}"
-k3s ctr images import "${image_tar}"
+sudo -n /usr/local/libexec/ckc-lab/import-k3s-images "${image_tar}"
 rm -f "${image_tar}"
 
 for request in "$@"; do
@@ -55,5 +55,4 @@ for request in "$@"; do
 done
 
 docker image ls 'ckc-perf/*'
-k3s ctr images list | grep -E 'ckc-perf/(demo|demo-stubs)'
 echo "Requested lab images were rebuilt and loaded into k3s."
