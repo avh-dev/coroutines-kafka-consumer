@@ -1029,6 +1029,13 @@ class ExperimentReportTest(unittest.TestCase):
                     },
                 },
             ]
+            environment["inter_host_link"] = {
+                "type": "direct",
+                "medium": "ethernet",
+                "speed_mbps": 1000,
+                "duplex": "full",
+                "on_link": True,
+            }
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
             with patch(
@@ -1062,7 +1069,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-flow="application-to-redis" d="M870 371.7 H795 V420 H730"', svg)
             self.assertIn('data-flow="application-to-stubs" d="M1000 420 V485 H362.5 V430 H320"', svg)
             self.assertNotIn("All shown components share this physical host", svg)
-            self.assertIn("whether directly connected or routed through the local network", markdown)
+            self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
 
     def test_measurement_sla_uses_standard_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,6 +177,63 @@ def resolved_hosts(
     return hosts
 
 
+def link_endpoint(destination: str, target: str | None = None) -> dict[str, Any]:
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", destination):
+        return {}
+    ssh = (
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", target]
+        if target else []
+    )
+    route_command = f"ip -json route get {shlex.quote(destination)}"
+    route_output = command_text([*ssh, route_command] if target else ["ip", "-json", "route", "get", destination])
+    try:
+        route_document = json.loads(route_output)
+    except json.JSONDecodeError:
+        route_document = []
+    routes = route_document if isinstance(route_document, list) else []
+    route = routes[0] if routes and isinstance(routes[0], dict) else {}
+    interface = str(route.get("dev") or "")
+    if not interface or not re.fullmatch(r"[A-Za-z0-9_.:-]+", interface):
+        return {}
+    ethtool_command = f"ethtool {shlex.quote(interface)}"
+    ethtool = command_text([*ssh, ethtool_command] if target else ["ethtool", interface])
+    speed_match = re.search(r"^\s*Speed:\s*(\d+)Mb/s\s*$", ethtool, re.MULTILINE)
+    duplex_match = re.search(r"^\s*Duplex:\s*(\S+)\s*$", ethtool, re.MULTILINE)
+    link_match = re.search(r"^\s*Link detected:\s*(yes|no)\s*$", ethtool, re.MULTILINE | re.IGNORECASE)
+    return {
+        "interface": interface,
+        "source_address": route.get("prefsrc"),
+        "destination_address": destination,
+        "gateway": route.get("gateway"),
+        "on_link": not bool(route.get("gateway")),
+        "speed_mbps": int(speed_match.group(1)) if speed_match else None,
+        "duplex": duplex_match.group(1).lower() if duplex_match else None,
+        "link_detected": link_match.group(1).lower() == "yes" if link_match else None,
+    }
+
+
+def inter_host_link_evidence() -> dict[str, Any]:
+    controller_address = os.environ.get("LAB_NODE_IP", "")
+    worker_address = os.environ.get("LAB_APPLICATION_HOST", "")
+    worker_target = os.environ.get("LAB_APPLICATION_TARGET", "")
+    if not controller_address or not worker_address or not worker_target:
+        return {}
+    endpoints = [
+        link_endpoint(worker_address),
+        link_endpoint(controller_address, worker_target),
+    ]
+    speeds = [int(endpoint["speed_mbps"]) for endpoint in endpoints if endpoint.get("speed_mbps")]
+    duplexes = {str(endpoint["duplex"]) for endpoint in endpoints if endpoint.get("duplex")}
+    return {
+        "type": os.environ.get("LAB_APPLICATION_LINK", "lan"),
+        "medium": "ethernet",
+        "speed_mbps": min(speeds) if speeds else None,
+        "duplex": next(iter(duplexes)) if len(duplexes) == 1 else None,
+        "on_link": bool(endpoints) and all(endpoint.get("on_link") for endpoint in endpoints),
+        "endpoints": endpoints,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add resolved internal-lab environment evidence to run metadata")
     parser.add_argument("--metadata", type=Path, required=True)
@@ -216,6 +274,7 @@ def main() -> int:
         "nodes": nodes,
         "hardware": controller_hardware,
         "hosts": resolved_hosts(host, nodes, workloads, controller_hardware),
+        "inter_host_link": inter_host_link_evidence(),
         "java": {key: value for key, value in java.items() if value},
         "workloads": workloads,
         "kafka": {
