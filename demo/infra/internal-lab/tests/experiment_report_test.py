@@ -688,6 +688,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("## Results", markdown)
             self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
+
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
             self.assertNotIn('class="status-fail"', markdown)
@@ -991,6 +992,87 @@ class ExperimentReportTest(unittest.TestCase):
                 "run-a-thread-stats-collector.log",
             ):
                 self.assertTrue((report_dir / "raw" / name).is_file())
+
+    def test_environment_topology_separates_the_application_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            metadata_path = root / "results/runs/run-a/run-metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            environment = metadata["environment_evidence"]
+            environment["provider"] = "bare metal"
+            environment["cluster_name"] = "optilab"
+            environment["nodes"].append({
+                "name": "optilab2",
+                "cpu": "6",
+                "memory": "7962564Ki",
+                "allocatable_cpu": "6",
+                "allocatable_memory": "7962564Ki",
+                "architecture": "amd64",
+                "os_image": "Ubuntu 24.04 LTS",
+            })
+            environment["workloads"]["application"] = ["optilab2"]
+            environment["hosts"] = [
+                {
+                    "name": "optilab",
+                    "role": "controller",
+                    "hardware": environment["hardware"],
+                },
+                {
+                    "name": "optilab2",
+                    "role": "application-worker",
+                    "hardware": {
+                        "cpu_model": "Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz",
+                        "logical_cpus": "6",
+                        "memory_bytes": 8 * 1024 ** 3,
+                        "frequency": {"configured_max_mhz": 2000, "hardware_max_mhz": 2100},
+                    },
+                },
+            ]
+            environment["inter_host_link"] = {
+                "type": "direct",
+                "medium": "ethernet",
+                "speed_mbps": 1000,
+                "duplex": "full",
+                "on_link": True,
+            }
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+            with patch(
+                "experiment_report.analyze.collect_standard_measurements",
+                return_value={name: None for name in STANDARD_MEASUREMENTS},
+            ):
+                outputs = generate_experiment_reports(
+                    summary_path,
+                    root / "lab",
+                    generated_at=datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc),
+                )
+
+            svg = (outputs[0].parent / "environment-topology.svg").read_text(encoding="utf-8")
+            markdown = outputs[0].read_text(encoding="utf-8")
+            ET.fromstring(svg)
+            self.assertIn('width="1200"', svg)
+            self.assertIn("Resolved two-host environment", svg)
+            self.assertIn("Controller host · optilab", svg)
+            self.assertIn("Application worker · optilab2", svg)
+            self.assertIn("Docker host services", svg)
+            self.assertIn("Kubernetes server", svg)
+            self.assertIn("Kubernetes agent", svg)
+            self.assertIn("i5-8500T CPU @ 2.10GHz", svg)
+            self.assertIn("6 logical CPUs · 8 GiB RAM", svg)
+            self.assertEqual(2, svg.count("CPU capped at 2 GHz"))
+            self.assertIn("Worker: measured application only", svg)
+            self.assertNotIn("No Docker lab services", svg)
+            self.assertNotIn("Configured IP network", svg)
+            self.assertIn('<rect x="45" y="145" width="300" height="105"', svg)
+            self.assertIn('<rect x="370" y="145" width="375" height="675"', svg)
+            self.assertIn('<rect x="395" y="520" width="325" height="275"', svg)
+            self.assertIn('data-flow="load-to-kafka" d="M345 197.5 H357.5 V302.5 H395"', svg)
+            self.assertIn('data-flow="kafka-to-application" d="M720 302.5 H795 V323.3 H870"', svg)
+            self.assertIn('data-flow="application-to-redis" d="M870 371.7 H795 V435 H720"', svg)
+            self.assertIn('data-flow="application-to-stubs" d="M1000 420 V500 H357.5 V430 H320"', svg)
+            self.assertNotIn("All shown components share this physical host", svg)
+            self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
 
     def test_measurement_sla_uses_standard_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

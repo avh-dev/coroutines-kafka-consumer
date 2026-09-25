@@ -88,7 +88,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y \
-  ca-certificates curl gnupg iproute2 iptables lsb-release \
+  ca-certificates curl ethtool gnupg iproute2 iptables lsb-release \
   linux-tools-common linux-tools-generic openssh-server
 
 if [[ "${NODE_ROLE}" == "server" ]]; then

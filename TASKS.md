@@ -380,6 +380,7 @@
 | [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
 | [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
 | [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
+| [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4385,3 +4386,18 @@ Keep changed experiment and runtime synchronization delta-based for remote opera
 The update now reuses local Maven snapshot artifacts, falls back to normal Gradle repository resolution for the agent, skips unchanged Telegram credentials, and uses rsync for changed files when available.
 Fingerprint ordering is fixed to the C locale; installations written by the initial locale-dependent implementation migrate their metadata without rebuilding or transferring artifacts.
 Verification: 107 internal-lab tests, Bash and Python syntax checks, Gradle agent staging and demo compilation, and whitespace checks passed. A real optilab update completed without building Thread Stats; the existing `en_US.UTF-8` fingerprint migrated without a Docker rebuild, and immediate unchanged runs under both `en_US.UTF-8` and `C` transferred no files and completed in 0.83 and 0.81 seconds. Both application deployments remained at zero replicas afterward.
+
+<a id="infra-219"></a>
+### INFRA-219 - Render the two-host internal-lab report topology
+
+_Date: 2026-09-25_
+
+Capture controller and application-worker host facts separately while retaining actual Kubernetes pod placement.
+Render distinct physical-host and Kubernetes boundaries for a two-host internal lab, with Docker and controller workloads on the controller and the demo application on its worker.
+Preserve the existing compact single-host topology and describe the inter-host connection without assuming a direct cable or fixed network speed.
+Environment snapshots now retain per-host roles, Kubernetes node facts, and local or runtime-SSH hardware evidence. The renderer also derives split placement from legacy `nodes` and `workloads` snapshots, so saved two-host experiments can be regenerated without another workload run.
+The final layout reports each host's actual processor and memory, keeps network explanation in concise report prose, and routes application traffic to Kafka, Redis, and stubs through separate clear corridors without overlapping service cards or host borders.
+Connector attachment is geometry-driven: a lone edge connection is centered, two connections divide the edge into thirds, and vertical runs between adjacent rectangles use the centerline of the available gap. Both host headers state the 2 GHz CPU cap applied during measurement.
+Host boundaries, sibling columns, and nested service groups use a consistent 25 px inset and gap. Controller content now begins at the same distance below its hardware summary as worker content, eliminating the cramped header and asymmetric right edge.
+The lab configuration distinguishes a direct application link from an ordinary LAN, while evidence discovers the actual route, endpoint interfaces, negotiated speed, duplex, and link state. The optilab report therefore identifies its direct 1 Gbit/s full-duplex Ethernet connection instead of presenting generic alternatives.
+Verification: 111 internal-lab tests passed with Python compilation, Bash syntax, and whitespace checks. The runtime update synchronized only assets and report code without rebuilding images; real worker evidence identified optilab2 independently and measured `eno1`/`enp1s0` as on-link 1,000 Mbit/s full-duplex endpoints. The latest smoke report, lightweight report ZIP, canonical final report, and evidence archive were regenerated from preserved data and contain the refined two-host topology, including the optilab2 Intel i5-8500T and 8 GiB RAM. Both application deployments remained at zero replicas.

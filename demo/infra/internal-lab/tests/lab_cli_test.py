@@ -46,6 +46,8 @@ class LabCliTest(unittest.TestCase):
         path.write_text(
             f"""version: 1
 topology: {topology}
+network:
+  application_link: {"direct" if topology == "split-application" else "local"}
 operator:
   public_key: {self.public_key}
 runtime:
@@ -77,6 +79,7 @@ nodes:
         self.assertTrue(config.split)
         self.assertEqual("198.51.100.11", config.application.lab_address)
         self.assertEqual("app-node", config.application.k3s_name)
+        self.assertEqual("direct", config.application_link)
 
     def test_rejects_unknown_topology(self) -> None:
         with self.assertRaisesRegex(ValueError, "single-host or split-application"):
@@ -99,6 +102,7 @@ nodes:
         self.assertIn("LAB_APPLICATION_TARGET=ckc-lab@198.51.100.11", environment)
         self.assertIn("LAB_APPLICATION_NODE_SELECTOR=ckc.dev/role=application", environment)
         self.assertIn("LAB_CONTROLLER_NODE_SELECTOR=ckc.dev/role=controller", environment)
+        self.assertIn("LAB_APPLICATION_LINK=direct", environment)
 
     def test_split_bootstrap_uses_server_and_agent_roles(self) -> None:
         config = LAB.load_config(self.write_config(topology="split-application"))
@@ -129,6 +133,7 @@ nodes:
         self.assertIn('usermod -aG docker "${RUNTIME_USER}"', script)
         self.assertIn('K3S_URL="https://${SERVER_ADDRESS}:6443"', script)
         self.assertIn("ckc.dev/role=application", script)
+        self.assertIn("ethtool", script)
 
     @mock.patch.object(LAB, "capture")
     @mock.patch.object(LAB, "run")

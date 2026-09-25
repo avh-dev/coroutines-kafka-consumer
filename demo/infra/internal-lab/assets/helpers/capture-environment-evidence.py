@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +23,11 @@ def command_json(arguments: list[str]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def command_text(arguments: list[str]) -> str:
+    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    return result.stdout if result.returncode == 0 else ""
 
 
 def java_version(arguments: list[str]) -> str | None:
@@ -82,8 +89,12 @@ def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[st
     return {"platform": "k3s", "version": server.get("gitVersion")}, nodes, workloads
 
 
-def hardware_evidence() -> dict[str, Any]:
-    lscpu = command_json(["lscpu", "--json"])
+def hardware_evidence(target: str | None = None) -> dict[str, Any]:
+    ssh = (
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", target]
+        if target else []
+    )
+    lscpu = command_json([*ssh, "lscpu --json"] if target else ["lscpu", "--json"])
     fields = {
         str(item.get("field") or "").rstrip(":"): str(item.get("data") or "").strip()
         for item in lscpu.get("lscpu", [])
@@ -91,29 +102,38 @@ def hardware_evidence() -> dict[str, Any]:
     }
     memory_bytes = None
     try:
-        line = next(line for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines() if line.startswith("MemTotal:"))
+        meminfo = command_text([*ssh, "cat /proc/meminfo"]) if target else Path("/proc/meminfo").read_text(encoding="utf-8")
+        line = next(line for line in meminfo.splitlines() if line.startswith("MemTotal:"))
         memory_bytes = int(line.split()[1]) * 1024
     except (FileNotFoundError, StopIteration, IndexError, ValueError):
         pass
     frequency: dict[str, Any] = {}
-    policy_paths = sorted(Path("/sys/devices/system/cpu/cpufreq").glob("policy*"))
+    if target:
+        configured_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq 2>/dev/null"])
+        hardware_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/cpuinfo_max_freq 2>/dev/null"])
+        governor_output = command_text([*ssh, "cat /sys/devices/system/cpu/cpufreq/policy*/scaling_governor 2>/dev/null"])
+        configured_max = [round(int(value) / 1000) for value in configured_output.split() if value.isdigit()]
+        hardware_max = [round(int(value) / 1000) for value in hardware_output.split() if value.isdigit()]
+        governors = sorted(set(governor_output.split()))
+    else:
+        policy_paths = sorted(Path("/sys/devices/system/cpu/cpufreq").glob("policy*"))
 
-    def frequency_values(name: str) -> list[int]:
-        values = []
-        for policy in policy_paths:
-            try:
-                values.append(round(int((policy / name).read_text(encoding="utf-8").strip()) / 1000))
-            except (FileNotFoundError, ValueError):
-                continue
-        return values
+        def frequency_values(name: str) -> list[int]:
+            values = []
+            for policy in policy_paths:
+                try:
+                    values.append(round(int((policy / name).read_text(encoding="utf-8").strip()) / 1000))
+                except (FileNotFoundError, ValueError):
+                    continue
+            return values
 
-    configured_max = frequency_values("scaling_max_freq")
-    hardware_max = frequency_values("cpuinfo_max_freq")
-    governors = sorted({
-        value
-        for policy in policy_paths
-        if (value := ((policy / "scaling_governor").read_text(encoding="utf-8").strip() if (policy / "scaling_governor").is_file() else ""))
-    })
+        configured_max = frequency_values("scaling_max_freq")
+        hardware_max = frequency_values("cpuinfo_max_freq")
+        governors = sorted({
+            value
+            for policy in policy_paths
+            if (value := ((policy / "scaling_governor").read_text(encoding="utf-8").strip() if (policy / "scaling_governor").is_file() else ""))
+        })
     if configured_max:
         frequency["configured_max_mhz"] = max(configured_max)
     if hardware_max:
@@ -132,6 +152,88 @@ def hardware_evidence() -> dict[str, Any]:
     }
 
 
+def resolved_hosts(
+    controller: str,
+    nodes: list[dict[str, Any]],
+    workloads: dict[str, list[str]],
+    controller_hardware: dict[str, Any],
+) -> list[dict[str, Any]]:
+    nodes_by_name = {str(node.get("name")): node for node in nodes if node.get("name")}
+    hosts = [{
+        "name": controller,
+        "role": "controller",
+        "node": nodes_by_name.get(controller, {}),
+        "hardware": controller_hardware,
+    }]
+    worker_names = sorted(set(workloads.get("application", [])) - {controller})
+    worker_target = os.environ.get("LAB_APPLICATION_TARGET")
+    for worker in worker_names:
+        hosts.append({
+            "name": worker,
+            "role": "application-worker",
+            "node": nodes_by_name.get(worker, {}),
+            "hardware": hardware_evidence(worker_target) if worker_target and len(worker_names) == 1 else {},
+        })
+    return hosts
+
+
+def link_endpoint(destination: str, target: str | None = None) -> dict[str, Any]:
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", destination):
+        return {}
+    ssh = (
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", target]
+        if target else []
+    )
+    route_command = f"ip -json route get {shlex.quote(destination)}"
+    route_output = command_text([*ssh, route_command] if target else ["ip", "-json", "route", "get", destination])
+    try:
+        route_document = json.loads(route_output)
+    except json.JSONDecodeError:
+        route_document = []
+    routes = route_document if isinstance(route_document, list) else []
+    route = routes[0] if routes and isinstance(routes[0], dict) else {}
+    interface = str(route.get("dev") or "")
+    if not interface or not re.fullmatch(r"[A-Za-z0-9_.:-]+", interface):
+        return {}
+    ethtool_command = f"ethtool {shlex.quote(interface)}"
+    ethtool = command_text([*ssh, ethtool_command] if target else ["ethtool", interface])
+    speed_match = re.search(r"^\s*Speed:\s*(\d+)Mb/s\s*$", ethtool, re.MULTILINE)
+    duplex_match = re.search(r"^\s*Duplex:\s*(\S+)\s*$", ethtool, re.MULTILINE)
+    link_match = re.search(r"^\s*Link detected:\s*(yes|no)\s*$", ethtool, re.MULTILINE | re.IGNORECASE)
+    return {
+        "interface": interface,
+        "source_address": route.get("prefsrc"),
+        "destination_address": destination,
+        "gateway": route.get("gateway"),
+        "on_link": not bool(route.get("gateway")),
+        "speed_mbps": int(speed_match.group(1)) if speed_match else None,
+        "duplex": duplex_match.group(1).lower() if duplex_match else None,
+        "link_detected": link_match.group(1).lower() == "yes" if link_match else None,
+    }
+
+
+def inter_host_link_evidence() -> dict[str, Any]:
+    controller_address = os.environ.get("LAB_NODE_IP", "")
+    worker_address = os.environ.get("LAB_APPLICATION_HOST", "")
+    worker_target = os.environ.get("LAB_APPLICATION_TARGET", "")
+    if not controller_address or not worker_address or not worker_target:
+        return {}
+    endpoints = [
+        link_endpoint(worker_address),
+        link_endpoint(controller_address, worker_target),
+    ]
+    speeds = [int(endpoint["speed_mbps"]) for endpoint in endpoints if endpoint.get("speed_mbps")]
+    duplexes = {str(endpoint["duplex"]) for endpoint in endpoints if endpoint.get("duplex")}
+    return {
+        "type": os.environ.get("LAB_APPLICATION_LINK", "lan"),
+        "medium": "ethernet",
+        "speed_mbps": min(speeds) if speeds else None,
+        "duplex": next(iter(duplexes)) if len(duplexes) == 1 else None,
+        "on_link": bool(endpoints) and all(endpoint.get("on_link") for endpoint in endpoints),
+        "endpoints": endpoints,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add resolved internal-lab environment evidence to run metadata")
     parser.add_argument("--metadata", type=Path, required=True)
@@ -141,6 +243,7 @@ def main() -> int:
     kubernetes, nodes, workloads = kubernetes_evidence()
     host = platform.node()
     workloads.update({"producer": [host], "kafka": [host], "redis": [host]})
+    controller_hardware = hardware_evidence()
     implementation = str((metadata.get("kafka") or {}).get("implementation") or "apache-kafka")
     topology = str((metadata.get("kafka") or {}).get("topology") or "single")
     kafka_metadata = metadata.get("kafka") or {}
@@ -169,7 +272,9 @@ def main() -> int:
         "cluster_name": host,
         "kubernetes": kubernetes,
         "nodes": nodes,
-        "hardware": hardware_evidence(),
+        "hardware": controller_hardware,
+        "hosts": resolved_hosts(host, nodes, workloads, controller_hardware),
+        "inter_host_link": inter_host_link_evidence(),
         "java": {key: value for key, value in java.items() if value},
         "workloads": workloads,
         "kafka": {

@@ -217,6 +217,42 @@ def environment_topology_svg(report: ExperimentReport) -> str:
         names = workloads.get(role)
         return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
 
+    controller_name = str(environment.get("cluster_name") or (nodes[0].get("name") if nodes else "controller"))
+    application_nodes = [str(value) for value in workloads.get("application", []) if value]
+    worker_names = [name for name in application_nodes if name != controller_name]
+    split_internal_lab = kafka_mode == "docker" and bool(worker_names)
+    hosts = {
+        str(value.get("name")): value
+        for value in environment.get("hosts", [])
+        if isinstance(value, dict) and value.get("name")
+    }
+    nodes_by_name = {str(node.get("name")): node for node in nodes if node.get("name")}
+
+    def host_summary(
+        name: str,
+        fallback_hardware: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        host = hosts.get(name, {})
+        node = host.get("node") if isinstance(host.get("node"), dict) else nodes_by_name.get(name, {})
+        host_hardware = host.get("hardware") if isinstance(host.get("hardware"), dict) else (fallback_hardware or {})
+        cpu = host_hardware.get("logical_cpus") or node.get("cpu") or node.get("allocatable_cpu")
+        host_frequency = host_hardware.get("frequency") if isinstance(host_hardware.get("frequency"), dict) else {}
+        configured_max_mhz = host_frequency.get("configured_max_mhz")
+        memory_bytes = host_hardware.get("memory_bytes")
+        memory_label = ""
+        if memory_bytes:
+            memory_label = f"{int(memory_bytes) / (1024 ** 3):.0f} GiB RAM"
+        elif match := re.fullmatch(r"(\d+)(Ki|Mi|Gi)", str(node.get("memory") or node.get("allocatable_memory") or "")):
+            memory_gib = int(match.group(1)) * {"Ki": 1 / (1024 * 1024), "Mi": 1 / 1024, "Gi": 1}[match.group(2)]
+            memory_label = f"{memory_gib:.1f} GiB RAM"
+        model = str(host_hardware.get("cpu_model") or "")
+        details = " · ".join(part for part in [
+            f"{cpu} logical CPUs" if cpu else "",
+            memory_label,
+            f"CPU capped at {float(configured_max_mhz) / 1000:g} GHz" if configured_max_mhz else "",
+        ] if part)
+        return model, details
+
     if kafka_mode != "docker":
         # Managed environments retain distinct Kubernetes and service boundaries.
         body = [
@@ -243,6 +279,84 @@ def environment_topology_svg(report: ExperimentReport) -> str:
             '<line x1="680" y1="170" x2="305" y2="190" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<line x1="305" y1="205" x2="350" y2="205" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<line x1="305" y1="225" x2="680" y2="320" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+        ]
+    elif split_internal_lab:
+        width, height = 1200, 900
+        worker_name = worker_names[0]
+        controller_model, controller_summary = host_summary(controller_name, hardware)
+        worker_model, worker_summary = host_summary(worker_name)
+        body = [
+            f'<text class="title" x="30" y="32">Resolved two-host environment · {esc(provider)}</text>',
+            '<rect x="20" y="52" width="750" height="810" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="42" y="80">Controller host · {esc(controller_name)}</text>',
+            f'<text class="muted" x="42" y="100">{esc(controller_model or controller_summary)}</text>',
+            f'<text class="muted" x="42" y="118">{esc(controller_summary)}</text>' if controller_model else '',
+            '<rect x="820" y="52" width="360" height="810" rx="12" fill="#fafafa" stroke="#64748b" stroke-width="2"/>',
+            f'<text class="card-title" x="842" y="80">Application worker · {esc(worker_name)}</text>',
+            f'<text class="muted" x="842" y="100">{esc(worker_model or worker_summary)}</text>',
+            f'<text class="muted" x="842" y="118">{esc(worker_summary)}</text>' if worker_model else '',
+            '<rect x="45" y="145" width="300" height="105" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 61, 163, 30),
+            '<text class="card-title" x="103" y="182">Load generator</text>',
+            f'<text class="muted" x="61" y="213">{esc(java_label("load_generator"))} · host process</text>',
+            f'<text class="muted" x="61" y="232">{esc(str(load_test.get("workers") or "—"))} workers · no CPU/RAM limit</text>',
+            '<rect x="45" y="275" width="300" height="545" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 292, 32),
+            f'<text class="card-title" x="108" y="312">Kubernetes server · {esc(platform)} {esc(version)}</text>',
+            '<text class="muted" x="65" y="338">Control plane and supporting workloads</text>',
+            '<rect x="70" y="380" width="250" height="100" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 86, 397, 30),
+            '<text class="card-title" x="128" y="416">CKC demo stubs</text>',
+            f'<text class="muted" x="86" y="446">{esc(java_label("stubs"))} · {esc(placement("stubs"))}</text>',
+            '<rect x="70" y="520" width="250" height="275" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="88" y="547">Observability inside Kubernetes</text>',
+            service_icon("prometheus", 88, 575, 26),
+            f'<text class="muted" x="122" y="592">{esc(component_title("Prometheus"))} · metrics store</text>',
+            service_icon("alloy", 88, 615, 26),
+            f'<text class="muted" x="122" y="632">{esc(component_title("Grafana Alloy"))} · pod logs</text>',
+            '<text class="muted" x="88" y="682">k3s control plane, stubs and telemetry</text>',
+            f'<text class="muted" x="88" y="704">{esc(placement("producer"))}</text>',
+            '<rect x="370" y="145" width="375" height="675" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
+            service_icon("environment-docker", 390, 162, 32),
+            '<text class="card-title" x="433" y="182">Docker host services</text>',
+            f'<text class="muted" x="390" y="209">Runs on controller · {esc(controller_name)}</text>',
+            '<rect x="395" y="250" width="325" height="105" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            service_icon("apache-kafka", 411, 267, 30),
+            f'<text class="card-title" x="453" y="286">{esc(kafka_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="411" y="315">{esc(kafka_line)}</text>',
+            f'<text class="muted" x="411" y="336">{esc(java_label("kafka"))}</text>',
+            '<rect x="395" y="390" width="325" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            service_icon("redis-service", 411, 407, 30),
+            f'<text class="card-title" x="453" y="426">{esc(redis_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="411" y="457">{esc(redis_line.replace("Docker container · ", ""))}</text>',
+            '<rect x="395" y="520" width="325" height="275" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="413" y="547">Observability inside Docker</text>',
+            service_icon("kafka-exporter", 413, 570, 24),
+            f'<text class="muted" x="444" y="586">{esc(component_title("Kafka exporter"))} · broker metrics</text>',
+            service_icon("process-exporter", 413, 605, 24),
+            f'<text class="muted" x="444" y="621">{esc(component_title("process-exporter"))} · process metrics</text>',
+            service_icon("fluent-bit", 413, 640, 24),
+            f'<text class="muted" x="444" y="656">{esc(component_title("Fluent Bit"))} · audit transport</text>',
+            service_icon("loki", 413, 675, 24),
+            f'<text class="muted" x="444" y="691">{esc(component_title("Loki"))} · log storage</text>',
+            service_icon("grafana", 413, 710, 24),
+            f'<text class="muted" x="444" y="726">{esc(component_title("Grafana"))} · dashboards</text>',
+            '<rect x="845" y="145" width="310" height="675" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 865, 162, 32),
+            f'<text class="card-title" x="908" y="182">Kubernetes agent · {esc(platform)} {esc(version)}</text>',
+            '<text class="muted" x="865" y="209">Application-only worker</text>',
+            '<rect x="870" y="275" width="260" height="145" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 886, 294, 30),
+            '<text class="card-title" x="928" y="313">CKC demo app</text>',
+            f'<text class="muted" x="886" y="346">1 pod per target · {esc(java_label("application"))}</text>',
+            f'<text class="muted" x="886" y="370">{esc(app_requests)}</text>',
+            f'<text class="muted" x="886" y="393">{esc(app_limits)}</text>' if app_limits else '',
+            '<path data-flow="load-to-kafka" d="M345 197.5 H357.5 V302.5 H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="kafka-to-application" d="M720 302.5 H795 V323.3 H870" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-redis" d="M870 371.7 H795 V435 H720" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-stubs" d="M1000 420 V500 H357.5 V430 H320" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<text class="muted" x="42" y="846">Controller: orchestration, load generation, dependencies and observability</text>',
+            '<text class="muted" x="1158" y="846" text-anchor="end">Worker: measured application only</text>',
         ]
     else:
         body = [

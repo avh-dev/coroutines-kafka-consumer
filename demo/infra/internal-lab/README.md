@@ -41,6 +41,8 @@ its Kubernetes node name. For example:
 ```yaml
 version: 1
 topology: split-application
+network:
+  application_link: direct
 operator:
   public_key: /home/alexey/.ssh/id_ed25519.pub
   telegram_env: /home/alexey/.config/ckc-lab/telegram.env
@@ -62,8 +64,9 @@ nodes:
     roles: [k3s-agent, application]
 ```
 
-The configured addresses may use an ordinary home LAN, routed network, or a
-direct cable; no dedicated link, router, or interface name is assumed.
+Set `network.application_link` to `direct` for a dedicated cable or `lan` for
+an ordinary switched or routed home network. Interface names, negotiated speed,
+duplex, and actual routes are discovered at runtime rather than configured.
 `bootstrap` prepares the controller first, transfers its k3s join token without
 printing it, and then joins the worker. The operator key remains usable on both
 hosts, while a dedicated runtime key permits controller-to-worker operations as
@@ -88,6 +91,11 @@ flowchart LR
   controlplane <-->|configured IP network| application
   application -->|Kafka / Redis / audit| services
 ```
+
+Generated experiment reports use the observed pod-to-node placement. A split
+lab is drawn as separate controller and application-worker hosts, including
+their k3s server/agent boundaries and the configured IP network between them;
+single-host installations retain the compact combined topology.
 
 After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,

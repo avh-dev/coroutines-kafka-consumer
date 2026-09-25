@@ -62,6 +62,7 @@ class LabConfig:
     public_key: Path
     telegram_env: Path
     performance_cpu_khz: int
+    application_link: str
     nodes: tuple[Node, ...]
 
     @property
@@ -113,6 +114,15 @@ def load_config(path: Path) -> LabConfig:
     performance_cpu_khz = int(runtime.get("performance_cpu_khz", 2_000_000))
     if performance_cpu_khz < 0:
         raise ValueError("runtime.performance_cpu_khz must be zero or a positive integer")
+    network = root.get("network") or {}
+    network = _mapping(network, "network")
+    application_link = str(network.get("application_link") or ("lan" if topology == "split-application" else "local"))
+    if application_link not in {"local", "direct", "lan"}:
+        raise ValueError("network.application_link must be local, direct, or lan")
+    if topology == "single-host" and application_link != "local":
+        raise ValueError("single-host topology requires network.application_link=local")
+    if topology == "split-application" and application_link == "local":
+        raise ValueError("split-application topology requires network.application_link=direct or lan")
     nodes_value = _mapping(root.get("nodes"), "nodes")
     nodes: list[Node] = []
     for name, raw_node in nodes_value.items():
@@ -164,7 +174,10 @@ def load_config(path: Path) -> LabConfig:
             raise ValueError("split-application controller cannot have application or k3s-agent roles")
         if {"controller", "k3s-server", "services"} & set(application.roles):
             raise ValueError("split-application worker may only host the application k3s agent")
-    return LabConfig(path, topology, runtime_user, lab_root, public_key, telegram_env, performance_cpu_khz, tuple(nodes))
+    return LabConfig(
+        path, topology, runtime_user, lab_root, public_key, telegram_env,
+        performance_cpu_khz, application_link, tuple(nodes),
+    )
 
 
 def default_public_key() -> Path:
@@ -210,6 +223,7 @@ def init_command(args: argparse.Namespace) -> int:
     application_admin_user = args.application_admin_user
     application_lab_address = args.application_lab_address
     application_k3s_name = args.application_k3s_name
+    application_link = args.application_link
     if interactive:
         print("Internal lab setup\n")
         topology_choice = prompt("Topology (single-host/split-application)", topology)
@@ -226,6 +240,7 @@ def init_command(args: argparse.Namespace) -> int:
                 application_lab_address or default_lab_address(application_host),
             )
             application_k3s_name = prompt("Application worker Kubernetes node name", application_k3s_name or application_host)
+            application_link = prompt("Application worker connection (direct/lan)", application_link)
         runtime_user = prompt("Lab runtime user", runtime_user)
         lab_root = prompt("Installed lab root", lab_root)
         public_key = prompt("Operator SSH public key", public_key)
@@ -266,6 +281,9 @@ def init_command(args: argparse.Namespace) -> int:
             "root": lab_root,
             "performance_cpu_khz": performance_cpu_khz,
         },
+        "network": {
+            "application_link": "local" if topology == "single-host" else application_link,
+        },
         "nodes": nodes,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -286,6 +304,8 @@ def print_plan(config: LabConfig) -> None:
     print(f"  lab root:     {config.lab_root}")
     frequency = "disabled" if config.performance_cpu_khz == 0 else f"{config.performance_cpu_khz} kHz"
     print(f"  experiment CPU: {frequency}")
+    if config.split:
+        print(f"  application link: {config.application_link}")
 
 
 def run(command: Sequence[str], *, dry_run: bool = False) -> None:
@@ -419,6 +439,7 @@ def write_compatibility_environment(config: LabConfig) -> Path:
         "LAB_NODE_IP": node.lab_address,
         "LAB_ROOT": str(config.lab_root),
         "LAB_TOPOLOGY": config.topology,
+        "LAB_APPLICATION_LINK": config.application_link,
         "LAB_APPLICATION_HOST": config.application.lab_address,
         "LAB_APPLICATION_SSH_HOST": config.application.ssh_host,
         "LAB_APPLICATION_TARGET": "" if not config.split else f"{config.runtime_user}@{config.application.lab_address}",
@@ -655,7 +676,7 @@ def setup_command(args: argparse.Namespace) -> int:
             telegram_env=str(Path.home() / ".config/ckc-lab/telegram.env"),
             performance_cpu_khz=2_000_000,
             topology="single-host", application_host="", application_admin_user=getpass.getuser(),
-            application_lab_address="", application_k3s_name="",
+            application_lab_address="", application_k3s_name="", application_link="lan",
         )
         init_command(init_args)
     bootstrap_command(argparse.Namespace(config=args.config, dry_run=args.dry_run))
@@ -682,6 +703,7 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--application-admin-user", default=getpass.getuser())
     initialize.add_argument("--application-lab-address", default="")
     initialize.add_argument("--application-k3s-name", default="")
+    initialize.add_argument("--application-link", choices=("direct", "lan"), default="lan")
     initialize.set_defaults(handler=init_command)
     bootstrap = commands.add_parser("bootstrap", help="Prepare the host through one privileged operation.")
     bootstrap.add_argument("--dry-run", action="store_true")
