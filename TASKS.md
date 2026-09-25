@@ -374,7 +374,7 @@
 | [INFRA-210](#infra-210) | Introduce configurable bootstrap and a non-root runtime for the internal lab. | DONE |
 | [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
-| [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | IN_PROGRESS |
+| [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4316,3 +4316,6 @@ _Date: 2026-09-25_
 Keep pod packet capture compatible with the deliberately minimal container capability set.
 Create portable Prometheus blocks as the non-root runtime UID/GID so result collection can copy their metadata safely.
 Re-run the managed two-host smoke and verify diagnostics, metrics, audit analysis, report generation, and CPU restoration.
+Pod captures now retain the container's existing root identity explicitly, while host capture continues under the capability-limited runtime user.
+Promtool writes TSDB blocks with the caller's UID/GID, preventing root-owned metadata from breaking evidence collection.
+Verification: the two-host smoke completed with exit code 0; all three required captures succeeded, collection reported no errors, Loki exported 1,603 records, Prometheus exported 7,210 series and 79,538 samples into one block, and audit matched all 108,598 publications without missing terminal outcomes or duplicates. Application pods ran on optilab2, supporting workloads stayed on optilab, and both hosts restored their pre-experiment CPU policies.

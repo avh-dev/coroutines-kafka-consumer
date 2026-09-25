@@ -124,13 +124,24 @@ def compress_capture(raw_path: Path) -> tuple[Path, str, str]:
     return compressed_path, raw_digest, compressed_digest
 
 
-def tcpdump_command(interface: str, snaplen: int, duration: int, destination: str, capture_filter: str) -> list[str]:
-    return [
+def tcpdump_command(
+    interface: str,
+    snaplen: int,
+    duration: int,
+    destination: str,
+    capture_filter: str,
+    *,
+    drop_user: str | None = None,
+) -> list[str]:
+    command = [
         "timeout", "--preserve-status", "--signal", "INT", "--kill-after", "2s", f"{duration + 1}s",
         "tcpdump", "-i", interface, "-nn", "-s", str(snaplen),
         "-G", str(duration), "-W", "1", "-w", destination,
-        *shlex.split(capture_filter),
     ]
+    if drop_user:
+        command.extend(["-Z", drop_user])
+    command.extend(shlex.split(capture_filter))
+    return command
 
 
 def write_metadata(directory: Path, base_name: str, metadata: dict[str, Any], stderr: str) -> None:
@@ -214,7 +225,14 @@ def capture_pod(
     remote_pattern = f"/captures/{remote_prefix}-%s.pcap"
     params = step["params"]
     interface = args.pod_interface if params["interface"] == "auto" else params["interface"]
-    capture = tcpdump_command(interface, params["snaplen"], step["durationSeconds"], remote_pattern, params["filter"])
+    capture = tcpdump_command(
+        interface,
+        params["snaplen"],
+        step["durationSeconds"],
+        remote_pattern,
+        params["filter"],
+        drop_user="root",
+    )
     command = ["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", *capture]
     metadata: dict[str, Any] = {
         "step": step["name"], "target": target, "backend": "kubernetes", "identity": pod,

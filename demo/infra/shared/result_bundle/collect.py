@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import subprocess
 import tempfile
@@ -158,7 +159,7 @@ def write_openmetrics(
 def create_prometheus_blocks(openmetrics: Path, output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run([
-        "docker", "run", "--rm", "--entrypoint", "promtool", "-u", "0:0",
+        "docker", "run", "--rm", "--entrypoint", "promtool", "-u", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{openmetrics.parent.resolve()}:/work",
         PROMETHEUS_IMAGE,
         "tsdb", "create-blocks-from", "openmetrics", f"/work/{openmetrics.name}", "/work/blocks",
