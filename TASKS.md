@@ -377,6 +377,7 @@
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
 | [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
 | [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
+| [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4346,3 +4347,12 @@ Complete the terminal lifecycle notification only after the idle state is verifi
 The non-root runtime now deletes the application HPA, scales both application deployments to zero, and waits until their pods are gone without stopping persistent dependencies.
 Cleanup is idempotent, runs on normal and exceptional lifecycle paths, affects the final exit status when incomplete, and contributes verified application and cleanup state to the terminal notification.
 Verification: 98 internal-lab tests passed with Python compilation, POSIX shell syntax, and whitespace checks. The helper was installed and exercised on optilab: it reduced `ckc-demo` from two replicas and `ckc-demo-stubs` from one replica to zero, left no workload pods, and retained both Prometheus and log-collector pods. No experiment was launched.
+
+<a id="infra-216"></a>
+### INFRA-216 - Add conditional Kafka warm-up
+
+_Date: 2026-09-25_
+
+Detect actual broker creation or replacement instead of warming Kafka before every internal-lab target.
+Run one fixed three-minute producer-and-consumer workload after redeployment, notify Telegram once, and mark only its start in live Grafana.
+Keep warm-up logs, topics, identities, and metrics outside the measured run evidence; warm every newly provisioned AWS Kafka runtime once.
