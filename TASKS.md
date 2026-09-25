@@ -379,6 +379,7 @@
 | [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
 | [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
 | [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
+| [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4372,3 +4373,12 @@ Retain the final progress document for post-run inspection without inferring sta
 The runner now updates one atomic progress document across preparation, conditional Kafka warm-up, target workload, consumer drain, audit analysis, application quiescing, reporting, evidence collection, bundle creation, and terminal states.
 Managed status renders the target position and name, workload elapsed time and ETA, and live drain lag; JSON status exposes the complete progress document for automation. Terminal elapsed time is frozen at completion or failure, and each new request clears stale progress before systemd starts it.
 Verification: 105 internal-lab tests passed with Bash/POSIX shell syntax, Python compilation, and whitespace checks. The runtime was installed on optilab, a temporary drain progress record rendered correctly through the real status command, the record was removed afterward, and both application deployments were returned to zero replicas. No experiment was launched for this task.
+
+<a id="infra-218"></a>
+### INFRA-218 - Restore fast incremental lab updates
+
+_Date: 2026-09-25_
+
+Resolve the Thread Stats starter and Java agent from one declared dependency version without building the neighboring project during lab updates.
+Add an aggregate update fingerprint so an unchanged checkout reaches experiment start after one bounded remote freshness check.
+Keep changed experiment and runtime synchronization delta-based for remote operation over ordinary Wi-Fi links.
