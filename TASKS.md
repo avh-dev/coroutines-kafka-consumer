@@ -381,7 +381,7 @@
 | [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
 | [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
 | [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
-| [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | IN_PROGRESS |
+| [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4412,3 +4412,4 @@ Rename the bounded tail-latency comparison so its identity reflects a 5,000 mess
 Raise the aggregate load and every per-topic producer capacity from 2,000 to 5,000 messages/s while preserving the Spring Kafka, CKC, and Confluent Parallel Consumer targets and evidence windows.
 Verification: all seven shared experiment materialization tests passed, including explicit checks for the 5,000 messages/s aggregate rate and per-topic producer capacities. No reference to the retired 2k experiment identity remains.
 The first live run exposed that k3s had selected the hosts' management Wi-Fi interfaces for Flannel despite using direct-link node addresses. Extend bootstrap reconciliation to derive and persist each node's Flannel interface from the route to its peer so cross-node pod traffic follows the configured lab network.
+Verification: 112 internal-lab tests passed. Re-running bootstrap selected `eno1` and `enp1s0`, changed both Flannel public addresses to `10.10.20.x`, reduced cross-node pod RTT from roughly 325 ms to 0.57 ms, and reduced transfer time for the 6 MB application metrics response from 12-15 seconds to 0.27-0.30 seconds. Prometheus reported the application target up with a 0.32-second scrape, and the stopped experiment's lingering application deployments were returned to zero replicas.
