@@ -568,11 +568,19 @@ def render_markdown(report: ExperimentReport) -> str:
                 values.append(int(by_key["out_of_order"]))
         return sum(values) if values else None
 
-    environment_block = (
-        ["![Resolved environment topology](environment-topology.svg)"]
-        if report.environment
-        else ["**Environment evidence is unavailable for this run.**"]
-    )
+    environment_workloads = report.environment.get("workloads") if isinstance(report.environment, dict) else {}
+    controller_name = str(report.environment.get("cluster_name") or "") if isinstance(report.environment, dict) else ""
+    application_nodes = environment_workloads.get("application", []) if isinstance(environment_workloads, dict) else []
+    split_internal_lab = bool(controller_name and any(str(node) != controller_name for node in application_nodes))
+    environment_block = ["![Resolved environment topology](environment-topology.svg)"]
+    if split_internal_lab:
+        environment_block.append(
+            "The controller runs orchestration, load generation, dependencies, and observability; "
+            "the application worker runs the measured application. The hosts communicate over the "
+            "configured IP network, whether directly connected or routed through the local network."
+        )
+    if not report.environment:
+        environment_block = ["**Environment evidence is unavailable for this run.**"]
     lines = [
         "# CKC Lab Experiment Report",
         "",

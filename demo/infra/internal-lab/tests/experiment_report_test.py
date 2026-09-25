@@ -1012,6 +1012,22 @@ class ExperimentReportTest(unittest.TestCase):
                 "os_image": "Ubuntu 24.04 LTS",
             })
             environment["workloads"]["application"] = ["optilab2"]
+            environment["hosts"] = [
+                {
+                    "name": "optilab",
+                    "role": "controller",
+                    "hardware": environment["hardware"],
+                },
+                {
+                    "name": "optilab2",
+                    "role": "application-worker",
+                    "hardware": {
+                        "cpu_model": "Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz",
+                        "logical_cpus": "6",
+                        "memory_bytes": 8 * 1024 ** 3,
+                    },
+                },
+            ]
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
             with patch(
@@ -1025,6 +1041,7 @@ class ExperimentReportTest(unittest.TestCase):
                 )
 
             svg = (outputs[0].parent / "environment-topology.svg").read_text(encoding="utf-8")
+            markdown = outputs[0].read_text(encoding="utf-8")
             ET.fromstring(svg)
             self.assertIn('width="1200"', svg)
             self.assertIn("Resolved two-host environment", svg)
@@ -1033,9 +1050,15 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Docker host services", svg)
             self.assertIn("Kubernetes server", svg)
             self.assertIn("Kubernetes agent", svg)
-            self.assertIn("Configured IP network", svg)
+            self.assertIn("i5-8500T CPU @ 2.10GHz", svg)
+            self.assertIn("6 logical CPUs · 8 GiB RAM", svg)
             self.assertIn("Worker: measured application only", svg)
+            self.assertNotIn("No Docker lab services", svg)
+            self.assertNotIn("Configured IP network", svg)
+            self.assertIn('M870 390 H795 V445 H730', svg)
+            self.assertIn('M1000 420 V485 H350 V430 H320', svg)
             self.assertNotIn("All shown components share this physical host", svg)
+            self.assertIn("whether directly connected or routed through the local network", markdown)
 
     def test_measurement_sla_uses_standard_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
