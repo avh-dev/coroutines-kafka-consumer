@@ -18,8 +18,9 @@ demo/infra/internal-lab/scripts/lab.sh up
 
 `init` creates the local, untracked
 `.demo-infra/internal-lab/lab.yaml`. `bootstrap` is the only normally privileged
-phase: it installs Ubuntu packages, Docker and k3s, creates the `ckc-lab` system
-user, installs its SSH key, and prepares `/opt/ckc-lab`. `up` builds and
+phase: it installs the required Ubuntu packages and k3s, creates the `ckc-lab`
+system user, installs its SSH key, and prepares `/opt/ckc-lab`. Docker and the
+controller toolchain are installed only on the controller. `up` builds and
 synchronizes the lab through `ckc-lab`; it does not SSH as root or install
 packages.
 
@@ -33,10 +34,60 @@ demo/infra/internal-lab/scripts/lab.sh init --non-interactive \
   --public-key ~/.ssh/id_ed25519.pub
 ```
 
+The wizard supports `single-host` and `split-application`. In the split topology,
+provide the worker SSH host, the address by which the controller reaches it, and
+its Kubernetes node name. For example:
+
+```yaml
+version: 1
+topology: split-application
+operator:
+  public_key: /home/alexey/.ssh/id_ed25519.pub
+  telegram_env: /home/alexey/.config/ckc-lab/telegram.env
+runtime:
+  user: ckc-lab
+  root: /opt/ckc-lab
+  performance_cpu_khz: 2000000
+nodes:
+  infra:
+    host: optilab
+    admin_user: root
+    lab_address: 10.10.20.2
+    roles: [controller, k3s-server, services]
+  application:
+    host: optilab2
+    admin_user: alexey
+    lab_address: 10.10.20.3
+    k3s_name: optilab2
+    roles: [k3s-agent, application]
+```
+
 The configured addresses may use an ordinary home LAN, routed network, or a
-direct cable; no dedicated link or interface name is assumed. The first
-foundation topology is `single-host`. A later topology task adds application
-placement on a second node without changing the bootstrap model.
+direct cable; no dedicated link, router, or interface name is assumed.
+`bootstrap` prepares the controller first, transfers its k3s join token without
+printing it, and then joins the worker. The operator key remains usable on both
+hosts, while a dedicated runtime key permits controller-to-worker operations as
+the unprivileged `ckc-lab` account.
+
+In `split-application`, only `ckc-demo` is scheduled on the application worker.
+Kafka, Redis, Grafana, Loki, Prometheus, stubs, test orchestration, and load
+generation remain on the controller. Built images are imported into both k3s
+containerd stores; no registry is required.
+
+```mermaid
+flowchart LR
+  operator[Repository checkout / operator] -->|SSH as ckc-lab| controller
+  subgraph controller[Controller node]
+    lifecycle[Experiment lifecycle and load generation]
+    services[Docker: Kafka, Redis, Grafana, Loki]
+    controlplane[k3s server: Prometheus, stubs, log collector]
+  end
+  subgraph worker[Application worker]
+    application[k3s agent: ckc-demo only]
+  end
+  controlplane <-->|configured IP network| application
+  application -->|Kafka / Redis / audit| services
+```
 
 After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
@@ -73,7 +124,8 @@ replace runtime files while an experiment is active. Add `--no-update` only when
 the installed runtime is already known to match the checkout. `status --json`
 provides a machine-readable view of the current or most recent request.
 
-The managed user service acquires the configured CPU policy immediately before
+The managed user service acquires the configured CPU policy on every configured
+node immediately before
 the run and restores the exact previous minimum, maximum, and governor in
 `ExecStopPost` after success, failure, or an explicit stop. The default experiment
 frequency is 2,000,000 kHz; set `runtime.performance_cpu_khz: 0` in `lab.yaml` to

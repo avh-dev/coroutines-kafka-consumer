@@ -65,6 +65,9 @@ class DeploymentPlanTest(unittest.TestCase):
             application_service_type="NodePort",
             application_node_port=30080,
             test_definition="smoke",
+            application_node_selector={"ckc.dev/role": "application"},
+            support_node_selector={"ckc.dev/role": "controller"},
+            load_test_node_selector={"ckc.dev/role": "controller"},
         ))
 
         identities = {(item["kind"], item["metadata"]["name"]) for item in manifests}
@@ -88,6 +91,11 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("20", environment["TELEMETRY_WORKER_CONCURRENCY"])
         self.assertEqual("registry/demo@sha256:application", container["image"])
         self.assertEqual(["NET_RAW"], container["securityContext"]["capabilities"]["add"])
+        self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
+        stubs = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs")
+        load_test = next(item for item in manifests if item["kind"] == "Job")
+        self.assertEqual({"ckc.dev/role": "controller"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
+        self.assertEqual({"ckc.dev/role": "controller"}, load_test["spec"]["template"]["spec"]["nodeSelector"])
 
 
 if __name__ == "__main__":

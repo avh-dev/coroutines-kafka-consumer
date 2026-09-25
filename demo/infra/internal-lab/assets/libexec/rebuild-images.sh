@@ -45,13 +45,27 @@ done
 
 # shellcheck disable=SC2086
 docker save ${image_names} -o "${image_tar}"
-sudo -n /usr/local/libexec/ckc-lab/import-k3s-images "${image_tar}"
+sudo -n /usr/local/libexec/ckc-lab/import-k3s-images
+if [ -n "${LAB_APPLICATION_TARGET:-}" ]; then
+  ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+    "${LAB_APPLICATION_TARGET}" "mkdir -p '${LAB_ROOT}/state/images'"
+  scp -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+    "${image_tar}" "${LAB_APPLICATION_TARGET}:${image_tar}"
+  ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+    "${LAB_APPLICATION_TARGET}" \
+    "sudo -n /usr/local/libexec/ckc-lab/import-k3s-images && rm -f -- '${image_tar}'"
+fi
 rm -f "${image_tar}"
 
 for request in "$@"; do
   service="${request%%=*}"
   fingerprint="${request#*=}"
   printf '%s\n' "${fingerprint}" > "${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint"
+  if [ -n "${LAB_APPLICATION_TARGET:-}" ]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${LAB_APPLICATION_TARGET}" \
+      "mkdir -p '${LAB_ROOT}/state/fingerprints/images' && printf '%s\\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint'"
+  fi
 done
 
 docker image ls 'ckc-perf/*'

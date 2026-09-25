@@ -7,9 +7,9 @@ Type=exec
 WorkingDirectory=@LAB_ROOT@
 Environment=LAB_ROOT=@LAB_ROOT@
 Environment=KUBECONFIG=%h/.kube/config
-ExecStartPre=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-acquire
+ExecStartPre=@LAB_ROOT@/libexec/cluster-performance-acquire.sh
 ExecStart=@LAB_ROOT@/libexec/managed-experiment.py
-ExecStopPost=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-release
+ExecStopPost=@LAB_ROOT@/libexec/cluster-performance-release.sh
 KillMode=mixed
 KillSignal=SIGINT
 TimeoutStopSec=5min

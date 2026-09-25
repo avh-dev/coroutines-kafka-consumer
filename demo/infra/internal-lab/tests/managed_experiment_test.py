@@ -24,8 +24,8 @@ class ManagedExperimentTest(unittest.TestCase):
     def test_unit_wraps_the_run_in_cpu_acquire_and_release(self) -> None:
         unit = UNIT.read_text(encoding="utf-8")
 
-        self.assertIn("ExecStartPre=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-acquire", unit)
-        self.assertIn("ExecStopPost=/usr/bin/sudo -n /usr/local/libexec/ckc-lab/cpu-performance-release", unit)
+        self.assertIn("ExecStartPre=@LAB_ROOT@/libexec/cluster-performance-acquire.sh", unit)
+        self.assertIn("ExecStopPost=@LAB_ROOT@/libexec/cluster-performance-release.sh", unit)
         self.assertIn("KillSignal=SIGINT", unit)
         self.assertIn("KillMode=mixed", unit)
         self.assertIn("StandardOutput=append:@LAB_ROOT@/logs/managed-experiment.log", unit)

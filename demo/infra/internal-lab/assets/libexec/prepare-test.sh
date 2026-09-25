@@ -323,6 +323,12 @@ RENDER_ARGS=(
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --applications-only
 )
+if [[ -n "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
+  RENDER_ARGS+=(--application-node-selector "${LAB_APPLICATION_NODE_SELECTOR}")
+fi
+if [[ -n "${LAB_CONTROLLER_NODE_SELECTOR:-}" ]]; then
+  RENDER_ARGS+=(--support-node-selector "${LAB_CONTROLLER_NODE_SELECTOR}")
+fi
 if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
   RENDER_ARGS+=(--packet-capture)
 fi
