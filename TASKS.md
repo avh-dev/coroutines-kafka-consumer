@@ -376,6 +376,7 @@
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
 | [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
+| [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4333,3 +4334,12 @@ Keep Telegram credentials local to the controller environment and never transpor
 The shared notifier now renders detailed starts, measurement completion, report readiness, bundle readiness, and exactly one terminal success or failure event in lifecycle order.
 Internal-lab delays completion until final artifacts exist and reports artifact-stage failures; AWS sends from the checkout-local controller and includes verified cleanup state without copying Telegram secrets into cloud resources.
 Verification: 96 internal-lab tests, 30 AWS tests, and 29 shared notification/orchestration tests passed with Python compilation, Bash syntax, and whitespace checks. The updated runtime was installed on optilab without rebuilding workloads, its installed renderer produced the expected detailed messages, and the local AWS controller safely recognized the configured Telegram keys without exposing their values. No experiment was launched.
+
+<a id="infra-215"></a>
+### INFRA-215 - Quiesce internal-lab application workloads after experiments
+
+_Date: 2026-09-25_
+
+Scale the demo application and its stubs to zero after the final target has drained.
+Run cleanup after success, failure, managed stop, and artifact-finalization errors while preserving deployment objects for inspection.
+Complete the terminal lifecycle notification only after the idle state is verified.
