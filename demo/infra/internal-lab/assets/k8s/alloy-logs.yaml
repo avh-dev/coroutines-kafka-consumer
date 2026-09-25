@@ -131,6 +131,8 @@ spec:
         app.kubernetes.io/name: ckc-log-collector
     spec:
       serviceAccountName: ckc-log-collector
+      nodeSelector:
+        ckc.dev/role: controller
       containers:
         - name: alloy
           image: grafana/alloy:v1.5.1

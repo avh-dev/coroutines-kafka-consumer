@@ -14,6 +14,15 @@ if str(PACKAGE_ROOT.parent) not in sys.path:
 from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests  # noqa: E402
 
 
+def node_selector(value: str | None) -> dict[str, str] | None:
+    if not value:
+        return None
+    key, separator, configured = value.partition("=")
+    if not separator or not key or not configured:
+        raise ValueError(f"node selector must use KEY=VALUE: {value}")
+    return {key: configured}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render project Kubernetes resources from a deployment plan.")
     parser.add_argument("plan", type=Path)
@@ -32,6 +41,9 @@ def main() -> int:
     parser.add_argument("--test-definition", default="canonical")
     parser.add_argument("--started-at")
     parser.add_argument("--application-node-port", type=int)
+    parser.add_argument("--application-node-selector")
+    parser.add_argument("--support-node-selector")
+    parser.add_argument("--load-test-node-selector")
     parser.add_argument("--packet-capture", action="store_true")
     parser.add_argument("--applications-only", action="store_true")
     parser.add_argument("--env", action="append", default=[])
@@ -61,6 +73,9 @@ def main() -> int:
         application_node_port=args.application_node_port,
         test_definition=args.test_definition,
         started_at=args.started_at,
+        application_node_selector=node_selector(args.application_node_selector),
+        support_node_selector=node_selector(args.support_node_selector),
+        load_test_node_selector=node_selector(args.load_test_node_selector),
     ))
     if args.applications_only:
         manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]

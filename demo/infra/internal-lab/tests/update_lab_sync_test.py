@@ -29,6 +29,15 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("stop it before updating the lab", script)
         self.assertIn("install-user-service.sh", script)
 
+    def test_update_checks_worker_and_distributes_images(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+        rebuild = (SCRIPT.parents[1] / "assets/libexec/rebuild-images.sh").read_text(encoding="utf-8")
+
+        self.assertIn("worker_image_is_current", script)
+        self.assertIn("systemctl is-active --quiet k3s-agent", script)
+        self.assertIn("LAB_APPLICATION_TARGET", rebuild)
+        self.assertIn("import-k3s-images", rebuild)
+
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 

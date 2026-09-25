@@ -104,6 +104,15 @@ remote_image_is_current() {
     "test \"\$(cat '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
 }
 
+worker_image_is_current() {
+  local service="$1"
+  local fingerprint="$2"
+
+  [[ -z "${LAB_APPLICATION_TARGET:-}" ]] && return 0
+  ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "${LAB_APPLICATION_TARGET}" \
+    "test \"\$(cat '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
+}
+
 remote_fingerprint_matches() {
   local name="$1"
   local fingerprint="$2"
@@ -242,6 +251,11 @@ LAB_SSH_HOST="${LAB_SSH_HOST:-${LAB_HOST}}"
 LAB_USER="${LAB_USER:-ckc-lab}"
 LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"
 LAB_NODE_IP="${LAB_NODE_IP:-$(resolve_host_ip "${LAB_HOST}")}"
+LAB_TOPOLOGY="${LAB_TOPOLOGY:-single-host}"
+LAB_APPLICATION_HOST="${LAB_APPLICATION_HOST:-${LAB_NODE_IP}}"
+LAB_APPLICATION_TARGET="${LAB_APPLICATION_TARGET:-}"
+LAB_APPLICATION_NODE_SELECTOR="${LAB_APPLICATION_NODE_SELECTOR:-}"
+LAB_CONTROLLER_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR:-}"
 if [[ -z "${LAB_NODE_IP}" ]]; then
   echo "Unable to resolve lab host: ${LAB_HOST}" >&2
   exit 1
@@ -249,6 +263,13 @@ fi
 if ssh "${LAB_TARGET}" "systemctl --user is-active --quiet ckc-experiment.service"; then
   echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
+fi
+if [[ -n "${LAB_APPLICATION_TARGET}" ]]; then
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "${LAB_APPLICATION_TARGET}" \
+    "systemctl is-active --quiet k3s-agent && test -x /usr/local/libexec/ckc-lab/import-k3s-images"; then
+    echo "Application worker is not ready at ${LAB_APPLICATION_TARGET}; run lab.sh bootstrap first." >&2
+    exit 1
+  fi
 fi
 sync_path() {
   local source_path="$1"
@@ -291,6 +312,11 @@ ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
 LAB_ROOT=${LAB_ROOT}
+LAB_TOPOLOGY=${LAB_TOPOLOGY}
+LAB_APPLICATION_HOST=${LAB_APPLICATION_HOST}
+LAB_APPLICATION_TARGET=${LAB_APPLICATION_TARGET}
+LAB_APPLICATION_NODE_SELECTOR=${LAB_APPLICATION_NODE_SELECTOR}
+LAB_CONTROLLER_NODE_SELECTOR=${LAB_CONTROLLER_NODE_SELECTOR}
 EOF
 if ! ssh "${LAB_TARGET}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v tcpdump >/dev/null 2>&1 && command -v tshark >/dev/null 2>&1"; then
   echo "Lab prerequisites are missing on ${LAB_TARGET}; run lab.sh bootstrap before lab.sh up." >&2
@@ -337,10 +363,10 @@ RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
 DEMO_DEPLOY_RESTARTED=0
 
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}"; then
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo "${DEMO_FINGERPRINT}" || ! worker_image_is_current demo "${DEMO_FINGERPRINT}"; then
   DEMO_IMAGE_CHANGED=1
 fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo-stubs "${DEMO_STUBS_FINGERPRINT}"; then
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current demo-stubs "${DEMO_STUBS_FINGERPRINT}" || ! worker_image_is_current demo-stubs "${DEMO_STUBS_FINGERPRINT}"; then
   DEMO_STUBS_IMAGE_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
@@ -433,7 +459,7 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("demo-stubs=${DEMO_STUBS_FINGERPRINT}")
 fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
-  ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
+  ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   if ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy ckc-demo >/dev/null 2>&1"; then

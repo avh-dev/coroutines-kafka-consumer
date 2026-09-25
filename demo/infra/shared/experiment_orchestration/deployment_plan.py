@@ -110,6 +110,9 @@ class DeploymentBindings:
     application_node_port: int | None = None
     test_definition: str = "canonical"
     started_at: str | None = None
+    application_node_selector: Mapping[str, str] | None = None
+    support_node_selector: Mapping[str, str] | None = None
+    load_test_node_selector: Mapping[str, str] | None = None
 
 
 def build_deployment_plan(
@@ -306,6 +309,7 @@ def _deployment(
     packet_capture: bool = False,
     probes: Mapping[str, Any] | None = None,
     test_definition: str = "canonical",
+    node_selector: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name}
     pod_labels = {
@@ -352,6 +356,8 @@ def _deployment(
         }],
         "containers": [container],
     }
+    if node_selector:
+        pod_spec["nodeSelector"] = dict(node_selector)
     if packet_capture:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
@@ -421,6 +427,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             profile="stubs",
             environment={"PORT": 8080, "REDIS_HOST": bindings.redis_host, "REDIS_PORT": 6379},
             test_definition=bindings.test_definition,
+            node_selector=bindings.support_node_selector,
         ),
         {
             "apiVersion": "v1", "kind": "Service",
@@ -444,6 +451,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 "liveness": {"initialDelaySeconds": 30, "periodSeconds": 15, "timeoutSeconds": 1, "failureThreshold": 3},
             },
             test_definition=bindings.test_definition,
+            node_selector=bindings.application_node_selector,
         ),
         {
             "apiVersion": "v1", "kind": "Service",
@@ -548,6 +556,8 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         }
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
     pod_spec: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
+    if bindings.load_test_node_selector:
+        pod_spec["nodeSelector"] = dict(bindings.load_test_node_selector)
     if bindings.packet_capture_enabled:
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
     name = f"ckc-load-test-{bindings.run_id}"

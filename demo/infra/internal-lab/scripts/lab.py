@@ -11,6 +11,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,7 @@ class Node:
     host: str
     admin_user: str
     lab_address: str
+    k3s_name: str
     roles: tuple[str, ...]
 
     @property
@@ -65,6 +67,14 @@ class LabConfig:
     def infra(self) -> Node:
         return next(node for node in self.nodes if "controller" in node.roles)
 
+    @property
+    def application(self) -> Node:
+        return next(node for node in self.nodes if "application" in node.roles)
+
+    @property
+    def split(self) -> bool:
+        return self.topology == "split-application"
+
 
 def _mapping(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, dict):
@@ -87,8 +97,8 @@ def load_config(path: Path) -> LabConfig:
     if root.get("version") != 1:
         raise ValueError("lab configuration version must be 1")
     topology = _non_empty(root.get("topology"), "topology")
-    if topology != "single-host":
-        raise ValueError(f"the current lab runtime supports topology=single-host; got {topology!r}")
+    if topology not in {"single-host", "split-application"}:
+        raise ValueError(f"topology must be single-host or split-application; got {topology!r}")
     runtime = _mapping(root.get("runtime"), "runtime")
     runtime_user = _non_empty(runtime.get("user"), "runtime.user")
     if not USER_PATTERN.fullmatch(runtime_user):
@@ -116,14 +126,43 @@ def load_config(path: Path) -> LabConfig:
         roles_value = node.get("roles")
         if not isinstance(roles_value, list) or not roles_value:
             raise ValueError(f"nodes.{name}.roles must be a non-empty list")
-        nodes.append(Node(str(name), host, admin_user, lab_address, tuple(str(role) for role in roles_value)))
+        default_k3s_name = socket.gethostname() if host == "local" else host
+        k3s_name = _non_empty(node.get("k3s_name") or default_k3s_name, f"nodes.{name}.k3s_name")
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", k3s_name):
+            raise ValueError(f"nodes.{name}.k3s_name is not a valid Kubernetes node name: {k3s_name!r}")
+        nodes.append(Node(str(name), host, admin_user, lab_address, k3s_name, tuple(str(role) for role in roles_value)))
     controllers = [node for node in nodes if "controller" in node.roles]
-    if len(nodes) != 1 or len(controllers) != 1:
-        raise ValueError("single-host topology requires exactly one controller node")
-    required_roles = {"controller", "k3s-server", "services", "application"}
-    missing = required_roles - set(controllers[0].roles)
-    if missing:
-        raise ValueError(f"single-host controller is missing roles: {sorted(missing)}")
+    applications = [node for node in nodes if "application" in node.roles]
+    if len(controllers) != 1 or len(applications) != 1:
+        raise ValueError("lab topology requires exactly one controller and one application role")
+    if (
+        len({node.name for node in nodes}) != len(nodes)
+        or len({node.lab_address for node in nodes}) != len(nodes)
+        or len({node.k3s_name for node in nodes}) != len(nodes)
+    ):
+        raise ValueError("lab nodes must have unique names, k3s_name values, and lab_address values")
+    controller = controllers[0]
+    application = applications[0]
+    if topology == "single-host":
+        if len(nodes) != 1 or controller != application:
+            raise ValueError("single-host topology requires one node with controller and application roles")
+        missing = {"controller", "k3s-server", "services", "application"} - set(controller.roles)
+        if missing:
+            raise ValueError(f"single-host controller is missing roles: {sorted(missing)}")
+    else:
+        if len(nodes) != 2 or controller == application:
+            raise ValueError("split-application topology requires separate controller and application nodes")
+        controller_missing = {"controller", "k3s-server", "services"} - set(controller.roles)
+        application_missing = {"application", "k3s-agent"} - set(application.roles)
+        if controller_missing or application_missing:
+            raise ValueError(
+                "split-application roles are incomplete: "
+                f"controller missing {sorted(controller_missing)}, application missing {sorted(application_missing)}"
+            )
+        if {"application", "k3s-agent"} & set(controller.roles):
+            raise ValueError("split-application controller cannot have application or k3s-agent roles")
+        if {"controller", "k3s-server", "services"} & set(application.roles):
+            raise ValueError("split-application worker may only host the application k3s agent")
     return LabConfig(path, topology, runtime_user, lab_root, public_key, telegram_env, performance_cpu_khz, tuple(nodes))
 
 
@@ -165,13 +204,27 @@ def init_command(args: argparse.Namespace) -> int:
     public_key = args.public_key
     telegram_env = args.telegram_env
     performance_cpu_khz = args.performance_cpu_khz
+    topology = args.topology
+    application_host = args.application_host
+    application_admin_user = args.application_admin_user
+    application_lab_address = args.application_lab_address
+    application_k3s_name = args.application_k3s_name
     if interactive:
         print("Internal lab setup\n")
-        print("INFRA-210 configures the single-host topology. Split SUT support follows in a separate task.")
+        topology_choice = prompt("Topology (single-host/split-application)", topology)
+        topology = topology_choice
         location = prompt("Run the lab on this machine? (yes/no)", "yes").lower()
         host = "local" if location in {"y", "yes"} else prompt("Lab SSH host", socket.gethostname())
         admin_user = prompt("Administrative SSH user", getpass.getuser())
         lab_address = prompt("Address used by lab services", default_lab_address(host))
+        if topology == "split-application":
+            application_host = prompt("Application worker SSH host", application_host or "optilab2")
+            application_admin_user = prompt("Application worker administrative SSH user", application_admin_user or admin_user)
+            application_lab_address = prompt(
+                "Application worker address reachable from the controller",
+                application_lab_address or default_lab_address(application_host),
+            )
+            application_k3s_name = prompt("Application worker Kubernetes node name", application_k3s_name or application_host)
         runtime_user = prompt("Lab runtime user", runtime_user)
         lab_root = prompt("Installed lab root", lab_root)
         public_key = prompt("Operator SSH public key", public_key)
@@ -179,9 +232,30 @@ def init_command(args: argparse.Namespace) -> int:
         performance_cpu_khz = int(prompt("Experiment CPU frequency in kHz (0 disables tuning)", str(performance_cpu_khz)))
     if not lab_address:
         lab_address = default_lab_address(host)
+    controller_roles = ["controller", "k3s-server", "services"]
+    if topology == "single-host":
+        controller_roles.append("application")
+    nodes: dict[str, Any] = {
+        "infra": {
+            "host": host,
+            "admin_user": admin_user,
+            "lab_address": lab_address,
+            "roles": controller_roles,
+        }
+    }
+    if topology == "split-application":
+        if not application_lab_address:
+            application_lab_address = default_lab_address(application_host)
+        nodes["application"] = {
+            "host": application_host,
+            "admin_user": application_admin_user,
+            "lab_address": application_lab_address,
+            "k3s_name": application_k3s_name or application_host,
+            "roles": ["k3s-agent", "application"],
+        }
     document = {
         "version": 1,
-        "topology": "single-host",
+        "topology": topology,
         "operator": {
             "public_key": str(Path(public_key).expanduser()),
             "telegram_env": str(Path(telegram_env).expanduser()),
@@ -191,14 +265,7 @@ def init_command(args: argparse.Namespace) -> int:
             "root": lab_root,
             "performance_cpu_khz": performance_cpu_khz,
         },
-        "nodes": {
-            "infra": {
-                "host": host,
-                "admin_user": admin_user,
-                "lab_address": lab_address,
-                "roles": ["controller", "k3s-server", "services", "application"],
-            }
-        },
+        "nodes": nodes,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
@@ -209,11 +276,11 @@ def init_command(args: argparse.Namespace) -> int:
 
 
 def print_plan(config: LabConfig) -> None:
-    node = config.infra
     print("\nResolved lab plan:")
     print(f"  topology:     {config.topology}")
-    print(f"  node:         {node.name} ({node.host}, {node.lab_address})")
-    print(f"  roles:        {', '.join(node.roles)}")
+    for node in config.nodes:
+        print(f"  node:         {node.name} ({node.host}, {node.lab_address}, k3s={node.k3s_name})")
+        print(f"  roles:        {', '.join(node.roles)}")
     print(f"  runtime user: {config.runtime_user}")
     print(f"  lab root:     {config.lab_root}")
     frequency = "disabled" if config.performance_cpu_khz == 0 else f"{config.performance_cpu_khz} kHz"
@@ -235,15 +302,89 @@ def capture(command: Sequence[str], *, check: bool = True) -> subprocess.Complet
     )
 
 
-def bootstrap_arguments(config: LabConfig, public_key: Path) -> list[str]:
-    node = config.infra
-    return [
+def bootstrap_arguments(
+    config: LabConfig,
+    node: Node,
+    public_key: Path,
+    *,
+    node_role: str,
+    token_file: Path | None = None,
+) -> list[str]:
+    arguments = [
+        "--node-role", node_role,
+        "--node-name", node.k3s_name,
+        "--server-address", config.infra.lab_address,
+    ]
+    if token_file is not None:
+        arguments.extend(["--k3s-token-file", str(token_file)])
+    arguments.extend([
         "--runtime-user", config.runtime_user,
         "--lab-root", str(config.lab_root),
         "--node-ip", node.lab_address,
         "--authorized-key-file", str(public_key),
         "--performance-cpu-khz", str(config.performance_cpu_khz),
-    ]
+    ])
+    return arguments
+
+
+def bootstrap_node(
+    config: LabConfig,
+    node: Node,
+    public_key: Path,
+    *,
+    node_role: str,
+    token_file: Path | None,
+    dry_run: bool,
+) -> None:
+    arguments = bootstrap_arguments(config, node, public_key, node_role=node_role, token_file=token_file)
+    if node.local:
+        run(["sudo", str(BOOTSTRAP_SCRIPT), *arguments], dry_run=dry_run)
+        return
+    target = f"{node.admin_user}@{node.ssh_host}"
+    remote_dir = f"/tmp/ckc-lab-bootstrap-{os.getuid()}"
+    remote_script = f"{remote_dir}/bootstrap-host.sh"
+    remote_key = f"{remote_dir}/operator.pub"
+    run(["ssh", target, "mkdir", "-p", remote_dir], dry_run=dry_run)
+    run(["scp", str(BOOTSTRAP_SCRIPT), f"{target}:{remote_script}"], dry_run=dry_run)
+    run(["scp", str(public_key), f"{target}:{remote_key}"], dry_run=dry_run)
+    remote_token: Path | None = None
+    if token_file is not None:
+        remote_token = Path(f"{remote_dir}/k3s-token")
+        run(["scp", str(token_file), f"{target}:{remote_token}"], dry_run=dry_run)
+    remote_arguments = bootstrap_arguments(
+        config, node, Path(remote_key), node_role=node_role, token_file=remote_token,
+    )
+    privileged_command = [remote_script, *remote_arguments] if node.admin_user == "root" else ["sudo", remote_script, *remote_arguments]
+    ssh_command = ["ssh", target, " ".join(shlex.quote(value) for value in privileged_command)]
+    if node.admin_user != "root":
+        ssh_command.insert(1, "-t")
+    run(ssh_command, dry_run=dry_run)
+    run(["ssh", target, "rm", "-r", "--", remote_dir], dry_run=dry_run)
+
+
+def fetch_controller_bootstrap_material(config: LabConfig, directory: Path, *, dry_run: bool) -> tuple[Path, Path]:
+    token = directory / "k3s-token"
+    controller_key = directory / "controller-runtime.pub"
+    controller = runtime_target(config)
+    sources = (
+        (config.lab_root / "config/k3s-join-token", token),
+        (Path(f"/var/lib/{config.runtime_user}/.ssh/id_ed25519.pub"), controller_key),
+    )
+    for remote_path, local_path in sources:
+        command = ["scp", f"{controller}:{remote_path}", str(local_path)]
+        run(command, dry_run=dry_run)
+        if dry_run:
+            local_path.write_text("dry-run\n", encoding="utf-8")
+            os.chmod(local_path, 0o600)
+    return token, controller_key
+
+
+def combined_authorized_keys(operator_key: Path, controller_key: Path, directory: Path) -> Path:
+    path = directory / "worker-authorized-keys"
+    values = [operator_key.read_text(encoding="utf-8").strip(), controller_key.read_text(encoding="utf-8").strip()]
+    path.write_text("\n".join(value for value in values if value) + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+    return path
 
 
 def bootstrap_command(args: argparse.Namespace) -> int:
@@ -251,26 +392,17 @@ def bootstrap_command(args: argparse.Namespace) -> int:
     public_key = config.public_key.resolve()
     if not public_key.is_file():
         raise FileNotFoundError(f"Operator public key was not found: {public_key}")
-    node = config.infra
     print_plan(config)
-    if node.local:
-        run(["sudo", str(BOOTSTRAP_SCRIPT), *bootstrap_arguments(config, public_key)], dry_run=args.dry_run)
-        return 0
-    target = f"{node.admin_user}@{node.ssh_host}"
-    remote_dir = f"/tmp/ckc-lab-bootstrap-{os.getuid()}"
-    remote_script = f"{remote_dir}/bootstrap-host.sh"
-    remote_key = f"{remote_dir}/operator.pub"
-    run(["ssh", target, "mkdir", "-p", remote_dir], dry_run=args.dry_run)
-    run(["scp", str(BOOTSTRAP_SCRIPT), f"{target}:{remote_script}"], dry_run=args.dry_run)
-    run(["scp", str(public_key), f"{target}:{remote_key}"], dry_run=args.dry_run)
-    arguments = bootstrap_arguments(config, Path(remote_key))
-    privileged_command = [remote_script, *arguments] if node.admin_user == "root" else ["sudo", remote_script, *arguments]
-    remote_command = " ".join(shlex.quote(value) for value in privileged_command)
-    ssh_command = ["ssh", target, remote_command]
-    if node.admin_user != "root":
-        ssh_command.insert(1, "-t")
-    run(ssh_command, dry_run=args.dry_run)
-    run(["ssh", target, "rm", "-r", "--", remote_dir], dry_run=args.dry_run)
+    bootstrap_node(config, config.infra, public_key, node_role="server", token_file=None, dry_run=args.dry_run)
+    if config.split:
+        with tempfile.TemporaryDirectory(prefix="ckc-lab-bootstrap-") as temporary:
+            directory = Path(temporary)
+            token, controller_key = fetch_controller_bootstrap_material(config, directory, dry_run=args.dry_run)
+            worker_keys = combined_authorized_keys(public_key, controller_key, directory)
+            bootstrap_node(
+                config, config.application, worker_keys,
+                node_role="agent", token_file=token, dry_run=args.dry_run,
+            )
     return 0
 
 
@@ -285,6 +417,12 @@ def write_compatibility_environment(config: LabConfig) -> Path:
         "LAB_USER": config.runtime_user,
         "LAB_NODE_IP": node.lab_address,
         "LAB_ROOT": str(config.lab_root),
+        "LAB_TOPOLOGY": config.topology,
+        "LAB_APPLICATION_HOST": config.application.lab_address,
+        "LAB_APPLICATION_SSH_HOST": config.application.ssh_host,
+        "LAB_APPLICATION_TARGET": "" if not config.split else f"{config.runtime_user}@{config.application.lab_address}",
+        "LAB_APPLICATION_NODE_SELECTOR": "" if not config.split else "ckc.dev/role=application",
+        "LAB_CONTROLLER_NODE_SELECTOR": "" if not config.split else "ckc.dev/role=controller",
     }
     path.write_text("".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items()), encoding="utf-8")
     return path
@@ -460,6 +598,8 @@ def setup_command(args: argparse.Namespace) -> int:
             lab_root="/opt/ckc-lab", public_key=str(default_public_key()),
             telegram_env=str(Path.home() / ".config/ckc-lab/telegram.env"),
             performance_cpu_khz=2_000_000,
+            topology="single-host", application_host="", application_admin_user=getpass.getuser(),
+            application_lab_address="", application_k3s_name="",
         )
         init_command(init_args)
     bootstrap_command(argparse.Namespace(config=args.config, dry_run=args.dry_run))
@@ -481,6 +621,11 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--public-key", default=str(default_public_key()))
     initialize.add_argument("--telegram-env", default=str(Path.home() / ".config/ckc-lab/telegram.env"))
     initialize.add_argument("--performance-cpu-khz", type=int, default=2_000_000)
+    initialize.add_argument("--topology", choices=("single-host", "split-application"), default="single-host")
+    initialize.add_argument("--application-host", default="")
+    initialize.add_argument("--application-admin-user", default=getpass.getuser())
+    initialize.add_argument("--application-lab-address", default="")
+    initialize.add_argument("--application-k3s-name", default="")
     initialize.set_defaults(handler=init_command)
     bootstrap = commands.add_parser("bootstrap", help="Prepare the host through one privileged operation.")
     bootstrap.add_argument("--dry-run", action="store_true")

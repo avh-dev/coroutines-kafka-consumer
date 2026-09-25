@@ -102,6 +102,8 @@ spec:
         k8s-app: metrics-server
     spec:
       serviceAccountName: metrics-server
+      nodeSelector:
+        ckc.dev/role: controller
       containers:
         - name: metrics-server
           image: registry.k8s.io/metrics-server/metrics-server:v0.8.1

@@ -373,6 +373,7 @@
 | [INFRA-209](#infra-209) | Refine runtime observability and make the shared Grafana dashboard easier to interpret across environments. | DONE |
 | [INFRA-210](#infra-210) | Introduce configurable bootstrap and a non-root runtime for the internal lab. | DONE |
 | [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
+| [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4291,3 +4292,17 @@ Acquire a fixed 2 GHz CPU policy only for the experiment lifetime and restore th
 Install Telegram configuration without committing secrets and keep all ordinary lifecycle operations under the dedicated runtime user.
 The repository command now supports detached start, status, logs, and graceful stop; synchronization refuses to run while the managed service is active.
 Verification: 88 internal-lab tests and three shared-runner tests passed with Python compilation, Bash syntax, systemd unit validation, and whitespace checks. The installed service failure path restored the exact prior CPU policy, scoped sudo denied arbitrary commands, Telegram secrets remained mode `0600`, and persistent lab pods remained healthy; no workload experiment was started.
+
+<a id="infra-212"></a>
+### INFRA-212 - Support a configurable two-host internal lab
+
+_Date: 2026-09-25_
+
+Extend the validated lab configuration with an optional application worker while preserving the single-host setup.
+Bootstrap and join the worker to the controller-managed k3s cluster without assuming a direct physical link between hosts.
+Place only application workloads on the worker and retain orchestration, test tooling, and persistent dependencies on the controller.
+Keep repository-driven setup, update, and managed experiment commands consistent across both topologies.
+The setup wizard and YAML model now support both single-host and split-application layouts, joining the worker as a labeled k3s agent without assuming a direct cable or a particular interface.
+Application images are imported into both containerd stores, while node selectors retain services, stubs, observability, and orchestration on the controller and place only `ckc-demo` on the worker.
+The managed lifecycle acquires and exactly restores CPU policy on both nodes through three passwordless helpers that accept no arguments; the worker runs neither Docker nor privileged orchestration tooling.
+Verification: 92 internal-lab tests and five shared orchestration tests passed with Bash syntax, Python compilation, systemd validation, and whitespace checks. The real optilab cluster reports both nodes Ready, controller services are placed on optilab, images and network dependencies are available on optilab2, and a two-node 2 GHz acquire/release cycle restored every prior CPU policy value. No workload experiment was launched.
