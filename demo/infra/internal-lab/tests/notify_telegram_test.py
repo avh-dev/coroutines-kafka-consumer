@@ -18,33 +18,54 @@ SPEC.loader.exec_module(NOTIFY)
 class NotifyTelegramTest(unittest.TestCase):
     def test_experiment_start_is_detailed(self) -> None:
         self.assertEqual(
-            "🚀 CKC experiment started: comparison\nTargets: 3",
-            NOTIFY.message_for("experiment_started", {"experiment": "comparison", "targets": 3}),
+            "\n".join([
+                "🚀 CKC experiment started: comparison",
+                "Environment: internal-lab · optilab",
+                "Kafka: apache-kafka · cluster · 3 broker(s)",
+                "Expected workload: 6m 00s",
+                "Targets (2):",
+                "• baseline (spring, 2 replica(s), 1000 TPS, 3m 00s)",
+                "• ckc (ckc, 2 replica(s), 1000 TPS, 3m 00s)",
+            ]),
+            NOTIFY.message_for("experiment_started", {
+                "experiment": "comparison",
+                "environment": {"name": "internal-lab", "detail": "optilab"},
+                "kafka": {"implementation": "apache-kafka", "topology": "cluster", "brokers": 3},
+                "expected_duration_seconds": 360,
+                "targets": [
+                    {"name": "baseline", "profile": "spring", "replicas": 2, "base_tps": 1000, "duration_seconds": 180},
+                    {"name": "ckc", "profile": "ckc", "replicas": 2, "base_tps": 1000, "duration_seconds": 180},
+                ],
+            }),
         )
 
-    def test_default_progress_events_are_compact(self) -> None:
-        cases = {
-            "experiment_runs_finished": "✅ Load runs completed",
-            "audit_analysis_started": "🔍 Audit analysis started",
-            "audit_analysis_finished": "✅ Audit analysis completed",
-            "experiment_finished": "🏁 Experiment completed",
-        }
-        for event, expected in cases.items():
-            with self.subTest(event=event):
-                self.assertEqual(expected, NOTIFY.message_for(event, {}))
+    def test_default_events_follow_the_high_signal_lifecycle(self) -> None:
+        self.assertEqual(
+            {
+                "experiment_started",
+                "kafka_warmup_started",
+                "measurements_finished",
+                "report_ready",
+                "bundle_ready",
+                "experiment_completed",
+                "experiment_failed",
+            },
+            NOTIFY.DEFAULT_EVENTS,
+        )
+        self.assertEqual(
+            "✅ Measurements completed · analysis started",
+            NOTIFY.message_for("measurements_finished", {}),
+        )
 
     def test_failures_are_compact_and_keep_the_exit_code(self) -> None:
         self.assertEqual(
-            "❌ Experiment failed · exit 7",
-            NOTIFY.message_for("experiment_failed", {"exit_code": 7}),
-        )
-        self.assertEqual(
-            "❌ Audit analysis failed",
-            NOTIFY.message_for("audit_analysis_finished", {"analysis": [{"exit_code": 1}]}),
-        )
-        self.assertEqual(
-            "⏹️ Experiment stopped",
-            NOTIFY.message_for("experiment_failed", {"exit_code": 130}),
+            "❌ CKC experiment failed: comparison · exit 7\nCleanup: incomplete\nartifact upload failed",
+            NOTIFY.message_for("experiment_failed", {
+                "experiment": "comparison",
+                "exit_code": 7,
+                "cleanup_status": "incomplete",
+                "error": "artifact upload failed",
+            }),
         )
 
     def test_report_ready_is_enabled_and_contains_report_path(self) -> None:
@@ -56,6 +77,40 @@ class NotifyTelegramTest(unittest.TestCase):
         self.assertEqual(
             "📊 CKC report ready: comparison\n/results/comparison/report.md",
             message,
+        )
+
+    def test_bundle_and_terminal_completion_are_separate(self) -> None:
+        payload = {
+            "experiment": "comparison",
+            "artifacts": {
+                "report": "/results/report.md",
+                "evidence": "/results/evidence.tar.gz",
+                "audit": "/results/audit.tar.gz",
+            },
+        }
+        self.assertEqual(
+            "\n".join([
+                "📦 CKC evidence bundle ready: comparison",
+                "Report: /results/report.md",
+                "Evidence: /results/evidence.tar.gz",
+                "Audit: /results/audit.tar.gz",
+            ]),
+            NOTIFY.message_for("bundle_ready", payload),
+        )
+        self.assertEqual(
+            "\n".join([
+                "🏁 CKC experiment completed: comparison",
+                "Elapsed: 5m 00s",
+                "Targets: 2/2 succeeded",
+                "Cleanup: clean",
+            ]),
+            NOTIFY.message_for("experiment_completed", {
+                "experiment": "comparison",
+                "elapsed_seconds": 300,
+                "targets_succeeded": 2,
+                "targets_total": 2,
+                "cleanup_status": "clean",
+            }),
         )
 
 

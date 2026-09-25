@@ -375,7 +375,7 @@
 | [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
 | [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | DONE |
-| [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | IN_PROGRESS |
+| [INFRA-214](#infra-214) | Unify lifecycle notifications across internal-lab and AWS experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4330,3 +4330,6 @@ Define one high-signal notification contract for internal-lab and AWS experiment
 Include environment, Kafka shape, target details, and planned workload duration in the start notification.
 Emit report and bundle readiness in lifecycle order and reserve the terminal completion event for fully finalized artifacts and cleanup state.
 Keep Telegram credentials local to the controller environment and never transport them into disposable AWS infrastructure.
+The shared notifier now renders detailed starts, measurement completion, report readiness, bundle readiness, and exactly one terminal success or failure event in lifecycle order.
+Internal-lab delays completion until final artifacts exist and reports artifact-stage failures; AWS sends from the checkout-local controller and includes verified cleanup state without copying Telegram secrets into cloud resources.
+Verification: 96 internal-lab tests, 30 AWS tests, and 29 shared notification/orchestration tests passed with Python compilation, Bash syntax, and whitespace checks. The updated runtime was installed on optilab without rebuilding workloads, its installed renderer produced the expected detailed messages, and the local AWS controller safely recognized the configured Telegram keys without exposing their values. No experiment was launched.

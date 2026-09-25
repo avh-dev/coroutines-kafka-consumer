@@ -8,9 +8,9 @@ import os
 import queue
 import re
 import signal
+import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -26,6 +26,7 @@ if SHARED_ROOT.is_dir():
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import parse_load_profile
+from experiment_notifications import notify
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
 from result_bundle import collect as collect_evidence
 from result_bundle import finalize as finalize_artifacts
@@ -60,6 +61,7 @@ KAFKA_LAB_ENV_KEYS = {
     "LAB_KAFKA_HEAP_PER_BROKER",
 }
 STOP_REQUESTED = threading.Event()
+FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
 
 
 def request_managed_stop(_signum: int, _frame: object) -> None:
@@ -631,20 +633,6 @@ def notify_hook_path(lab_root: Path, configured: str) -> Path | None:
     return None
 
 
-def notify(hook: Path | None, event: str, payload: dict[str, Any], log_dir: Path) -> None:
-    if hook is None:
-        return
-    log_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", prefix=f"notify-{event}-", dir=log_dir, delete=False) as file:
-        json.dump(payload, file, indent=2)
-        file.write("\n")
-        payload_path = file.name
-    try:
-        subprocess.run([str(hook), event, payload_path], check=False)
-    except Exception as error:
-        print(f"Notification hook failed for {event}: {error}", file=sys.stderr)
-
-
 def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
     command = [str(run_test), "--skip-analysis"]
     if test.get("consumer_profiles_path"):
@@ -938,6 +926,20 @@ def run_experiment(
         for settings in workload_topics.values()
     }, indent=2), encoding="utf-8")
 
+    notification_targets = []
+    for target, resolved_target in zip(targets, resolved_experiment.targets):
+        target_load = resolved_target.test.definition.get("load_test") or {}
+        application = target.get("application") or {}
+        profile = target.get("profile") or target.get("implementation") or target.get("deployment")
+        notification_targets.append({
+            "id": target.get("id"),
+            "name": target.get("name"),
+            "profile": profile,
+            "replicas": application.get("replicas", target.get("replicas")),
+            "base_tps": target_load.get("base_tps", base_tps),
+            "duration_seconds": load_profile_seconds(str(target_load.get("load_profile") or "")),
+        })
+
     results: list[dict[str, Any]] = []
     analysis_results: list[dict[str, Any]] = []
     notify(
@@ -948,7 +950,10 @@ def run_experiment(
             "experiment_file": str(experiment_path),
             "test_definition": test_definition,
             "base_tps": base_tps,
-            "targets": len(targets),
+            "environment": {"name": "internal-lab", "detail": socket.gethostname()},
+            "kafka": kafka_configuration,
+            "targets": notification_targets,
+            "expected_duration_seconds": sum(target["duration_seconds"] for target in notification_targets),
         },
         log_dir,
     )
@@ -1019,7 +1024,7 @@ def run_experiment(
             and result["env"].get("AUDIT_LOG_ENABLED", "true") == "true"
             and has_audit_input(str(result["audit_dir"]))
         ]
-        notify(hook, "experiment_runs_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
+        notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
         if auditable_runs:
             print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
             notify(hook, "audit_analysis_started", {"experiment": experiment_name, "auditable_runs": len(auditable_runs)}, log_dir)
@@ -1059,7 +1064,6 @@ def run_experiment(
         "analysis": analysis_results,
         "exit_code": exit_code,
     }
-    notify(hook, "experiment_finished" if exit_code == 0 else "experiment_failed", summary, log_dir)
     return summary
 
 
@@ -1067,7 +1071,9 @@ def summary_interrupted(summary: dict[str, Any]) -> bool:
     return any(target.get("interrupted") for target in summary.get("targets", []))
 
 
-def main() -> int:
+def run_main() -> int:
+    FAILURE_NOTIFICATION_CONTEXT.clear()
+    lifecycle_started = time.monotonic()
     STOP_REQUESTED.clear()
     signal.signal(signal.SIGINT, request_managed_stop)
     signal.signal(signal.SIGTERM, request_managed_stop)
@@ -1095,6 +1101,13 @@ def main() -> int:
     experiment_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_dir = result_root / experiment_set_id
     log_dir.mkdir(parents=True, exist_ok=True)
+    FAILURE_NOTIFICATION_CONTEXT.update({
+        "hook": hook,
+        "log_dir": log_dir,
+        "experiment": ", ".join(path.stem for path in selected),
+        "started": lifecycle_started,
+        "terminal_sent": False,
+    })
     summaries = []
     for experiment_path in selected:
         summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
@@ -1142,6 +1155,19 @@ def main() -> int:
         document["archives_skipped"] = ["evidence", "audit"]
         summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
         print("Evidence and audit archives skipped.")
+        terminal_event = "experiment_completed" if document["exit_code"] == 0 else "experiment_failed"
+        notify(hook, terminal_event, {
+            "experiment": ", ".join(str(summary.get("experiment")) for summary in summaries),
+            "exit_code": document["exit_code"],
+            "elapsed_seconds": time.monotonic() - lifecycle_started,
+            "targets_total": sum(len(summary.get("targets", [])) for summary in summaries),
+            "targets_succeeded": sum(
+                target.get("exit_code") == 0
+                for summary in summaries
+                for target in summary.get("targets", [])
+            ),
+        }, log_dir)
+        FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
         return int(document["exit_code"])
     evidence_runs = [
         Path(str(target["run_dir"]))
@@ -1181,7 +1207,48 @@ def main() -> int:
     )
     document["artifacts"] = {key: str(value) for key, value in artifacts.items()}
     summary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    experiment_names = ", ".join(str(summary.get("experiment")) for summary in summaries)
+    artifact_payload = {
+        "experiment": experiment_names,
+        "experiment_set_id": experiment_set_id,
+        "artifacts": document["artifacts"],
+        "exit_code": document["exit_code"],
+    }
+    notify(hook, "bundle_ready", artifact_payload, log_dir)
+    terminal_event = "experiment_completed" if document["exit_code"] == 0 else "experiment_failed"
+    notify(hook, terminal_event, {
+        **artifact_payload,
+        "elapsed_seconds": time.monotonic() - lifecycle_started,
+        "targets_total": sum(len(summary.get("targets", [])) for summary in summaries),
+        "targets_succeeded": sum(
+            target.get("exit_code") == 0
+            for summary in summaries
+            for target in summary.get("targets", [])
+        ),
+    }, log_dir)
+    FAILURE_NOTIFICATION_CONTEXT["terminal_sent"] = True
     return int(document["exit_code"])
+
+
+def main() -> int:
+    try:
+        return run_main()
+    except BaseException as error:
+        context = FAILURE_NOTIFICATION_CONTEXT
+        if context and not context.get("terminal_sent"):
+            notify(
+                context.get("hook"),
+                "experiment_failed",
+                {
+                    "experiment": context.get("experiment") or "ckc experiment",
+                    "exit_code": 130 if isinstance(error, KeyboardInterrupt) else 1,
+                    "elapsed_seconds": time.monotonic() - float(context.get("started") or time.monotonic()),
+                    "error": str(error)[:1000],
+                },
+                Path(context["log_dir"]),
+            )
+            context["terminal_sent"] = True
+        raise
 
 
 if __name__ == "__main__":

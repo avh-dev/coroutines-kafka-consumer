@@ -202,6 +202,7 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
+  sync_path "${REPO_ROOT}/demo/infra/shared/experiment_notifications" "${LAB_ROOT}/helpers/experiment_notifications"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
@@ -342,6 +343,7 @@ ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-l
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/experiment_orchestration \
+  demo/infra/shared/experiment_notifications \
   demo/infra/shared/experiment_report \
   demo/infra/shared/pcap \
   demo/infra/shared/result_bundle \

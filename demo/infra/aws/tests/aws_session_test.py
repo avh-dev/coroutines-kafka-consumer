@@ -201,6 +201,16 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("lab_profile", state["config"])
         self.assertEqual("ckc", target["profile"])
         self.assertTrue(target["remote_definition"].endswith("/ckc/resolved-test.yaml"))
+        self.assertEqual(1, target["replicas"])
+        self.assertEqual(10, target["base_tps"])
+        self.assertEqual(80, target["duration_seconds"])
+        self.assertEqual(80, state["config"]["expected_duration_seconds"])
+        self.assertEqual({
+            "implementation": "apache-kafka",
+            "topology": "cluster",
+            "brokers": 3,
+            "mode": "kubernetes",
+        }, state["config"]["kafka"])
 
     def test_new_state_rejects_unsafe_session_name(self) -> None:
         base = SimpleNamespace(

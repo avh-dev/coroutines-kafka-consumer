@@ -84,6 +84,19 @@ and deployment plan are generated internal hand-offs and retained as evidence.
 Each target receives a separate run ID, audit analysis, and verified artifact
 directory under `result/runs/`.
 
+### Telegram lifecycle notifications
+
+The checkout-local AWS controller uses the same high-signal lifecycle events as
+the internal lab. By default it reads `~/.config/ckc-lab/telegram.env` when that
+file defines `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. The file remains on the
+operator machine and is never copied to the runner, S3, or the disposable lab.
+
+The start message includes the AWS region, Kafka shape, targets, and expected
+workload duration. Report readiness, bundle readiness, and terminal completion
+are sent only after their corresponding phase has finished; the terminal event
+also reports verified AWS cleanup state. Use `--telegram-env PATH` to select a
+different local secret file or `--notify-hook PATH` to provide another hook.
+
 The managed-service capacity profile uses three non-burstable MSK brokers,
 a two-node ElastiCache replication group, and three fixed EKS workers. Its
 20-minute CKC definition deliberately runs the processing dispatcher on one

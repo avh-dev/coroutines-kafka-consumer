@@ -27,6 +27,7 @@ if str(SHARED_INFRA) not in sys.path:
     sys.path.insert(0, str(SHARED_INFRA))
 
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
+from experiment_notifications import load_environment_file, notify
 from experiment_report import generate_experiment_reports
 from result_bundle import finalize as finalize_artifacts
 
@@ -62,19 +63,46 @@ def generated_session_id() -> str:
     return f"s-{utc_now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
+def load_profile_seconds(profile: str) -> int:
+    units = {"h": 3600, "m": 60, "s": 1}
+    return sum(
+        int(number) * units[unit]
+        for phase in re.findall(r"\(([^)]*)\)", profile)
+        for number, unit in re.findall(r"(\d+)\s*([hms])", phase)
+    )
+
+
 class CommandError(RuntimeError):
     pass
 
 
 class SessionController:
-    def __init__(self, session_dir: Path, state: dict[str, Any]):
+    def __init__(
+        self,
+        session_dir: Path,
+        state: dict[str, Any],
+        *,
+        notification_hook: Path | None = None,
+        notification_environment: dict[str, str] | None = None,
+    ):
         self.repo = repo_root()
         self.session_dir = session_dir
         self.state_path = session_dir / "session.json"
         self.command_log = session_dir / "commands.log"
         self.state = state
+        self.notification_hook = notification_hook
+        self.notification_environment = notification_environment or {}
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.save()
+
+    def notify(self, event: str, payload: dict[str, Any]) -> None:
+        notify(
+            self.notification_hook,
+            event,
+            payload,
+            self.session_dir / "notifications",
+            environment=self.notification_environment,
+        )
 
     @property
     def config(self) -> dict[str, Any]:
@@ -538,6 +566,11 @@ class SessionController:
                     f"AWS experiment target {target['name']!r} failed; artifacts will still be collected before cleanup."
                 )
         self.phase("TARGETS_COMPLETED", target_results=results)
+        self.notify("measurements_finished", {
+            "experiment": config["experiment_name"],
+            "runs": len(results),
+            "environment": {"name": "aws", "detail": config["region"]},
+        })
 
     def collect(self) -> None:
         config = self.config
@@ -1027,6 +1060,11 @@ class SessionController:
             )
             self.state["experiment_reports"] = [str(path) for path in reports]
             self.save()
+            self.notify("report_ready", {
+                "experiment": self.config["experiment_name"],
+                "reports": self.state["experiment_reports"],
+                "environment": {"name": "aws", "detail": self.config["region"]},
+            })
         finally:
             self.run(["docker", "rm", "-f", container_name], check=False)
             shutil.rmtree(restore_root, ignore_errors=True)
@@ -1133,8 +1171,11 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         if terraform_inputs_path.is_file()
         else {}
     )
-    targets = [
-        {
+    targets = []
+    for item in materialized:
+        load = item.target.test.definition.get("load_test") or {}
+        application = item.plan.get("application") or {}
+        targets.append({
             "id": item.target.id,
             "name": item.target.name,
             "profile": item.target.profile,
@@ -1142,9 +1183,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "local_definition": str(item.definition_path),
             "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
             "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
-        }
-        for item in materialized
-    ]
+            "replicas": application.get("replicas"),
+            "base_tps": load.get("base_tps"),
+            "duration_seconds": load_profile_seconds(str(load.get("load_profile") or "")),
+        })
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
@@ -1156,6 +1198,15 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     region = canonical_region or args.region
     if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", region):
         raise ValueError("experiment AWS environment region is invalid")
+    lab = (resolved.environment_definition or {}).get("lab") or {}
+    kafka_lab = lab.get("kafka") or {}
+    kafka_brokers = kafka_lab.get("kubernetes_brokers") or kafka_lab.get("msk_brokers")
+    kafka = {
+        "implementation": "apache-kafka",
+        "topology": "cluster" if kafka_brokers and int(kafka_brokers) > 1 else "single",
+        "brokers": kafka_brokers,
+        "mode": kafka_lab.get("mode"),
+    }
     return {
         "schema_version": 1,
         "created_at": utc_text(),
@@ -1182,6 +1233,8 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "experiment": definition.as_posix(),
             "test_definition": targets[0]["remote_definition"],
             "targets": targets,
+            "kafka": kafka,
+            "expected_duration_seconds": sum(int(target["duration_seconds"]) for target in targets),
             "test_timeout_seconds": args.test_timeout_seconds,
         },
         "session_dir": str(session_dir),
@@ -1203,6 +1256,12 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--experiment")
     run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
     run_parser.add_argument("--max-session-hours", type=int, default=12)
+    run_parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
+    run_parser.add_argument(
+        "--telegram-env",
+        default=str(Path.home() / ".config/ckc-lab/telegram.env"),
+        help="Local Telegram environment file; it is never copied into AWS.",
+    )
     image_group = run_parser.add_mutually_exclusive_group()
     image_group.add_argument("--build-images", dest="build_images", action="store_true")
     image_group.add_argument("--skip-build-images", dest="build_images", action="store_false")
@@ -1244,7 +1303,24 @@ def main() -> None:
     session_dir = work_dir / session_id
     if session_dir.exists():
         raise FileExistsError(f"AWS session directory already exists: {session_dir}")
-    controller = SessionController(session_dir, new_state(args, session_id, session_dir))
+    notification_environment = load_environment_file(Path(args.telegram_env).expanduser())
+    notification_hook = Path(args.notify_hook).expanduser() if args.notify_hook else None
+    if notification_hook is None and {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"}.issubset(notification_environment):
+        notification_hook = repo_root() / "demo/infra/shared/experiment_notifications/telegram.py"
+    controller = SessionController(
+        session_dir,
+        new_state(args, session_id, session_dir),
+        notification_hook=notification_hook,
+        notification_environment=notification_environment,
+    )
+    lifecycle_started = time.monotonic()
+    controller.notify("experiment_started", {
+        "experiment": controller.config["experiment_name"],
+        "environment": {"name": "aws", "detail": controller.config["region"]},
+        "kafka": controller.config["kafka"],
+        "targets": controller.config["targets"],
+        "expected_duration_seconds": controller.config["expected_duration_seconds"],
+    })
     primary_error: BaseException | None = None
 
     def terminate(_signum: int, _frame: Any) -> None:
@@ -1293,14 +1369,37 @@ def main() -> None:
             controller.state["canonical_finalization_failure"] = {"at": utc_text(), "message": str(error)}
             controller.save()
             primary_error = primary_error or error
+    if "canonical_artifacts" in controller.state:
+        controller.notify("bundle_ready", {
+            "experiment": controller.config["experiment_name"],
+            "environment": {"name": "aws", "detail": controller.config["region"]},
+            "artifacts": controller.state["canonical_artifacts"],
+        })
     if primary_error or cleanup_failures:
         messages = [str(primary_error)] if primary_error else []
         if post_processing_error is not None and post_processing_error is not primary_error:
             messages.append(str(post_processing_error))
         messages.extend(cleanup_failures)
         controller.phase("FAILED" if not cleanup_failures else "FAILED_CLEANUP_INCOMPLETE")
+        controller.notify("experiment_failed", {
+            "experiment": controller.config["experiment_name"],
+            "exit_code": 1,
+            "elapsed_seconds": time.monotonic() - lifecycle_started,
+            "cleanup_status": controller.state.get("cleanup_status", "unknown").lower(),
+            "error": "; ".join(messages),
+        })
         raise SystemExit("AWS smoke session failed:\n- " + "\n- ".join(messages))
     controller.phase("COMPLETED")
+    controller.notify("experiment_completed", {
+        "experiment": controller.config["experiment_name"],
+        "elapsed_seconds": time.monotonic() - lifecycle_started,
+        "targets_total": len(controller.config["targets"]),
+        "targets_succeeded": sum(
+            result.get("status") == "Success"
+            for result in controller.state.get("target_results", [])
+        ),
+        "cleanup_status": controller.state.get("cleanup_status", "unknown").lower(),
+    })
     print(f"AWS smoke session completed: {session_id}")
     print(f"  result={controller.state['local_result_dir']}")
     print(f"  audit_summary={controller.state['audit_summary']}")
