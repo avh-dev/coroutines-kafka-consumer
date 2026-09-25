@@ -7,6 +7,7 @@ REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 DEFAULT_LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
+LEGACY_FINGERPRINT_LOCALE="${LC_ALL:-${LC_COLLATE:-${LANG:-C}}}"
 FORCE_REBUILD=0
 
 usage() {
@@ -38,9 +39,10 @@ print(socket.gethostbyname(sys.argv[1]))
 PY
 }
 
-fingerprint_paths() {
-  local label="$1"
-  shift
+fingerprint_paths_with_locale() {
+  local sort_locale="$1"
+  local label="$2"
+  shift 2
 
   if ! command -v sha256sum >/dev/null 2>&1; then
     echo "sha256sum is required to calculate internal-lab fingerprints." >&2
@@ -62,7 +64,7 @@ fingerprint_paths() {
             ! -path '*/__pycache__/*' \
             ! -name '*.pyc' \
             -print0 \
-            | sort -z \
+            | LC_ALL="${sort_locale}" sort -z \
             | xargs -0 sha256sum
         fi
       done
@@ -70,8 +72,17 @@ fingerprint_paths() {
   )
 }
 
+fingerprint_paths() {
+  fingerprint_paths_with_locale C "$@"
+}
+
+legacy_fingerprint_paths() {
+  fingerprint_paths_with_locale "${LEGACY_FINGERPRINT_LOCALE}" "$@"
+}
+
 image_fingerprint() {
   local service="$1"
+  local fingerprint_function="${2:-fingerprint_paths}"
   local -a paths=(
     settings.gradle.kts
     build.gradle.kts
@@ -92,7 +103,7 @@ image_fingerprint() {
       ;;
   esac
 
-  fingerprint_paths "image-v3-${service}" "${paths[@]}"
+  "${fingerprint_function}" "image-v3-${service}" "${paths[@]}"
 }
 
 remote_image_is_current() {
@@ -170,6 +181,16 @@ record_remote_fingerprint() {
   local fingerprint="$2"
 
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/state/fingerprints' && printf '%s\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/${name}.fingerprint'"
+}
+
+record_remote_image_fingerprint() {
+  local service="$1"
+  local fingerprint="$2"
+
+  ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/state/fingerprints/images' && printf '%s\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint'"
+  if [[ -n "${LAB_APPLICATION_TARGET:-}" ]]; then
+    ssh "${LAB_APPLICATION_TARGET}" "mkdir -p '${LAB_ROOT}/state/fingerprints/images' && printf '%s\n' '${fingerprint}' > '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint'"
+  fi
 }
 
 sync_internal_lab_assets() {
@@ -317,6 +338,44 @@ UPDATE_FINGERPRINT="$({
   printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
 } | sha256sum | awk '{ print $1 }')"
 
+# INFRA-218 initially inherited the caller's collation order. Retain one
+# compatibility calculation so an installation written by that version can be
+# migrated to locale-independent fingerprints without rebuilding artifacts.
+LEGACY_DEMO_FINGERPRINT="$(image_fingerprint demo legacy_fingerprint_paths)"
+LEGACY_DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs legacy_fingerprint_paths)"
+LEGACY_DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
+LEGACY_LOAD_TEST_RUNTIME_FINGERPRINT="$(legacy_fingerprint_paths "load-test-runtime" \
+  settings.gradle.kts \
+  build.gradle.kts \
+  gradle.properties \
+  gradle/wrapper/gradle-wrapper.properties \
+  demo/ckc-demo-contracts \
+  demo/ckc-demo-load-test)"
+LEGACY_ASSETS_SYNC_FINGERPRINT="$(legacy_fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT="$(legacy_fingerprint_paths "runtime-test-assets" \
+  demo/infra/shared/audit \
+  demo/infra/shared/experiment_orchestration \
+  demo/infra/shared/experiment_notifications \
+  demo/infra/shared/kafka_warmup \
+  demo/infra/shared/experiment_report \
+  demo/infra/shared/pcap \
+  demo/infra/shared/result_bundle \
+  demo/infra/shared/grafana \
+  demo/infra/experiments)"
+LEGACY_BASE_DEPLOY_FINGERPRINT="$(legacy_fingerprint_paths "base-deploy" \
+  demo/infra/internal-lab/assets/compose \
+  demo/infra/internal-lab/assets/grafana \
+  demo/infra/internal-lab/assets/k8s \
+  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+  demo/infra/shared/grafana)"
+LEGACY_UPDATE_FINGERPRINT="$({
+  printf '%s\n' "internal-lab-update-v2"
+  printf '%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${LEGACY_DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
+  printf '%s\n' "${LEGACY_LOAD_TEST_RUNTIME_FINGERPRINT}" "${LEGACY_ASSETS_SYNC_FINGERPRINT}" "${LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT}" "${LEGACY_BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}"
+  printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
+} | sha256sum | awk '{ print $1 }')"
+
 REMOTE_PROBE="$(ssh "${LAB_TARGET}" "
   if systemctl --user is-active --quiet ckc-experiment.service; then printf 'active'; else printf 'inactive'; fi
   printf '|'
@@ -330,6 +389,18 @@ if [[ "${REMOTE_PROBE}" == active\|* ]]; then
 fi
 if [[ "${FORCE_REBUILD}" -eq 0 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
   echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
+  exit 0
+fi
+if [[ "${FORCE_REBUILD}" -eq 0 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]]; then
+  record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
+  record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
+  record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
+  record_remote_fingerprint "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"
+  record_remote_fingerprint "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"
+  record_remote_fingerprint "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}"
+  record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
+  record_remote_fingerprint "update" "${UPDATE_FINGERPRINT}"
+  echo "Migrated locale-dependent lab fingerprints (${UPDATE_FINGERPRINT:0:12}); no files transferred."
   exit 0
 fi
 if [[ -n "${LAB_APPLICATION_TARGET}" ]]; then

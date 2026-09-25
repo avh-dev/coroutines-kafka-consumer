@@ -33,6 +33,15 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn('record_remote_fingerprint "update" "${UPDATE_FINGERPRINT}"', script)
         self.assertIn("no files transferred", script)
 
+    def test_fingerprints_are_locale_independent_and_migrate_the_legacy_value(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('LC_ALL="${sort_locale}" sort -z', script)
+        self.assertIn('fingerprint_paths_with_locale C "$@"', script)
+        self.assertIn('REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete', script)
+        self.assertIn("Migrated locale-dependent lab fingerprints", script)
+        self.assertIn('record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"', script)
+
     def test_update_uses_runtime_user_and_no_privileged_package_install(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 
