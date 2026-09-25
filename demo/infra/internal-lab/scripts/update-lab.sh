@@ -7,7 +7,6 @@ REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 DEFAULT_LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
-DEFAULT_THREAD_STATS_REPO="${REPO_ROOT}/../thread-stats"
 FORCE_REBUILD=0
 
 usage() {
@@ -132,7 +131,7 @@ remote_paths_exist() {
   ssh "${LAB_TARGET}" "${command}"
 }
 
-build_thread_stats_agent() {
+resolve_thread_stats_agent() {
   if [[ -n "${THREAD_STATS_AGENT_JAR:-}" ]]; then
     if [[ ! -f "${THREAD_STATS_AGENT_JAR}" ]]; then
       echo "THREAD_STATS_AGENT_JAR does not exist: ${THREAD_STATS_AGENT_JAR}" >&2
@@ -142,27 +141,28 @@ build_thread_stats_agent() {
     return
   fi
 
-  local thread_stats_repo="${THREAD_STATS_REPO:-${DEFAULT_THREAD_STATS_REPO}}"
-  if [[ ! -f "${thread_stats_repo}/thread-stats-agent/pom.xml" ]]; then
-    echo "Thread Stats repo was not found: ${thread_stats_repo}" >&2
-    echo "Set THREAD_STATS_REPO or THREAD_STATS_AGENT_JAR before running update-lab.sh." >&2
+  local version maven_repository maven_jar staged_jar
+  version="$(sed -n 's/^threadStatsVersion=//p' "${REPO_ROOT}/gradle.properties" | tail -n 1)"
+  if [[ -z "${version}" ]]; then
+    echo "threadStatsVersion is missing from gradle.properties." >&2
     exit 1
   fi
-
-  (
-    cd "${thread_stats_repo}"
-    ./mvnw --batch-mode \
-      -pl thread-stats-agent,thread-stats-spring-boot-starter \
-      -am install >&2
-  )
-  find "${thread_stats_repo}/thread-stats-agent/target" \
-    -maxdepth 1 \
-    -type f \
-    -name 'thread-stats-agent-*.jar' \
-    ! -name '*-sources.jar' \
-    ! -name '*-javadoc.jar' \
-    | sort \
-    | tail -n 1
+  maven_repository="${MAVEN_REPO_LOCAL:-${HOME}/.m2/repository}"
+  maven_jar="${maven_repository}/dev/avh/threadstats/thread-stats-agent/${version}/thread-stats-agent-${version}.jar"
+  staged_jar="${REPO_ROOT}/build/internal-lab/thread-stats-agent/${version}/thread-stats-agent.jar"
+  if [[ -f "${maven_jar}" ]]; then
+    printf '%s\n' "${maven_jar}"
+    return
+  fi
+  if [[ ! -f "${staged_jar}" ]]; then
+    echo "Resolving Thread Stats agent dev.avh.threadstats:thread-stats-agent:${version}." >&2
+    (cd "${REPO_ROOT}" && ./gradlew --quiet stageThreadStatsAgent >&2)
+  fi
+  if [[ ! -f "${staged_jar}" ]]; then
+    echo "Gradle did not resolve the Thread Stats agent: ${staged_jar}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${staged_jar}"
 }
 
 record_remote_fingerprint() {
@@ -262,9 +262,75 @@ if [[ -z "${LAB_NODE_IP}" ]]; then
   echo "Unable to resolve lab host: ${LAB_HOST}" >&2
   exit 1
 fi
-if ssh "${LAB_TARGET}" "systemctl --user is-active --quiet ckc-experiment.service"; then
+DEMO_FINGERPRINT="$(image_fingerprint demo)"
+DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
+THREAD_STATS_AGENT_JAR_PATH="$(resolve_thread_stats_agent)"
+if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
+  echo "Thread Stats agent jar was not resolved." >&2
+  exit 1
+fi
+THREAD_STATS_AGENT_FINGERPRINT="$(sha256sum "${THREAD_STATS_AGENT_JAR_PATH}" | awk '{ print $1 }')"
+THREAD_STATS_VERSION="$(sed -n 's/^threadStatsVersion=//p' "${REPO_ROOT}/gradle.properties" | tail -n 1)"
+THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT="$({
+  found=0
+  for module in thread-stats-core thread-stats-micrometer thread-stats-spring-boot-starter; do
+    artifact="${MAVEN_REPO_LOCAL:-${HOME}/.m2/repository}/dev/avh/threadstats/${module}/${THREAD_STATS_VERSION}/${module}-${THREAD_STATS_VERSION}.jar"
+    if [[ -f "${artifact}" ]]; then
+      sha256sum "${artifact}"
+      found=1
+    fi
+  done
+  if [[ "${found}" -eq 0 ]]; then
+    printf '%s\n' "release:${THREAD_STATS_VERSION}"
+  fi
+} | sha256sum | awk '{ print $1 }')"
+DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
+LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
+  settings.gradle.kts \
+  build.gradle.kts \
+  gradle.properties \
+  gradle/wrapper/gradle-wrapper.properties \
+  demo/ckc-demo-contracts \
+  demo/ckc-demo-load-test)"
+ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
+  demo/infra/shared/audit \
+  demo/infra/shared/experiment_orchestration \
+  demo/infra/shared/experiment_notifications \
+  demo/infra/shared/kafka_warmup \
+  demo/infra/shared/experiment_report \
+  demo/infra/shared/pcap \
+  demo/infra/shared/result_bundle \
+  demo/infra/shared/grafana \
+  demo/infra/experiments)"
+BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
+  demo/infra/internal-lab/assets/compose \
+  demo/infra/internal-lab/assets/grafana \
+  demo/infra/internal-lab/assets/k8s \
+  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+  demo/infra/shared/grafana)"
+UPDATE_FINGERPRINT="$({
+  printf '%s\n' "internal-lab-update-v2"
+  printf '%s\n' "${DEMO_FINGERPRINT}" "${DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
+  printf '%s\n' "${LOAD_TEST_RUNTIME_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}"
+  printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
+} | sha256sum | awk '{ print $1 }')"
+
+REMOTE_PROBE="$(ssh "${LAB_TARGET}" "
+  if systemctl --user is-active --quiet ckc-experiment.service; then printf 'active'; else printf 'inactive'; fi
+  printf '|'
+  if test -f '${LAB_ROOT}/state/fingerprints/update.fingerprint'; then tr -d '\\n' < '${LAB_ROOT}/state/fingerprints/update.fingerprint'; fi
+  printf '|'
+  if test -x '${LAB_ROOT}/bin/run-experiment.sh' && test -f '${LAB_ROOT}/thread-stats/thread-stats-agent.jar'; then printf 'complete'; else printf 'incomplete'; fi
+")"
+if [[ "${REMOTE_PROBE}" == active\|* ]]; then
   echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
+fi
+if [[ "${FORCE_REBUILD}" -eq 0 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
+  echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
+  exit 0
 fi
 if [[ -n "${LAB_APPLICATION_TARGET}" ]]; then
   if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "${LAB_APPLICATION_TARGET}" \
@@ -296,7 +362,11 @@ sync_file() {
 
   target_dir="$(dirname "${target_path}")"
   ssh "${LAB_TARGET}" "mkdir -p '$(printf "%q" "${target_dir}")'"
-  scp "${source_path}" "${LAB_TARGET}:${target_path}"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -az --no-owner --no-group "${source_path}" "${LAB_TARGET}:${target_path}"
+  else
+    scp "${source_path}" "${LAB_TARGET}:${target_path}"
+  fi
 }
 
 ssh "${LAB_TARGET}" "
@@ -324,38 +394,6 @@ if ! ssh "${LAB_TARGET}" "python3 -c 'import yaml' >/dev/null 2>&1 && command -v
   echo "Lab prerequisites are missing on ${LAB_TARGET}; run lab.sh bootstrap before lab.sh up." >&2
   exit 1
 fi
-
-DEMO_FINGERPRINT="$(image_fingerprint demo)"
-DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
-THREAD_STATS_AGENT_JAR_PATH="$(build_thread_stats_agent)"
-if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
-  echo "Thread Stats agent jar was not produced." >&2
-  exit 1
-fi
-THREAD_STATS_AGENT_FINGERPRINT="$(sha256sum "${THREAD_STATS_AGENT_JAR_PATH}" | awk '{ print $1 }')"
-LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
-  settings.gradle.kts \
-  build.gradle.kts \
-  gradle.properties \
-  gradle/wrapper/gradle-wrapper.properties \
-  demo/ckc-demo-contracts \
-  demo/ckc-demo-load-test)"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
-RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
-  demo/infra/shared/audit \
-  demo/infra/shared/experiment_orchestration \
-  demo/infra/shared/experiment_notifications \
-  demo/infra/shared/experiment_report \
-  demo/infra/shared/pcap \
-  demo/infra/shared/result_bundle \
-  demo/infra/shared/grafana \
-  demo/infra/experiments)"
-BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
-  demo/infra/internal-lab/assets/compose \
-  demo/infra/internal-lab/assets/grafana \
-  demo/infra/internal-lab/assets/k8s \
-  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/shared/grafana)"
 
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
@@ -473,6 +511,8 @@ fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]] && ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy ckc-demo-stubs >/dev/null 2>&1"; then
   ssh "${LAB_TARGET}" "export KUBECONFIG=\"\$HOME/.kube/config\"; kubectl -n ckc-perf rollout restart deploy/ckc-demo-stubs && kubectl -n ckc-perf rollout status deploy/ckc-demo-stubs --timeout=240s"
 fi
+
+record_remote_fingerprint "update" "${UPDATE_FINGERPRINT}"
 
 echo "Internal lab is updated."
 echo "  demo image changed=${DEMO_IMAGE_CHANGED}"

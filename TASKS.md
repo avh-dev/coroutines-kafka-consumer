@@ -379,7 +379,7 @@
 | [INFRA-215](#infra-215) | Quiesce internal-lab application workloads after every experiment. | DONE |
 | [INFRA-216](#infra-216) | Warm Kafka after broker redeployment without contaminating experiment evidence. | DONE |
 | [INFRA-217](#infra-217) | Expose live experiment phases and target progress through the managed status command. | DONE |
-| [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | IN_PROGRESS |
+| [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4382,3 +4382,5 @@ _Date: 2026-09-25_
 Resolve the Thread Stats starter and Java agent from one declared dependency version without building the neighboring project during lab updates.
 Add an aggregate update fingerprint so an unchanged checkout reaches experiment start after one bounded remote freshness check.
 Keep changed experiment and runtime synchronization delta-based for remote operation over ordinary Wi-Fi links.
+The update now reuses local Maven snapshot artifacts, falls back to normal Gradle repository resolution for the agent, skips unchanged Telegram credentials, and uses rsync for changed files when available.
+Verification: 106 internal-lab tests, Bash and Python syntax checks, Gradle agent staging and demo compilation, and whitespace checks passed. A real optilab update completed without building Thread Stats; an immediate unchanged `lab.sh up` transferred no files and completed in 0.78 seconds. Both application deployments were returned to zero replicas afterward.

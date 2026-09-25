@@ -9,10 +9,29 @@ RUN_TEST = Path(__file__).resolve().parents[1] / "assets/bin/run-test.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
-    def test_lab_entrypoints_install_thread_stats_starter_and_agent(self) -> None:
+    def test_thread_stats_agent_resolves_as_a_dependency_without_building_neighbor(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("-pl thread-stats-agent,thread-stats-spring-boot-starter", script)
-        self.assertIn("-am install", script)
+        root_build = (SCRIPT.parents[4] / "build.gradle.kts").read_text(encoding="utf-8")
+        demo_build = (SCRIPT.parents[4] / "demo/ckc-demo/build.gradle.kts").read_text(encoding="utf-8")
+
+        self.assertIn("resolve_thread_stats_agent", script)
+        self.assertIn(".m2/repository", script)
+        self.assertNotIn("mvnw", script)
+        self.assertNotIn("../thread-stats", script)
+        self.assertIn('tasks.register<Sync>("stageThreadStatsAgent")', root_build)
+        self.assertIn('gradleProperty("threadStatsVersion")', root_build)
+        self.assertIn('gradleProperty("threadStatsVersion")', demo_build)
+
+    def test_unchanged_update_exits_before_remote_mutation_or_sync(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        fast_exit = script.index("Internal lab is already current")
+        legacy_cleanup = script.index("rm -rf '${LEGACY_LAB_ROOT}'")
+        first_sync = script.index("  sync_internal_lab_assets\n", fast_exit)
+        self.assertLess(fast_exit, legacy_cleanup)
+        self.assertLess(fast_exit, first_sync)
+        self.assertIn('record_remote_fingerprint "update" "${UPDATE_FINGERPRINT}"', script)
+        self.assertIn("no files transferred", script)
 
     def test_update_uses_runtime_user_and_no_privileged_package_install(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")

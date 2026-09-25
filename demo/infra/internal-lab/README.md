@@ -93,6 +93,15 @@ After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
 service logs under `logs`, and run results under `results`.
 
+`up` compares one aggregate checkout fingerprint with the installed lab before
+it mutates the remote host. An unchanged checkout exits without running Gradle
+or transferring files; a changed checkout synchronizes only the affected
+artifacts. The demo starter and Java agent use the same `threadStatsVersion`
+from `gradle.properties`. Snapshot artifacts are normally taken from the local
+Maven repository; if the agent is absent there, Gradle resolves it from the
+configured Maven repositories. Updating the lab never builds the neighboring
+Thread Stats checkout.
+
 The runtime user belongs to the Docker group and owns the lab files. Its only
 passwordless sudo permissions are three exact no-argument helpers: image import,
 CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,

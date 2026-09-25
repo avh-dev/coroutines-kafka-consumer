@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -440,6 +441,15 @@ def install_telegram_environment(config: LabConfig, *, dry_run: bool) -> None:
         return
     target = runtime_target(config)
     destination = config.lab_root / "config/telegram.env"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    if not dry_run:
+        remote_digest = capture([
+            "ssh", "-o", "BatchMode=yes", target,
+            f"sha256sum '{destination}' 2>/dev/null | awk '{{print $1}}'",
+        ], check=False).stdout.strip()
+        if remote_digest == digest:
+            print("Telegram environment is already current; no secret transferred.")
+            return
     command = [
         "ssh", target,
         f"umask 077; cat > '{destination}.tmp' && mv '{destination}.tmp' '{destination}'",
@@ -452,9 +462,6 @@ def install_telegram_environment(config: LabConfig, *, dry_run: bool) -> None:
 def up_command(args: argparse.Namespace) -> int:
     config = load_config(args.config.resolve())
     environment_path = write_compatibility_environment(config)
-    node = config.infra
-    target = f"{config.runtime_user}@{node.ssh_host}"
-    run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", target, "true"], dry_run=args.dry_run)
     command = [str(UPDATE_SCRIPT)]
     if args.force_rebuild:
         command.append("--force-rebuild")
