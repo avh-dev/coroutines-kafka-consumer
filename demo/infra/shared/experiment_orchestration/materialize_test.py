@@ -227,12 +227,16 @@ class MaterializeTest(unittest.TestCase):
             [target.name for target in experiment.targets],
         )
 
-    def test_materializes_bounded_tail_latency_comparison_at_2k(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/tail-latency-window-2k-comparison.yaml"
+    def test_materializes_bounded_tail_latency_comparison_at_5k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/tail-latency-window-5k-comparison.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
         workload = candidate["workload"]
 
-        self.assertEqual(2000, workload["load"]["base_tps"])
+        self.assertEqual(5000, workload["load"]["base_tps"])
+        self.assertEqual(
+            {"order": 5000, "batch": 5000, "telemetry": 5000},
+            workload["load"]["producer_capacity_tps"],
+        )
         self.assertEqual(1800, workload["load"]["consumer_drain_timeout_seconds"])
         self.assertEqual(60, workload["load"]["consumer_drain_idle_seconds"])
         self.assertEqual(
