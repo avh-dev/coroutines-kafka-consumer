@@ -374,6 +374,7 @@
 | [INFRA-210](#infra-210) | Introduce configurable bootstrap and a non-root runtime for the internal lab. | DONE |
 | [INFRA-211](#infra-211) | Add a managed asynchronous experiment lifecycle and scoped CPU performance policy. | DONE |
 | [INFRA-212](#infra-212) | Support a configurable two-host internal lab with the application isolated on a worker node. | DONE |
+| [INFRA-213](#infra-213) | Fix smoke packet capture and Prometheus export under the non-root runtime. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4306,3 +4307,12 @@ The setup wizard and YAML model now support both single-host and split-applicati
 Application images are imported into both containerd stores, while node selectors retain services, stubs, observability, and orchestration on the controller and place only `ckc-demo` on the worker.
 The managed lifecycle acquires and exactly restores CPU policy on both nodes through three passwordless helpers that accept no arguments; the worker runs neither Docker nor privileged orchestration tooling.
 Verification: 92 internal-lab tests and five shared orchestration tests passed with Bash syntax, Python compilation, systemd validation, and whitespace checks. The real optilab cluster reports both nodes Ready, controller services are placed on optilab, images and network dependencies are available on optilab2, and a two-node 2 GHz acquire/release cycle restored every prior CPU policy value. No workload experiment was launched.
+
+<a id="infra-213"></a>
+### INFRA-213 - Fix non-root smoke diagnostics and metrics export
+
+_Date: 2026-09-25_
+
+Keep pod packet capture compatible with the deliberately minimal container capability set.
+Create portable Prometheus blocks as the non-root runtime UID/GID so result collection can copy their metadata safely.
+Re-run the managed two-host smoke and verify diagnostics, metrics, audit analysis, report generation, and CPU restoration.
