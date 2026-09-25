@@ -16,6 +16,7 @@ NODE_ROLE="server"
 NODE_NAME=""
 SERVER_ADDRESS=""
 K3S_TOKEN_FILE=""
+NETWORK_PEER_ADDRESS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --node-name) NODE_NAME="${2:?--node-name requires a value}"; shift 2 ;;
     --server-address) SERVER_ADDRESS="${2:?--server-address requires a value}"; shift 2 ;;
     --k3s-token-file) K3S_TOKEN_FILE="${2:?--k3s-token-file requires a value}"; shift 2 ;;
+    --network-peer-address) NETWORK_PEER_ADDRESS="${2:?--network-peer-address requires a value}"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -58,6 +60,10 @@ if [[ ! "${NODE_NAME}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
 fi
 if [[ ! "${SERVER_ADDRESS}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
   echo "Invalid k3s server address: ${SERVER_ADDRESS}" >&2
+  exit 1
+fi
+if [[ -n "${NETWORK_PEER_ADDRESS}" && ! "${NETWORK_PEER_ADDRESS}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+  echo "Invalid network peer address: ${NETWORK_PEER_ADDRESS}" >&2
   exit 1
 fi
 if [[ "${NODE_ROLE}" == "agent" && ! -s "${K3S_TOKEN_FILE}" ]]; then
@@ -132,6 +138,31 @@ chown "${RUNTIME_USER}:${RUNTIME_GROUP}" "${RUNTIME_HOME}/.ssh/authorized_keys"
 chmod 0600 "${RUNTIME_HOME}/.ssh/authorized_keys"
 loginctl enable-linger "${RUNTIME_USER}" >/dev/null 2>&1 || true
 
+K3S_NETWORK_CONFIG=/etc/rancher/k3s/config.yaml.d/20-ckc-lab-network.yaml
+K3S_NETWORK_CONFIG_CHANGED=false
+FLANNEL_INTERFACE=""
+if [[ -n "${NETWORK_PEER_ADDRESS}" ]]; then
+  route="$(ip -o route get "${NETWORK_PEER_ADDRESS}" 2>/dev/null | head -n 1)"
+  FLANNEL_INTERFACE="$(awk '{for (index = 1; index <= NF; index++) if ($index == "dev") {print $(index + 1); exit}}' <<<"${route}")"
+  if [[ -z "${FLANNEL_INTERFACE}" || ! "${FLANNEL_INTERFACE}" =~ ^[A-Za-z0-9_.:-]+$ ]] || ! ip link show "${FLANNEL_INTERFACE}" >/dev/null 2>&1; then
+    echo "Unable to resolve the network interface used to reach ${NETWORK_PEER_ADDRESS}." >&2
+    exit 1
+  fi
+  install -d -m 0755 "$(dirname "${K3S_NETWORK_CONFIG}")"
+  temporary_network_config="$(mktemp "${K3S_NETWORK_CONFIG}.XXXXXX")"
+  printf 'flannel-iface: %s\n' "${FLANNEL_INTERFACE}" > "${temporary_network_config}"
+  chmod 0644 "${temporary_network_config}"
+  if [[ ! -f "${K3S_NETWORK_CONFIG}" ]] || ! cmp -s "${temporary_network_config}" "${K3S_NETWORK_CONFIG}"; then
+    mv "${temporary_network_config}" "${K3S_NETWORK_CONFIG}"
+    K3S_NETWORK_CONFIG_CHANGED=true
+  else
+    rm -f "${temporary_network_config}"
+  fi
+elif [[ -f "${K3S_NETWORK_CONFIG}" ]]; then
+  rm -f "${K3S_NETWORK_CONFIG}"
+  K3S_NETWORK_CONFIG_CHANGED=true
+fi
+
 if [[ "${NODE_ROLE}" == "server" ]]; then
   if systemctl cat k3s-agent.service >/dev/null 2>&1; then
     echo "This host is already configured as a k3s agent; uninstall it before configuring a server." >&2
@@ -139,6 +170,9 @@ if [[ "${NODE_ROLE}" == "server" ]]; then
   fi
   if ! command -v k3s >/dev/null 2>&1; then
     curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --disable local-storage --disable metrics-server --write-kubeconfig-mode 600 --node-ip ${NODE_IP} --advertise-address ${NODE_IP} --node-name ${NODE_NAME} --node-label ckc.dev/role=controller" sh -
+  elif [[ "${K3S_NETWORK_CONFIG_CHANGED}" == "true" ]]; then
+    systemctl enable k3s
+    systemctl restart k3s
   else
     systemctl enable --now k3s
   fi
@@ -153,6 +187,9 @@ else
     curl -sfL https://get.k3s.io | \
       K3S_URL="https://${SERVER_ADDRESS}:6443" K3S_TOKEN="$(<"${K3S_TOKEN_FILE}")" \
       INSTALL_K3S_EXEC="agent --node-ip ${NODE_IP} --node-name ${NODE_NAME} --node-label ckc.dev/role=application" sh -
+  elif [[ "${K3S_NETWORK_CONFIG_CHANGED}" == "true" ]]; then
+    systemctl enable k3s-agent
+    systemctl restart k3s-agent
   else
     systemctl enable --now k3s-agent
   fi
@@ -186,6 +223,7 @@ cat > /etc/ckc-lab/host.env <<EOF
 LAB_ROOT=${LAB_ROOT}
 PERFORMANCE_CPU_KHZ=${PERFORMANCE_CPU_KHZ}
 NODE_ROLE=${NODE_ROLE}
+FLANNEL_INTERFACE=${FLANNEL_INTERFACE}
 EOF
 chmod 0644 /etc/ckc-lab/host.env
 cat > /usr/local/libexec/ckc-lab/import-k3s-images <<'EOF'

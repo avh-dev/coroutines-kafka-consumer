@@ -119,6 +119,8 @@ nodes:
         self.assertIn("192.0.2.10", agent)
         self.assertIn("app-node", agent)
         self.assertIn("/tmp/token", agent)
+        self.assertEqual("198.51.100.11", server[server.index("--network-peer-address") + 1])
+        self.assertEqual("192.0.2.10", agent[agent.index("--network-peer-address") + 1])
 
     def test_bootstrap_limits_passwordless_sudo_to_exact_helpers(self) -> None:
         script = BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
@@ -134,6 +136,8 @@ nodes:
         self.assertIn('K3S_URL="https://${SERVER_ADDRESS}:6443"', script)
         self.assertIn("ckc.dev/role=application", script)
         self.assertIn("ethtool", script)
+        self.assertIn("flannel-iface:", script)
+        self.assertIn('ip -o route get "${NETWORK_PEER_ADDRESS}"', script)
 
     @mock.patch.object(LAB, "capture")
     @mock.patch.object(LAB, "run")

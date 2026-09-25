@@ -336,6 +336,9 @@ def bootstrap_arguments(
         "--node-name", node.k3s_name,
         "--server-address", config.infra.lab_address,
     ]
+    if config.split:
+        peer = config.application if node.name == config.infra.name else config.infra
+        arguments.extend(["--network-peer-address", peer.lab_address])
     if token_file is not None:
         arguments.extend(["--k3s-token-file", str(token_file)])
     arguments.extend([

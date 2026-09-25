@@ -67,6 +67,10 @@ nodes:
 Set `network.application_link` to `direct` for a dedicated cable or `lan` for
 an ordinary switched or routed home network. Interface names, negotiated speed,
 duplex, and actual routes are discovered at runtime rather than configured.
+For a split topology, bootstrap also derives the interface used to reach the
+other node from that route and persists it as k3s `flannel-iface`. This keeps
+cross-node pod traffic on the configured lab addresses even when a management
+or Wi-Fi interface owns the host's default route.
 `bootstrap` prepares the controller first, transfers its k3s join token without
 printing it, and then joins the worker. The operator key remains usable on both
 hosts, while a dedicated runtime key permits controller-to-worker operations as
