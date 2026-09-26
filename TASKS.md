@@ -4513,6 +4513,8 @@ Allow an experiment target to place the application on the controller or the ded
 Persist the requested and actual placement for every target and group report topology diagrams by the resolved workload placement.
 Include the chosen placement in experiment-start and target-start notifications so detached runs remain unambiguous.
 Add an eight-minute 5,000 messages/s placement experiment with a two-minute warm-up, five-minute maximum stage, one-minute cool-down, and a three-minute measurement window beginning at minute four.
+Add an otherwise identical 10,000 messages/s variant to expose the placement-dependent capacity limit without changing the lab or target runtime settings.
 Run Spring and CKC on the controller first, followed by Spring and CKC on the worker, without changing the fixed lab configuration between targets.
 Verification: 137 internal-lab, 32 AWS, and 40 shared orchestration tests passed; the installed lab updated incrementally without rebuilding images or redeploying workloads.
 Fixed the preparation boundary to preserve the target-specific application selector when `prepare-test.sh` reloads the installed lab environment; controller and worker manifests were rendered and checked independently.
+The 10,000 messages/s variant resolves Spring to 49 / 23 / 164 partitions and pollers while retaining CKC's three partitions, one poller, and 500 workers per topic; validation, materialization, and all 40 shared orchestration tests passed, and the installed lab updated without rebuilding or redeploying images.
