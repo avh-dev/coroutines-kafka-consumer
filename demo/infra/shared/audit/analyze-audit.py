@@ -821,19 +821,10 @@ class AuditAccumulator:
         cohort_keys: set[RecordKey] | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
-        self.all = AuditStats(
-            open_record_ttl_ms=open_record_ttl_ms,
-            latency_sla_rules=latency_sla_rules,
-        )
+        self.latency_sla_rules = latency_sla_rules
+        self.latency_limits_ms = latency_limits_ms or {}
         self.by_topic = {
-            topic_id: AuditStats(
-                open_record_ttl_ms=open_record_ttl_ms,
-                latency_limit_ms=(latency_limits_ms or {}).get(topic_id),
-                latency_sla_rules=tuple(
-                    rule for rule in latency_sla_rules if rule.applies_to(topic_id)
-                ),
-                key_fairness=KeyFairnessStats() if topic_id == 3 else None,
-            )
+            topic_id: self._new_topic_stats(topic_id)
             for topic_id in TOPIC_NAMES
         }
         self.record_count = 0
@@ -843,15 +834,36 @@ class AuditAccumulator:
         if self.cohort_keys is not None and record.key not in self.cohort_keys:
             return
         self.record_count += 1
-        self.all.add(record)
         topic_stats = self.by_topic.get(record.key.topic_id)
-        if topic_stats is not None:
-            topic_stats.add(record)
+        if topic_stats is None:
+            topic_stats = self._new_topic_stats(record.key.topic_id)
+            self.by_topic[record.key.topic_id] = topic_stats
+        topic_stats.add(record)
 
     def finish(self) -> None:
-        self.all.finish()
         for stats in self.by_topic.values():
             stats.finish()
+
+    def contains_key(self, key: RecordKey) -> bool:
+        stats = self.by_topic.get(key.topic_id)
+        return bool(
+            stats is not None
+            and (key in stats.open_by_key or key in stats.recent_closed_by_key)
+        )
+
+    def state_for(self, key: RecordKey) -> RecordState | None:
+        stats = self.by_topic.get(key.topic_id)
+        return stats.open_by_key.get(key) if stats is not None else None
+
+    def _new_topic_stats(self, topic_id: int) -> AuditStats:
+        return AuditStats(
+            open_record_ttl_ms=self.open_record_ttl_ms,
+            latency_limit_ms=self.latency_limits_ms.get(topic_id),
+            latency_sla_rules=tuple(
+                rule for rule in self.latency_sla_rules if rule.applies_to(topic_id)
+            ),
+            key_fairness=KeyFairnessStats() if topic_id == 3 else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -884,7 +896,6 @@ class MultiWindowAuditAccumulator:
                     open_record_ttl_ms=open_record_ttl_ms,
                     latency_sla_rules=latency_sla_rules,
                     latency_limits_ms=latency_limits_ms,
-                    cohort_keys=set(),
                 ),
             )
             for window in windows
@@ -902,8 +913,6 @@ class MultiWindowAuditAccumulator:
             for window, accumulator in self.windows:
                 if not window.contains(record):
                     continue
-                assert accumulator.cohort_keys is not None
-                accumulator.cohort_keys.add(record.key)
                 for earlier in pending:
                     accumulator.add(earlier)
                 accumulator.add(record)
@@ -911,14 +920,13 @@ class MultiWindowAuditAccumulator:
 
         matched = False
         for _, accumulator in self.windows:
-            assert accumulator.cohort_keys is not None
-            if record.key in accumulator.cohort_keys:
+            if accumulator.contains_key(record.key):
                 accumulator.add(record)
                 matched = True
         if matched:
             return
 
-        state = self.complete.all.open_by_key.get(record.key)
+        state = self.complete.state_for(record.key)
         if state is not None and state.published is None:
             self.pending_before_publish.setdefault(record.key, []).append(record)
 
@@ -1337,6 +1345,64 @@ def load_measurement_windows(path_value: str | None) -> tuple[MeasurementWindow,
     return tuple(windows)
 
 
+def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
+    aggregate = AuditStats(
+        open_record_ttl_ms=accumulator.open_record_ttl_ms,
+        latency_sla_rules=accumulator.latency_sla_rules,
+    )
+    scalar_fields = (
+        "published_records",
+        "processed_records",
+        "failed_records",
+        "dropped_records",
+        "retry_attempt_records",
+        "published_unique",
+        "processed_unique",
+        "failed_unique",
+        "dropped_unique",
+        "terminal_unique",
+        "missing_terminal",
+        "duplicate_published",
+        "duplicate_processed",
+        "duplicate_failed",
+        "duplicate_dropped",
+        "processed_without_publish",
+        "failed_without_publish",
+        "dropped_without_publish",
+        "conflicting_terminal_outcomes",
+        "e2e_invalid_negative",
+    )
+    for stats in accumulator.by_topic.values():
+        for field_name in scalar_fields:
+            setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
+        for reason, count in stats.dropped_by_reason.items():
+            aggregate.dropped_by_reason[reason] = aggregate.dropped_by_reason.get(reason, 0) + count
+        for latency_ms, count in stats.e2e_latency_histogram.items():
+            aggregate.e2e_latency_histogram[latency_ms] = (
+                aggregate.e2e_latency_histogram.get(latency_ms, 0) + count
+            )
+        for target, source in (
+            (aggregate.partition_order, stats.partition_order),
+            (aggregate.key_order, stats.key_order),
+        ):
+            target.out_of_order += source.out_of_order
+            target.out_of_order_processed += source.out_of_order_processed
+            target.out_of_order_failed += source.out_of_order_failed
+        for rule_id, source in stats.latency_sla.items():
+            target = aggregate.latency_sla[rule_id]
+            target.processed += source.processed
+            target.measured += source.measured
+            target.exceeded += source.exceeded
+            target.invalid_negative_latency += source.invalid_negative_latency
+            if source.max_observed_ms is not None:
+                target.max_observed_ms = (
+                    source.max_observed_ms
+                    if target.max_observed_ms is None
+                    else max(target.max_observed_ms, source.max_observed_ms)
+                )
+    return aggregate
+
+
 def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
     return {
         "records_read": accumulator.record_count,
@@ -1348,7 +1414,7 @@ def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
                 else None
             ),
         },
-        "totals": stats_summary(accumulator.all),
+        "totals": stats_summary(aggregate_stats(accumulator)),
         "topics": {
             TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
             for topic_id, topic_stats in accumulator.by_topic.items()

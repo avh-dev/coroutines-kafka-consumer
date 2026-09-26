@@ -113,7 +113,7 @@ def copy_portable_tree(
         copy_portable(path, target / path.relative_to(source), replacements)
 
 
-def copy_audit_log(source: Path, destination: Path) -> bool:
+def copy_compressed_audit_log(source: Path, destination: Path) -> bool:
     sources = sorted(source.glob("chunks/audit-*.log.gz"))
     sources += sorted(source.glob("chunks/audit-*.log"))
     sources += sorted(source.glob("audit-*.log.gz"))
@@ -123,11 +123,16 @@ def copy_audit_log(source: Path, destination: Path) -> bool:
     with destination.open("wb") as output:
         for path in sources:
             if path.name.endswith(".gz"):
-                with gzip.open(path, "rb") as input_stream:
-                    shutil.copyfileobj(input_stream, output)
-            else:
                 with path.open("rb") as input_stream:
                     shutil.copyfileobj(input_stream, output)
+            else:
+                with path.open("rb") as input_stream, gzip.GzipFile(
+                    fileobj=output,
+                    mode="wb",
+                    compresslevel=1,
+                    mtime=0,
+                ) as compressed:
+                    shutil.copyfileobj(input_stream, compressed)
     return True
 
 
@@ -157,7 +162,7 @@ def run_directories(result_root: Path) -> list[Path]:
 def create_archive(source: Path, target: Path, root_name: str) -> None:
     partial = target.with_suffix(target.suffix + ".partial")
     partial.unlink(missing_ok=True)
-    with tarfile.open(partial, "w:gz") as archive:
+    with tarfile.open(partial, "w:gz", compresslevel=1) as archive:
         archive.add(source, arcname=root_name, recursive=True)
     os.replace(partial, target)
 
@@ -267,7 +272,7 @@ def audit_readme(identity: str, experiment: str, status: str) -> str:
     return f"""# Experiment audit: {identity}
 
 Independent raw audit evidence for experiment `{experiment}` with final status `{status}`.
-Each target is stored below `targetN.<name>/`. A target contains its summary, analyzer progress, and one uncompressed `audit.log`; `summary.yaml` at this level combines the target summaries.
+Each target is stored below `targetN.<name>/`. A target contains its summary, analyzer progress, and one gzip-compressed `audit.log.gz`; `summary.yaml` at this level combines the target summaries.
 """
 
 
@@ -453,7 +458,7 @@ def build_audit(
                 source = audit / name
                 if source.is_file():
                     copy_portable(source, target / name, replacements)
-            copy_audit_log(audit, target / "audit.log")
+            copy_compressed_audit_log(audit, target / "audit.log.gz")
             summary = audit / "summary.yaml"
             if summary.is_file():
                 summaries.append({

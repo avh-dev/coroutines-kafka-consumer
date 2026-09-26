@@ -24,12 +24,12 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
-    def test_audit_analysis_workers_defaults_to_half_the_cpus_capped_at_two(self) -> None:
+    def test_audit_analysis_workers_defaults_to_half_the_cpus_capped_at_three(self) -> None:
         with (
             patch.dict(RUNNER.os.environ, {}, clear=True),
             patch.object(RUNNER.os, "cpu_count", return_value=6),
         ):
-            self.assertEqual(2, RUNNER.audit_analysis_workers(5))
+            self.assertEqual(3, RUNNER.audit_analysis_workers(5))
             self.assertEqual(2, RUNNER.audit_analysis_workers(2))
 
     def test_audit_analysis_workers_accepts_bounded_override(self) -> None:
@@ -388,6 +388,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "change_performance_policy"),
                 patch.object(RUNNER, "notify") as notify,
             ):
                 summary = RUNNER.run_experiment(
@@ -453,13 +454,18 @@ class ExperimentRunnerTest(unittest.TestCase):
                 return {"status": "clean", "application_state": "stopped (0 replicas)"}
 
             def analyze(*_args, **_kwargs):
-                self.assertEqual(["quiesce"], events)
+                self.assertEqual(["quiesce", "release"], events)
                 events.append("analyze")
                 return {"exit_code": 0}
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
                 patch.object(RUNNER, "ensure_application_quiesced", side_effect=quiesce),
+                patch.object(
+                    RUNNER,
+                    "change_performance_policy",
+                    side_effect=lambda _root, action: events.append(action),
+                ),
                 patch.object(RUNNER, "analyze_one", side_effect=analyze),
                 patch.object(RUNNER, "notify"),
             ):
@@ -473,7 +479,7 @@ class ExperimentRunnerTest(unittest.TestCase):
                     None,
                 )
 
-            self.assertEqual(["quiesce", "analyze"], events)
+            self.assertEqual(["quiesce", "release", "analyze"], events)
             self.assertEqual(0, summary["exit_code"])
 
     def test_failed_application_quiesce_aborts_before_audit_analysis(self) -> None:

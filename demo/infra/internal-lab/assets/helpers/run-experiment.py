@@ -873,6 +873,18 @@ def has_audit_input(audit_dir_value: str) -> bool:
     return bool(audit_dir_value) and audit_input_file(Path(audit_dir_value)) is not None
 
 
+def change_performance_policy(lab_root: Path, action: str) -> None:
+    helper = lab_root / "libexec" / f"cluster-performance-{action}.sh"
+    if not helper.is_file():
+        raise FileNotFoundError(f"CPU performance helper was not found: {helper}")
+    completed = subprocess.run([str(helper)], text=True, capture_output=True, check=False)
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
+        raise RuntimeError(f"CPU performance policy {action} failed: {detail}")
+
+
 def audit_analysis_workers(run_count: int) -> int:
     configured = os.environ.get("CKC_AUDIT_ANALYSIS_WORKERS", "").strip()
     if configured:
@@ -880,10 +892,10 @@ def audit_analysis_workers(run_count: int) -> int:
             raise ValueError("CKC_AUDIT_ANALYSIS_WORKERS must be a positive integer")
         limit = int(configured)
     else:
-        # Exact audit matching plus measurement-window cohorts peaks near 4 GiB
-        # per large target in the internal lab. Two workers keep the 16 GiB
-        # controller clear of OOM pressure while still using both analysis cores.
-        limit = max(1, min(2, (os.cpu_count() or 2) // 2))
+        # A 7.2-million-record target peaks near 2.3 GiB after shared aggregate
+        # state was removed. Three workers fit the 16 GiB controller with room
+        # for the installed services and use half of its six logical CPUs.
+        limit = max(1, min(3, (os.cpu_count() or 2) // 2))
     return max(1, min(run_count, limit))
 
 
@@ -1130,6 +1142,8 @@ def run_experiment(
                     "Application workloads could not be stopped before audit analysis: "
                     f"{application_cleanup.get('error') or application_cleanup.get('application_state')}"
                 )
+            update_progress("releasing_performance", "releasing measurement CPU policy", target=None, details=None)
+            change_performance_policy(lab_root, "release")
             notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
         if auditable_runs and not cancelled:
             worker_count = audit_analysis_workers(len(auditable_runs))
@@ -1352,7 +1366,11 @@ def run_main() -> int:
     if STOP_REQUESTED.is_set():
         finalize_cancellation(FAILURE_NOTIFICATION_CONTEXT, lab_root, summaries)
         return 130
-    for experiment_path in selected:
+    for experiment_index, experiment_path in enumerate(selected):
+        if experiment_index:
+            update_progress("preparing_experiment", "acquiring measurement CPU policy", target=None, details=None)
+            change_performance_policy(lab_root, "acquire")
+        FAILURE_NOTIFICATION_CONTEXT.pop("application_cleanup", None)
         summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
         summaries.append(summary)
         if summary_interrupted(summary):
