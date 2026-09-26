@@ -2,7 +2,8 @@ schema_version: 2
 name: application-placement-10k-comparison
 description: Compare Spring Kafka and CKC at 10k messages per second with the measured
   application colocated on the controller and isolated on the application worker.
-  The workload and physical lab remain fixed so the comparison isolates placement.
+  A three-broker Kafka cluster with replication factor three, the workload, and
+  the physical lab remain fixed so the comparison isolates placement.
 workload:
   stubs:
     error_rate_percent: 0
@@ -207,3 +208,13 @@ environments:
   internal-lab:
     lab:
       profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi
