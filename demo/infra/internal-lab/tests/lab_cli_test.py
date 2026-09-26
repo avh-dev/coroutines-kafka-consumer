@@ -201,6 +201,23 @@ nodes:
         self.assertIn("target:       1/1 — ckc", rendered)
         self.assertIn("consumer lag: 42", rendered)
 
+    @mock.patch.object(LAB, "managed_unit_properties")
+    def test_status_reports_cancelled_instead_of_systemd_success(self, properties: mock.Mock) -> None:
+        config = LAB.load_config(self.write_config())
+        properties.return_value = (
+            {"ActiveState": "inactive", "SubState": "dead", "Result": "success", "ExecMainStatus": "130"},
+            {"experiment": "comparison.yaml"},
+            {"status": "cancelled", "step": "cancelled", "label": "experiment cancelled"},
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            LAB.print_managed_status(config)
+
+        rendered = output.getvalue()
+        self.assertIn("result:       cancelled", rendered)
+        self.assertIn("step:         experiment cancelled", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

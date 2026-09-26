@@ -26,11 +26,28 @@ SPEC.loader.exec_module(RUNNER)
 class ExperimentRunnerTest(unittest.TestCase):
     def test_managed_stop_signal_requests_graceful_target_cleanup(self) -> None:
         RUNNER.STOP_REQUESTED.clear()
+        context = dict(RUNNER.FAILURE_NOTIFICATION_CONTEXT)
+        RUNNER.FAILURE_NOTIFICATION_CONTEXT.clear()
         try:
             RUNNER.request_managed_stop(2, None)
             self.assertTrue(RUNNER.STOP_REQUESTED.is_set())
         finally:
             RUNNER.STOP_REQUESTED.clear()
+            RUNNER.FAILURE_NOTIFICATION_CONTEXT.update(context)
+
+    def test_managed_stop_interrupts_non_target_processing(self) -> None:
+        RUNNER.STOP_REQUESTED.clear()
+        context = dict(RUNNER.FAILURE_NOTIFICATION_CONTEXT)
+        RUNNER.FAILURE_NOTIFICATION_CONTEXT.clear()
+        RUNNER.FAILURE_NOTIFICATION_CONTEXT["experiment"] = "comparison"
+        try:
+            with self.assertRaisesRegex(InterruptedError, "cancelled"):
+                RUNNER.request_managed_stop(2, None)
+            self.assertTrue(RUNNER.STOP_REQUESTED.is_set())
+        finally:
+            RUNNER.STOP_REQUESTED.clear()
+            RUNNER.FAILURE_NOTIFICATION_CONTEXT.clear()
+            RUNNER.FAILURE_NOTIFICATION_CONTEXT.update(context)
 
     def test_application_cleanup_reports_verified_idle_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -45,6 +62,46 @@ class ExperimentRunnerTest(unittest.TestCase):
 
         self.assertEqual({"status": "clean", "application_state": "stopped (0 replicas)"}, result)
         run.assert_called_once_with([str(helper)], text=True, capture_output=True, check=False)
+
+    def test_cancelled_run_skips_reports_bundles_and_success_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            experiment_dir = root / "experiments"
+            experiment_dir.mkdir()
+            (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
+            args = argparse.Namespace(
+                experiments=["comparison"], all=False, env=[], lab_root=str(root),
+                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
+                result_dir=str(root / "results"), prometheus_url="http://prometheus",
+                notify_hook="", skip_archives=False,
+            )
+            cancelled = {
+                "experiment": "comparison",
+                "targets": [{"name": "spring", "interrupted": True, "exit_code": 130}],
+                "exit_code": 130,
+                "cancelled": True,
+            }
+            with (
+                patch.object(RUNNER, "parse_args", return_value=args),
+                patch.object(RUNNER, "selected_experiment_env", return_value={}),
+                patch.object(RUNNER, "interactive_global_env", return_value={}),
+                patch.object(RUNNER, "notify_hook_path", return_value=Path("/notify")),
+                patch.object(RUNNER, "run_experiment", return_value=cancelled),
+                patch.object(RUNNER, "quiesce_application", return_value={"status": "clean", "application_state": "stopped (0 replicas)"}) as cleanup,
+                patch.object(RUNNER, "generate_experiment_reports", side_effect=AssertionError("reports must be skipped")),
+                patch.object(RUNNER, "collect_evidence", side_effect=AssertionError("evidence must be skipped")),
+                patch.object(RUNNER, "finalize_artifacts", side_effect=AssertionError("bundles must be skipped")),
+                patch.object(RUNNER, "notify") as notify,
+            ):
+                self.assertEqual(130, RUNNER.main())
+
+            result_dir = next((root / "results").iterdir())
+            self.assertFalse((result_dir / "summary.json").exists())
+            document = json.loads((result_dir / "cancelled.json").read_text(encoding="utf-8"))
+            self.assertEqual("cancelled", document["status"])
+            self.assertEqual(130, document["exit_code"])
+            cleanup.assert_called_once_with(root, 30)
+            self.assertEqual(["experiment_cancelled"], [call.args[1] for call in notify.call_args_list])
 
     def test_application_cleanup_failure_is_terminal_and_not_retried(self) -> None:
         context: dict = {}

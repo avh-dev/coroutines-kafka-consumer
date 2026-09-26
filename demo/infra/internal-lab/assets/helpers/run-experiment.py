@@ -64,6 +64,7 @@ KAFKA_LAB_ENV_KEYS = {
 STOP_REQUESTED = threading.Event()
 FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
 PROGRESS_WRITER: ProgressWriter | None = None
+ACTIVE_TARGET_PROCESS: subprocess.Popen[str] | None = None
 
 
 def update_progress(
@@ -80,6 +81,8 @@ def update_progress(
 
 def request_managed_stop(_signum: int, _frame: object) -> None:
     STOP_REQUESTED.set()
+    if ACTIVE_TARGET_PROCESS is None and FAILURE_NOTIFICATION_CONTEXT:
+        raise InterruptedError("experiment cancelled by user request")
 
 
 def parse_args() -> argparse.Namespace:
@@ -609,11 +612,18 @@ def stdout_reader(process: subprocess.Popen[str], output: queue.Queue[str]) -> N
         output.put(line)
 
 
+def signal_process_group(process: subprocess.Popen[str], requested_signal: signal.Signals) -> None:
+    try:
+        os.killpg(process.pid, requested_signal)
+    except ProcessLookupError:
+        pass
+
+
 def request_graceful_stop(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
     if os.name == "posix":
-        process.send_signal(signal.SIGINT)
+        signal_process_group(process, signal.SIGINT)
     else:
         process.terminate()
 
@@ -621,11 +631,17 @@ def request_graceful_stop(process: subprocess.Popen[str]) -> None:
 def force_stop_if_needed(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
-    process.terminate()
+    if os.name == "posix":
+        signal_process_group(process, signal.SIGTERM)
+    else:
+        process.terminate()
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name == "posix":
+            signal_process_group(process, signal.SIGKILL)
+        else:
+            process.kill()
         process.wait()
 
 
@@ -704,6 +720,7 @@ def run_one(
     hook: Path | None,
     log_dir: Path,
 ) -> dict[str, Any]:
+    global ACTIVE_TARGET_PROCESS
     name = str(test.get("name") or test.get("profile") or test.get("deployment"))
     profile = str(test.get("profile", ""))
     deployment = str(test.get("deployment", ""))
@@ -756,15 +773,18 @@ def run_one(
         text=True,
         bufsize=1,
         env={**os.environ, **env, "LAB_ROOT": str(lab_root)},
+        start_new_session=os.name == "posix",
     )
+    ACTIVE_TARGET_PROCESS = process
     output: queue.Queue[str] = queue.Queue()
     stop_queue: queue.Queue[str] = queue.Queue()
     reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
     reader.start()
     stop_requested = False
+    stop_deadline: float | None = None
     last_progress_at = 0.0
     if sys.stdin.isatty():
-        print("Type q and press Enter to stop the experiment after current target cleanup.", flush=True)
+        print("Type q and press Enter to cancel the experiment immediately.", flush=True)
     with TtyCommandReader(stop_queue):
         while process.poll() is None or not output.empty():
             while True:
@@ -788,15 +808,20 @@ def run_one(
                 queue_requested = True
             if (queue_requested or STOP_REQUESTED.is_set()) and not stop_requested:
                 stop_requested = True
-                print("Stopping experiment by user request. Waiting for current target cleanup.", flush=True)
-                log_file.write("Stopping experiment by user request.\n")
+                stop_deadline = time.monotonic() + 10
+                print("Cancelling experiment by user request.", flush=True)
+                log_file.write("Cancelling experiment by user request.\n")
                 request_graceful_stop(process)
+            if stop_deadline is not None and time.monotonic() >= stop_deadline and process.poll() is None:
+                force_stop_if_needed(process)
+                stop_deadline = None
             time.sleep(0.2)
     reader.join(timeout=1)
     while not output.empty():
         line = output.get_nowait()
         print(line, end="")
         log_file.write(line)
+    ACTIVE_TARGET_PROCESS = None
     if stop_requested and process.returncode is None:
         force_stop_if_needed(process)
 
@@ -830,7 +855,8 @@ def run_one(
     if audit_dir:
         log_file.write(f"audit_dir: {audit_dir}\n")
     log_file.flush()
-    notify(hook, "test_finished", result, log_dir)
+    if not interrupted:
+        notify(hook, "test_finished", result, log_dir)
     return result
 
 
@@ -1056,8 +1082,10 @@ def run_experiment(
             and result["env"].get("AUDIT_LOG_ENABLED", "true") == "true"
             and has_audit_input(str(result["audit_dir"]))
         ]
-        notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
-        if auditable_runs:
+        cancelled = any(result.get("interrupted") for result in results)
+        if not cancelled:
+            notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
+        if auditable_runs and not cancelled:
             print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
             update_progress(
                 "analyzing_audit",
@@ -1107,6 +1135,7 @@ def run_experiment(
         },
         "analysis": analysis_results,
         "exit_code": exit_code,
+        "cancelled": any(result.get("interrupted") for result in results),
     }
     return summary
 
@@ -1115,13 +1144,16 @@ def summary_interrupted(summary: dict[str, Any]) -> bool:
     return any(target.get("interrupted") for target in summary.get("targets", []))
 
 
-def quiesce_application(lab_root: Path) -> dict[str, Any]:
+def quiesce_application(lab_root: Path, timeout_seconds: int | None = None) -> dict[str, Any]:
     helper = lab_root / "libexec/quiesce-application.sh"
     if not helper.is_file():
         result = {"status": "incomplete", "application_state": "cleanup helper missing", "error": str(helper)}
         print(f"Application cleanup failed: {helper} is missing.", file=sys.stderr)
         return result
-    completed = subprocess.run([str(helper)], text=True, capture_output=True, check=False)
+    command = [str(helper)]
+    if timeout_seconds is not None:
+        command.extend(["--timeout-seconds", str(timeout_seconds)])
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
     if completed.stdout:
         print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
     if completed.returncode == 0:
@@ -1136,18 +1168,63 @@ def quiesce_application(lab_root: Path) -> dict[str, Any]:
     }
 
 
-def ensure_application_quiesced(context: dict[str, Any], lab_root: Path) -> dict[str, Any]:
+def ensure_application_quiesced(
+    context: dict[str, Any],
+    lab_root: Path,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
     cleanup = context.get("application_cleanup")
     if isinstance(cleanup, dict):
         return cleanup
-    cleanup = quiesce_application(lab_root)
+    cleanup = quiesce_application(lab_root, timeout_seconds)
     context["application_cleanup"] = cleanup
     return cleanup
 
 
+def finalize_cancellation(
+    context: dict[str, Any],
+    lab_root: Path,
+    summaries: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    cleanup = ensure_application_quiesced(context, lab_root, timeout_seconds=30)
+    log_dir = Path(context["log_dir"])
+    document = {
+        "experiment_set_id": context.get("experiment_set_id"),
+        "experiment": context.get("experiment"),
+        "status": "cancelled",
+        "exit_code": 130,
+        "cancelled_at": datetime.now(timezone.utc).isoformat(),
+        "experiments": summaries or context.get("summaries") or [],
+        "application_cleanup": cleanup,
+    }
+    (log_dir / "cancelled.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    if not context.get("terminal_sent"):
+        notify(
+            context.get("hook"),
+            "experiment_cancelled",
+            {
+                "experiment": context.get("experiment") or "ckc experiment",
+                "elapsed_seconds": time.monotonic() - float(context.get("started") or time.monotonic()),
+                "application_state": cleanup["application_state"],
+                "cleanup_status": cleanup["status"],
+            },
+            log_dir,
+        )
+        context["terminal_sent"] = True
+    update_progress(
+        "cancelled",
+        "experiment cancelled",
+        status="cancelled",
+        target=None,
+        details={"exit_code": 130, "cleanup_status": cleanup["status"]},
+    )
+    return document
+
+
 def run_main() -> int:
-    global PROGRESS_WRITER
+    global ACTIVE_TARGET_PROCESS, PROGRESS_WRITER
     FAILURE_NOTIFICATION_CONTEXT.clear()
+    ACTIVE_TARGET_PROCESS = None
     lifecycle_started = time.monotonic()
     STOP_REQUESTED.clear()
     signal.signal(signal.SIGINT, request_managed_stop)
@@ -1181,6 +1258,7 @@ def run_main() -> int:
         Path(os.environ.get("EXPERIMENT_PROGRESS_FILE", lab_root / "state/experiment/progress.json")),
         experiment_names,
     )
+    summaries: list[dict[str, Any]] = []
     update_progress("preparing_experiment", "preparing experiment", target=None, details=None)
     FAILURE_NOTIFICATION_CONTEXT.update({
         "hook": hook,
@@ -1189,13 +1267,21 @@ def run_main() -> int:
         "started": lifecycle_started,
         "terminal_sent": False,
         "lab_root": lab_root,
+        "experiment_set_id": experiment_set_id,
+        "summaries": summaries,
     })
-    summaries = []
+    if STOP_REQUESTED.is_set():
+        finalize_cancellation(FAILURE_NOTIFICATION_CONTEXT, lab_root, summaries)
+        return 130
     for experiment_path in selected:
         summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
         summaries.append(summary)
         if summary_interrupted(summary):
             break
+
+    if STOP_REQUESTED.is_set() or any(summary_interrupted(summary) for summary in summaries):
+        finalize_cancellation(FAILURE_NOTIFICATION_CONTEXT, lab_root, summaries)
+        return 130
 
     update_progress("stopping_applications", "stopping application workloads", target=None, details=None)
     application_cleanup = ensure_application_quiesced(FAILURE_NOTIFICATION_CONTEXT, lab_root)
@@ -1344,6 +1430,9 @@ def main() -> int:
         return run_main()
     except BaseException as error:
         context = FAILURE_NOTIFICATION_CONTEXT
+        if STOP_REQUESTED.is_set() and context:
+            finalize_cancellation(context, Path(context["lab_root"]))
+            return 130
         if context and not context.get("terminal_sent"):
             cleanup = ensure_application_quiesced(context, Path(context["lab_root"]))
             notify(

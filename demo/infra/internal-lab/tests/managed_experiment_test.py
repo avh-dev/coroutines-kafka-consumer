@@ -25,9 +25,10 @@ class ManagedExperimentTest(unittest.TestCase):
         unit = UNIT.read_text(encoding="utf-8")
 
         self.assertIn("ExecStartPre=@LAB_ROOT@/libexec/cluster-performance-acquire.sh", unit)
+        self.assertIn("ExecStopPost=-@LAB_ROOT@/libexec/quiesce-application.sh --timeout-seconds 30", unit)
         self.assertIn("ExecStopPost=@LAB_ROOT@/libexec/cluster-performance-release.sh", unit)
         self.assertIn("KillSignal=SIGINT", unit)
-        self.assertIn("KillMode=mixed", unit)
+        self.assertIn("KillMode=control-group", unit)
         self.assertIn("StandardOutput=append:@LAB_ROOT@/logs/managed-experiment.log", unit)
 
     @mock.patch.object(os, "execve")

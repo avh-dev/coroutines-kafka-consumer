@@ -382,6 +382,7 @@
 | [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
 | [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
 | [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | DONE |
+| [INFRA-221](#infra-221) | Make managed internal-lab experiment stop an immediate cancellation with guaranteed workload cleanup. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4413,3 +4414,14 @@ Raise the aggregate load and every per-topic producer capacity from 2,000 to 5,0
 Verification: all seven shared experiment materialization tests passed, including explicit checks for the 5,000 messages/s aggregate rate and per-topic producer capacities. No reference to the retired 2k experiment identity remains.
 The first live run exposed that k3s had selected the hosts' management Wi-Fi interfaces for Flannel despite using direct-link node addresses. Extend bootstrap reconciliation to derive and persist each node's Flannel interface from the route to its peer so cross-node pod traffic follows the configured lab network.
 Verification: 112 internal-lab tests passed. Re-running bootstrap selected `eno1` and `enp1s0`, changed both Flannel public addresses to `10.10.20.x`, reduced cross-node pod RTT from roughly 325 ms to 0.57 ms, and reduced transfer time for the 6 MB application metrics response from 12-15 seconds to 0.27-0.30 seconds. Prometheus reported the application target up with a 0.32-second scrape, and the stopped experiment's lingering application deployments were returned to zero replicas.
+
+<a id="infra-221"></a>
+### INFRA-221 - Cancel managed internal-lab experiments immediately
+
+_Date: 2026-09-26_
+
+Make an explicit managed experiment stop cancel active work immediately instead of draining consumers or producing reports and evidence bundles.
+Record a minimal cancelled status and notification while retaining partial diagnostic logs outside the successful-result path.
+Guarantee that application workloads are quiesced and the experiment CPU policy is released even when graceful process termination fails.
+The managed service now signals its complete control group, while the experiment runner forwards cancellation to the active target process group and escalates boundedly if it does not exit. Cancelled result sets contain `cancelled.json` but no success `summary.json`, report, evidence collection, or bundle.
+Verification: 116 internal-lab tests passed with Python, Bash, POSIX shell, systemd-unit, and whitespace validation. Incremental deployment synchronized only changed assets, installed the control-group service, rebuilt no images, and left both application deployments at zero replicas. A live experiment was not started automatically.

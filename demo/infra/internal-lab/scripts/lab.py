@@ -555,6 +555,8 @@ def compact_duration(seconds: float) -> str:
 
 def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int:
     properties, request, progress = managed_unit_properties(config)
+    systemd_result = properties.get("Result", "unknown")
+    result = "cancelled" if progress.get("status") == "cancelled" else systemd_result
     document = {
         "host": config.infra.host,
         "runtime_user": config.runtime_user,
@@ -563,7 +565,8 @@ def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int
         "env": request.get("env", []),
         "active_state": properties.get("ActiveState", "unknown"),
         "sub_state": properties.get("SubState", "unknown"),
-        "result": properties.get("Result", "unknown"),
+        "result": result,
+        "systemd_result": systemd_result,
         "exit_code": properties.get("ExecMainStatus", ""),
         "started_at": properties.get("ExecMainStartTimestamp", ""),
         "ended_at": properties.get("ExecMainExitTimestamp", ""),

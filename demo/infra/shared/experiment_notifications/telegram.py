@@ -17,6 +17,7 @@ DEFAULT_EVENTS = {
     "report_ready",
     "bundle_ready",
     "experiment_completed",
+    "experiment_cancelled",
     "experiment_failed",
 }
 
@@ -125,6 +126,16 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         ]
         if payload.get("targets_succeeded") is not None:
             lines.append(f"Targets: {payload.get('targets_succeeded')}/{payload.get('targets_total')} succeeded")
+        if payload.get("application_state"):
+            lines.append(f"Application: {payload['application_state']}")
+        if payload.get("cleanup_status"):
+            lines.append(f"Cleanup: {payload['cleanup_status']}")
+        return "\n".join(lines)
+    if event == "experiment_cancelled":
+        lines = [
+            f"⏹ CKC experiment cancelled: {experiment}",
+            f"Elapsed: {format_duration(payload.get('elapsed_seconds'))}",
+        ]
         if payload.get("application_state"):
             lines.append(f"Application: {payload['application_state']}")
         if payload.get("cleanup_status"):

@@ -48,9 +48,26 @@ class NotifyTelegramTest(unittest.TestCase):
                 "report_ready",
                 "bundle_ready",
                 "experiment_completed",
+                "experiment_cancelled",
                 "experiment_failed",
             },
             NOTIFY.DEFAULT_EVENTS,
+        )
+
+    def test_cancellation_is_a_single_terminal_message(self) -> None:
+        self.assertEqual(
+            "\n".join([
+                "⏹ CKC experiment cancelled: comparison",
+                "Elapsed: 1m 05s",
+                "Application: stopped (0 replicas)",
+                "Cleanup: clean",
+            ]),
+            NOTIFY.message_for("experiment_cancelled", {
+                "experiment": "comparison",
+                "elapsed_seconds": 65,
+                "application_state": "stopped (0 replicas)",
+                "cleanup_status": "clean",
+            }),
         )
         self.assertEqual(
             "✅ Measurements completed · analysis started",
