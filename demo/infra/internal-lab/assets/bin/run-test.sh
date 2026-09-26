@@ -317,6 +317,9 @@ REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
+export LAB_HOST LAB_NODE_IP LAB_ROOT LAB_TOPOLOGY
+export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET
+export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-}}"
 
@@ -1371,6 +1374,7 @@ metadata = {
         "target": env("EXPERIMENT_TARGET_NAME"),
         "target_index": env_int("EXPERIMENT_TARGET_INDEX"),
         "target_total": env_int("EXPERIMENT_TARGET_TOTAL"),
+        "expected_duration_seconds": env_int("EXPERIMENT_TARGET_EXPECTED_SECONDS"),
         "annotation_label": env("EXPERIMENT_RUN_ANNOTATION_LABEL"),
     },
     "prepare_enabled": env_bool("RUN_PREPARE"),
@@ -1537,6 +1541,18 @@ document = {
 }
 Path(os.environ["RUN_STATUS_FILE"]).write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 PY
+}
+
+finish_cancelled() {
+  echo "Experiment target cancelled; skipping drain, analysis, and result finalization."
+  if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
+    LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" \
+      docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" \
+      stop fluent-bit >/dev/null 2>&1 || true
+  fi
+  write_run_status "cancelled" 130
+  trap - INT TERM
+  exit 130
 }
 
 audit_collector_ready() {
@@ -1850,6 +1866,10 @@ while true; do
   fi
 done
 
+if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+  finish_cancelled
+fi
+
 if [ "${LOAD_TEST_EXIT_CODE:-0}" -ne 0 ]; then
   echo "Load test exited with status ${LOAD_TEST_EXIT_CODE}." >&2
   write_run_status "failed" "${LOAD_TEST_EXIT_CODE}"
@@ -1882,6 +1902,9 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
     --stable-seconds "${CONSUMER_DRAIN_STABLE_SECONDS}" \
     --idle-seconds "${CONSUMER_DRAIN_IDLE_SECONDS}" \
     --poll-seconds "${CONSUMER_DRAIN_POLL_SECONDS}" || DRAIN_WAIT_EXIT_CODE="$?"
+  if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+    finish_cancelled
+  fi
   if [ "${DRAIN_WAIT_EXIT_CODE}" -ne 0 ]; then
     if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
       echo "Consumer drain failed; finalizing audit log for failed run."
@@ -1891,7 +1914,7 @@ if [ "${RUN_INTERRUPTED}" -eq 0 ] && [ "${WAIT_FOR_CONSUMER_DRAIN}" -eq 1 ]; the
     exit "${DRAIN_WAIT_EXIT_CODE}"
   fi
 elif [ "${RUN_INTERRUPTED}" -eq 1 ]; then
-  echo "Run was interrupted; skipping consumer drain wait."
+  finish_cancelled
 fi
 
 archive_analyzed_audit_log() {
@@ -1903,8 +1926,14 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
   progress_step "finalizing_target" "finalizing target evidence"
   echo "Finalizing Fluent Bit audit log."
   if ! finalize_audit_log; then
+    if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+      finish_cancelled
+    fi
     write_run_status "failed" 1
     exit 1
+  fi
+  if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+    finish_cancelled
   fi
   if [ "${RUN_ANALYSIS}" -eq 1 ]; then
     echo "Running audit analysis."
@@ -1914,10 +1943,16 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
       --require-records \
       > "${AUDIT_ANALYZER_SUMMARY_FILE}" \
       2> >(tee "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2); then
+      if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+        finish_cancelled
+      fi
       echo "Audit analysis failed. Progress log: ${AUDIT_ANALYZER_PROGRESS_FILE}" >&2
       cat "${AUDIT_ANALYZER_PROGRESS_FILE}" >&2 || true
       write_run_status "failed" 1
       exit 1
+    fi
+    if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+      finish_cancelled
     fi
     archive_analyzed_audit_log
     cat "${AUDIT_ANALYZER_SUMMARY_FILE}"
@@ -1935,6 +1970,9 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
   if ! python3 "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" "${RUN_DIR}" \
     --output-dir "${RUN_PCAP_ANALYSIS_DIR}" \
     > "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" 2>&1; then
+    if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
+      finish_cancelled
+    fi
     echo "Packet-capture analysis failed. Log: ${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2
     cat "${RUN_PCAP_ANALYSIS_DIR}/analyzer.log" >&2 || true
     write_run_status "failed" 1
@@ -1944,9 +1982,7 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
 fi
 
 if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
-  write_run_status "interrupted" 130
-  trap - INT TERM
-  exit 130
+  finish_cancelled
 fi
 write_run_status "completed" 0
 trap - INT TERM

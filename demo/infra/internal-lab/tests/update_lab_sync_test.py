@@ -9,6 +9,12 @@ RUN_TEST = Path(__file__).resolve().parents[1] / "assets/bin/run-test.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
+    def test_run_test_exports_topology_to_environment_evidence_collector(self) -> None:
+        script = RUN_TEST.read_text(encoding="utf-8")
+
+        self.assertIn("export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET", script)
+        self.assertIn("export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR", script)
+
     def test_thread_stats_agent_resolves_as_a_dependency_without_building_neighbor(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         root_build = (SCRIPT.parents[4] / "build.gradle.kts").read_text(encoding="utf-8")

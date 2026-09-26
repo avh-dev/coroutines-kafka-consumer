@@ -295,9 +295,12 @@ class MaterializeTest(unittest.TestCase):
             name: [topic["partitions"] for topic in definition["deployment"]["run_plan"]["topics"]]
             for name, definition in definitions.items()
         }
+        spring_topics = definitions["spring-kafka.jdk"]["deployment"]["run_plan"]["topics"]
+        self.assertEqual([14.0, 9.0, 41.0], [topic["average_processing_ms"] for topic in spring_topics])
+        self.assertTrue(all(not any(topic["manual_overrides"].values()) for topic in spring_topics))
         self.assertEqual([3, 3, 3], actual_partitions["ckc.fixed.1"])
         self.assertEqual([3, 3, 3], actual_partitions["cpc-reactor.fixed.1"])
-        self.assertEqual([70, 76, 56], actual_partitions["spring-kafka.jdk"])
+        self.assertEqual([25, 12, 82], actual_partitions["spring-kafka.jdk"])
 
 
 if __name__ == "__main__":

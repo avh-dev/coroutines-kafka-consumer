@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import argparse
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 HELPERS = Path(__file__).resolve().parents[1] / "assets" / "helpers"
@@ -58,6 +63,54 @@ class RunStartAnnotationsTest(unittest.TestCase):
         )
 
         self.assertEqual("manual-test", event["text"])
+
+    def test_builds_target_started_notification_payload(self) -> None:
+        payload = run_start.target_started_payload({
+            "run_id": "20260828T120000Z",
+            "experiment": {
+                "name": "comparison",
+                "target": "spring-kafka.jdk",
+                "target_index": 1,
+                "target_total": 3,
+                "expected_duration_seconds": 780,
+            },
+            "application": {"profile": "spring-kafka", "replica_count": 1},
+            "load_test": {"base_tps": 5000},
+        })
+
+        self.assertEqual("comparison", payload["experiment"])
+        self.assertEqual("spring-kafka.jdk", payload["name"])
+        self.assertEqual(1, payload["index"])
+        self.assertEqual(3, payload["total"])
+        self.assertEqual(780, payload["expected_duration_seconds"])
+
+    def test_main_notifies_after_recording_the_run_start(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata_path = root / "run-metadata.json"
+            metadata_path.write_text(json.dumps({
+                "run_id": "run-a",
+                "experiment": {"name": "comparison", "target": "ckc", "target_index": 2, "target_total": 3},
+                "application": {"profile": "ckc"},
+                "load_test": {"base_tps": 5000},
+            }), encoding="utf-8")
+            hook = root / "notify.sh"
+            with (
+                mock.patch.object(run_start, "parse_args", return_value=argparse.Namespace(metadata=str(metadata_path))),
+                mock.patch.object(run_start, "append_event", return_value={}) as append,
+                mock.patch.object(run_start, "publish_grafana_annotation") as publish,
+                mock.patch.object(run_start, "notify") as notify,
+                mock.patch.dict(os.environ, {
+                    "CKC_NOTIFY_HOOK": str(hook),
+                    "CKC_NOTIFICATION_DIR": str(root / "notifications"),
+                }, clear=False),
+            ):
+                self.assertEqual(0, run_start.main())
+
+        append.assert_called_once()
+        publish.assert_called_once()
+        self.assertEqual("target_started", notify.call_args.args[1])
+        self.assertEqual("ckc", notify.call_args.args[2]["name"])
 
 
 if __name__ == "__main__":

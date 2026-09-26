@@ -159,24 +159,18 @@ targets:
       TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
     planning_latency:
-      order_ms: 100
-      batch_ms: 151
-      telemetry_ms: 70
+      order_ms: 14
+      batch_ms: 9
+      telemetry_ms: 41
     parallelism:
     - partitions
     - pollers
     topics:
       order:
-        partitions: 70
-        pollers: 70
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 76
-        pollers: 76
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 56
-        pollers: 56
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
   workload:
     load:

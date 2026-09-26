@@ -4,13 +4,18 @@ import argparse
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from .run import (
     KafkaExecutor,
     WARMUP_DURATION_SECONDS,
+    WARMUP_CLIENT_HEAP,
+    WARMUP_CLIENT_MEMORY,
     WARMUP_PARTITIONS,
     WARMUP_RATE,
     WARMUP_RECORD_SIZE,
+    cleanup_stale_resources,
     notification_payload,
     warmup_record_count,
 )
@@ -27,7 +32,6 @@ class KafkaWarmupTest(unittest.TestCase):
             log_file=Path(tempfile.gettempdir()) / "warmup.log",
             notify_hook=None,
             notification_dir=None,
-            grafana_url="http://127.0.0.1:3000",
             docker_container="ckc-perf-kafka-1",
             namespace="ckc-loadtest",
             kubeconfig="/tmp/kubeconfig",
@@ -47,16 +51,36 @@ class KafkaWarmupTest(unittest.TestCase):
         self.assertEqual(180, payload["duration_seconds"])
         self.assertEqual(10_000, payload["rate"])
 
-    def test_docker_backend_uses_kafka_tools_inside_selected_broker(self) -> None:
-        command = KafkaExecutor(self.arguments()).command("kafka-topics.sh", "--list")
-        self.assertEqual(["docker", "exec", "ckc-perf-kafka-1", "env", "KAFKA_OPTS="], command[:5])
-        self.assertIn("/opt/kafka/bin/kafka-topics.sh", command)
+    def test_docker_backend_isolates_kafka_tools_from_selected_broker(self) -> None:
+        command = KafkaExecutor(self.arguments()).command("kafka-producer-perf-test.sh", "--help")
+        self.assertEqual(["docker", "run", "--rm", "--name"], command[:4])
+        self.assertIn("container:ckc-perf-kafka-1", command)
+        self.assertIn(WARMUP_CLIENT_MEMORY, command)
+        self.assertIn(f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}", command)
+        self.assertNotIn("exec", command)
+        self.assertIn("/opt/kafka/bin/kafka-producer-perf-test.sh", command)
 
     def test_kubernetes_backend_uses_ephemeral_tool_pod(self) -> None:
         executor = KafkaExecutor(self.arguments("kubernetes"))
         command = executor.command("kafka-producer-perf-test.sh", "--help")
         self.assertEqual(["kubectl", "-n", "ckc-loadtest", "exec"], command[:4])
+        self.assertIn(f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}", command)
         self.assertIn("/opt/kafka/bin/kafka-producer-perf-test.sh", command)
+
+    def test_stale_warmup_topics_and_groups_are_removed_before_a_run(self) -> None:
+        executor = Mock()
+        executor.run.side_effect = [
+            SimpleNamespace(stdout="order.events.v1\nckc.warmup.v1.old\n"),
+            SimpleNamespace(stdout=""),
+            SimpleNamespace(stdout="ckc-demo\nckc-warmup-v1-old\n"),
+            SimpleNamespace(stdout=""),
+        ]
+
+        cleanup_stale_resources(executor, "localhost:9092")
+
+        commands = [call.args for call in executor.run.call_args_list]
+        self.assertIn("ckc.warmup.v1.old", commands[1])
+        self.assertIn("ckc-warmup-v1-old", commands[3])
 
 
 if __name__ == "__main__":

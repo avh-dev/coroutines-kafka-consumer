@@ -382,6 +382,11 @@
 | [INFRA-218](#infra-218) | Restore a fast incremental lab update and resolve Thread Stats as a dependency. | DONE |
 | [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
 | [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | DONE |
+| [INFRA-221](#infra-221) | Make managed internal-lab experiment stop an immediate cancellation with guaranteed workload cleanup. | DONE |
+| [INFRA-222](#infra-222) | Isolate Kafka warm-up clients, remove its dashboard annotation, and abort experiments when target preparation fails. | DONE |
+| [INFRA-223](#infra-223) | Notify Telegram when each experiment target's load generator actually starts. | DONE |
+| [INFRA-224](#infra-224) | Retune Spring Kafka partition planning from measured pre-degradation processing latency. | DONE |
+| [INFRA-225](#infra-225) | Preserve and validate two-host hardware and link evidence in managed experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4413,3 +4418,60 @@ Raise the aggregate load and every per-topic producer capacity from 2,000 to 5,0
 Verification: all seven shared experiment materialization tests passed, including explicit checks for the 5,000 messages/s aggregate rate and per-topic producer capacities. No reference to the retired 2k experiment identity remains.
 The first live run exposed that k3s had selected the hosts' management Wi-Fi interfaces for Flannel despite using direct-link node addresses. Extend bootstrap reconciliation to derive and persist each node's Flannel interface from the route to its peer so cross-node pod traffic follows the configured lab network.
 Verification: 112 internal-lab tests passed. Re-running bootstrap selected `eno1` and `enp1s0`, changed both Flannel public addresses to `10.10.20.x`, reduced cross-node pod RTT from roughly 325 ms to 0.57 ms, and reduced transfer time for the 6 MB application metrics response from 12-15 seconds to 0.27-0.30 seconds. Prometheus reported the application target up with a 0.32-second scrape, and the stopped experiment's lingering application deployments were returned to zero replicas.
+
+<a id="infra-221"></a>
+### INFRA-221 - Cancel managed internal-lab experiments immediately
+
+_Date: 2026-09-26_
+
+Make an explicit managed experiment stop cancel active work immediately instead of draining consumers or producing reports and evidence bundles.
+Record a minimal cancelled status and notification while retaining partial diagnostic logs outside the successful-result path.
+Guarantee that application workloads are quiesced and the experiment CPU policy is released even when graceful process termination fails.
+The managed service now signals its complete control group, while the experiment runner forwards cancellation to the active target process group and escalates boundedly if it does not exit. Cancelled result sets contain `cancelled.json` but no success `summary.json`, report, evidence collection, or bundle.
+Verification: 116 internal-lab tests passed with Python, Bash, POSIX shell, systemd-unit, and whitespace validation. Incremental deployment synchronized only changed assets, installed the control-group service, rebuilt no images, and left both application deployments at zero replicas. A live experiment was not started automatically.
+
+<a id="infra-222"></a>
+### INFRA-222 - Isolate Kafka warm-up clients
+
+_Date: 2026-09-26_
+
+Run Kafka warm-up producer and consumer clients outside the memory-limited broker container so their JVM heaps cannot restart Kafka.
+Remove the dashboard-wide warm-up annotation because only Kafka panels contain useful data during this phase.
+Abort the experiment when target preparation fails instead of repeating the failed warm-up for every remaining target.
+Warm-up clients now run in disposable 512 MiB containers with 128-256 MiB JVM heaps and the broker's network namespace; stale warm-up topics, groups, and containers are removed automatically.
+Verification: 118 internal-lab tests, five shared warm-up tests, and 32 AWS tests passed with Python, shell, and whitespace validation. Incremental deployment rebuilt no images. A live isolated warm-up produced and consumed 1,800,000 records at approximately 10,000/s while client containers used about 170 MiB each; the 4 GiB Kafka container stayed below 1.7 GiB and did not restart. All temporary containers, topics, and groups were removed afterward.
+
+<a id="infra-223"></a>
+### INFRA-223 - Notify actual target start
+
+_Date: 2026-09-26_
+
+Send a Telegram lifecycle event only after a target's load generator has actually started, following any Kafka warm-up and deployment preparation.
+Include target position, identity, and expected workload duration so the notification also serves as the implicit end of warm-up.
+Remove the earlier pre-preparation `test_started` event to keep one unambiguous target-start meaning.
+The run-start publisher now emits `target_started` beside the existing run event and Grafana target annotation, using the persisted run metadata as the single source of target identity and workload details.
+Verification: 121 internal-lab tests and seven shared notification/warm-up tests passed with Python, Bash, and whitespace validation. Incremental deployment rebuilt no images, synchronized the new helper and Telegram formatter, and left the inactive lab at zero application replicas.
+
+<a id="infra-224"></a>
+### INFRA-224 - Retune Spring Kafka partition planning
+
+_Date: 2026-09-26_
+
+Measure Spring Kafka's per-topic processing latency during the stable 5,000 messages/s interval before downstream degradation begins.
+Apply a 25% planning margin to the observed means and recalculate Spring's topic partitions and pollers so the comparison does not begin capacity-constrained.
+The first run's exact two-minute baseline window measured 10.91 ms for order, 6.84 ms for batch, and 32.32 ms for telemetry; telemetry dropped about 30,337 stale records before degradation while sustaining only about 1,726 of its requested 2,000 messages/s.
+Round the buffered planning latencies upward to 14, 9, and 41 ms, producing 25, 12, and 82 Spring partitions respectively at the experiment's 35/25/40 percent traffic split.
+Remove the fixed partition and poller overrides so future load-rate changes are recalculated by the planner instead of silently retaining obsolete counts.
+Verification: all seven shared materialization tests passed and assert both the measured planning inputs and the calculated 25/12/82 partition topology. The incremental lab update rebuilt no images or base services, synchronized the revised experiment, and left the managed experiment inactive.
+
+<a id="infra-225"></a>
+### INFRA-225 - Preserve two-host environment evidence
+
+_Date: 2026-09-26_
+
+Export the installed lab topology to child evidence collectors so managed experiments retain the worker CPU model, measured CPU cap, and inter-host link details.
+Reject incomplete split-host evidence instead of silently rendering Kubernetes-only fallbacks.
+Repair the latest experiment's preserved environment snapshot and regenerate its environment diagram without repeating audit analysis.
+The run entrypoint now exports the installed topology to child collectors, while the collector discovers the configured worker even without an active application pod and bounds every external probe to five seconds.
+Split-host evidence fails explicitly when the worker, its CPU model, the applied frequency cap, or direct-link endpoint details are missing.
+Verification: 126 internal-lab tests passed, followed by 19 focused environment and synchronization tests after the final validation guard. Incremental updates rebuilt no images or services. A live capped probe identified the controller i5-8500 and worker i5-8500T at 2 GHz plus the direct 1 Gbit/s full-duplex `eno1`/`enp1s0` link; both CPU policies were released afterward and both application deployments remain at zero replicas.

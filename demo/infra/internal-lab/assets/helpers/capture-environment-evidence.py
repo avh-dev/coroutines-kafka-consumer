@@ -14,8 +14,20 @@ from pathlib import Path
 from typing import Any
 
 
+COMMAND_TIMEOUT_SECONDS = 5
+
+
 def command_json(arguments: list[str]) -> dict[str, Any]:
-    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(
+            arguments,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {}
     if result.returncode:
         return {}
     try:
@@ -26,12 +38,30 @@ def command_json(arguments: list[str]) -> dict[str, Any]:
 
 
 def command_text(arguments: list[str]) -> str:
-    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(
+            arguments,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout if result.returncode == 0 else ""
 
 
 def java_version(arguments: list[str]) -> str | None:
-    result = subprocess.run(arguments, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(
+            arguments,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     output = "\n".join((result.stdout, result.stderr))
     match = re.search(r'(?:openjdk|java) version "([^"]+)"', output)
     return match.group(1) if match else None
@@ -165,8 +195,23 @@ def resolved_hosts(
         "node": nodes_by_name.get(controller, {}),
         "hardware": controller_hardware,
     }]
-    worker_names = sorted(set(workloads.get("application", [])) - {controller})
     worker_target = os.environ.get("LAB_APPLICATION_TARGET")
+    worker_names = sorted(set(workloads.get("application", [])) - {controller})
+    if not worker_names and worker_target:
+        remote_name = command_text([
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            worker_target,
+            "hostname",
+        ]).strip()
+        if remote_name and re.fullmatch(r"[A-Za-z0-9._-]+", remote_name) and remote_name != controller:
+            worker_names = [remote_name]
+            workloads["application"] = [remote_name]
     for worker in worker_names:
         hosts.append({
             "name": worker,
@@ -234,6 +279,54 @@ def inter_host_link_evidence() -> dict[str, Any]:
     }
 
 
+def validate_split_host_evidence(
+    hosts: list[dict[str, Any]],
+    link: dict[str, Any],
+    *,
+    split_expected: bool = False,
+) -> None:
+    workers = [host for host in hosts if host.get("role") == "application-worker"]
+    if not workers:
+        if split_expected:
+            raise RuntimeError("Incomplete split-host environment evidence: application worker is missing")
+        return
+
+    problems: list[str] = []
+    controller = next((host for host in hosts if host.get("role") == "controller"), {})
+    controller_hardware = controller.get("hardware") if isinstance(controller.get("hardware"), dict) else {}
+    controller_frequency = (
+        controller_hardware.get("frequency")
+        if isinstance(controller_hardware.get("frequency"), dict)
+        else {}
+    )
+    expect_cpu_cap = controller_frequency.get("configured_max_mhz") is not None
+    for worker in workers:
+        name = str(worker.get("name") or "application worker")
+        hardware = worker.get("hardware") if isinstance(worker.get("hardware"), dict) else {}
+        frequency = hardware.get("frequency") if isinstance(hardware.get("frequency"), dict) else {}
+        if not hardware.get("cpu_model"):
+            problems.append(f"{name} CPU model is missing")
+        if expect_cpu_cap and frequency.get("configured_max_mhz") is None:
+            problems.append(f"{name} configured CPU frequency is missing")
+
+    endpoints = link.get("endpoints") if isinstance(link.get("endpoints"), list) else []
+    if len(endpoints) != 2 or any(
+        not isinstance(endpoint, dict) or not endpoint.get("interface")
+        for endpoint in endpoints
+    ):
+        problems.append("inter-host link endpoints are incomplete")
+    if link.get("type") == "direct":
+        if not link.get("speed_mbps"):
+            problems.append("direct inter-host link speed is missing")
+        if not link.get("duplex"):
+            problems.append("direct inter-host link duplex is missing")
+        if link.get("on_link") is not True:
+            problems.append("direct inter-host route is not on-link")
+
+    if problems:
+        raise RuntimeError("Incomplete split-host environment evidence: " + "; ".join(problems))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add resolved internal-lab environment evidence to run metadata")
     parser.add_argument("--metadata", type=Path, required=True)
@@ -265,6 +358,13 @@ def main() -> int:
             if implementation == "apache-kafka" else None
         ),
     }
+    hosts = resolved_hosts(host, nodes, workloads, controller_hardware)
+    inter_host_link = inter_host_link_evidence()
+    validate_split_host_evidence(
+        hosts,
+        inter_host_link,
+        split_expected=bool(os.environ.get("LAB_APPLICATION_TARGET")),
+    )
     metadata["environment_evidence"] = {
         "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "provider": "bare metal",
@@ -273,8 +373,8 @@ def main() -> int:
         "kubernetes": kubernetes,
         "nodes": nodes,
         "hardware": controller_hardware,
-        "hosts": resolved_hosts(host, nodes, workloads, controller_hardware),
-        "inter_host_link": inter_host_link_evidence(),
+        "hosts": hosts,
+        "inter_host_link": inter_host_link,
         "java": {key: value for key, value in java.items() if value},
         "workloads": workloads,
         "kafka": {

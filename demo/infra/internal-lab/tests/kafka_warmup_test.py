@@ -26,6 +26,12 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
         self.assertIn('env.setdefault("CKC_NOTIFY_HOOK", str(hook))', runner)
         self.assertIn('env.setdefault("CKC_NOTIFICATION_DIR"', runner)
 
+    def test_warmup_does_not_create_dashboard_wide_annotations(self) -> None:
+        reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
+        warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
+        self.assertNotIn("--grafana-url", reset)
+        self.assertNotIn("api/annotations", warmup)
+
 
 if __name__ == "__main__":
     unittest.main()
