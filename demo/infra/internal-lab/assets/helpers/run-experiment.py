@@ -763,8 +763,6 @@ def run_one(
     env["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
     if expected_seconds is not None:
         env["EXPERIMENT_TARGET_EXPECTED_SECONDS"] = str(expected_seconds)
-    notify(hook, "test_started", {"name": name, "profile": profile, "deployment": deployment, "test_definition": test_definition, "index": index, "total": total}, log_dir)
-
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,

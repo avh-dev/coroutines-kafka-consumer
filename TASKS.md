@@ -384,6 +384,7 @@
 | [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | DONE |
 | [INFRA-221](#infra-221) | Make managed internal-lab experiment stop an immediate cancellation with guaranteed workload cleanup. | DONE |
 | [INFRA-222](#infra-222) | Isolate Kafka warm-up clients, remove its dashboard annotation, and abort experiments when target preparation fails. | DONE |
+| [INFRA-223](#infra-223) | Notify Telegram when each experiment target's load generator actually starts. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4437,3 +4438,14 @@ Remove the dashboard-wide warm-up annotation because only Kafka panels contain u
 Abort the experiment when target preparation fails instead of repeating the failed warm-up for every remaining target.
 Warm-up clients now run in disposable 512 MiB containers with 128-256 MiB JVM heaps and the broker's network namespace; stale warm-up topics, groups, and containers are removed automatically.
 Verification: 118 internal-lab tests, five shared warm-up tests, and 32 AWS tests passed with Python, shell, and whitespace validation. Incremental deployment rebuilt no images. A live isolated warm-up produced and consumed 1,800,000 records at approximately 10,000/s while client containers used about 170 MiB each; the 4 GiB Kafka container stayed below 1.7 GiB and did not restart. All temporary containers, topics, and groups were removed afterward.
+
+<a id="infra-223"></a>
+### INFRA-223 - Notify actual target start
+
+_Date: 2026-09-26_
+
+Send a Telegram lifecycle event only after a target's load generator has actually started, following any Kafka warm-up and deployment preparation.
+Include target position, identity, and expected workload duration so the notification also serves as the implicit end of warm-up.
+Remove the earlier pre-preparation `test_started` event to keep one unambiguous target-start meaning.
+The run-start publisher now emits `target_started` beside the existing run event and Grafana target annotation, using the persisted run metadata as the single source of target identity and workload details.
+Verification: 121 internal-lab tests and seven shared notification/warm-up tests passed with Python, Bash, and whitespace validation. Incremental deployment rebuilt no images, synchronized the new helper and Telegram formatter, and left the inactive lab at zero application replicas.

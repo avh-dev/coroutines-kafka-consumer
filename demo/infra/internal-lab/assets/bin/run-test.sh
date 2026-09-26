@@ -1371,6 +1371,7 @@ metadata = {
         "target": env("EXPERIMENT_TARGET_NAME"),
         "target_index": env_int("EXPERIMENT_TARGET_INDEX"),
         "target_total": env_int("EXPERIMENT_TARGET_TOTAL"),
+        "expected_duration_seconds": env_int("EXPERIMENT_TARGET_EXPECTED_SECONDS"),
         "annotation_label": env("EXPERIMENT_RUN_ANNOTATION_LABEL"),
     },
     "prepare_enabled": env_bool("RUN_PREPARE"),

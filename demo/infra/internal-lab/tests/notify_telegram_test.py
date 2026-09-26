@@ -44,6 +44,7 @@ class NotifyTelegramTest(unittest.TestCase):
             {
                 "experiment_started",
                 "kafka_warmup_started",
+                "target_started",
                 "measurements_finished",
                 "report_ready",
                 "bundle_ready",
@@ -52,6 +53,26 @@ class NotifyTelegramTest(unittest.TestCase):
                 "experiment_failed",
             },
             NOTIFY.DEFAULT_EVENTS,
+        )
+
+    def test_target_start_follows_preparation_and_identifies_the_target(self) -> None:
+        self.assertEqual(
+            "\n".join([
+                "▶️ CKC target started: 1/3 — comparison",
+                "Target: spring-kafka.jdk",
+                "Profile: spring-kafka · 1 replica(s) · 5000 TPS",
+                "Expected workload: 13m 00s",
+            ]),
+            NOTIFY.message_for("target_started", {
+                "experiment": "comparison",
+                "name": "spring-kafka.jdk",
+                "index": 1,
+                "total": 3,
+                "profile": "spring-kafka",
+                "replicas": 1,
+                "base_tps": 5000,
+                "expected_duration_seconds": 780,
+            }),
         )
 
     def test_cancellation_is_a_single_terminal_message(self) -> None:

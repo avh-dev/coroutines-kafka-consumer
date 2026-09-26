@@ -13,6 +13,7 @@ from typing import Any
 DEFAULT_EVENTS = {
     "experiment_started",
     "kafka_warmup_started",
+    "target_started",
     "measurements_finished",
     "report_ready",
     "bundle_ready",
@@ -111,6 +112,25 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             f"🔥 Kafka warm-up started: {format_duration(payload.get('duration_seconds'))}"
             f"\nReason: {payload.get('reason', 'Kafka runtime was redeployed')}"
         )
+    if event == "target_started":
+        index = payload.get("index")
+        total = payload.get("total")
+        position = f"{index}/{total}" if index not in (None, "") and total not in (None, "") else "?/?"
+        lines = [
+            f"▶️ CKC target started: {position} — {experiment}",
+            f"Target: {payload.get('name') or 'unknown'}",
+        ]
+        details = []
+        if payload.get("profile"):
+            details.append(str(payload["profile"]))
+        if payload.get("replicas") not in (None, ""):
+            details.append(f"{payload['replicas']} replica(s)")
+        if payload.get("base_tps") not in (None, ""):
+            details.append(f"{payload['base_tps']} TPS")
+        if details:
+            lines.append("Profile: " + " · ".join(details))
+        lines.append(f"Expected workload: {format_duration(payload.get('expected_duration_seconds'))}")
+        return "\n".join(lines)
     if event in {"measurements_finished", "experiment_runs_finished"}:
         return "✅ Measurements completed · analysis started"
     if event == "report_ready":
