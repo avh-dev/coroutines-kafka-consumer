@@ -5,19 +5,19 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/update-lab.sh"
-RUN_TEST = Path(__file__).resolve().parents[1] / "assets/bin/run-test.sh"
+TARGET_RUNNER = Path(__file__).resolve().parents[1] / "assets/libexec/run-target.sh"
 PREPARE_TEST = Path(__file__).resolve().parents[1] / "assets/libexec/prepare-test.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
-    def test_run_test_exports_topology_to_environment_evidence_collector(self) -> None:
-        script = RUN_TEST.read_text(encoding="utf-8")
+    def test_target_runner_exports_topology_to_environment_evidence_collector(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
 
         self.assertIn("export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET", script)
         self.assertIn("export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR", script)
 
-    def test_run_test_maps_per_target_application_placement_to_lab_roles(self) -> None:
-        script = RUN_TEST.read_text(encoding="utf-8")
+    def test_target_runner_maps_per_target_application_placement_to_lab_roles(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
         prepare = PREPARE_TEST.read_text(encoding="utf-8")
 
         self.assertIn('case "${EXPERIMENT_APPLICATION_PLACEMENT:-}" in', script)
@@ -30,6 +30,13 @@ class UpdateLabSyncTest(unittest.TestCase):
             'LAB_APPLICATION_NODE_SELECTOR="${REQUESTED_APPLICATION_NODE_SELECTOR:-${LAB_APPLICATION_NODE_SELECTOR:-}}"',
             prepare,
         )
+
+    def test_target_runner_is_internal_and_public_run_test_is_removed(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        self.assertFalse((TARGET_RUNNER.parents[1] / "bin/run-test.sh").exists())
+        self.assertIn('CKC_EXPERIMENT_INTERNAL:-', script)
+        self.assertIn("lab experiment start", script)
 
     def test_thread_stats_agent_resolves_as_a_dependency_without_building_neighbor(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
@@ -123,7 +130,7 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertNotIn("${LAB_ROOT}/experiments", cleanup)
 
     def test_canonical_plan_does_not_reuse_persisted_stub_replica_override(self) -> None:
-        script = RUN_TEST.read_text(encoding="utf-8")
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
 
         self.assertIn('if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then', script)
         self.assertIn('STUB_REPLICA_COUNT=""', script)

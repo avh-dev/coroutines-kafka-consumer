@@ -2,6 +2,11 @@
 
 set -eu
 
+if [ "${CKC_EXPERIMENT_INTERNAL:-}" != "1" ]; then
+  echo "run-target.sh is an internal experiment target executor; use 'lab experiment start <experiment>.yaml'." >&2
+  exit 2
+fi
+
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"

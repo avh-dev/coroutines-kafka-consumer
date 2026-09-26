@@ -123,8 +123,8 @@ class ExperimentRunnerTest(unittest.TestCase):
             (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
             args = argparse.Namespace(
                 experiments=["comparison"], all=False, env=[], lab_root=str(root),
-                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
                 result_dir=str(root / "results"), prometheus_url="http://prometheus",
+                experiment_dir=str(experiment_dir),
                 notify_hook="", skip_archives=False,
             )
             cancelled = {
@@ -182,7 +182,6 @@ class ExperimentRunnerTest(unittest.TestCase):
                 all=False,
                 env=[],
                 lab_root=str(root),
-                run_test=str(root / "run-test.sh"),
                 experiment_dir=str(experiment_dir),
                 result_dir=str(root / "results"),
                 prometheus_url="http://prometheus",
@@ -225,7 +224,7 @@ class ExperimentRunnerTest(unittest.TestCase):
             report = root / "reports/comparison/report.md"
             args = argparse.Namespace(
                 experiments=["comparison"], all=False, env=[], lab_root=str(root),
-                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
+                experiment_dir=str(experiment_dir),
                 result_dir=str(root / "results"), prometheus_url="http://prometheus",
                 notify_hook="", skip_archives=False,
             )
@@ -267,7 +266,7 @@ class ExperimentRunnerTest(unittest.TestCase):
             (experiment_dir / "comparison.yaml").write_text("name: comparison\n", encoding="utf-8")
             args = argparse.Namespace(
                 experiments=["comparison"], all=False, env=[], lab_root=str(root),
-                run_test=str(root / "run-test.sh"), experiment_dir=str(experiment_dir),
+                experiment_dir=str(experiment_dir),
                 result_dir=str(root / "results"), prometheus_url="http://prometheus",
                 notify_hook="", skip_archives=False,
             )
@@ -290,7 +289,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
     def test_generated_deployment_plan_owns_stub_replicas(self) -> None:
         command = RUNNER.command_for_run(
-            Path("/opt/ckc-lab/bin/run-test.sh"),
+            Path("/opt/ckc-lab/libexec/run-target.sh"),
             {
                 "profile": "ckc",
                 "deployment_plan_path": "/tmp/deployment-plan.yaml",
@@ -304,7 +303,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
     def test_kafka_topology_is_passed_as_a_runner_flag(self) -> None:
         command = RUNNER.command_for_run(
-            Path("/opt/ckc-lab/bin/run-test.sh"),
+            Path("/opt/ckc-lab/libexec/run-target.sh"),
             {"deployment": "ckc.yaml"},
             "smoke.yaml",
             {"LAB_KAFKA_TOPOLOGY": "cluster"},
@@ -331,9 +330,9 @@ class ExperimentRunnerTest(unittest.TestCase):
         _, legacy_environment = RUNNER.kafka_lab_environment({"kafka_topology": "single"})
         self.assertEqual({"LAB_KAFKA_TOPOLOGY": "single"}, legacy_environment)
 
-    def test_shared_application_contract_maps_to_run_test_planner_flags(self) -> None:
+    def test_shared_application_contract_maps_to_target_runner_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
-            Path("/opt/ckc-lab/bin/run-test.sh"),
+            Path("/opt/ckc-lab/libexec/run-target.sh"),
             {
                 "profile": "ckc",
                 "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
@@ -397,12 +396,13 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "prepare_experiment_runtime") as prepare_runtime,
                 patch.object(RUNNER, "change_performance_policy"),
                 patch.object(RUNNER, "notify") as notify,
             ):
                 summary = RUNNER.run_experiment(
                     experiment,
-                    root / "run-test.sh",
+                    root / "run-target.sh",
                     root,
                     root / "results",
                     "set-a",
@@ -411,6 +411,9 @@ class ExperimentRunnerTest(unittest.TestCase):
                 )
 
             self.assertEqual([1000, 2000], [call["base_tps"] for call in calls])
+            prepare_runtime.assert_called_once()
+            self.assertEqual("cluster", prepare_runtime.call_args.args[2]["LAB_KAFKA_TOPOLOGY"])
+            self.assertEqual("3", prepare_runtime.call_args.args[2]["LAB_KAFKA_BROKER_COUNT"])
             self.assertEqual(["cluster", "cluster"], [env["LAB_KAFKA_TOPOLOGY"] for env in global_envs])
             self.assertEqual(["2", "2"], [env["LAB_KAFKA_REPLICATION_FACTOR"] for env in global_envs])
             self.assertEqual(["0.5", "0.5"], [env["LAB_KAFKA_CPU_PER_BROKER"] for env in global_envs])
@@ -469,6 +472,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "prepare_experiment_runtime"),
                 patch.object(RUNNER, "ensure_application_quiesced", side_effect=quiesce),
                 patch.object(
                     RUNNER,
@@ -480,7 +484,7 @@ class ExperimentRunnerTest(unittest.TestCase):
             ):
                 summary = RUNNER.run_experiment(
                     experiment,
-                    root / "run-test.sh",
+                    root / "run-target.sh",
                     root,
                     root / "results",
                     "set-a",
@@ -518,6 +522,7 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "prepare_experiment_runtime"),
                 patch.object(RUNNER, "ensure_application_quiesced", return_value={
                     "status": "incomplete", "application_state": "cleanup incomplete", "error": "pod remains"
                 }),
@@ -526,7 +531,7 @@ class ExperimentRunnerTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "could not be stopped"):
                     RUNNER.run_experiment(
-                        experiment, root / "run-test.sh", root, root / "results", "set-a", {}, None
+                        experiment, root / "run-target.sh", root, root / "results", "set-a", {}, None
                     )
 
             self.assertNotIn("measurements_finished", [call.args[1] for call in notify.call_args_list])
@@ -554,12 +559,13 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             with (
                 patch.object(RUNNER, "run_one", return_value=failed) as run_one,
+                patch.object(RUNNER, "prepare_experiment_runtime"),
                 patch.object(RUNNER, "notify"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "failed during preparation"):
                     RUNNER.run_experiment(
                         experiment,
-                        root / "run-test.sh",
+                        root / "run-target.sh",
                         root,
                         root / "results",
                         "set-a",

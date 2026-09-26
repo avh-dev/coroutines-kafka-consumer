@@ -294,7 +294,7 @@ LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
 CONSUMER_GROUPS="ckc-demo" \
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
-  "${LAB_ROOT}/libexec/reset-kafka-redis.sh"
+  "${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target
 
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/seed_telemetry_fleet.py" \
   --definition-path "${TEST_DEFINITION}" \

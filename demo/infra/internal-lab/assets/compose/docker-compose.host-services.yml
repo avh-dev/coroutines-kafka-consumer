@@ -92,9 +92,9 @@ services:
           cpus: "${LAB_KAFKA_CPU_PER_BROKER:-2.0}"
           memory: "${LAB_KAFKA_MEMORY_RUNTIME:-4g}"
     healthcheck:
-      test: ["CMD-SHELL", "env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9092; exec 3>&-; exec 3<&-'"]
       interval: 10s
-      timeout: 5s
+      timeout: 2s
       retries: 18
 
   apache-kafka-1:
@@ -148,9 +148,9 @@ services:
           cpus: "${LAB_KAFKA_CPU_PER_BROKER:-1.0}"
           memory: "${LAB_KAFKA_MEMORY_RUNTIME:-2g}"
     healthcheck: &apache-kafka-cluster-healthcheck
-      test: ["CMD-SHELL", "env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9092; exec 3>&-; exec 3<&-'"]
       interval: 10s
-      timeout: 5s
+      timeout: 2s
       retries: 24
 
   apache-kafka-2:

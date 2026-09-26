@@ -390,6 +390,7 @@
 | [INFRA-226](#infra-226) | Quiesce applications before bounded parallel, single-pass audit analysis and reporting. | DONE |
 | [INFRA-227](#infra-227) | Release measurement CPU policy early and optimize audit concurrency and bundle creation. | DONE |
 | [INFRA-228](#infra-228) | Support per-target application placement and compare single- versus two-host execution. | DONE |
+| [INFRA-229](#infra-229) | Make the experiment own Kafka runtime preparation and remove the standalone internal-lab test runner. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4520,3 +4521,14 @@ Fixed the preparation boundary to preserve the target-specific application selec
 The 10,000 messages/s variant resolves Spring to 49 / 23 / 164 partitions and pollers while retaining CKC's three partitions, one poller, and 500 workers per topic; validation, materialization, and all 40 shared orchestration tests passed, and the installed lab updated without rebuilding or redeploying images.
 Its four targets retain a 1 CPU request and 3 GiB memory limit but omit the CPU limit, allowing the capacity comparison to use all CPU available on each selected host without CFS quota throttling.
 The 10,000 messages/s experiment uses three one-core Kafka brokers, replication factor three, and minimum ISR two; CKC retains exactly three partitions per topic while Spring retains its capacity-planned partition counts.
+
+<a id="infra-229"></a>
+### INFRA-229 - Experiment-owned target preparation
+
+_Date: 2026-09-26_
+
+Prepare the fixed Kafka and Redis runtime once per experiment instead of invoking Docker Compose for every target.
+Keep target preparation limited to application teardown, state reset, topic recreation, readiness checks, and deployment.
+Replace continuous JVM-based Kafka health checks with lightweight liveness checks and explicit bounded quorum and ISR readiness validation.
+Remove the public standalone internal-lab test runner and keep target execution as an experiment-internal operation.
+Verification: 140 internal-lab, 40 shared orchestration, and 32 AWS tests passed; shell and Compose validation passed. The installed lab removed the public runner, installed the guarded internal target executor, and reports the lightweight Kafka health check as healthy without rebuilding application images.
