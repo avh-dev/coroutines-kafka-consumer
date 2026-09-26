@@ -386,6 +386,7 @@
 | [INFRA-222](#infra-222) | Isolate Kafka warm-up clients, remove its dashboard annotation, and abort experiments when target preparation fails. | DONE |
 | [INFRA-223](#infra-223) | Notify Telegram when each experiment target's load generator actually starts. | DONE |
 | [INFRA-224](#infra-224) | Retune Spring Kafka partition planning from measured pre-degradation processing latency. | DONE |
+| [INFRA-225](#infra-225) | Preserve and validate two-host hardware and link evidence in managed experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4462,3 +4463,15 @@ The first run's exact two-minute baseline window measured 10.91 ms for order, 6.
 Round the buffered planning latencies upward to 14, 9, and 41 ms, producing 25, 12, and 82 Spring partitions respectively at the experiment's 35/25/40 percent traffic split.
 Remove the fixed partition and poller overrides so future load-rate changes are recalculated by the planner instead of silently retaining obsolete counts.
 Verification: all seven shared materialization tests passed and assert both the measured planning inputs and the calculated 25/12/82 partition topology. The incremental lab update rebuilt no images or base services, synchronized the revised experiment, and left the managed experiment inactive.
+
+<a id="infra-225"></a>
+### INFRA-225 - Preserve two-host environment evidence
+
+_Date: 2026-09-26_
+
+Export the installed lab topology to child evidence collectors so managed experiments retain the worker CPU model, measured CPU cap, and inter-host link details.
+Reject incomplete split-host evidence instead of silently rendering Kubernetes-only fallbacks.
+Repair the latest experiment's preserved environment snapshot and regenerate its environment diagram without repeating audit analysis.
+The run entrypoint now exports the installed topology to child collectors, while the collector discovers the configured worker even without an active application pod and bounds every external probe to five seconds.
+Split-host evidence fails explicitly when the worker, its CPU model, the applied frequency cap, or direct-link endpoint details are missing.
+Verification: 126 internal-lab tests passed, followed by 19 focused environment and synchronization tests after the final validation guard. Incremental updates rebuilt no images or services. A live capped probe identified the controller i5-8500 and worker i5-8500T at 2 GHz plus the direct 1 Gbit/s full-duplex `eno1`/`enp1s0` link; both CPU policies were released afterward and both application deployments remain at zero replicas.
