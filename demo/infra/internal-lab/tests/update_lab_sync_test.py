@@ -6,6 +6,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/update-lab.sh"
 RUN_TEST = Path(__file__).resolve().parents[1] / "assets/bin/run-test.sh"
+PREPARE_TEST = Path(__file__).resolve().parents[1] / "assets/libexec/prepare-test.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
@@ -17,10 +18,18 @@ class UpdateLabSyncTest(unittest.TestCase):
 
     def test_run_test_maps_per_target_application_placement_to_lab_roles(self) -> None:
         script = RUN_TEST.read_text(encoding="utf-8")
+        prepare = PREPARE_TEST.read_text(encoding="utf-8")
 
         self.assertIn('case "${EXPERIMENT_APPLICATION_PLACEMENT:-}" in', script)
         self.assertIn('LAB_APPLICATION_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR}"', script)
         self.assertIn("placement 'worker' requires a split internal lab", script)
+        self.assertIn(
+            'REQUESTED_APPLICATION_NODE_SELECTOR="${LAB_APPLICATION_NODE_SELECTOR:-}"', prepare
+        )
+        self.assertIn(
+            'LAB_APPLICATION_NODE_SELECTOR="${REQUESTED_APPLICATION_NODE_SELECTOR:-${LAB_APPLICATION_NODE_SELECTOR:-}}"',
+            prepare,
+        )
 
     def test_thread_stats_agent_resolves_as_a_dependency_without_building_neighbor(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")

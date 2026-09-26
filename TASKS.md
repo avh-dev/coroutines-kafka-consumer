@@ -4515,3 +4515,4 @@ Include the chosen placement in experiment-start and target-start notifications 
 Add an eight-minute 5,000 messages/s placement experiment with a two-minute warm-up, five-minute maximum stage, one-minute cool-down, and a three-minute measurement window beginning at minute four.
 Run Spring and CKC on the controller first, followed by Spring and CKC on the worker, without changing the fixed lab configuration between targets.
 Verification: 137 internal-lab, 32 AWS, and 40 shared orchestration tests passed; the installed lab updated incrementally without rebuilding images or redeploying workloads.
+Fixed the preparation boundary to preserve the target-specific application selector when `prepare-test.sh` reloads the installed lab environment; controller and worker manifests were rendered and checked independently.
