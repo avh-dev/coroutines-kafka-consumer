@@ -92,7 +92,6 @@ targets:
         cpu: '1'
         memory: 1Gi
       limits:
-        cpu: '4'
         memory: 3Gi
     hpa:
       enabled: false
@@ -141,7 +140,6 @@ targets:
         cpu: '1'
         memory: 1Gi
       limits:
-        cpu: '4'
         memory: 3Gi
     hpa:
       enabled: false
