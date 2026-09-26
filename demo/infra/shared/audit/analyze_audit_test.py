@@ -52,6 +52,35 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
+        accumulator = analyzer.MultiWindowAuditAccumulator(
+            open_record_ttl_ms=None,
+            windows=(
+                analyzer.MeasurementWindow("baseline", 1000, 2000),
+                analyzer.MeasurementWindow("degraded", 3000, 4000),
+            ),
+        )
+        for line in (
+            "C|1|0|1|1500|order-a",
+            "P|1|0|1|1100|1200|order-a",
+            "P|1|0|2|2100|2200|order-between",
+            "C|1|0|2|2300|order-between",
+            "P|1|0|3|3100|3200|order-b",
+            "C|1|0|3|3500|order-b",
+        ):
+            accumulator.add(analyzer.parse_record(line))
+        accumulator.finish()
+
+        audit = analyzer.summary_document(accumulator, {})["audit"]
+        self.assertEqual(3, audit["totals"]["published"])
+        self.assertEqual(3, audit["totals"]["processed"])
+        windows = {window["name"]: window for window in audit["measurement_windows"]}
+        self.assertEqual(1, windows["baseline"]["totals"]["published"])
+        self.assertEqual(1, windows["baseline"]["totals"]["processed"])
+        self.assertEqual(400, windows["baseline"]["totals"]["e2e_latency"]["max"])
+        self.assertEqual(1, windows["degraded"]["totals"]["published"])
+        self.assertEqual(1, windows["degraded"]["totals"]["processed"])
+
     def test_preselected_publication_cohort_keeps_terminal_seen_before_publish(self) -> None:
         key = analyzer.RecordKey(1, 0, 7)
         accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None, cohort_keys={key})

@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 import operator
 import re
-import subprocess
 from decimal import Decimal, ROUND_CEILING
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -719,52 +717,18 @@ def resolved_environment(snapshots: list[dict[str, Any]], warnings: list[str]) -
 
 
 def window_audit(
-    run_dir: Path,
-    lab_root: Path,
-    start: datetime,
+    audit: dict[str, Any],
     window: dict[str, Any],
-    latency_limits: dict[str, int | float],
     warnings: list[str],
 ) -> dict[str, Any]:
-    raw_logs = sorted((run_dir / "audit").glob("audit-*.log*"))
-    if not raw_logs:
-        warnings.append("Window audit is unavailable because raw audit records are absent")
-        return {}
-    offset = float(window.get("start_seconds") or 0)
-    duration = float(window.get("duration_seconds") or 0)
-    if duration <= 0:
-        return {}
-    analyzer = lab_root / "helpers" / "audit" / "analyze-audit.py"
-    if not analyzer.is_file():
-        warnings.append("Window audit analyzer is unavailable")
-        return {}
-    arguments = [
-        sys.executable,
-        str(analyzer),
-        "--input-file",
-        str(raw_logs[0]),
-        "--published-from-ms",
-        str(round((start.timestamp() + offset) * 1000)),
-        "--published-until-ms",
-        str(round((start.timestamp() + offset + duration) * 1000)),
-    ]
-    limits_path: Path | None = None
-    try:
-        if latency_limits:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json", delete=False) as file:
-                json.dump(latency_limits, file)
-                limits_path = Path(file.name)
-            arguments.extend(["--latency-limits-file", str(limits_path)])
-        result = subprocess.run(arguments, text=True, capture_output=True, check=False)
-    finally:
-        if limits_path is not None:
-            limits_path.unlink(missing_ok=True)
-    if result.returncode:
-        warnings.append(f"Window audit failed: {result.stderr.strip() or 'unknown error'}")
-        return {}
-    document = yaml.safe_load(result.stdout) or {}
-    audit = document.get("audit") if isinstance(document, dict) else {}
-    return audit if isinstance(audit, dict) else {}
+    name = str(window.get("name") or "unnamed")
+    cached_windows = audit.get("measurement_windows")
+    if isinstance(cached_windows, list):
+        for cached in cached_windows:
+            if isinstance(cached, dict) and str(cached.get("name") or "") == name:
+                return cached
+    warnings.append(f"Measurement window {name} is absent from the persisted audit summary")
+    return {}
 
 
 def configured_measurement_windows(load_test: dict[str, Any]) -> list[dict[str, Any]]:
@@ -795,13 +759,6 @@ def analyze_experiment(
     load_topics = planned_load_topics(load_test)
     workload = experiment.get("workload") if isinstance(experiment.get("workload"), dict) else {}
     workload_topics = workload.get("topics") if isinstance(workload.get("topics"), dict) else {}
-    window_latency_limits = {
-        str(topic.get("kafka_topic")): topic["max_e2e_latency_ms"]
-        for topic in workload_topics.values()
-        if isinstance(topic, dict)
-        and topic.get("kafka_topic")
-        and isinstance(topic.get("max_e2e_latency_ms"), int | float)
-    }
     topic_contracts = {
         str(topic.get("kafka_topic")): dict(topic["contract"])
         for topic in workload_topics.values()
@@ -867,14 +824,7 @@ def analyze_experiment(
                         collected_measurements = collect_standard_measurements(
                             prometheus, start + timedelta(seconds=window_start), window_duration
                         )
-                        audit_document = window_audit(
-                            run_dir,
-                            lab_root,
-                            start,
-                            window,
-                            window_latency_limits,
-                            warnings,
-                        )
+                        audit_document = window_audit(audit, window, warnings)
                         result.update({
                             "delivery": (
                                 audit_document.get("totals", {})

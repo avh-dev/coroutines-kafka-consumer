@@ -387,6 +387,7 @@
 | [INFRA-223](#infra-223) | Notify Telegram when each experiment target's load generator actually starts. | DONE |
 | [INFRA-224](#infra-224) | Retune Spring Kafka partition planning from measured pre-degradation processing latency. | DONE |
 | [INFRA-225](#infra-225) | Preserve and validate two-host hardware and link evidence in managed experiment reports. | DONE |
+| [INFRA-226](#infra-226) | Quiesce applications before bounded parallel, single-pass audit analysis and reporting. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4475,3 +4476,15 @@ Repair the latest experiment's preserved environment snapshot and regenerate its
 The run entrypoint now exports the installed topology to child collectors, while the collector discovers the configured worker even without an active application pod and bounds every external probe to five seconds.
 Split-host evidence fails explicitly when the worker, its CPU model, the applied frequency cap, or direct-link endpoint details are missing.
 Verification: 126 internal-lab tests passed, followed by 19 focused environment and synchronization tests after the final validation guard. Incremental updates rebuilt no images or services. A live capped probe identified the controller i5-8500 and worker i5-8500T at 2 GHz plus the direct 1 Gbit/s full-duplex `eno1`/`enp1s0` link; both CPU policies were released afterward and both application deployments remain at zero replicas.
+
+<a id="infra-226"></a>
+### INFRA-226 - Parallel single-pass audit analysis
+
+_Date: 2026-09-26_
+
+Quiesce application workloads immediately after the last measured target, before audit analysis and report generation.
+Analyze independent target audit logs concurrently with two workers by default on the 16 GiB controller, with an explicit override for larger machines.
+Calculate the complete audit and all configured measurement windows in one pass per target, then reuse the persisted window results during report generation.
+Expose target-level analysis progress instead of hiding repeated analyzer work behind the generic report phase.
+Apply the same persisted-window contract and bounded target parallelism to AWS analysis and explicit report reanalysis.
+Verification: 132 internal-lab, 32 AWS, and 13 analyzer tests passed. Incremental installation rebuilt and redeployed nothing. On two real 7.2-million-record target logs, analysis used 198% CPU and completed both in 2m51s; complete totals and topic summaries matched the existing results, while each new summary also contained both configured measurement windows.

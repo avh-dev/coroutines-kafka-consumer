@@ -278,6 +278,13 @@ class AwsSessionTest(unittest.TestCase):
             chunks = run_dir / "audit/chunks"
             chunks.mkdir(parents=True)
             (chunks / "audit-000001.log.gz").write_bytes(b"placeholder")
+            (run_dir / "run-metadata.json").write_text(
+                json.dumps({"started_at": "2026-09-26T08:00:00Z"}), encoding="utf-8"
+            )
+            resolved_test = session_dir / "resolved-test.yaml"
+            resolved_test.write_text(yaml.safe_dump({"load_test": {
+                "measurement_window": {"name": "steady", "start_seconds": 60, "duration_seconds": 120}
+            }}), encoding="utf-8")
             state = {
                 "schema_version": 1,
                 "phase": "ANALYZING_AUDIT",
@@ -286,6 +293,7 @@ class AwsSessionTest(unittest.TestCase):
                     "region": "eu-central-1",
                     "experiment": "demo/infra/experiments/aws-smoke.yaml",
                     "latency_limits": {"order.events.v1": 2000},
+                    "targets": [{"id": "ckc", "local_test_definition": str(resolved_test)}],
                 },
                 "terraform": {},
                 "local_result_dirs": {"ckc": str(run_dir)},
@@ -298,10 +306,14 @@ class AwsSessionTest(unittest.TestCase):
 
             limits_path = run_dir / "audit/latency-limits.json"
             limits = json.loads(limits_path.read_text(encoding="utf-8"))
+            windows_path = run_dir / "audit/measurement-windows.json"
+            windows = json.loads(windows_path.read_text(encoding="utf-8"))
             command = run_command.call_args.args[0]
 
         self.assertEqual(2000, limits["order.events.v1"])
         self.assertEqual(str(limits_path), command[command.index("--latency-limits-file") + 1])
+        self.assertEqual("steady", windows[0]["name"])
+        self.assertEqual(str(windows_path), command[command.index("--measurement-windows-file") + 1])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

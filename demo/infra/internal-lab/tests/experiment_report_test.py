@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1276,16 +1277,38 @@ class ExperimentReportTest(unittest.TestCase):
             }
             self.write_yaml(resolved_test_path, resolved_test)
             analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
-            analyzer_target = root / "lab/helpers/audit/analyze-audit.py"
-            analyzer_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(analyzer_source, analyzer_target)
             run_dir = root / "results/runs/run-a"
             published_at = round(datetime(2026, 8, 7, 10, 0, 25, tzinfo=timezone.utc).timestamp() * 1000)
-            (run_dir / "audit/audit-run-a.log").write_text(
+            audit_log = run_dir / "audit/audit-run-a.log"
+            audit_log.write_text(
                 f"C|1|0|1|{published_at + 500}|order-a\n"
                 f"P|1|0|1|{published_at}|{published_at}|order-a\n",
                 encoding="utf-8",
             )
+            windows_file = run_dir / "audit/measurement-windows.json"
+            windows_file.write_text(json.dumps([{
+                "name": "steady-state",
+                "published_from_ms": published_at - 5000,
+                "published_until_ms": published_at + 25000,
+            }]), encoding="utf-8")
+            limits_file = run_dir / "audit/latency-limits.json"
+            limits_file.write_text(json.dumps({"order.events.v1": 2000}), encoding="utf-8")
+            analyzed = subprocess.run(
+                [
+                    sys.executable,
+                    str(analyzer_source),
+                    "--input-file",
+                    str(audit_log),
+                    "--measurement-windows-file",
+                    str(windows_file),
+                    "--latency-limits-file",
+                    str(limits_file),
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            (run_dir / "audit/summary.yaml").write_text(analyzed.stdout, encoding="utf-8")
             measurements = {
                 "throughput_average_rps": 100.0,
                 "cpu_average_cores": 1.0,
@@ -1322,7 +1345,7 @@ class ExperimentReportTest(unittest.TestCase):
             )
 
             self.assertIn(
-                'Actual publish rate<span class="metric-source source-a" title="Audit records">A</span></th><td>12 msg/s</td>',
+                'Actual publish rate<span class="metric-source source-a" title="Audit records">A</span></th><td>0 msg/s</td>',
                 markdown,
             )
             self.assertIn(
@@ -1407,21 +1430,26 @@ class ExperimentReportTest(unittest.TestCase):
                 {"name": "degraded", "start_seconds": 30, "duration_seconds": 10},
             ]
             self.write_yaml(resolved_test_path, resolved_test)
-            analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
-            analyzer_target = root / "lab/helpers/audit/analyze-audit.py"
-            analyzer_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(analyzer_source, analyzer_target)
             run_dir = root / "results/runs/run-a"
-            started = datetime(2026, 8, 7, 10, 0, 0, tzinfo=timezone.utc)
-            first = round((started.timestamp() + 15) * 1000)
-            second = round((started.timestamp() + 35) * 1000)
-            (run_dir / "audit/audit-run-a.log").write_text(
-                f"P|1|0|1|{first}|{first}|baseline-order\n"
-                f"C|1|0|1|{first + 100}|baseline-order\n"
-                f"P|1|0|2|{second}|{second}|degraded-order\n"
-                f"C|1|0|2|{second + 200}|degraded-order\n",
-                encoding="utf-8",
-            )
+            audit_path = run_dir / "audit/summary.yaml"
+            audit_document = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit_document["audit"]["measurement_windows"] = [
+                {
+                    "name": "baseline",
+                    "published_from_ms": 1,
+                    "published_until_ms": 2,
+                    "totals": {"published": 1, "processed": 1},
+                    "topics": {"order.events.v1": {"published": 1, "processed": 1}},
+                },
+                {
+                    "name": "degraded",
+                    "published_from_ms": 3,
+                    "published_until_ms": 4,
+                    "totals": {"published": 1, "processed": 1},
+                    "topics": {"order.events.v1": {"published": 1, "processed": 1}},
+                },
+            ]
+            self.write_yaml(audit_path, audit_document)
             measurements = {
                 "throughput_average_rps": 100.0,
                 "cpu_average_cores": 1.0,

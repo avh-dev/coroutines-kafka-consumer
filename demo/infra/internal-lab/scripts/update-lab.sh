@@ -221,6 +221,7 @@ sync_runtime_test_assets() {
     --environment internal-lab \
     --kafka-mode kubernetes
   sync_path "${REPO_ROOT}/demo/infra/shared/audit" "${LAB_ROOT}/helpers/audit"
+  sync_file "${REPO_ROOT}/demo/infra/shared/audit_windows.py" "${LAB_ROOT}/helpers/audit_windows.py"
   sync_path "${REPO_ROOT}/demo/infra/shared/pcap" "${LAB_ROOT}/helpers/pcap"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_orchestration" "${LAB_ROOT}/helpers/experiment_orchestration"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_notifications" "${LAB_ROOT}/helpers/experiment_notifications"
@@ -323,6 +324,7 @@ LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
 ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
+  demo/infra/shared/audit_windows.py \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_notifications \
   demo/infra/shared/kafka_warmup \
@@ -361,6 +363,7 @@ LEGACY_LOAD_TEST_RUNTIME_FINGERPRINT="$(legacy_fingerprint_paths "load-test-runt
 LEGACY_ASSETS_SYNC_FINGERPRINT="$(legacy_fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT="$(legacy_fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
+  demo/infra/shared/audit_windows.py \
   demo/infra/shared/experiment_orchestration \
   demo/infra/shared/experiment_notifications \
   demo/infra/shared/kafka_warmup \
@@ -505,6 +508,7 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   ! remote_fingerprint_matches "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" ||
   ! remote_paths_exist \
     "${LAB_ROOT}/helpers/audit/analyze-audit.py" \
+    "${LAB_ROOT}/helpers/audit_windows.py" \
     "${LAB_ROOT}/helpers/pcap/analyze-pcap.py" \
     "${LAB_ROOT}/experiments/telemetry-fairness-profile-comparison.yaml" \
     "${LAB_ROOT}/experiments/spring-kafka-thread-stats-progression.yaml" \

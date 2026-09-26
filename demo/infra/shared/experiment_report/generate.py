@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from audit_windows import write_measurement_windows
+
 from .analyze import analyze_experiment, load_json, load_sla_profile, load_yaml
 from .markdown import render_markdown
 from .svg import comparison_bar_svg, comparison_values_svg, environment_topology_svg, kafka_wire_breakdown_svg, load_profile_svg
@@ -212,22 +214,30 @@ def reanalyze_experiment_audits(
         metadata_file = run_dir / "run-metadata.json"
         if input_file is None or not metadata_file.is_file():
             raise FileNotFoundError(f"Complete audit inputs were not found for run: {run_dir}")
+        command = [
+            sys.executable,
+            str(analyzer),
+            "--input-file",
+            str(input_file),
+            "--metadata-file",
+            str(metadata_file),
+            "--sla-profile-file",
+            str(profile_file),
+            "--require-records",
+        ]
+        windows_path = write_measurement_windows(
+            metadata_file,
+            Path(str(target.get("resolved_test_path") or "")),
+            audit_dir / "measurement-windows.json",
+        )
+        if windows_path is not None:
+            command.extend(["--measurement-windows-file", str(windows_path)])
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=audit_dir, delete=False) as summary:
             summary_path = Path(summary.name)
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=audit_dir, delete=False) as progress:
                 progress_path = Path(progress.name)
                 process = subprocess.run(
-                    [
-                        sys.executable,
-                        str(analyzer),
-                        "--input-file",
-                        str(input_file),
-                        "--metadata-file",
-                        str(metadata_file),
-                        "--sla-profile-file",
-                        str(profile_file),
-                        "--require-records",
-                    ],
+                    command,
                     stdout=summary,
                     stderr=progress,
                     check=False,

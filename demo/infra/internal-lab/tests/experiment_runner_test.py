@@ -24,6 +24,49 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_audit_analysis_workers_defaults_to_half_the_cpus_capped_at_two(self) -> None:
+        with (
+            patch.dict(RUNNER.os.environ, {}, clear=True),
+            patch.object(RUNNER.os, "cpu_count", return_value=6),
+        ):
+            self.assertEqual(2, RUNNER.audit_analysis_workers(5))
+            self.assertEqual(2, RUNNER.audit_analysis_workers(2))
+
+    def test_audit_analysis_workers_accepts_bounded_override(self) -> None:
+        with patch.dict(RUNNER.os.environ, {"CKC_AUDIT_ANALYSIS_WORKERS": "2"}, clear=True):
+            self.assertEqual(2, RUNNER.audit_analysis_workers(3))
+            self.assertEqual(1, RUNNER.audit_analysis_workers(1))
+        with patch.dict(RUNNER.os.environ, {"CKC_AUDIT_ANALYSIS_WORKERS": "zero"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                RUNNER.audit_analysis_workers(3)
+
+    def test_measurement_windows_file_uses_run_start_and_resolved_test(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audit_dir = root / "run-a/audit"
+            audit_dir.mkdir(parents=True)
+            (audit_dir.parent / "run-metadata.json").write_text(
+                json.dumps({"started_at": "2026-09-26T08:00:00Z"}), encoding="utf-8"
+            )
+            resolved_test = root / "resolved-test.yaml"
+            resolved_test.write_text(
+                yaml.safe_dump({"load_test": {"measurement_windows": [
+                    {"name": "baseline", "start_seconds": 60, "duration_seconds": 120},
+                    {"name": "degraded", "start_seconds": 240, "duration_seconds": 180},
+                ]}}),
+                encoding="utf-8",
+            )
+
+            path = RUNNER.measurement_windows_file(
+                {"resolved_test_path": str(resolved_test)}, audit_dir
+            )
+
+            self.assertEqual(audit_dir / "measurement-windows.json", path)
+            windows = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(["baseline", "degraded"], [window["name"] for window in windows])
+            self.assertEqual(120_000, windows[0]["published_until_ms"] - windows[0]["published_from_ms"])
+            self.assertEqual(180_000, windows[1]["published_until_ms"] - windows[1]["published_from_ms"])
+
     def test_managed_stop_signal_requests_graceful_target_cleanup(self) -> None:
         RUNNER.STOP_REQUESTED.clear()
         context = dict(RUNNER.FAILURE_NOTIFICATION_CONTEXT)
@@ -375,6 +418,103 @@ class ExperimentRunnerTest(unittest.TestCase):
             events = [call.args[1] for call in notify.call_args_list]
             self.assertIn("measurements_finished", events)
             self.assertNotIn("experiment_finished", events)
+
+    def test_application_is_quiesced_before_audit_analysis_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = Path(__file__).resolve().parents[4]
+            source = yaml.safe_load(
+                (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
+            )
+            source["targets"] = [source["targets"][0]]
+            experiment = root / "comparison.yaml"
+            experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+            events: list[str] = []
+
+            def run_one(*args, **_kwargs):
+                target = args[4]
+                run_dir = root / "runs/run-a"
+                audit_dir = run_dir / "audit"
+                audit_dir.mkdir(parents=True)
+                (audit_dir / "audit-run-a.log").write_text("P|1|0|1|1|1|order-a\n", encoding="utf-8")
+                return {
+                    "target": target["id"],
+                    "name": target["name"],
+                    "resolved_test_path": target["resolved_test_path"],
+                    "run_dir": str(run_dir),
+                    "audit_dir": str(audit_dir),
+                    "exit_code": 0,
+                    "interrupted": False,
+                    "env": {"AUDIT_LOG_ENABLED": "true"},
+                }
+
+            def quiesce(*_args, **_kwargs):
+                events.append("quiesce")
+                return {"status": "clean", "application_state": "stopped (0 replicas)"}
+
+            def analyze(*_args, **_kwargs):
+                self.assertEqual(["quiesce"], events)
+                events.append("analyze")
+                return {"exit_code": 0}
+
+            with (
+                patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "ensure_application_quiesced", side_effect=quiesce),
+                patch.object(RUNNER, "analyze_one", side_effect=analyze),
+                patch.object(RUNNER, "notify"),
+            ):
+                summary = RUNNER.run_experiment(
+                    experiment,
+                    root / "run-test.sh",
+                    root,
+                    root / "results",
+                    "set-a",
+                    {},
+                    None,
+                )
+
+            self.assertEqual(["quiesce", "analyze"], events)
+            self.assertEqual(0, summary["exit_code"])
+
+    def test_failed_application_quiesce_aborts_before_audit_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = Path(__file__).resolve().parents[4]
+            source = yaml.safe_load(
+                (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
+            )
+            source["targets"] = [source["targets"][0]]
+            experiment = root / "comparison.yaml"
+            experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+
+            def run_one(*args, **_kwargs):
+                target = args[4]
+                run_dir = root / "runs/run-a"
+                audit_dir = run_dir / "audit"
+                audit_dir.mkdir(parents=True)
+                (audit_dir / "audit-run-a.log").write_text("P|1|0|1|1|1|order-a\n", encoding="utf-8")
+                return {
+                    "target": target["id"], "name": target["name"],
+                    "resolved_test_path": target["resolved_test_path"],
+                    "run_dir": str(run_dir), "audit_dir": str(audit_dir),
+                    "exit_code": 0, "interrupted": False,
+                    "env": {"AUDIT_LOG_ENABLED": "true"},
+                }
+
+            with (
+                patch.object(RUNNER, "run_one", side_effect=run_one),
+                patch.object(RUNNER, "ensure_application_quiesced", return_value={
+                    "status": "incomplete", "application_state": "cleanup incomplete", "error": "pod remains"
+                }),
+                patch.object(RUNNER, "analyze_one", side_effect=AssertionError("analysis must not start")),
+                patch.object(RUNNER, "notify") as notify,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "could not be stopped"):
+                    RUNNER.run_experiment(
+                        experiment, root / "run-test.sh", root, root / "results", "set-a", {}, None
+                    )
+
+            self.assertNotIn("measurements_finished", [call.args[1] for call in notify.call_args_list])
 
     def test_target_preparation_failure_aborts_remaining_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
