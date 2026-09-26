@@ -564,6 +564,7 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "profile": profile,
+        "placement": application.get("placement_requested"),
         "replicas": application.get("replica_count"),
         "resources": (
             run_plan.get("application", {}).get("resources", {})
@@ -716,6 +717,24 @@ def resolved_environment(snapshots: list[dict[str, Any]], warnings: list[str]) -
     return environment
 
 
+def resolved_environment_topologies(
+    snapshots: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    grouped: list[dict[str, Any]] = []
+    by_placement: dict[tuple[str, ...], dict[str, Any]] = {}
+    for target_name, environment in snapshots:
+        workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
+        application_nodes = workloads.get("application") if isinstance(workloads, dict) else []
+        placement = tuple(sorted(str(node) for node in application_nodes or []))
+        topology = by_placement.get(placement)
+        if topology is None:
+            topology = {"targets": [], "environment": environment}
+            by_placement[placement] = topology
+            grouped.append(topology)
+        topology["targets"].append(target_name)
+    return grouped
+
+
 def window_audit(
     audit: dict[str, Any],
     window: dict[str, Any],
@@ -775,7 +794,7 @@ def analyze_experiment(
     targets: list[TargetReport] = []
     report_warnings: list[str] = []
     observed_events: list[dict[str, Any]] = []
-    environment_snapshots: list[dict[str, Any]] = []
+    environment_snapshots: list[tuple[str, dict[str, Any]]] = []
 
     for target in experiment_summary.get("targets", []):
         run_dir = Path(str(target.get("run_dir") or ""))
@@ -797,7 +816,10 @@ def analyze_experiment(
         audit_path = run_dir / "audit" / "summary.yaml"
         metadata = load_json(metadata_path) if metadata_path.is_file() else {}
         if isinstance(metadata.get("environment_evidence"), dict):
-            environment_snapshots.append(metadata["environment_evidence"])
+            environment_snapshots.append((
+                str(target.get("name") or target.get("target") or run_dir.name),
+                metadata["environment_evidence"],
+            ))
         status = load_json(status_path) if status_path.is_file() else {}
         audit_document = load_yaml(audit_path) if audit_path.is_file() else {}
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
@@ -975,7 +997,9 @@ def analyze_experiment(
         started_at=start.isoformat() if start else "",
         ended_at=end.isoformat() if end else "",
         duration_seconds=(end - start).total_seconds() if start and end else None,
-        environment=resolved_environment(environment_snapshots, report_warnings),
+        environment=resolved_environment(
+            [environment for _, environment in environment_snapshots], report_warnings
+        ),
         test_definition={
             "name": test_definition_name,
             "base_tps": experiment_summary.get("base_tps"),
@@ -993,5 +1017,6 @@ def analyze_experiment(
         },
         sla_profile=sla_profile,
         targets=targets,
+        environment_topologies=resolved_environment_topologies(environment_snapshots),
         warnings=report_warnings,
     )

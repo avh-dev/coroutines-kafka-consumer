@@ -24,6 +24,15 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_application_placement_is_passed_to_target_process(self) -> None:
+        self.assertEqual(
+            {"EXPERIMENT_APPLICATION_PLACEMENT": "controller"},
+            RUNNER.application_placement_environment({"placement": "controller"}),
+        )
+        self.assertEqual({}, RUNNER.application_placement_environment({"replicas": 1}))
+        with self.assertRaisesRegex(ValueError, "controller or worker"):
+            RUNNER.application_placement_environment({"placement": "invalid"})
+
     def test_audit_analysis_workers_defaults_to_half_the_cpus_capped_at_three(self) -> None:
         with (
             patch.dict(RUNNER.os.environ, {}, clear=True),

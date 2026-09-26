@@ -15,6 +15,13 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET", script)
         self.assertIn("export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR", script)
 
+    def test_run_test_maps_per_target_application_placement_to_lab_roles(self) -> None:
+        script = RUN_TEST.read_text(encoding="utf-8")
+
+        self.assertIn('case "${EXPERIMENT_APPLICATION_PLACEMENT:-}" in', script)
+        self.assertIn('LAB_APPLICATION_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR}"', script)
+        self.assertIn("placement 'worker' requires a split internal lab", script)
+
     def test_thread_stats_agent_resolves_as_a_dependency_without_building_neighbor(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         root_build = (SCRIPT.parents[4] / "build.gradle.kts").read_text(encoding="utf-8")

@@ -74,7 +74,11 @@ class RunStartAnnotationsTest(unittest.TestCase):
                 "target_total": 3,
                 "expected_duration_seconds": 780,
             },
-            "application": {"profile": "spring-kafka", "replica_count": 1},
+            "application": {
+                "profile": "spring-kafka",
+                "placement_requested": "controller",
+                "replica_count": 1,
+            },
             "load_test": {"base_tps": 5000},
         })
 
@@ -82,6 +86,7 @@ class RunStartAnnotationsTest(unittest.TestCase):
         self.assertEqual("spring-kafka.jdk", payload["name"])
         self.assertEqual(1, payload["index"])
         self.assertEqual(3, payload["total"])
+        self.assertEqual("controller", payload["placement"])
         self.assertEqual(780, payload["expected_duration_seconds"])
 
     def test_main_notifies_after_recording_the_run_start(self) -> None:

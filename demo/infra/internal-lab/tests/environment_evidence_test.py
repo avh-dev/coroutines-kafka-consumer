@@ -110,6 +110,25 @@ class EnvironmentEvidenceTest(unittest.TestCase):
         remote_hostname.assert_called_once()
         remote_hardware.assert_called_once_with("ckc-lab@10.10.20.3")
 
+    def test_resolved_hosts_keeps_application_on_controller_in_split_lab(self) -> None:
+        nodes = [
+            {"name": "optilab", "cpu": "6"},
+            {"name": "optilab2", "cpu": "6"},
+        ]
+        workloads = {"application": ["optilab"], "producer": ["optilab"]}
+
+        with patch.dict(MODULE.os.environ, {"LAB_APPLICATION_TARGET": "ckc-lab@10.10.20.3"}), patch.object(
+            MODULE, "command_text", return_value="optilab2\n"
+        ) as remote_hostname, patch.object(MODULE, "hardware_evidence") as remote_hardware:
+            hosts = MODULE.resolved_hosts(
+                "optilab", nodes, workloads, {"cpu_model": "Controller CPU"}
+            )
+
+        self.assertEqual(["optilab", "optilab2"], [host["name"] for host in hosts])
+        self.assertEqual(["optilab"], workloads["application"])
+        remote_hostname.assert_called_once()
+        remote_hardware.assert_called_once_with("ckc-lab@10.10.20.3")
+
     def test_split_host_validation_requires_worker_hardware_frequency_and_link(self) -> None:
         hosts = [
             {

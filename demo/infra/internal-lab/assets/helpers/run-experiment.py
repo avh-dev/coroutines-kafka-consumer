@@ -406,6 +406,19 @@ def application_override_args(application: dict[str, Any]) -> list[str]:
     return args
 
 
+def application_placement_environment(application: Any) -> dict[str, str]:
+    if application in (None, ""):
+        return {}
+    if not isinstance(application, dict):
+        raise ValueError("target.application must be an object")
+    placement = str(application.get("placement") or "").strip()
+    if not placement:
+        return {}
+    if placement not in {"controller", "worker"}:
+        raise ValueError("target.application.placement must be controller or worker")
+    return {"EXPERIMENT_APPLICATION_PLACEMENT": placement}
+
+
 def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
     targets = experiment.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -729,6 +742,7 @@ def run_one(
     test_definition = str(test["test_definition"])
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
+    env.update(application_placement_environment(test.get("application")))
     for key in KAFKA_LAB_ENV_KEYS:
         if key in global_env:
             env[key] = global_env[key]
@@ -1040,6 +1054,7 @@ def run_experiment(
             "name": target.get("name"),
             "profile": profile,
             "replicas": application.get("replicas", target.get("replicas")),
+            "placement": application.get("placement"),
             "base_tps": target_load.get("base_tps", base_tps),
             "duration_seconds": load_profile_seconds(str(target_load.get("load_profile") or "")),
         })

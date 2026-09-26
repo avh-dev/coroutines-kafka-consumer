@@ -397,7 +397,9 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
     if "application" in value:
         application = require_mapping(value["application"], f"{context}.application")
-        unknown_application = sorted(set(application) - {"replicas", "resources", "hpa", "java_options"})
+        unknown_application = sorted(
+            set(application) - {"replicas", "resources", "hpa", "java_options", "placement"}
+        )
         if unknown_application:
             raise ValueError(f"{context}.application contains unknown fields: {', '.join(unknown_application)}")
         for key in ("resources", "hpa"):
@@ -411,6 +413,8 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
             raise ValueError(f"{context}.application.replicas must be a positive integer")
         if "java_options" in application and not isinstance(application["java_options"], str):
             raise ValueError(f"{context}.application.java_options must be a string")
+        if "placement" in application and application["placement"] not in {"controller", "worker"}:
+            raise ValueError(f"{context}.application.placement must be controller or worker")
     if "runtime" in value:
         validate_runtime(value["runtime"], f"{context}.runtime")
     if "workload" in value:
@@ -571,6 +575,10 @@ def validate_canonical_experiment(
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
+    if environment_name != "internal-lab" and any(
+        "placement" in (target.get("application") or {}) for target in resolved_targets
+    ):
+        raise ValueError("Experiment target application.placement is only supported by internal-lab")
     if environment_name == "internal-lab":
         lab = require_mapping(environment_definition.get("lab"), "Experiment environments.internal-lab.lab")
         unknown_lab = sorted(set(lab) - {"profile", "kafka_topology", "kafka"})

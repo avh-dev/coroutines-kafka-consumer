@@ -16,6 +16,30 @@ INTERNAL_LAB = REPO_ROOT / "demo" / "infra" / "internal-lab"
 
 
 class PlanRunTest(unittest.TestCase):
+    def test_application_placement_comparison_has_requested_order_and_timing(self) -> None:
+        path = REPO_ROOT / "demo/infra/experiments/application-placement-5k-comparison.yaml"
+        experiment = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+        snapshot = validate_canonical_experiment(experiment, path, environment="internal-lab")
+
+        self.assertEqual(5000, snapshot["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            {"name": "steady-state", "start_seconds": 240, "duration_seconds": 180},
+            snapshot["workload"]["load"]["measurement_window"],
+        )
+        self.assertEqual(
+            [
+                ("spring-kafka.jdk.same-host", "controller"),
+                ("ckc.fixed.1.same-host", "controller"),
+                ("spring-kafka.jdk.split-host", "worker"),
+                ("ckc.fixed.1.split-host", "worker"),
+            ],
+            [
+                (target["name"], target["application"]["placement"])
+                for target in snapshot["targets"]
+            ],
+        )
+
     def test_non_freshness_telemetry_mode_disables_freshness_age_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory)

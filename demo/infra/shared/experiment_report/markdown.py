@@ -568,14 +568,9 @@ def render_markdown(report: ExperimentReport) -> str:
                 values.append(int(by_key["out_of_order"]))
         return sum(values) if values else None
 
-    environment_workloads = report.environment.get("workloads") if isinstance(report.environment, dict) else {}
-    controller_name = str(report.environment.get("cluster_name") or "") if isinstance(report.environment, dict) else ""
-    application_nodes = environment_workloads.get("application", []) if isinstance(environment_workloads, dict) else []
-    split_internal_lab = bool(controller_name and any(str(node) != controller_name for node in application_nodes))
-    inter_host_link = report.environment.get("inter_host_link") if isinstance(report.environment, dict) else {}
-
-    def inter_host_link_description() -> str:
-        link = inter_host_link if isinstance(inter_host_link, dict) else {}
+    def inter_host_link_description(environment: dict[str, Any]) -> str:
+        raw_link = environment.get("inter_host_link")
+        link = raw_link if isinstance(raw_link, dict) else {}
         speed_mbps = link.get("speed_mbps")
         if speed_mbps and int(speed_mbps) % 1000 == 0:
             speed = f"{int(speed_mbps) // 1000} Gbit/s"
@@ -590,13 +585,39 @@ def render_markdown(report: ExperimentReport) -> str:
         measured = f" ({properties} at the measured endpoints)" if properties else ""
         return f"The two nodes communicate over the configured LAN{measured}."
 
-    environment_block = ["![Resolved environment topology](environment-topology.svg)"]
-    if split_internal_lab:
-        environment_block.append(
-            "The controller runs orchestration, load generation, dependencies, and observability; "
-            f"the application worker runs the measured application. {inter_host_link_description()}"
+    topologies = report.environment_topologies or (
+        [{"targets": [target.name for target in report.targets], "environment": report.environment}]
+        if report.environment else []
+    )
+    environment_block: list[str] = []
+    for index, topology in enumerate(topologies, start=1):
+        environment = topology.get("environment") if isinstance(topology.get("environment"), dict) else {}
+        topology_targets = [str(target) for target in topology.get("targets") or []]
+        workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
+        controller_name = str(environment.get("cluster_name") or "")
+        application_nodes = workloads.get("application", []) if isinstance(workloads, dict) else []
+        split_internal_lab = bool(
+            controller_name and any(str(node) != controller_name for node in application_nodes)
         )
-    if not report.environment:
+        filename = "environment-topology.svg" if len(topologies) == 1 else f"environment-topology-{index}.svg"
+        if len(topologies) > 1:
+            environment_block.extend([
+                f"### Topology {index}: {escaped(', '.join(topology_targets))}",
+                "",
+            ])
+        environment_block.append(f"![Resolved environment topology]({filename})")
+        if split_internal_lab:
+            environment_block.append(
+                "The controller runs orchestration, load generation, dependencies, and observability; "
+                f"the application worker runs the measured application. {inter_host_link_description(environment)}"
+            )
+        else:
+            environment_block.append(
+                "The measured application shares the controller host with load generation, dependencies, "
+                "and observability."
+            )
+        environment_block.append("")
+    if not topologies:
         environment_block = ["**Environment evidence is unavailable for this run.**"]
     lines = [
         "# CKC Lab Experiment Report",
@@ -733,6 +754,7 @@ def render_markdown(report: ExperimentReport) -> str:
         return escaped(values.get(name)) if isinstance(values, dict) else "—"
 
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
+    row("Application placement", [escaped(target.configuration.get("placement")) for target in targets])
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     row("Replicas", [number(target.configuration.get("replicas"), 0) for target in targets])
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])

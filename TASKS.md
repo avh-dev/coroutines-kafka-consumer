@@ -389,6 +389,7 @@
 | [INFRA-225](#infra-225) | Preserve and validate two-host hardware and link evidence in managed experiment reports. | DONE |
 | [INFRA-226](#infra-226) | Quiesce applications before bounded parallel, single-pass audit analysis and reporting. | DONE |
 | [INFRA-227](#infra-227) | Release measurement CPU policy early and optimize audit concurrency and bundle creation. | DONE |
+| [INFRA-228](#infra-228) | Support per-target application placement and compare single- versus two-host execution. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4502,3 +4503,15 @@ Validate timing, memory use, and result equivalence against preserved real audit
 The analyzer now retains per-topic matching state only, derives aggregate totals from those results, and routes measurement-window records through the existing open/closed state instead of duplicate cohort sets.
 Audit bundles preserve already-compressed streams as concatenated `audit.log.gz` members and use fast outer compression, avoiding a full decompression and recompression cycle.
 Verification: 132 internal-lab, 32 AWS, 13 analyzer, and eight focused result-bundle tests passed. Three real 7.2-million-record audits completed concurrently in 2m09s at 279% CPU with identical full YAML results, a 2.3 GiB per-process peak, and about 5.7 GiB available memory at peak. The same full bundle finalized in 8.5s instead of roughly six minutes; its audit archive grew from 148 MiB to 206 MiB. Live acquire/release checks applied 2 GHz to both nodes and restored the controller to 4.1 GHz and worker to 2.1 GHz. Incremental installation rebuilt and redeployed nothing, and application workloads remain at zero replicas.
+
+<a id="infra-228"></a>
+### INFRA-228 - Per-target application placement comparison
+
+_Date: 2026-09-26_
+
+Allow an experiment target to place the application on the controller or the dedicated application worker while retaining the environment default.
+Persist the requested and actual placement for every target and group report topology diagrams by the resolved workload placement.
+Include the chosen placement in experiment-start and target-start notifications so detached runs remain unambiguous.
+Add an eight-minute 5,000 messages/s placement experiment with a two-minute warm-up, five-minute maximum stage, one-minute cool-down, and a three-minute measurement window beginning at minute four.
+Run Spring and CKC on the controller first, followed by Spring and CKC on the worker, without changing the fixed lab configuration between targets.
+Verification: 137 internal-lab, 32 AWS, and 40 shared orchestration tests passed; the installed lab updated incrementally without rebuilding images or redeploying workloads.

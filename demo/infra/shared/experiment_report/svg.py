@@ -110,8 +110,16 @@ def format_tps(value: float) -> str:
     return f"{int(round(value)):,}"
 
 
-def environment_topology_svg(report: ExperimentReport) -> str:
-    environment = report.environment if isinstance(report.environment, dict) else {}
+def environment_topology_svg(
+    report: ExperimentReport,
+    environment_override: dict[str, Any] | None = None,
+    target_names: list[str] | None = None,
+) -> str:
+    environment = (
+        environment_override
+        if isinstance(environment_override, dict)
+        else report.environment if isinstance(report.environment, dict) else {}
+    )
     width, height = 1000, 900
     provider = str(environment.get("provider") or environment.get("environment") or "Environment")
     region = str(environment.get("region") or "")
@@ -178,7 +186,11 @@ def environment_topology_svg(report: ExperimentReport) -> str:
 
     first_node = nodes[0] if nodes else {}
     os_line = " · ".join(str(value) for value in [first_node.get("os_image"), first_node.get("kernel_version")] if value)
-    resources = [target.configuration.get("resources") for target in report.targets]
+    selected_targets = [
+        target for target in report.targets
+        if target_names is None or target.name in target_names
+    ]
+    resources = [target.configuration.get("resources") for target in selected_targets]
     shared_resources = resources[0] if resources and all(value == resources[0] for value in resources) else {}
     requests = shared_resources.get("requests", {}) if isinstance(shared_resources, dict) else {}
     limits = shared_resources.get("limits", {}) if isinstance(shared_resources, dict) else {}

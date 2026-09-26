@@ -60,7 +60,7 @@ class NotifyTelegramTest(unittest.TestCase):
             "\n".join([
                 "▶️ CKC target started: 1/3 — comparison",
                 "Target: spring-kafka.jdk",
-                "Profile: spring-kafka · 1 replica(s) · 5000 TPS",
+                "Profile: spring-kafka · placement worker · 1 replica(s) · 5000 TPS",
                 "Expected workload: 13m 00s",
             ]),
             NOTIFY.message_for("target_started", {
@@ -69,6 +69,7 @@ class NotifyTelegramTest(unittest.TestCase):
                 "index": 1,
                 "total": 3,
                 "profile": "spring-kafka",
+                "placement": "worker",
                 "replicas": 1,
                 "base_tps": 5000,
                 "expected_duration_seconds": 780,

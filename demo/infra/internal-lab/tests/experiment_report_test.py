@@ -1075,6 +1075,58 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("All shown components share this physical host", svg)
             self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
 
+    def test_report_groups_targets_by_actual_application_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            run_a = root / "results/runs/run-a"
+            run_b = root / "results/runs/run-b"
+            shutil.copytree(run_a, run_b)
+            metadata_path = run_b / "run-metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            environment = metadata["environment_evidence"]
+            environment["cluster_name"] = "optilab"
+            environment["workloads"]["application"] = ["optilab2"]
+            environment["nodes"].append({"name": "optilab2", "cpu": "6", "memory": "8Gi"})
+            environment["hosts"] = [
+                {"name": "optilab", "role": "controller", "hardware": environment["hardware"]},
+                {
+                    "name": "optilab2",
+                    "role": "application-worker",
+                    "hardware": {
+                        "cpu_model": "Worker CPU",
+                        "logical_cpus": "6",
+                        "memory_bytes": 8 * 1024 ** 3,
+                    },
+                },
+            ]
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            target_b = dict(summary["experiments"][0]["targets"][0])
+            target_b.update({"name": "target-b", "run_dir": str(run_b)})
+            summary["experiments"][0]["targets"].append(target_b)
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+            with patch(
+                "experiment_report.analyze.collect_standard_measurements",
+                return_value={name: None for name in STANDARD_MEASUREMENTS},
+            ):
+                outputs = generate_experiment_reports(
+                    summary_path,
+                    root / "lab",
+                    generated_at=datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc),
+                )
+
+            report_dir = outputs[0].parent
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertTrue((report_dir / "environment-topology-1.svg").is_file())
+            self.assertTrue((report_dir / "environment-topology-2.svg").is_file())
+            self.assertFalse((report_dir / "environment-topology.svg").exists())
+            self.assertIn("### Topology 1: target-a", markdown)
+            self.assertIn("### Topology 2: target-b", markdown)
+            self.assertIn("shares the controller host", markdown)
+            self.assertIn("application worker runs the measured application", markdown)
+
     def test_measurement_sla_uses_standard_measurement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

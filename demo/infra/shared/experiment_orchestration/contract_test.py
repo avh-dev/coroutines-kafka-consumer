@@ -128,6 +128,24 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "select one explicitly"):
             validate_canonical_experiment(canonical_experiment(), self.source)
 
+    def test_internal_lab_accepts_target_application_placement(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["application"]["placement"] = "controller"
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
+        self.assertEqual("controller", snapshot["targets"][0]["application"]["placement"])
+
+    def test_rejects_application_placement_for_aws_and_unknown_values(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["application"]["placement"] = "worker"
+        with self.assertRaisesRegex(ValueError, "only supported by internal-lab"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
+        experiment["targets"][0]["application"]["placement"] = "somewhere"
+        with self.assertRaisesRegex(ValueError, "must be controller or worker"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
     def test_rejects_unsupported_environment_capability(self) -> None:
         experiment = canonical_experiment()
         experiment["workload"]["diagnostics"] = [{
