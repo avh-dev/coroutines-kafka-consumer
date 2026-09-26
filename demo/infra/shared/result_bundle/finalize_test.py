@@ -136,7 +136,12 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 audit_names = set(archive.getnames())
             self.assertIn(f"{identity}/audit/README.md", audit_names)
             self.assertIn(f"{identity}/audit/summary.yaml", audit_names)
-            self.assertIn(f"{identity}/audit/target1.run-a/audit.log", audit_names)
+            self.assertIn(f"{identity}/audit/target1.run-a/audit.log.gz", audit_names)
+            with tarfile.open(artifacts["audit"]) as archive:
+                compressed_audit = archive.extractfile(
+                    f"{identity}/audit/target1.run-a/audit.log.gz"
+                ).read()
+            self.assertEqual("raw-audit\n", gzip.decompress(compressed_audit).decode())
             with tarfile.open(artifacts["audit"]) as archive:
                 audit_summary = archive.extractfile(f"{identity}/audit/target1.run-a/summary.yaml").read().decode()
                 analyzer_progress = archive.extractfile(

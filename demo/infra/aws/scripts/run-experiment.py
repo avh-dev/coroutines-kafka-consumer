@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -29,6 +30,7 @@ if str(SHARED_INFRA) not in sys.path:
 from experiment_orchestration import materialize_experiment, resolve_experiment_definition
 from experiment_notifications import load_environment_file, notify
 from experiment_report import generate_experiment_reports
+from audit_windows import write_measurement_windows
 from result_bundle import finalize as finalize_artifacts
 
 
@@ -949,8 +951,14 @@ class SessionController:
     def analyze_local_audit(self) -> None:
         result_dirs = self.state.get("local_result_dirs") or {"run": self.state["local_result_dir"]}
         latency_limits = self.config.get("latency_limits") or {}
+        configured_targets = {
+            str(target.get("id")): target
+            for target in self.config.get("targets", [])
+            if isinstance(target, dict) and target.get("id")
+        }
         summaries: dict[str, str] = {}
-        for target_id, value in result_dirs.items():
+
+        def analyze_target(target_id: str, value: str) -> tuple[str, str]:
             result_dir = Path(value)
             chunks = result_dir / "audit" / "chunks"
             if not chunks.is_dir() or not any(chunks.glob("*.log.gz")):
@@ -967,6 +975,15 @@ class SessionController:
             metadata = result_dir / "run-metadata.json"
             if metadata.is_file():
                 command.extend(["--metadata-file", str(metadata)])
+            target = configured_targets.get(target_id, {})
+            resolved_test = Path(str(target.get("local_test_definition") or target.get("local_definition") or ""))
+            windows_path = write_measurement_windows(
+                metadata,
+                resolved_test,
+                audit_dir / "measurement-windows.json",
+            )
+            if windows_path is not None:
+                command.extend(["--measurement-windows-file", str(windows_path)])
             if latency_limits:
                 limits_path = audit_dir / "latency-limits.json"
                 json_write(limits_path, latency_limits)
@@ -976,7 +993,17 @@ class SessionController:
             progress.write_text(completed.stderr, encoding="utf-8")
             if completed.returncode != 0:
                 raise CommandError(f"Local audit analysis failed; see {progress}")
-            summaries[target_id] = str(summary)
+            return target_id, str(summary)
+
+        worker_count = min(len(result_dirs), max(1, min(2, (os.cpu_count() or 2) // 2)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(analyze_target, target_id, value)
+                for target_id, value in result_dirs.items()
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                target_id, summary = future.result()
+                summaries[target_id] = summary
         self.state["audit_summaries"] = summaries
         self.state["audit_summary"] = next(iter(summaries.values())) if len(summaries) == 1 else None
         self.save()

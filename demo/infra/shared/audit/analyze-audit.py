@@ -821,19 +821,10 @@ class AuditAccumulator:
         cohort_keys: set[RecordKey] | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
-        self.all = AuditStats(
-            open_record_ttl_ms=open_record_ttl_ms,
-            latency_sla_rules=latency_sla_rules,
-        )
+        self.latency_sla_rules = latency_sla_rules
+        self.latency_limits_ms = latency_limits_ms or {}
         self.by_topic = {
-            topic_id: AuditStats(
-                open_record_ttl_ms=open_record_ttl_ms,
-                latency_limit_ms=(latency_limits_ms or {}).get(topic_id),
-                latency_sla_rules=tuple(
-                    rule for rule in latency_sla_rules if rule.applies_to(topic_id)
-                ),
-                key_fairness=KeyFairnessStats() if topic_id == 3 else None,
-            )
+            topic_id: self._new_topic_stats(topic_id)
             for topic_id in TOPIC_NAMES
         }
         self.record_count = 0
@@ -843,15 +834,107 @@ class AuditAccumulator:
         if self.cohort_keys is not None and record.key not in self.cohort_keys:
             return
         self.record_count += 1
-        self.all.add(record)
         topic_stats = self.by_topic.get(record.key.topic_id)
-        if topic_stats is not None:
-            topic_stats.add(record)
+        if topic_stats is None:
+            topic_stats = self._new_topic_stats(record.key.topic_id)
+            self.by_topic[record.key.topic_id] = topic_stats
+        topic_stats.add(record)
 
     def finish(self) -> None:
-        self.all.finish()
         for stats in self.by_topic.values():
             stats.finish()
+
+    def contains_key(self, key: RecordKey) -> bool:
+        stats = self.by_topic.get(key.topic_id)
+        return bool(
+            stats is not None
+            and (key in stats.open_by_key or key in stats.recent_closed_by_key)
+        )
+
+    def state_for(self, key: RecordKey) -> RecordState | None:
+        stats = self.by_topic.get(key.topic_id)
+        return stats.open_by_key.get(key) if stats is not None else None
+
+    def _new_topic_stats(self, topic_id: int) -> AuditStats:
+        return AuditStats(
+            open_record_ttl_ms=self.open_record_ttl_ms,
+            latency_limit_ms=self.latency_limits_ms.get(topic_id),
+            latency_sla_rules=tuple(
+                rule for rule in self.latency_sla_rules if rule.applies_to(topic_id)
+            ),
+            key_fairness=KeyFairnessStats() if topic_id == 3 else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementWindow:
+    name: str
+    published_from_ms: int
+    published_until_ms: int
+
+    def contains(self, record: AuditRecord) -> bool:
+        return self.published_from_ms <= record.audit_timestamp_ms < self.published_until_ms
+
+
+class MultiWindowAuditAccumulator:
+    def __init__(
+        self,
+        open_record_ttl_ms: int | None,
+        windows: tuple[MeasurementWindow, ...],
+        latency_sla_rules: tuple[LatencySlaRule, ...] = (),
+        latency_limits_ms: dict[int, int | float] | None = None,
+    ) -> None:
+        self.complete = AuditAccumulator(
+            open_record_ttl_ms=open_record_ttl_ms,
+            latency_sla_rules=latency_sla_rules,
+            latency_limits_ms=latency_limits_ms,
+        )
+        self.windows = tuple(
+            (
+                window,
+                AuditAccumulator(
+                    open_record_ttl_ms=open_record_ttl_ms,
+                    latency_sla_rules=latency_sla_rules,
+                    latency_limits_ms=latency_limits_ms,
+                ),
+            )
+            for window in windows
+        )
+        self.pending_before_publish: dict[RecordKey, list[AuditRecord]] = {}
+
+    @property
+    def record_count(self) -> int:
+        return self.complete.record_count
+
+    def add(self, record: AuditRecord) -> None:
+        self.complete.add(record)
+        if record.record_type == "P":
+            pending = self.pending_before_publish.pop(record.key, ())
+            for window, accumulator in self.windows:
+                if not window.contains(record):
+                    continue
+                for earlier in pending:
+                    accumulator.add(earlier)
+                accumulator.add(record)
+            return
+
+        matched = False
+        for _, accumulator in self.windows:
+            if accumulator.contains_key(record.key):
+                accumulator.add(record)
+                matched = True
+        if matched:
+            return
+
+        state = self.complete.state_for(record.key)
+        if state is not None and state.published is None:
+            self.pending_before_publish.setdefault(record.key, []).append(record)
+
+    def finish(self) -> None:
+        self.complete.finish()
+        for _, accumulator in self.windows:
+            accumulator.finish()
+        self.pending_before_publish.clear()
 
 
 def parse_args() -> argparse.Namespace:
@@ -876,6 +959,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-records", action="store_true")
     parser.add_argument("--published-from-ms", type=int)
     parser.add_argument("--published-until-ms", type=int)
+    parser.add_argument(
+        "--measurement-windows-file",
+        help="JSON list of named publication-cohort windows to calculate beside the complete audit.",
+    )
     return parser.parse_args()
 
 
@@ -929,7 +1016,7 @@ def open_text(path: Path) -> TextIO:
     return path.open("r", encoding="utf-8")
 
 
-def add_line(line: str, accumulator: AuditAccumulator) -> int:
+def add_line(line: str, accumulator: AuditAccumulator | MultiWindowAuditAccumulator) -> int:
     if not line.strip():
         return 0
     if line.startswith("S|"):
@@ -938,17 +1025,45 @@ def add_line(line: str, accumulator: AuditAccumulator) -> int:
     return 1
 
 
-def read_gzip_path(path: Path, accumulator: AuditAccumulator) -> int:
+def read_gzip_path(
+    path: Path,
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
+    file_index: int,
+    expected_files: int,
+    progress_step_percent: int = 10,
+) -> int:
     count = 0
-    with open_text(path) as file:
-        for line in file:
-            count += add_line(line, accumulator)
+    total_bytes = path.stat().st_size
+    next_progress_percent = progress_step_percent
+    with path.open("rb") as compressed:
+        with gzip.GzipFile(fileobj=compressed, mode="rb") as file:
+            for line in file:
+                count += add_line(line.decode("utf-8"), accumulator)
+                if total_bytes <= 0:
+                    continue
+                current_percent = min(100, int(compressed.tell() * 100 / total_bytes))
+                while current_percent >= next_progress_percent:
+                    print_analysis_progress(
+                        accumulator,
+                        file_index,
+                        expected_files,
+                        progress_percent=next_progress_percent,
+                    )
+                    next_progress_percent += progress_step_percent
+    while next_progress_percent <= 100:
+        print_analysis_progress(
+            accumulator,
+            file_index,
+            expected_files,
+            progress_percent=next_progress_percent,
+        )
+        next_progress_percent += progress_step_percent
     return count
 
 
 def read_plain_path(
     path: Path,
-    accumulator: AuditAccumulator,
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
     file_index: int,
     expected_files: int,
     progress_step_percent: int = 10,
@@ -979,16 +1094,19 @@ def read_plain_path(
     return count
 
 
-def read_path(path: Path, accumulator: AuditAccumulator, file_index: int, expected_files: int) -> int:
+def read_path(
+    path: Path,
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
+    file_index: int,
+    expected_files: int,
+) -> int:
     print(f"Reading audit records from {path}.", file=sys.stderr, flush=True)
     if path.suffix == ".gz":
-        count = read_gzip_path(path, accumulator)
-        print_analysis_progress(accumulator, file_index, expected_files)
-        return count
+        return read_gzip_path(path, accumulator, file_index, expected_files)
     return read_plain_path(path, accumulator, file_index, expected_files)
 
 
-def read_files(paths: list[str], accumulator: AuditAccumulator) -> None:
+def read_files(paths: list[str], accumulator: AuditAccumulator | MultiWindowAuditAccumulator) -> None:
     for index, path_value in enumerate(paths, start=1):
         path = Path(path_value)
         if not path.is_file():
@@ -1002,7 +1120,7 @@ def list_chunks(input_dir: Path, glob: str) -> list[Path]:
     return sorted(path for path in input_dir.glob(glob) if path.is_file())
 
 
-def read_chunks(args: argparse.Namespace, accumulator: AuditAccumulator) -> None:
+def read_chunks(args: argparse.Namespace, accumulator: AuditAccumulator | MultiWindowAuditAccumulator) -> None:
     input_dir = Path(args.input_dir)
     chunks = list_chunks(input_dir, args.glob)
     for index, path in enumerate(chunks, start=1):
@@ -1028,7 +1146,7 @@ def cohort_keys(args: argparse.Namespace) -> set[RecordKey] | None:
 
 
 def print_analysis_progress(
-    accumulator: AuditAccumulator,
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
     processed_files: int,
     expected_files: int | None,
     progress_percent: int | None = None,
@@ -1195,8 +1313,98 @@ def load_latency_limits(path_value: str | None) -> dict[int, int | float]:
     return result
 
 
-def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object]) -> dict[str, object]:
-    audit = {
+def load_measurement_windows(path_value: str | None) -> tuple[MeasurementWindow, ...]:
+    if not path_value:
+        return ()
+    path = Path(path_value)
+    if not path.is_file():
+        raise ValueError(f"Measurement windows file was not found: {path}")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list):
+        raise ValueError(f"Measurement windows file must contain a JSON list: {path}")
+    windows = []
+    names: set[str] = set()
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Measurement window {index} must be an object: {path}")
+        name = str(item.get("name") or "")
+        published_from_ms = item.get("published_from_ms")
+        published_until_ms = item.get("published_until_ms")
+        if not name or name in names:
+            raise ValueError(f"Measurement window names must be non-empty and unique: {path}")
+        if (
+            not isinstance(published_from_ms, int)
+            or isinstance(published_from_ms, bool)
+            or not isinstance(published_until_ms, int)
+            or isinstance(published_until_ms, bool)
+            or published_until_ms <= published_from_ms
+        ):
+            raise ValueError(f"Measurement window {name!r} must define a non-empty interval: {path}")
+        names.add(name)
+        windows.append(MeasurementWindow(name, published_from_ms, published_until_ms))
+    return tuple(windows)
+
+
+def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
+    aggregate = AuditStats(
+        open_record_ttl_ms=accumulator.open_record_ttl_ms,
+        latency_sla_rules=accumulator.latency_sla_rules,
+    )
+    scalar_fields = (
+        "published_records",
+        "processed_records",
+        "failed_records",
+        "dropped_records",
+        "retry_attempt_records",
+        "published_unique",
+        "processed_unique",
+        "failed_unique",
+        "dropped_unique",
+        "terminal_unique",
+        "missing_terminal",
+        "duplicate_published",
+        "duplicate_processed",
+        "duplicate_failed",
+        "duplicate_dropped",
+        "processed_without_publish",
+        "failed_without_publish",
+        "dropped_without_publish",
+        "conflicting_terminal_outcomes",
+        "e2e_invalid_negative",
+    )
+    for stats in accumulator.by_topic.values():
+        for field_name in scalar_fields:
+            setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
+        for reason, count in stats.dropped_by_reason.items():
+            aggregate.dropped_by_reason[reason] = aggregate.dropped_by_reason.get(reason, 0) + count
+        for latency_ms, count in stats.e2e_latency_histogram.items():
+            aggregate.e2e_latency_histogram[latency_ms] = (
+                aggregate.e2e_latency_histogram.get(latency_ms, 0) + count
+            )
+        for target, source in (
+            (aggregate.partition_order, stats.partition_order),
+            (aggregate.key_order, stats.key_order),
+        ):
+            target.out_of_order += source.out_of_order
+            target.out_of_order_processed += source.out_of_order_processed
+            target.out_of_order_failed += source.out_of_order_failed
+        for rule_id, source in stats.latency_sla.items():
+            target = aggregate.latency_sla[rule_id]
+            target.processed += source.processed
+            target.measured += source.measured
+            target.exceeded += source.exceeded
+            target.invalid_negative_latency += source.invalid_negative_latency
+            if source.max_observed_ms is not None:
+                target.max_observed_ms = (
+                    source.max_observed_ms
+                    if target.max_observed_ms is None
+                    else max(target.max_observed_ms, source.max_observed_ms)
+                )
+    return aggregate
+
+
+def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
+    return {
         "records_read": accumulator.record_count,
         "delivery_matching": {
             "mode": "bounded_ttl" if accumulator.open_record_ttl_ms is not None else "exact",
@@ -1206,12 +1414,31 @@ def summary_document(accumulator: AuditAccumulator, metadata: dict[str, object])
                 else None
             ),
         },
-        "totals": stats_summary(accumulator.all),
+        "totals": stats_summary(aggregate_stats(accumulator)),
         "topics": {
             TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
             for topic_id, topic_stats in accumulator.by_topic.items()
         },
     }
+
+
+def summary_document(
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
+    metadata: dict[str, object],
+) -> dict[str, object]:
+    if isinstance(accumulator, MultiWindowAuditAccumulator):
+        audit = audit_summary(accumulator.complete)
+        audit["measurement_windows"] = [
+            {
+                "name": window.name,
+                "published_from_ms": window.published_from_ms,
+                "published_until_ms": window.published_until_ms,
+                **audit_summary(window_accumulator),
+            }
+            for window, window_accumulator in accumulator.windows
+        ]
+    else:
+        audit = audit_summary(accumulator)
     document: dict[str, object] = {"audit": audit}
     if metadata:
         document = {"test": metadata, **document}
@@ -1281,17 +1508,32 @@ def main() -> int:
         args.published_from_ms is not None and args.published_until_ms <= args.published_from_ms
     ):
         raise ValueError("--published-from-ms and --published-until-ms must define a non-empty interval")
+    if args.measurement_windows_file and args.published_from_ms is not None:
+        raise ValueError("--measurement-windows-file cannot be combined with --published-from-ms")
 
-    accumulator = AuditAccumulator(
-        open_record_ttl_ms=(
-            round(args.open_record_ttl_seconds * 1000)
-            if args.open_record_ttl_seconds is not None
-            else None
-        ),
-        latency_sla_rules=load_latency_sla_rules(args.sla_profile_file),
-        latency_limits_ms=load_latency_limits(args.latency_limits_file),
-        cohort_keys=cohort_keys(args),
+    open_record_ttl_ms = (
+        round(args.open_record_ttl_seconds * 1000)
+        if args.open_record_ttl_seconds is not None
+        else None
     )
+    latency_sla_rules = load_latency_sla_rules(args.sla_profile_file)
+    latency_limits_ms = load_latency_limits(args.latency_limits_file)
+    measurement_windows = load_measurement_windows(args.measurement_windows_file)
+    accumulator: AuditAccumulator | MultiWindowAuditAccumulator
+    if measurement_windows:
+        accumulator = MultiWindowAuditAccumulator(
+            open_record_ttl_ms=open_record_ttl_ms,
+            windows=measurement_windows,
+            latency_sla_rules=latency_sla_rules,
+            latency_limits_ms=latency_limits_ms,
+        )
+    else:
+        accumulator = AuditAccumulator(
+            open_record_ttl_ms=open_record_ttl_ms,
+            latency_sla_rules=latency_sla_rules,
+            latency_limits_ms=latency_limits_ms,
+            cohort_keys=cohort_keys(args),
+        )
     read_files(args.input_file, accumulator)
     if args.input_dir:
         read_chunks(args, accumulator)

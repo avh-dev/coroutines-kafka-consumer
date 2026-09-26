@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import queue
@@ -15,7 +16,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # When this checkout-side helper is invoked through the shared adapter, SSH starts
 # it outside the repository directory. Prefer the shared packages directly rather
@@ -29,6 +30,7 @@ from experiment_report.analyze import parse_load_profile
 from experiment_notifications import notify
 from experiment_progress import ProgressWriter
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
+from audit_windows import write_measurement_windows
 from result_bundle import collect as collect_evidence
 from result_bundle import finalize as finalize_artifacts
 from result_bundle import prepare as prepare_evidence
@@ -871,14 +873,51 @@ def has_audit_input(audit_dir_value: str) -> bool:
     return bool(audit_dir_value) and audit_input_file(Path(audit_dir_value)) is not None
 
 
+def change_performance_policy(lab_root: Path, action: str) -> None:
+    helper = lab_root / "libexec" / f"cluster-performance-{action}.sh"
+    if not helper.is_file():
+        raise FileNotFoundError(f"CPU performance helper was not found: {helper}")
+    completed = subprocess.run([str(helper)], text=True, capture_output=True, check=False)
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
+        raise RuntimeError(f"CPU performance policy {action} failed: {detail}")
+
+
+def audit_analysis_workers(run_count: int) -> int:
+    configured = os.environ.get("CKC_AUDIT_ANALYSIS_WORKERS", "").strip()
+    if configured:
+        if not configured.isdigit() or int(configured) < 1:
+            raise ValueError("CKC_AUDIT_ANALYSIS_WORKERS must be a positive integer")
+        limit = int(configured)
+    else:
+        # A 7.2-million-record target peaks near 2.3 GiB after shared aggregate
+        # state was removed. Three workers fit the 16 GiB controller with room
+        # for the installed services and use half of its six logical CPUs.
+        limit = max(1, min(3, (os.cpu_count() or 2) // 2))
+    return max(1, min(run_count, limit))
+
+
+def measurement_windows_file(result: dict[str, Any], audit_dir: Path) -> Path | None:
+    return write_measurement_windows(
+        audit_dir.parent / "run-metadata.json",
+        Path(str(result.get("resolved_test_path") or "")),
+        audit_dir / "measurement-windows.json",
+    )
+
+
 def analyze_one(
     lab_root: Path,
-    audit_dir_value: str,
+    result: dict[str, Any],
     log_file,
+    log_lock: threading.Lock,
     hook: Path | None,
     log_dir: Path,
     latency_limits_file: Path,
+    progress_callback: Callable[[str, int], None] | None = None,
 ) -> dict[str, Any]:
+    audit_dir_value = str(result.get("audit_dir") or "")
     audit_dir = Path(audit_dir_value)
     input_file = audit_input_file(audit_dir)
     run_dir = audit_dir.parent if audit_dir.name == "audit" else audit_dir
@@ -901,13 +940,21 @@ def analyze_one(
         "--require-records",
     ]
     command.extend(["--latency-limits-file", str(latency_limits_file)])
+    windows_file = measurement_windows_file(result, audit_dir)
+    if windows_file is not None:
+        command.extend(["--measurement-windows-file", str(windows_file)])
     with summary_file.open("w", encoding="utf-8") as summary, progress_file.open("w", encoding="utf-8") as progress:
         process = subprocess.Popen(command, stdout=summary, stderr=subprocess.PIPE, text=True, bufsize=1)
         assert process.stderr is not None
         for line in process.stderr:
             print(line, end="")
             progress.write(line)
-            log_file.write(line)
+            with log_lock:
+                log_file.write(line)
+                log_file.flush()
+            match = re.search(r"Audit analyzer progress:.*\s(\d+)%\s", line)
+            if match and progress_callback is not None:
+                progress_callback(str(result.get("name") or run_dir.name), int(match.group(1)))
         exit_code = process.wait()
     if exit_code == 0 and input_file.suffix != ".gz":
         subprocess.run(["gzip", "-1", str(input_file)], check=False)
@@ -1088,33 +1135,75 @@ def run_experiment(
         ]
         cancelled = any(result.get("interrupted") for result in results)
         if not cancelled:
+            update_progress("stopping_applications", "stopping application workloads", target=None, details=None)
+            application_cleanup = ensure_application_quiesced(FAILURE_NOTIFICATION_CONTEXT, lab_root)
+            if application_cleanup.get("status") != "clean":
+                raise RuntimeError(
+                    "Application workloads could not be stopped before audit analysis: "
+                    f"{application_cleanup.get('error') or application_cleanup.get('application_state')}"
+                )
+            update_progress("releasing_performance", "releasing measurement CPU policy", target=None, details=None)
+            change_performance_policy(lab_root, "release")
             notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)
         if auditable_runs and not cancelled:
-            print(f"\n=== Experiment load phases finished. Starting audit analysis for {len(auditable_runs)} run(s). ===", flush=True)
+            worker_count = audit_analysis_workers(len(auditable_runs))
+            print(
+                f"\n=== Experiment load phases finished. Starting audit analysis for "
+                f"{len(auditable_runs)} run(s) with {worker_count} worker(s). ===",
+                flush=True,
+            )
+            analysis_progress = {
+                str(result.get("name") or Path(str(result["run_dir"])).name): 0
+                for result in auditable_runs
+            }
+            progress_lock = threading.Lock()
+            log_lock = threading.Lock()
+
+            def publish_analysis_progress(target_name: str, percent: int) -> None:
+                with progress_lock:
+                    analysis_progress[target_name] = percent
+                    label = "analyzing audit: " + ", ".join(
+                        f"{name} {value}%" for name, value in analysis_progress.items()
+                    )
+                    update_progress(
+                        "analyzing_audit",
+                        label,
+                        target=None,
+                        details={
+                            "workers": worker_count,
+                            "targets": [
+                                {"name": name, "percent": value}
+                                for name, value in analysis_progress.items()
+                            ],
+                        },
+                    )
+
             update_progress(
                 "analyzing_audit",
-                "analyzing audit",
+                f"analyzing {len(auditable_runs)} audits with {worker_count} workers",
                 target=None,
-                details={"run": 0, "total": len(auditable_runs)},
+                details={"workers": worker_count, "targets": []},
             )
             notify(hook, "audit_analysis_started", {"experiment": experiment_name, "auditable_runs": len(auditable_runs)}, log_dir)
-            for analysis_index, result in enumerate(auditable_runs, start=1):
-                update_progress(
-                    "analyzing_audit",
-                    "analyzing audit",
-                    target=None,
-                    details={"run": analysis_index, "total": len(auditable_runs)},
-                )
-                analysis_results.append(
-                    analyze_one(
+            ordered_results: list[dict[str, Any] | None] = [None] * len(auditable_runs)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = {
+                    executor.submit(
+                        analyze_one,
                         lab_root,
-                        str(result["audit_dir"]),
+                        result,
                         log_file,
+                        log_lock,
                         hook,
                         log_dir,
                         latency_limits_file,
-                    )
-                )
+                        publish_analysis_progress,
+                    ): index
+                    for index, result in enumerate(auditable_runs)
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    ordered_results[futures[future]] = future.result()
+            analysis_results.extend(result for result in ordered_results if result is not None)
             notify(hook, "audit_analysis_finished", {"experiment": experiment_name, "analysis": analysis_results}, log_dir)
 
     analysis_exit_code = next((analysis["exit_code"] for analysis in analysis_results if analysis["exit_code"] != 0), 0)
@@ -1277,7 +1366,11 @@ def run_main() -> int:
     if STOP_REQUESTED.is_set():
         finalize_cancellation(FAILURE_NOTIFICATION_CONTEXT, lab_root, summaries)
         return 130
-    for experiment_path in selected:
+    for experiment_index, experiment_path in enumerate(selected):
+        if experiment_index:
+            update_progress("preparing_experiment", "acquiring measurement CPU policy", target=None, details=None)
+            change_performance_policy(lab_root, "acquire")
+        FAILURE_NOTIFICATION_CONTEXT.pop("application_cleanup", None)
         summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
         summaries.append(summary)
         if summary_interrupted(summary):
