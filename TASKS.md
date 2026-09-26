@@ -385,6 +385,7 @@
 | [INFRA-221](#infra-221) | Make managed internal-lab experiment stop an immediate cancellation with guaranteed workload cleanup. | DONE |
 | [INFRA-222](#infra-222) | Isolate Kafka warm-up clients, remove its dashboard annotation, and abort experiments when target preparation fails. | DONE |
 | [INFRA-223](#infra-223) | Notify Telegram when each experiment target's load generator actually starts. | DONE |
+| [INFRA-224](#infra-224) | Retune Spring Kafka partition planning from measured pre-degradation processing latency. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4449,3 +4450,15 @@ Include target position, identity, and expected workload duration so the notific
 Remove the earlier pre-preparation `test_started` event to keep one unambiguous target-start meaning.
 The run-start publisher now emits `target_started` beside the existing run event and Grafana target annotation, using the persisted run metadata as the single source of target identity and workload details.
 Verification: 121 internal-lab tests and seven shared notification/warm-up tests passed with Python, Bash, and whitespace validation. Incremental deployment rebuilt no images, synchronized the new helper and Telegram formatter, and left the inactive lab at zero application replicas.
+
+<a id="infra-224"></a>
+### INFRA-224 - Retune Spring Kafka partition planning
+
+_Date: 2026-09-26_
+
+Measure Spring Kafka's per-topic processing latency during the stable 5,000 messages/s interval before downstream degradation begins.
+Apply a 25% planning margin to the observed means and recalculate Spring's topic partitions and pollers so the comparison does not begin capacity-constrained.
+The first run's exact two-minute baseline window measured 10.91 ms for order, 6.84 ms for batch, and 32.32 ms for telemetry; telemetry dropped about 30,337 stale records before degradation while sustaining only about 1,726 of its requested 2,000 messages/s.
+Round the buffered planning latencies upward to 14, 9, and 41 ms, producing 25, 12, and 82 Spring partitions respectively at the experiment's 35/25/40 percent traffic split.
+Remove the fixed partition and poller overrides so future load-rate changes are recalculated by the planner instead of silently retaining obsolete counts.
+Verification: all seven shared materialization tests passed and assert both the measured planning inputs and the calculated 25/12/82 partition topology. The incremental lab update rebuilt no images or base services, synchronized the revised experiment, and left the managed experiment inactive.
