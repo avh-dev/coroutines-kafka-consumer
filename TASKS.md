@@ -393,6 +393,7 @@
 | [INFRA-229](#infra-229) | Make the experiment own Kafka runtime preparation and remove the standalone internal-lab test runner. | DONE |
 | [INFRA-230](#infra-230) | Fix Apache Kafka topic readiness parsing on Ubuntu `mawk`. | DONE |
 | [INFRA-231](#infra-231) | Retune 10k Spring partitions and CKC telemetry workers from the completed split-host measurements. | DONE |
+| [INFRA-232](#infra-232) | Compare one- and two-replica CKC capacity at 10k on same- and split-host placements. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4552,3 +4553,12 @@ _Date: 2026-09-26_
 Round Spring topic partition and poller counts up to multiples of the three Kafka brokers using the measured split-host processing latency plus capacity headroom.
 Increase only the saturated CKC telemetry worker pool; retain the order and batch worker counts that sustained their full input rates.
 Verification: 141 internal-lab and 41 shared orchestration tests passed. Materialization produced Spring partition/poller counts of 84 / 57 / 321 and CKC worker counts of 500 / 500 / 900 for both placements. The completed experiment remained untouched; the subsequent incremental installation rebuilt and redeployed nothing.
+
+<a id="infra-232"></a>
+### INFRA-232 - CKC replica scaling at 10k
+
+_Date: 2026-09-26_
+
+Add a focused four-target experiment comparing one and two CKC replicas on the controller and application worker.
+Keep the three-broker Kafka lab, three partitions per topic, per-pod worker pools, load profile, and measurement window fixed so the result isolates process-level scaling.
+Verification: 141 internal-lab and 42 shared orchestration tests passed. All four targets materialized with replicas 1 / 2 / 1 / 2, three partitions and one poller per topic, and per-pod worker pools of 500 / 500 / 900. The experiment installed incrementally without rebuilding images or redeploying the base lab.

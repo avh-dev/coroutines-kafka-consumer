@@ -1,0 +1,177 @@
+schema_version: 2
+name: ckc-replica-scaling-10k-comparison
+description: Compare one and two CKC replicas at 10k messages per second with the
+  application colocated on the controller and isolated on the application worker.
+  Kafka remains a three-broker replication-factor-three cluster with three partitions
+  per topic so the comparison isolates CKC process-level scaling.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    flavour:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 10000
+    producer_capacity_tps:
+      order: 10000
+      batch: 10000
+      telemetry: 10000
+    load_profile: 0 -> (2m, warmup) -> 100 -> (5m, maximum) -> 100 -> (1m, cool-down) -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_timeout_seconds: 300
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: steady-state
+    start: 4m
+    duration: 3m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 1000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 1000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+targets:
+- &ckc_one_same
+  name: ckc.fixed.1.same-host
+  annotation_label: CKC · 1 pod · same host
+  implementation: ckc
+  application: &ckc_application
+    placement: controller
+    replicas: 1
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: >-
+      -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+      -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
+  runtime: &ckc_runtime
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      MODEL_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 100
+      batch_ms: 151
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      batch:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      telemetry:
+        partitions: 3
+        workers: 900
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- <<: *ckc_one_same
+  name: ckc.fixed.2.same-host
+  annotation_label: CKC · 2 pods · same host
+  application:
+    <<: *ckc_application
+    replicas: 2
+  runtime: *ckc_runtime
+- <<: *ckc_one_same
+  name: ckc.fixed.1.split-host
+  annotation_label: CKC · 1 pod · split host
+  application:
+    <<: *ckc_application
+    placement: worker
+  runtime: *ckc_runtime
+- <<: *ckc_one_same
+  name: ckc.fixed.2.split-host
+  annotation_label: CKC · 2 pods · split host
+  application:
+    <<: *ckc_application
+    placement: worker
+    replicas: 2
+  runtime: *ckc_runtime
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi

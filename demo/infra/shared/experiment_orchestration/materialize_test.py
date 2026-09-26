@@ -162,6 +162,37 @@ class MaterializeTest(unittest.TestCase):
         for name in ("ckc.fixed.1.same-host", "ckc.fixed.1.split-host"):
             self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plans[name]])
 
+    def test_materializes_ckc_replica_scaling_comparison_at_10k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-replica-scaling-10k-comparison.yaml"
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plans = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))[
+                    "deployment"
+                ]["run_plan"]
+                for target in materialized
+            }
+
+        self.assertEqual(
+            [
+                "ckc.fixed.1.same-host",
+                "ckc.fixed.2.same-host",
+                "ckc.fixed.1.split-host",
+                "ckc.fixed.2.split-host",
+            ],
+            list(plans),
+        )
+        self.assertEqual([1, 2, 1, 2], [plan["replica_count"] for plan in plans.values()])
+        for plan in plans.values():
+            self.assertEqual([3, 3, 3], [topic["partitions"] for topic in plan["topics"]])
+            self.assertEqual([1, 1, 1], [topic["poll_loop_concurrency"] for topic in plan["topics"]])
+            self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plan["topics"]])
+
     def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-2k-comparison.yaml"
         with tempfile.TemporaryDirectory() as directory:
