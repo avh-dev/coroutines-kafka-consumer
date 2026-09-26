@@ -284,8 +284,7 @@ warm_apache_kafka() {
     --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
     --reason "${reason}" \
     --experiment "${EXPERIMENT_NAME:-internal-lab experiment}" \
-    --log-file "${LAB_ROOT}/logs/kafka-warmup.log" \
-    --grafana-url "${EXPERIMENT_GRAFANA_URL:-http://127.0.0.1:3000}"
+    --log-file "${LAB_ROOT}/logs/kafka-warmup.log"
   if [ -n "${CKC_NOTIFY_HOOK:-}" ]; then
     set -- "$@" --notify-hook "${CKC_NOTIFY_HOOK}" \
       --notification-dir "${CKC_NOTIFICATION_DIR:-${LAB_ROOT}/state/notifications}"

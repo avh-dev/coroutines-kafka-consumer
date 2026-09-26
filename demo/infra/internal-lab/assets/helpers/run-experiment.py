@@ -848,6 +848,7 @@ def run_one(
         "run_status": status,
         "run_dir": run_dir,
         "audit_dir": audit_dir,
+        "preparation_failed": child_exit_code != 0 and not run_dir and not interrupted,
     }
     log_file.write(f"=== {name} finished with exit_code={exit_code} at {ended_at.isoformat()} ===\n")
     if run_dir:
@@ -1073,6 +1074,11 @@ def run_experiment(
             results.append(result)
             if result["interrupted"]:
                 break
+            if result.get("preparation_failed"):
+                raise RuntimeError(
+                    f"Experiment target {result['name']!r} failed during preparation with "
+                    f"exit code {result['exit_code']}; remaining targets were not started"
+                )
 
         runs_exit_code = next((target["exit_code"] for target in results if target["exit_code"] != 0), 0)
         auditable_runs = [

@@ -383,6 +383,7 @@
 | [INFRA-219](#infra-219) | Render the resolved two-host internal-lab placement in experiment reports. | DONE |
 | [INFRA-220](#infra-220) | Raise the Spring, CKC, and CPC tail-latency comparison workload from 2k/s to 5k/s. | DONE |
 | [INFRA-221](#infra-221) | Make managed internal-lab experiment stop an immediate cancellation with guaranteed workload cleanup. | DONE |
+| [INFRA-222](#infra-222) | Isolate Kafka warm-up clients, remove its dashboard annotation, and abort experiments when target preparation fails. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4425,3 +4426,14 @@ Record a minimal cancelled status and notification while retaining partial diagn
 Guarantee that application workloads are quiesced and the experiment CPU policy is released even when graceful process termination fails.
 The managed service now signals its complete control group, while the experiment runner forwards cancellation to the active target process group and escalates boundedly if it does not exit. Cancelled result sets contain `cancelled.json` but no success `summary.json`, report, evidence collection, or bundle.
 Verification: 116 internal-lab tests passed with Python, Bash, POSIX shell, systemd-unit, and whitespace validation. Incremental deployment synchronized only changed assets, installed the control-group service, rebuilt no images, and left both application deployments at zero replicas. A live experiment was not started automatically.
+
+<a id="infra-222"></a>
+### INFRA-222 - Isolate Kafka warm-up clients
+
+_Date: 2026-09-26_
+
+Run Kafka warm-up producer and consumer clients outside the memory-limited broker container so their JVM heaps cannot restart Kafka.
+Remove the dashboard-wide warm-up annotation because only Kafka panels contain useful data during this phase.
+Abort the experiment when target preparation fails instead of repeating the failed warm-up for every remaining target.
+Warm-up clients now run in disposable 512 MiB containers with 128-256 MiB JVM heaps and the broker's network namespace; stale warm-up topics, groups, and containers are removed automatically.
+Verification: 118 internal-lab tests, five shared warm-up tests, and 32 AWS tests passed with Python, shell, and whitespace validation. Incremental deployment rebuilt no images. A live isolated warm-up produced and consumed 1,800,000 records at approximately 10,000/s while client containers used about 170 MiB each; the 4 GiB Kafka container stayed below 1.7 GiB and did not restart. All temporary containers, topics, and groups were removed afterward.

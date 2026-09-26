@@ -213,7 +213,7 @@ class AwsSessionTest(unittest.TestCase):
             "mode": "kubernetes",
         }, state["config"]["kafka"])
 
-    def test_aws_warms_new_kafka_once_with_notification_and_start_annotation(self) -> None:
+    def test_aws_warms_new_kafka_once_with_notification(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["config"].update({
@@ -228,7 +228,7 @@ class AwsSessionTest(unittest.TestCase):
         command = ssm.call_args.args[0]
         self.assertIn("demo/infra/shared/kafka_warmup/run.py", command)
         self.assertIn("'--backend', 'kubernetes'", command)
-        self.assertIn("'--grafana-url', 'http://127.0.0.1:3000'", command)
+        self.assertNotIn("--grafana-url", command)
         self.assertIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
         self.assertNotIn("warmup_completed", command)
         self.assertEqual("completed", controller.state["kafka_warmup"]["status"])

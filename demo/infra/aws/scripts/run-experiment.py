@@ -603,7 +603,6 @@ class SessionController:
             f"    '--reason', {reason!r},",
             f"    '--experiment', {config['experiment_name']!r},",
             "    '--log-file', '/opt/ckc-runner/logs/kafka-warmup.log',",
-            "    '--grafana-url', 'http://127.0.0.1:3000',",
             "    '--namespace', 'ckc-loadtest',",
             "    '--kubeconfig', str(context['kubeconfig_path']),",
             "], check=True)",

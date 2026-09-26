@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +18,10 @@ WARMUP_RATE = 10_000
 WARMUP_RECORD_SIZE = 1024
 WARMUP_PARTITIONS = 12
 WARMUP_IMAGE = "docker.io/apache/kafka:4.3.1"
+WARMUP_CLIENT_HEAP = "-Xms128m -Xmx256m"
+WARMUP_CLIENT_MEMORY = "512m"
+WARMUP_TOPIC_PREFIX = "ckc.warmup.v1."
+WARMUP_GROUP_PREFIX = "ckc-warmup-v1-"
 
 
 def warmup_record_count() -> int:
@@ -37,7 +38,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-file", type=Path, required=True)
     parser.add_argument("--notify-hook", type=Path)
     parser.add_argument("--notification-dir", type=Path)
-    parser.add_argument("--grafana-url", default=os.environ.get("EXPERIMENT_GRAFANA_URL", "http://127.0.0.1:3000"))
     parser.add_argument("--docker-container")
     parser.add_argument("--namespace", default="ckc-loadtest")
     parser.add_argument("--kubeconfig")
@@ -72,39 +72,11 @@ def notify_started(args: argparse.Namespace) -> None:
     )
 
 
-def annotate_started(args: argparse.Namespace) -> None:
-    if not args.grafana_url:
-        return
-    timestamp = datetime.now(timezone.utc)
-    payload = {
-        "dashboardUID": "ckc-overview",
-        "time": int(timestamp.timestamp() * 1000),
-        "tags": ["kafka-warmup", "phase:warmup"],
-        "text": (
-            f"Kafka warm-up started · {WARMUP_DURATION_SECONDS}s · {WARMUP_RATE} records/s · "
-            f"{WARMUP_RECORD_SIZE} bytes · {args.reason}"
-        ),
-    }
-    request = urllib.request.Request(
-        f"{args.grafana_url.rstrip('/')}/api/annotations",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Basic " + base64.b64encode(b"admin:admin").decode("ascii"),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5):
-            pass
-    except (OSError, urllib.error.URLError) as error:
-        print(f"Kafka warm-up annotation failed: {error}", file=sys.stderr)
-
-
 class KafkaExecutor:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.pod = f"ckc-kafka-warmup-{os.getpid()}"
+        self.docker_containers: set[str] = set()
         self.environment = dict(os.environ)
         if args.kubeconfig:
             self.environment["KUBECONFIG"] = args.kubeconfig
@@ -124,7 +96,16 @@ class KafkaExecutor:
         ], check=True, env=self.environment)
 
     def stop(self) -> None:
-        if self.args.backend == "kubernetes":
+        if self.args.backend == "docker":
+            if self.docker_containers:
+                subprocess.run(
+                    ["docker", "rm", "-f", *sorted(self.docker_containers)],
+                    check=False,
+                    env=self.environment,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        else:
             subprocess.run([
                 "kubectl", "-n", self.args.namespace, "delete", "pod", self.pod,
                 "--ignore-not-found=true", "--wait=false",
@@ -132,10 +113,22 @@ class KafkaExecutor:
 
     def command(self, binary: str, *arguments: str) -> list[str]:
         if self.args.backend == "docker":
-            prefix = ["docker", "exec", str(self.args.docker_container), "env", "KAFKA_OPTS="]
+            role = "producer" if "producer" in binary else "consumer" if "consumer" in binary else "admin"
+            container_name = f"{self.pod}-{role}"
+            self.docker_containers.add(container_name)
+            prefix = [
+                "docker", "run", "--rm", "--name", container_name,
+                "--network", f"container:{self.args.docker_container}",
+                "--memory", WARMUP_CLIENT_MEMORY, "--memory-swap", WARMUP_CLIENT_MEMORY,
+                "--entrypoint", "/usr/bin/env", WARMUP_IMAGE,
+                "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
+            ]
             binary_path = f"/opt/kafka/bin/{binary}"
         else:
-            prefix = ["kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "env", "KAFKA_OPTS="]
+            prefix = [
+                "kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "env",
+                "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
+            ]
             binary_path = f"/opt/kafka/bin/{binary}"
         return [*prefix, binary_path, *arguments]
 
@@ -150,12 +143,35 @@ class KafkaExecutor:
         )
 
 
+def cleanup_stale_resources(executor: KafkaExecutor, bootstrap_server: str) -> None:
+    topics = executor.run(
+        "kafka-topics.sh", "--bootstrap-server", bootstrap_server, "--list", check=False,
+    )
+    for topic in topics.stdout.splitlines():
+        if topic.startswith(WARMUP_TOPIC_PREFIX):
+            executor.run(
+                "kafka-topics.sh", "--bootstrap-server", bootstrap_server,
+                "--delete", "--if-exists", "--topic", topic,
+                check=False,
+            )
+    groups = executor.run(
+        "kafka-consumer-groups.sh", "--bootstrap-server", bootstrap_server, "--list", check=False,
+    )
+    for group in groups.stdout.splitlines():
+        if group.startswith(WARMUP_GROUP_PREFIX):
+            executor.run(
+                "kafka-consumer-groups.sh", "--bootstrap-server", bootstrap_server,
+                "--delete", "--group", group,
+                check=False,
+            )
+
+
 def run_warmup(args: argparse.Namespace) -> None:
     if args.replication_factor < 1:
         raise ValueError("replication factor must be positive")
     args.log_file.parent.mkdir(parents=True, exist_ok=True)
-    topic = f"ckc.warmup.v1.{int(time.time())}"
-    group = f"ckc-warmup-v1-{int(time.time())}"
+    topic = f"{WARMUP_TOPIC_PREFIX}{int(time.time())}"
+    group = f"{WARMUP_GROUP_PREFIX}{int(time.time())}"
     messages = warmup_record_count()
     executor = KafkaExecutor(args)
     consumer: subprocess.Popen[str] | None = None
@@ -163,8 +179,8 @@ def run_warmup(args: argparse.Namespace) -> None:
         log.write(f"{datetime.now(timezone.utc).isoformat()} warm-up start topic={topic} reason={args.reason}\n")
         try:
             executor.start()
+            cleanup_stale_resources(executor, args.bootstrap_server)
             notify_started(args)
-            annotate_started(args)
             created = executor.run(
                 "kafka-topics.sh", "--bootstrap-server", args.bootstrap_server,
                 "--create", "--if-not-exists", "--topic", topic,

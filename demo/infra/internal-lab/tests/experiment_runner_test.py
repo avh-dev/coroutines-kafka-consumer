@@ -376,6 +376,44 @@ class ExperimentRunnerTest(unittest.TestCase):
             self.assertIn("measurements_finished", events)
             self.assertNotIn("experiment_finished", events)
 
+    def test_target_preparation_failure_aborts_remaining_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = Path(__file__).resolve().parents[4]
+            source = yaml.safe_load(
+                (repository / "demo/infra/experiments/smoke.yaml").read_text(encoding="utf-8")
+            )
+            first = copy.deepcopy(source["targets"][0])
+            first["name"] = "first"
+            second = copy.deepcopy(source["targets"][0])
+            second["name"] = "second"
+            source["targets"] = [first, second]
+            experiment = root / "comparison.yaml"
+            experiment.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+            failed = {
+                "name": "first",
+                "exit_code": 1,
+                "interrupted": False,
+                "preparation_failed": True,
+            }
+
+            with (
+                patch.object(RUNNER, "run_one", return_value=failed) as run_one,
+                patch.object(RUNNER, "notify"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "failed during preparation"):
+                    RUNNER.run_experiment(
+                        experiment,
+                        root / "run-test.sh",
+                        root,
+                        root / "results",
+                        "set-a",
+                        {},
+                        None,
+                    )
+
+            run_one.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
