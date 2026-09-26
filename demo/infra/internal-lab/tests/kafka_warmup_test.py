@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -43,6 +44,19 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
         self.assertIn("/dev/tcp/127.0.0.1/9092", compose)
         self.assertNotIn("kafka-topics.sh --bootstrap-server localhost:9092 --list", compose)
         self.assertIn("wait_for_kafka_ready", (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8"))
+
+    def test_apache_topic_readiness_parser_accepts_only_full_isr(self) -> None:
+        parser = ROOT / "assets/libexec/check-apache-topic-ready.awk"
+        complete = """\
+Topic: order.events.v1 TopicId: id PartitionCount: 2 ReplicationFactor: 3 Configs: min.insync.replicas=2
+Topic: order.events.v1 Partition: 0 Leader: 1 Replicas: 1,2,3 Isr: 1,2,3
+Topic: order.events.v1 Partition: 1 Leader: 2 Replicas: 2,3,1 Isr: 2,3,1
+"""
+        incomplete = complete.replace("Isr: 2,3,1", "Isr: 2,3")
+        command = ["awk", "-v", "expected_partitions=2", "-v", "expected_replication=3", "-f", str(parser)]
+
+        self.assertEqual(0, subprocess.run(command, input=complete, text=True, check=False).returncode)
+        self.assertNotEqual(0, subprocess.run(command, input=incomplete, text=True, check=False).returncode)
 
     def test_warmup_does_not_create_dashboard_wide_annotations(self) -> None:
         reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")

@@ -391,6 +391,7 @@
 | [INFRA-227](#infra-227) | Release measurement CPU policy early and optimize audit concurrency and bundle creation. | DONE |
 | [INFRA-228](#infra-228) | Support per-target application placement and compare single- versus two-host execution. | DONE |
 | [INFRA-229](#infra-229) | Make the experiment own Kafka runtime preparation and remove the standalone internal-lab test runner. | DONE |
+| [INFRA-230](#infra-230) | Fix Apache Kafka topic readiness parsing on Ubuntu `mawk`. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4532,3 +4533,12 @@ Keep target preparation limited to application teardown, state reset, topic recr
 Replace continuous JVM-based Kafka health checks with lightweight liveness checks and explicit bounded quorum and ISR readiness validation.
 Remove the public standalone internal-lab test runner and keep target execution as an experiment-internal operation.
 Verification: 140 internal-lab, 40 shared orchestration, and 32 AWS tests passed; shell and Compose validation passed. The installed lab removed the public runner, installed the guarded internal target executor, and reports the lightweight Kafka health check as healthy without rebuilding application images.
+
+<a id="infra-230"></a>
+### INFRA-230 - Fix Kafka topic readiness parsing
+
+_Date: 2026-09-26_
+
+Make the Apache Kafka full-ISR readiness parser compatible with Ubuntu `mawk` and cover real Kafka topic-description output with an executable regression test.
+Keep the warm-up duration distinct from subsequent target topic preparation in failure diagnosis.
+Verification: all 141 internal-lab tests passed. The installed parser accepted the live 49-, 23-, and 164-partition topics at replication factor three, and the incremental lab update rebuilt and redeployed nothing.

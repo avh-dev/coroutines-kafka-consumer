@@ -183,28 +183,10 @@ wait_for_topic_ready() {
       continue
     fi
     description="$(topic_description "${topic}" 2>/dev/null || true)"
-    if printf '%s\n' "${description}" | awk -v expected_partitions="${expected_partitions}" -v expected_replication="${KAFKA_TOPIC_REPLICATION_FACTOR}" '
-      /PartitionCount:/ {
-        for (index = 1; index <= NF; index++) {
-          if ($index == "PartitionCount:") partitions = $(index + 1)
-          if ($index == "ReplicationFactor:") replication = $(index + 1)
-        }
-      }
-      /Partition:/ && /Leader:/ {
-        partition_rows++
-        for (index = 1; index <= NF; index++) {
-          if ($index == "Leader:" && $(index + 1) == "-1") bad = 1
-          if ($index == "Isr:") {
-            isr = $(index + 1)
-            isr_count = split(isr, members, ",")
-            if (isr_count != expected_replication) bad = 1
-          }
-        }
-      }
-      END {
-        exit !(partitions == expected_partitions && replication == expected_replication && partition_rows == expected_partitions && !bad)
-      }
-    '; then
+    if printf '%s\n' "${description}" | awk \
+      -v expected_partitions="${expected_partitions}" \
+      -v expected_replication="${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+      -f "${LAB_ROOT}/libexec/check-apache-topic-ready.awk"; then
       return
     fi
     sleep 1
