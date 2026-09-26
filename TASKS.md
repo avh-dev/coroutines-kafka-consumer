@@ -392,6 +392,7 @@
 | [INFRA-228](#infra-228) | Support per-target application placement and compare single- versus two-host execution. | DONE |
 | [INFRA-229](#infra-229) | Make the experiment own Kafka runtime preparation and remove the standalone internal-lab test runner. | DONE |
 | [INFRA-230](#infra-230) | Fix Apache Kafka topic readiness parsing on Ubuntu `mawk`. | DONE |
+| [INFRA-231](#infra-231) | Retune 10k Spring partitions and CKC telemetry workers from the completed split-host measurements. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4542,3 +4543,12 @@ _Date: 2026-09-26_
 Make the Apache Kafka full-ISR readiness parser compatible with Ubuntu `mawk` and cover real Kafka topic-description output with an executable regression test.
 Keep the warm-up duration distinct from subsequent target topic preparation in failure diagnosis.
 Verification: all 141 internal-lab tests passed. The installed parser accepted the live 49-, 23-, and 164-partition topics at replication factor three, and the incremental lab update rebuilt and redeployed nothing.
+
+<a id="infra-231"></a>
+### INFRA-231 - Retune 10k target parallelism
+
+_Date: 2026-09-26_
+
+Round Spring topic partition and poller counts up to multiples of the three Kafka brokers using the measured split-host processing latency plus capacity headroom.
+Increase only the saturated CKC telemetry worker pool; retain the order and batch worker counts that sustained their full input rates.
+Verification: 141 internal-lab and 41 shared orchestration tests passed. Materialization produced Spring partition/poller counts of 84 / 57 / 321 and CKC worker counts of 500 / 500 / 900 for both placements. The completed experiment remained untouched; the subsequent incremental installation rebuilt and redeployed nothing.

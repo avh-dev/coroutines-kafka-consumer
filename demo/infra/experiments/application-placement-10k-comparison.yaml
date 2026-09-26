@@ -120,10 +120,16 @@ targets:
     - pollers
     topics:
       order:
+        partitions: 84
+        pollers: 84
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
+        partitions: 57
+        pollers: 57
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
+        partitions: 321
+        pollers: 321
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
   workload: &target_workload
     load:
@@ -183,7 +189,7 @@ targets:
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       telemetry:
         partitions: 3
-        workers: 500
+        workers: 900
         pollers: 1
         queue_capacity: 4096
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
