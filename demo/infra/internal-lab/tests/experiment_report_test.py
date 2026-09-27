@@ -1546,6 +1546,10 @@ class ExperimentReportTest(unittest.TestCase):
             audit["audit"]["totals"].update({
                 "processed": 994,
                 "dropped": 6,
+                "conflicting_terminal_outcomes": 2,
+                "replay_dropped_after_processed": 2,
+                "replay_dropped_after_processed_by_reason": {"stale_age": 2},
+                "unexpected_terminal_outcomes": 0,
                 "dropped_by_reason": {
                     "replaced_by_newer_key_record": 3,
                     "stale_age": 2,
@@ -1580,6 +1584,13 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Replaced by newer record for key", markdown)
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
+            self.assertIn("Replay dropped · freshness policy", markdown)
+            self.assertNotIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn(
+                'Replay dropped · freshness policy<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td><span class="champion">',
+                markdown,
+            )
             self.assertIn("Successfully processed", markdown)
             self.assertIn("994 · 99.400% of published", markdown)
             self.assertIn("Published with on-time processed outcome", markdown)

@@ -241,6 +241,27 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(1, window_topic["ordering"]["by_key"]["out_of_order"])
         self.assertFalse(Path(accumulator.key_order_spool.directory.name).exists())
 
+    def test_distinguishes_expected_replay_drops_from_unexpected_terminal_order(self) -> None:
+        document = analyze(
+            [
+                "P|3|0|1|1000|1000|cauldron-a",
+                "C|3|0|1|1100|cauldron-a",
+                "D|3|0|1|1200|cauldron-a|stale_age",
+                "P|3|0|2|2000|2000|cauldron-b",
+                "D|3|0|2|2100|cauldron-b|stale_age",
+                "C|3|0|2|2200|cauldron-b",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(2, totals["conflicting_terminal_outcomes"])
+        self.assertEqual(1, totals["replay_dropped_after_processed"])
+        self.assertEqual(
+            {"stale_age": 1},
+            totals["replay_dropped_after_processed_by_reason"],
+        )
+        self.assertEqual(1, totals["unexpected_terminal_outcomes"])
+
     def test_bounded_matching_can_evict_long_delayed_terminal_records(self) -> None:
         document = analyze(
             [

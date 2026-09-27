@@ -670,6 +670,9 @@ class AuditStats:
     failed_without_publish: int = 0
     dropped_without_publish: int = 0
     conflicting_terminal_outcomes: int = 0
+    replay_dropped_after_processed: int = 0
+    replay_dropped_after_processed_by_reason: dict[str, int] = field(default_factory=dict)
+    unexpected_terminal_outcomes: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
     closed_offsets: ClosedOffsetStore = field(default_factory=ClosedOffsetStore)
@@ -779,6 +782,8 @@ class AuditStats:
 
         if record.record_type == "C":
             if state.processed is None:
+                if state.failed is not None or state.dropped is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.processed = record
                 state.processed_count = 1
                 self.processed_unique += 1
@@ -793,6 +798,8 @@ class AuditStats:
                 self.duplicate_processed += 1
         elif record.record_type == "F":
             if state.failed is None:
+                if state.processed is not None or state.dropped is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.failed = record
                 state.failed_count = 1
                 self.failed_unique += 1
@@ -804,6 +811,10 @@ class AuditStats:
                 self.duplicate_failed += 1
         else:
             if state.dropped is None:
+                if state.processed is not None:
+                    self._add_replay_drop(record)
+                elif state.failed is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.dropped = record
                 state.dropped_count = 1
                 self.dropped_unique += 1
@@ -835,6 +846,7 @@ class AuditStats:
                 self.processed_unique += 1
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    self.unexpected_terminal_outcomes += 1
         elif record.record_type == "F":
             if closed.failed_seen:
                 self.duplicate_failed += 1
@@ -844,6 +856,7 @@ class AuditStats:
                 self.failed_unique += 1
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    self.unexpected_terminal_outcomes += 1
         else:
             if closed.dropped_seen:
                 self.duplicate_dropped += 1
@@ -854,6 +867,10 @@ class AuditStats:
                 self._add_drop_reason(record)
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    if closed.processed_seen:
+                        self._add_replay_drop(record)
+                    else:
+                        self.unexpected_terminal_outcomes += 1
 
     def _add_terminal_to_compact_closed(self, record: AuditRecord, flags: int) -> None:
         outcome_flag = {
@@ -872,6 +889,10 @@ class AuditStats:
 
         if flags & TERMINAL_FLAGS:
             self.conflicting_terminal_outcomes += 1
+            if record.record_type == "D" and flags & PROCESSED_FLAG:
+                self._add_replay_drop(record)
+            else:
+                self.unexpected_terminal_outcomes += 1
         if record.record_type == "C":
             self.processed_unique += 1
         elif record.record_type == "F":
@@ -904,6 +925,13 @@ class AuditStats:
     def _add_drop_reason(self, record: AuditRecord) -> None:
         reason = record.drop_reason or "unknown"
         self.dropped_by_reason[reason] = self.dropped_by_reason.get(reason, 0) + 1
+
+    def _add_replay_drop(self, record: AuditRecord) -> None:
+        reason = record.drop_reason or "unknown"
+        self.replay_dropped_after_processed += 1
+        self.replay_dropped_after_processed_by_reason[reason] = (
+            self.replay_dropped_after_processed_by_reason.get(reason, 0) + 1
+        )
 
     def _close_if_complete(self, key: RecordKey) -> None:
         state = self.open_by_key.get(key)
@@ -1394,6 +1422,9 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
                 "dropped": stats.dropped_without_publish,
             },
             "conflicting_terminal_outcomes": stats.conflicting_terminal_outcomes,
+            "replay_dropped_after_processed": stats.replay_dropped_after_processed,
+            "replay_dropped_after_processed_by_reason": stats.replay_dropped_after_processed_by_reason,
+            "unexpected_terminal_outcomes": stats.unexpected_terminal_outcomes,
             "ordering": {
                 "by_partition": ordering_summary(stats.partition_order),
                 "by_key": ordering_summary(stats.key_order),
@@ -1564,6 +1595,8 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "failed_without_publish",
         "dropped_without_publish",
         "conflicting_terminal_outcomes",
+        "replay_dropped_after_processed",
+        "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )
     for stats in accumulator.by_topic.values():
@@ -1571,6 +1604,10 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
             setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
         for reason, count in stats.dropped_by_reason.items():
             aggregate.dropped_by_reason[reason] = aggregate.dropped_by_reason.get(reason, 0) + count
+        for reason, count in stats.replay_dropped_after_processed_by_reason.items():
+            aggregate.replay_dropped_after_processed_by_reason[reason] = (
+                aggregate.replay_dropped_after_processed_by_reason.get(reason, 0) + count
+            )
         for latency_ms, count in stats.e2e_latency_histogram.items():
             aggregate.e2e_latency_histogram[latency_ms] = (
                 aggregate.e2e_latency_histogram.get(latency_ms, 0) + count

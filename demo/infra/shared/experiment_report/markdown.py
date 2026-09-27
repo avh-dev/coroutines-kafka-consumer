@@ -431,7 +431,22 @@ def render_markdown(report: ExperimentReport) -> str:
         reasons = data.get("dropped_by_reason")
         return int(reasons.get(reason) or 0) if isinstance(reasons, dict) else 0
 
+    def replay_drop_reason(data: dict[str, Any], reason: str) -> int:
+        reasons = data.get("replay_dropped_after_processed_by_reason")
+        if isinstance(reasons, dict):
+            return int(reasons.get(reason) or 0)
+        return drop_reason(data, reason) if reason == "already_processed" else 0
+
+    def freshness_replay_drops(data: dict[str, Any]) -> int:
+        total = data.get("replay_dropped_after_processed")
+        if total is None:
+            return 0
+        return max(0, int(total) - replay_drop_reason(data, "already_processed"))
+
     def unexpected_terminal_conflicts(data: dict[str, Any]) -> int:
+        unexpected = data.get("unexpected_terminal_outcomes")
+        if unexpected is not None:
+            return int(unexpected)
         return max(
             0,
             int(data.get("conflicting_terminal_outcomes") or 0)
@@ -998,7 +1013,11 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         optional_plain_count_row(
             "Replay dropped · already processed",
-            [drop_reason(delivery, "already_processed") for delivery in deliveries],
+            [replay_drop_reason(delivery, "already_processed") for delivery in deliveries],
+        )
+        optional_plain_count_row(
+            "Replay dropped · freshness policy",
+            [freshness_replay_drops(delivery) for delivery in deliveries],
         )
         integrity_row(
             "Terminal outcomes without publish",
@@ -1081,7 +1100,11 @@ def render_markdown(report: ExperimentReport) -> str:
             row("Processed duplicates", counts([(value.get("duplicates") or {}).get("processed") for value in values]), "audit")
             optional_plain_count_row(
                 "Replay dropped · already processed",
-                [drop_reason(value, "already_processed") for value in values],
+                [replay_drop_reason(value, "already_processed") for value in values],
+            )
+            optional_plain_count_row(
+                "Replay dropped · freshness policy",
+                [freshness_replay_drops(value) for value in values],
             )
             integrity_row("Terminal outcomes without publish", [without_publish_count(value) for value in values])
             integrity_row(
