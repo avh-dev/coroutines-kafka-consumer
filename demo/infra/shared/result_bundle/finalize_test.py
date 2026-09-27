@@ -10,10 +10,56 @@ from pathlib import Path
 from unittest.mock import patch
 
 from .collect import collect
-from .finalize import finalize, portable_replacements, repository_root, result_identity, run_directories
+from .finalize import (
+    copy_evidence_file,
+    finalize,
+    portable_replacements,
+    repository_root,
+    result_identity,
+    run_directories,
+)
 
 
 class CanonicalFinalizerTest(unittest.TestCase):
+    def test_redacts_jsonl_without_corrupting_log_records(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.jsonl"
+            target = root / "target.jsonl"
+            records = [
+                {
+                    "labels": {"run_id": "run-a"},
+                    "line": "\tssl.key.password = null\n",
+                },
+                {
+                    "labels": {"token": "secret-value"},
+                    "line": "reading /opt/ckc-lab/results/run-a with AKIAABCDEFGHIJKLMNOP",
+                },
+            ]
+            source.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+
+            copy_evidence_file(source, target, {"/opt/ckc-lab": "$LAB_ROOT"})
+
+            transformed = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual("\tssl.key.password = <redacted>\n", transformed[0]["line"])
+            self.assertEqual("<redacted>", transformed[1]["labels"]["token"])
+            self.assertEqual(
+                "reading $LAB_ROOT/results/run-a with <redacted-aws-access-key>",
+                transformed[1]["line"],
+            )
+
+    def test_rejects_invalid_source_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.jsonl"
+            source.write_text('{"line":"unterminated}\n', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "source.jsonl at line 1"):
+                copy_evidence_file(source, root / "target.jsonl")
+
     def test_repository_detection_never_treats_filesystem_root_as_checkout(self) -> None:
         self.assertIsNotNone(repository_root())
         self.assertNotIn("/", portable_replacements(Path("/opt/ckc-lab/results/example")))
