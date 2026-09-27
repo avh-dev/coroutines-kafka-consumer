@@ -402,6 +402,7 @@
 | [DOC-4](#doc-4) | Refine the `ckc-micrometer` README wording around ConsumerMetrics, tag customization, filtering, and histograms. | DONE |
 | [DOC-5](#doc-5) | Remove the alternatives and related-projects section from the main README while OSS positioning is still being refined. | DONE |
 | [DOC-6](#doc-6) | Update the main README module list so it matches the current repository modules. | DONE |
+| [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 
 ## Task Details
 
@@ -4562,3 +4563,13 @@ _Date: 2026-09-26_
 Add a focused four-target experiment comparing one and two CKC replicas on the controller and application worker.
 Keep the three-broker Kafka lab, three partitions per topic, per-pod worker pools, load profile, and measurement window fixed so the result isolates process-level scaling.
 Verification: 141 internal-lab and 42 shared orchestration tests passed. All four targets materialized with replicas 1 / 2 / 1 / 2, three partitions and one poller per topic, and per-pod worker pools of 500 / 500 / 900. The experiment installed incrementally without rebuilding images or redeploying the base lab.
+
+<a id="doc-7"></a>
+### DOC-7 - Document internal-lab CPU equivalence
+
+_Date: 2026-09-27_
+
+Record a repeatable single-thread CPU comparison of the controller and application worker at the experiment's fixed 2 GHz policy.
+Document the measured results and the resulting assumption that placement comparisons use computationally equivalent nodes.
+Treat inter-host network effects as part of the intended split topology rather than an uncontrolled CPU-capacity difference.
+Verification: the documented three-run means reproduce as 685.36 and 685.69 events/s, a 0.05% difference; Markdown whitespace validation passed.

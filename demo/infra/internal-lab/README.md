@@ -81,6 +81,34 @@ Kafka, Redis, Grafana, Loki, Prometheus, stubs, test orchestration, and load
 generation remain on the controller. Built images are imported into both k3s
 containerd stores; no registry is required.
 
+### Reference node CPU equivalence
+
+The reference two-host lab uses an Intel Core i5-8500 controller and an Intel
+Core i5-8500T application worker. Although the processors have different model
+names and hardware frequency ranges, experiments cap both hosts at 2 GHz.
+At that frequency their single-thread integer throughput is effectively equal.
+
+The comparison used sysbench 1.0.20, with the performance policy active on all
+CPU frequency domains. Three paired runs were executed concurrently on the two
+otherwise idle hosts:
+
+```bash
+sysbench cpu --threads=1 --time=30 run
+```
+
+| Host | Processor | Run 1 | Run 2 | Run 3 | Mean |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `optilab` | Intel Core i5-8500 | 685.41 | 685.25 | 685.41 | 685.36 events/s |
+| `optilab2` | Intel Core i5-8500T | 685.58 | 685.73 | 685.76 | 685.69 events/s |
+
+The means differ by approximately 0.05%, so experiment interpretation treats
+the nodes as computationally equivalent at the configured frequency. Effects
+observed when application placement changes are therefore attributed to the
+topology—including the real inter-host network and isolation from controller
+workloads—rather than to a meaningful single-core performance mismatch. This
+assumption is also sufficient for failure and chaos scenarios, where exercising
+the distributed boundary is intentional.
+
 ```mermaid
 flowchart LR
   operator[Repository checkout / operator] -->|SSH as ckc-lab| controller
