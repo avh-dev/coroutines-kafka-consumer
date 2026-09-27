@@ -188,6 +188,59 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(0, totals["missing_terminal"])
         self.assertEqual(0, totals["without_publish"]["processed"])
 
+    def test_exact_matching_compacts_closed_offsets_and_keeps_late_outcomes_exact(self) -> None:
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None)
+        second_page_offset = analyzer.OFFSET_PAGE_SIZE + 2
+        for line in (
+            "P|1|0|1|1000|1000|order-a",
+            "C|1|0|1|1100|order-a",
+            f"P|1|0|{second_page_offset}|2000|2000|order-b",
+            f"C|1|0|{second_page_offset}|2100|order-b",
+            "P|1|0|1|1000|2200|order-a",
+            "C|1|0|1|2300|order-a",
+            "F|1|0|1|2400|order-a",
+        ):
+            accumulator.add(analyzer.parse_record(line))
+
+        stats = accumulator.by_topic[1]
+        self.assertEqual(0, len(stats.open_by_key))
+        self.assertEqual(0, len(stats.recent_closed_by_key))
+        self.assertEqual(2, len(stats.closed_offsets.pages))
+        accumulator.finish()
+
+        totals = analyzer.summary_document(accumulator, {})["audit"]["totals"]
+        self.assertEqual(2, totals["published"])
+        self.assertEqual(2, totals["processed"])
+        self.assertEqual(1, totals["duplicates"]["published"])
+        self.assertEqual(1, totals["duplicates"]["processed"])
+        self.assertEqual(1, totals["failed"])
+        self.assertEqual(1, totals["conflicting_terminal_outcomes"])
+
+    def test_exact_key_order_is_reduced_from_shared_spool_for_complete_and_window(self) -> None:
+        accumulator = analyzer.MultiWindowAuditAccumulator(
+            open_record_ttl_ms=None,
+            windows=(analyzer.MeasurementWindow("steady", 1000, 5000),),
+        )
+        for offset, timestamp in ((10, 1000), (12, 2000), (11, 3000)):
+            accumulator.add(
+                analyzer.parse_record(
+                    f"P|1|0|{offset}|{timestamp}|{timestamp}|same-order"
+                )
+            )
+            accumulator.add(
+                analyzer.parse_record(
+                    f"C|1|0|{offset}|{timestamp + 100}|same-order"
+                )
+            )
+        accumulator.finish()
+
+        audit = analyzer.summary_document(accumulator, {})["audit"]
+        topic = audit["topics"]["order.events.v1"]
+        window_topic = audit["measurement_windows"][0]["topics"]["order.events.v1"]
+        self.assertEqual(1, topic["ordering"]["by_key"]["out_of_order"])
+        self.assertEqual(1, window_topic["ordering"]["by_key"]["out_of_order"])
+        self.assertFalse(Path(accumulator.key_order_spool.directory.name).exists())
+
     def test_bounded_matching_can_evict_long_delayed_terminal_records(self) -> None:
         document = analyze(
             [

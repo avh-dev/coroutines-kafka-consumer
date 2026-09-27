@@ -397,6 +397,7 @@
 | [INFRA-233](#infra-233) | Select free ports automatically when opening portable result bundles. | DONE |
 | [INFRA-234](#infra-234) | Preserve valid Loki JSONL while redacting portable result bundles. | DONE |
 | [INFRA-235](#infra-235) | Add a two-hour split-host CKC resilience experiment with ten measured chaos episodes. | DONE |
+| [INFRA-236](#infra-236) | Bound exact audit-analysis memory and recover the two-hour resilience report. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4606,3 +4607,13 @@ Add one two-replica CKC target at 7,000 messages/s on the isolated application w
 Exercise ten separately measured recovery episodes spanning stub latency, pod deletion and crash, replica scale-up and scale-down, Redis disruption, and Kafka broker failures.
 Add a canonical deployment-scale chaos action while keeping every scheduled failure executable by the non-root lab runtime.
 Verification: 143 internal-lab, 43 shared orchestration, 32 AWS, and 38 result-bundle tests passed; the canonical experiment resolved to one 120-minute target, ten measurement windows, and twelve chaos actions, and the installed lab files match the repository sources.
+
+<a id="infra-236"></a>
+### INFRA-236 - Compact exact audit analysis
+
+_Date: 2026-09-27_
+
+Replace per-message retained Python objects with compact offset state while preserving exact whole-run duplicate, conflict, delivery, latency, ordering, freshness, and measurement-window results.
+Spool full message keys into bounded disk shards for exact per-key ordering, and avoid per-line seek calls while reading plain audit files.
+Verification: 15 analyzer, 143 internal-lab, 43 shared orchestration, 32 AWS, and 38 result-bundle tests passed; a 7.8-million-record real audit matched its prior summary exactly with 43 MiB peak RSS.
+The preserved 96.7-million-record resilience audit completed in 23m17s with 341 MiB peak RSS instead of being OOM-killed above 10 GiB; its report, report ZIP, evidence bundle, and audit bundle were generated successfully.
