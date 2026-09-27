@@ -81,12 +81,14 @@ def parse_load_profile(value: str) -> list[dict[str, Any]]:
 
 
 CHAOS_PRESENTATION = {
+    "deployment_scale": ("scale", "Scale deployment"),
     "pod_delete": ("delete", "Delete random pod"),
     "pod_crash": ("crash", "Crash random pod"),
     "service_restart": ("restart", "Restart service"),
     "stubs_degradation": ("degradation", "Degrade stubs"),
     "network_degradation": ("network", "Degrade network"),
     "service_outage": ("outage", "Service outage"),
+    "service_crash": ("crash", "Crash service"),
 }
 
 

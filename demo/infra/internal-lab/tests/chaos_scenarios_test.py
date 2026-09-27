@@ -113,6 +113,34 @@ class ChaosScenariosTest(unittest.TestCase):
                 ]
             )
 
+    def test_deployment_scale_is_normalized_and_executed(self) -> None:
+        scenarios = self.normalize(
+            [{"at": "30m", "type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}}]
+        )
+
+        self.assertEqual(
+            {
+                "atSeconds": 1800,
+                "type": "deployment_scale",
+                "target": "ckc-demo",
+                "params": {"namespace": "ckc-perf", "replicas": 3},
+            },
+            scenarios[0],
+        )
+        with patch.object(chaos_runner, "run") as run:
+            chaos_runner.start_scenario(scenarios[0], "/configure-stubs", dry_run=False)
+        run.assert_called_once_with(
+            ["kubectl", "-n", "ckc-perf", "scale", "deployment", "ckc-demo", "--replicas=3"]
+        )
+
+    def test_deployment_scale_requires_positive_replicas(self) -> None:
+        for replicas in (None, 0, True):
+            with self.subTest(replicas=replicas):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    self.normalize(
+                        [{"at": "1m", "type": "deployment_scale", "params": {"replicas": replicas}}]
+                    )
+
     def test_legacy_command_types_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported"):
             self.normalize([{"at": "10s", "type": "set_stubs_profile", "params": degradation_params()}])

@@ -288,6 +288,25 @@ workload:
 overlap failure intervals for the same broker; failures of different brokers
 may overlap intentionally when testing loss of quorum.
 
+Application replica changes are instant chaos steps. They use the same
+deployment as pod deletion and crash scenarios and deliberately leave rollout
+and Kafka consumer-group rebalancing inside the measurement window:
+
+```yaml
+workload:
+  chaos:
+  - at: 30m
+    type: deployment_scale
+    target: ckc-demo
+    params:
+      replicas: 3
+  - at: 60m
+    type: deployment_scale
+    target: ckc-demo
+    params:
+      replicas: 2
+```
+
 ## Results
 
 Every experiment finalizes the same named result layout as AWS:

@@ -1,0 +1,272 @@
+schema_version: 2
+name: ckc-split-resilience-2h-7k
+description: Exercise two CKC replicas at 7k messages per second on the isolated
+  application worker for two hours. Ten separately measured episodes cover downstream
+  latency, pod replacement, replica rebalancing, Redis disruption, and Kafka broker
+  failures, with recovery time between episodes.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    flavour:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 7000
+    producer_capacity_tps:
+      order: 7000
+      batch: 7000
+      telemetry: 7000
+    load_profile: 0 -> (5m, warmup) -> 100 -> (110m, resilience) -> 100 -> (5m, cool-down) -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_timeout_seconds: 1800
+    consumer_drain_stable_seconds: 30
+    consumer_drain_idle_seconds: 120
+    consumer_drain_required: true
+    telemetry_settle_seconds: 120
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - name: stub-latency-moderate
+    start: 9m
+    duration: 6m
+  - name: pod-delete-two-replicas
+    start: 19m
+    duration: 6m
+  - name: scale-up-to-three
+    start: 29m
+    duration: 6m
+  - name: redis-outage
+    start: 39m
+    duration: 6m
+  - name: pod-crash-three-replicas
+    start: 49m
+    duration: 6m
+  - name: scale-down-to-two
+    start: 59m
+    duration: 6m
+  - name: stub-tail-and-pod-delete
+    start: 69m
+    duration: 6m
+  - name: kafka-broker-outage
+    start: 79m
+    duration: 6m
+  - name: kafka-broker-crash
+    start: 89m
+    duration: 6m
+  - name: redis-crash-and-pod-crash
+    start: 99m
+    duration: 6m
+  chaos:
+  - at: 10m
+    duration: 3m
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      eta:
+        percentiles:
+          p90: 100
+          p95: 200
+          p99: 500
+          p100: 1000
+      flavour:
+        percentiles:
+          p90: 100
+          p95: 200
+          p99: 500
+          p100: 1000
+      registry:
+        percentiles:
+          p90: 20
+          p95: 40
+          p99: 80
+          p100: 120
+  - at: 20m
+    type: pod_delete
+    target: ckc-demo
+  - at: 30m
+    type: deployment_scale
+    target: ckc-demo
+    params:
+      replicas: 3
+  - at: 40m
+    duration: 45s
+    type: service_outage
+    target: redis
+  - at: 50m
+    type: pod_crash
+    target: ckc-demo
+  - at: 60m
+    type: deployment_scale
+    target: ckc-demo
+    params:
+      replicas: 2
+  - at: 70m
+    duration: 4m
+    type: stubs_degradation
+    target: demo-stubs
+    params:
+      eta:
+        percentiles:
+          p99: 500
+          p995: 1500
+          p999: 5000
+          p100: 15000
+      flavour:
+        percentiles:
+          p99: 500
+          p995: 1500
+          p999: 5000
+          p100: 15000
+      registry:
+        percentiles:
+          p99: 100
+          p995: 250
+          p999: 500
+          p100: 1000
+  - at: 72m
+    type: pod_delete
+    target: ckc-demo
+  - at: 80m
+    duration: 45s
+    type: service_outage
+    target: kafka
+    params:
+      broker_id: 1
+  - at: 90m
+    duration: 90s
+    type: service_crash
+    target: kafka
+    params:
+      broker_id: 2
+  - at: 100m
+    duration: 60s
+    type: service_crash
+    target: redis
+  - at: 102m
+    type: pod_crash
+    target: ckc-demo
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 5000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 5000
+      contract:
+        delivery: at_least_once
+        ordering: not_guaranteed
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 5000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+targets:
+- name: ckc.fixed.2.split-resilience
+  annotation_label: CKC · 2 pods · split host · resilience
+  implementation: ckc
+  application:
+    placement: worker
+    replicas: 2
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: >-
+      -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+      -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      MODEL_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 100
+      batch_ms: 151
+      telemetry_ms: 70
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      batch:
+        partitions: 3
+        workers: 500
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      telemetry:
+        partitions: 3
+        workers: 900
+        pollers: 1
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi

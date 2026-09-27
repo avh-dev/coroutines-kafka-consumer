@@ -396,6 +396,7 @@
 | [INFRA-232](#infra-232) | Compare one- and two-replica CKC capacity at 10k on same- and split-host placements. | DONE |
 | [INFRA-233](#infra-233) | Select free ports automatically when opening portable result bundles. | DONE |
 | [INFRA-234](#infra-234) | Preserve valid Loki JSONL while redacting portable result bundles. | DONE |
+| [INFRA-235](#infra-235) | Add a two-hour split-host CKC resilience experiment with ten measured chaos episodes. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4595,3 +4596,13 @@ Parse exported Loki JSONL structurally before applying portable-path and secret 
 Serialize every transformed record back to one valid JSON line and reject malformed source evidence with its file and line number.
 Re-export the latest completed experiment so its offline Grafana stack can import the preserved logs without repeating the workload.
 Verification: 141 internal-lab, 32 AWS, and 38 result-bundle tests passed. Structural redaction preserved all 4,987 Loki records across the four real target exports, the regenerated evidence archive restored successfully at ports 3002/3102, Grafana became ready, all 4,987 records imported, and quitting removed every restore container and listener.
+
+<a id="infra-235"></a>
+### INFRA-235 - Two-hour CKC resilience experiment
+
+_Date: 2026-09-27_
+
+Add one two-replica CKC target at 7,000 messages/s on the isolated application worker for a two-hour sustained run.
+Exercise ten separately measured recovery episodes spanning stub latency, pod deletion and crash, replica scale-up and scale-down, Redis disruption, and Kafka broker failures.
+Add a canonical deployment-scale chaos action while keeping every scheduled failure executable by the non-root lab runtime.
+Verification: 143 internal-lab, 43 shared orchestration, 32 AWS, and 38 result-bundle tests passed; the canonical experiment resolved to one 120-minute target, ten measurement windows, and twelve chaos actions, and the installed lab files match the repository sources.

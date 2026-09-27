@@ -20,6 +20,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "internal-lab": frozenset({
         "diagnostics.tcpdump",
         "chaos.network_degradation",
+        "chaos.deployment_scale",
         "chaos.pod_crash",
         "chaos.pod_delete",
         "chaos.service_outage",

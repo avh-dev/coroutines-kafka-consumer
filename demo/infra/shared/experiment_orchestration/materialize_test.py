@@ -368,6 +368,45 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual([3, 3, 3], actual_partitions["cpc-reactor.fixed.1"])
         self.assertEqual([25, 12, 82], actual_partitions["spring-kafka.jdk"])
 
+    def test_materializes_two_hour_split_ckc_resilience_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-split-resilience-2h-7k.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        workload = candidate["workload"]
+
+        self.assertEqual(7000, workload["load"]["base_tps"])
+        self.assertEqual(
+            "0 -> (5m, warmup) -> 100 -> (110m, resilience) -> 100 -> (5m, cool-down) -> 0",
+            workload["load"]["load_profile"],
+        )
+        self.assertEqual(10, len(workload["measurement_windows"]))
+        self.assertEqual(12, len(workload["chaos"]))
+        self.assertEqual(
+            [3, 2],
+            [step["params"]["replicas"] for step in workload["chaos"] if step["type"] == "deployment_scale"],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definition = yaml.safe_load(materialized[0].definition_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(["ckc.fixed.2.split-resilience"], [target.target.name for target in materialized])
+        self.assertEqual(2, materialized[0].plan["replica_count"])
+        self.assertEqual("worker", materialized[0].target.definition["application"]["placement"])
+        self.assertEqual(10, len(definition["load_test"]["measurement_windows"]))
+        self.assertEqual(
+            ["30m", "60m"],
+            [
+                step["at"]
+                for step in definition["chaos_steps"]
+                if step["type"] == "deployment_scale"
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -193,7 +193,7 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
     if not isinstance(raw_steps, list):
         raise ValueError(f"Test definition chaos_steps must be a list: {definition_path}")
 
-    instant_types = {"pod_delete", "pod_crash", "service_restart"}
+    instant_types = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
     duration_types = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
     supported_types = instant_types | duration_types
     service_targets = {"kafka", "redis", "audit"}
@@ -235,7 +235,20 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
         if duration_seconds is not None:
             normalized["durationSeconds"] = duration_seconds
 
-        if step_type in {"pod_delete", "pod_crash"}:
+        if step_type == "deployment_scale":
+            context = f"chaos_steps[{index}]"
+            target = str(raw_step.get("target", "ckc-demo")).strip()
+            if not target:
+                raise ValueError(f"{context}.target must not be empty: {definition_path}")
+            replicas = params.get("replicas")
+            if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas <= 0:
+                raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
+            normalized["target"] = target
+            normalized["params"] = {
+                "namespace": str(params.get("namespace", "ckc-perf")),
+                "replicas": replicas,
+            }
+        elif step_type in {"pod_delete", "pod_crash"}:
             target = str(raw_step.get("target", "ckc-demo")).strip()
             if not target:
                 raise ValueError(f"chaos_steps[{index}].target must not be empty: {definition_path}")
