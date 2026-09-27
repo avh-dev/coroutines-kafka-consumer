@@ -58,7 +58,7 @@ SERVICE_TARGETS = {
     "audit": {"ports": [5170], "container": "ckc-internal-fluent-bit", "mark": 6503, "band": 12, "handle": 112},
 }
 
-INSTANT_SCENARIO_TYPES = {"pod_delete", "pod_crash", "service_restart"}
+INSTANT_SCENARIO_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
 DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
 
 
@@ -392,6 +392,29 @@ def delete_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
     run(["kubectl", "-n", namespace, "delete", "pod", pod])
 
 
+def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
+    namespace = str(params.get("namespace", "ckc-perf"))
+    deployment = str(params.get("target", "ckc-demo")).strip()
+    replicas = params.get("replicas")
+    if not deployment:
+        raise ValueError("deployment_scale target must not be empty")
+    if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas <= 0:
+        raise ValueError("deployment_scale replicas must be a positive integer")
+    if dry_run:
+        log(f"dry-run: would scale deployment namespace={namespace} deployment={deployment} replicas={replicas}")
+        return
+    log(f"scaling deployment namespace={namespace} deployment={deployment} replicas={replicas}")
+    run([
+        "kubectl",
+        "-n",
+        namespace,
+        "scale",
+        "deployment",
+        deployment,
+        f"--replicas={replicas}",
+    ])
+
+
 def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
     namespace, selector = pod_params(params)
     endpoint = crash_endpoint(params)
@@ -460,7 +483,9 @@ def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: b
     params = scenario_params(scenario)
     if not isinstance(params, dict):
         raise ValueError(f"{scenario_type} params must be an object.")
-    if scenario_type == "pod_delete":
+    if scenario_type == "deployment_scale":
+        scale_deployment(params, dry_run=dry_run)
+    elif scenario_type == "pod_delete":
         delete_random_pod(params, dry_run=dry_run)
     elif scenario_type == "pod_crash":
         crash_random_pod(params, dry_run=dry_run)
