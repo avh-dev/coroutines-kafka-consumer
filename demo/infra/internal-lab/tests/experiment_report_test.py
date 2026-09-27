@@ -1667,6 +1667,7 @@ class ExperimentReportTest(unittest.TestCase):
             audit["audit"]["totals"].update({
                 "without_publish": {"processed": 1, "failed": 0, "dropped": 0},
                 "conflicting_terminal_outcomes": 2,
+                "dropped_by_reason": {"already_processed": 1},
             })
             audit["audit"]["topics"] = {
                 "order.events.v1": dict(audit["audit"]["totals"]),
@@ -1677,8 +1678,13 @@ class ExperimentReportTest(unittest.TestCase):
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("Terminal outcomes without publish", markdown)
             self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertIn("Replay dropped · already processed", markdown)
             self.assertIn('class="audit-anomaly">1</span>', markdown)
-            self.assertIn('class="audit-anomaly">2</span>', markdown)
+            self.assertNotIn(
+                'Replay dropped · already processed<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td><span class="champion">',
+                markdown,
+            )
             self.assertNotIn("FAIL ·", markdown)
 
     def test_report_omits_network_analysis_without_configured_capture_steps(self) -> None:

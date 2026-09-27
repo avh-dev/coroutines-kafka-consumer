@@ -4617,3 +4617,4 @@ Replace per-message retained Python objects with compact offset state while pres
 Spool full message keys into bounded disk shards for exact per-key ordering, and avoid per-line seek calls while reading plain audit files.
 Verification: 15 analyzer, 143 internal-lab, 43 shared orchestration, 32 AWS, and 38 result-bundle tests passed; a 7.8-million-record real audit matched its prior summary exactly with 43 MiB peak RSS.
 The preserved 96.7-million-record resilience audit completed in 23m17s with 341 MiB peak RSS instead of being OOM-killed above 10 GiB; its report, report ZIP, evidence bundle, and audit bundle were generated successfully.
+Reports show `already_processed` replay drops as a plain expected-behavior row and exclude them from anomalous terminal-outcome conflicts.
