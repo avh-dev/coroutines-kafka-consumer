@@ -394,6 +394,8 @@
 | [INFRA-230](#infra-230) | Fix Apache Kafka topic readiness parsing on Ubuntu `mawk`. | DONE |
 | [INFRA-231](#infra-231) | Retune 10k Spring partitions and CKC telemetry workers from the completed split-host measurements. | DONE |
 | [INFRA-232](#infra-232) | Compare one- and two-replica CKC capacity at 10k on same- and split-host placements. | DONE |
+| [INFRA-233](#infra-233) | Select free ports automatically when opening portable result bundles. | DONE |
+| [INFRA-234](#infra-234) | Preserve valid Loki JSONL while redacting portable result bundles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4573,3 +4575,23 @@ Record a repeatable single-thread CPU comparison of the controller and applicati
 Document the measured results and the resulting assumption that placement comparisons use computationally equivalent nodes.
 Treat inter-host network effects as part of the intended split topology rather than an uncontrolled CPU-capacity difference.
 Verification: the documented three-run means reproduce as 685.36 and 685.69 events/s, a 0.05% difference; Markdown whitespace validation passed.
+
+<a id="infra-233"></a>
+### INFRA-233 - Select restore ports automatically
+
+_Date: 2026-09-27_
+
+Probe the restore bind address and select the first available Grafana and Loki ports from their documented defaults.
+Keep explicit environment overrides strict so a requested occupied port fails instead of silently moving.
+Print the resolved dashboard URL and document concurrent bundle restore behavior for internal-lab and AWS evidence.
+Verification: 141 internal-lab, 32 AWS, and 36 result-bundle tests passed together with Bash, Python, Compose, and whitespace validation. Against the live lab's occupied port 3000, automatic selection returned 3001 while an explicit request failed with the expected diagnostic.
+
+<a id="infra-234"></a>
+### INFRA-234 - Preserve redacted Loki JSONL
+
+_Date: 2026-09-27_
+
+Parse exported Loki JSONL structurally before applying portable-path and secret redaction.
+Serialize every transformed record back to one valid JSON line and reject malformed source evidence with its file and line number.
+Re-export the latest completed experiment so its offline Grafana stack can import the preserved logs without repeating the workload.
+Verification: 141 internal-lab, 32 AWS, and 38 result-bundle tests passed. Structural redaction preserved all 4,987 Loki records across the four real target exports, the regenerated evidence archive restored successfully at ports 3002/3102, Grafana became ready, all 4,987 records imported, and quitting removed every restore container and listener.

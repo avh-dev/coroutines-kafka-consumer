@@ -26,6 +26,7 @@ RESTORE_FILES = {
     "import-grafana-annotations.py",
     "import-loki.py",
     "loki.yaml",
+    "select_port.py",
 }
 
 
@@ -37,6 +38,11 @@ def redact_value(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [redact_value(item) for item in value]
+    if isinstance(value, str):
+        return AWS_ACCESS_KEY.sub(
+            "<redacted-aws-access-key>",
+            TEXT_SECRET.sub(r"\1<redacted>", value),
+        )
     return value
 
 
@@ -53,6 +59,17 @@ def portable_value(value: Any, replacements: dict[str, str]) -> Any:
 
 def copy_evidence_file(source: Path, target: Path, replacements: dict[str, str] | None = None) -> None:
     replacements = replacements or {}
+    if source.suffix.lower() == ".jsonl":
+        with source.open(encoding="utf-8") as input_stream, target.open("w", encoding="utf-8") as output_stream:
+            for line_number, line in enumerate(input_stream, 1):
+                try:
+                    document = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"Invalid JSONL in {source} at line {line_number}: {error}") from error
+                transformed = portable_value(redact_value(document), replacements)
+                output_stream.write(json.dumps(transformed, sort_keys=True) + "\n")
+        shutil.copystat(source, target)
+        return
     if source.suffix.lower() == ".json":
         try:
             document = json.loads(source.read_text(encoding="utf-8"))
