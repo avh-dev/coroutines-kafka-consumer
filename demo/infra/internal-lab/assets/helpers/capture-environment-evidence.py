@@ -211,7 +211,8 @@ def resolved_hosts(
         ]).strip()
         if remote_name and re.fullmatch(r"[A-Za-z0-9._-]+", remote_name) and remote_name != controller:
             worker_names = [remote_name]
-            workloads["application"] = [remote_name]
+            if "application" not in workloads:
+                workloads["application"] = [remote_name]
     for worker in worker_names:
         hosts.append({
             "name": worker,

@@ -101,6 +101,7 @@
       "additionalProperties": false,
       "properties": {
         "replicas": {"type": "integer", "minimum": 1},
+        "placement": {"enum": ["controller", "worker"]},
         "resources": {"type": "object"},
         "hpa": {"type": "object"},
         "java_options": {"type": "string"}

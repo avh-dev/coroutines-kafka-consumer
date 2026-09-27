@@ -389,6 +389,11 @@
 | [INFRA-225](#infra-225) | Preserve and validate two-host hardware and link evidence in managed experiment reports. | DONE |
 | [INFRA-226](#infra-226) | Quiesce applications before bounded parallel, single-pass audit analysis and reporting. | DONE |
 | [INFRA-227](#infra-227) | Release measurement CPU policy early and optimize audit concurrency and bundle creation. | DONE |
+| [INFRA-228](#infra-228) | Support per-target application placement and compare single- versus two-host execution. | DONE |
+| [INFRA-229](#infra-229) | Make the experiment own Kafka runtime preparation and remove the standalone internal-lab test runner. | DONE |
+| [INFRA-230](#infra-230) | Fix Apache Kafka topic readiness parsing on Ubuntu `mawk`. | DONE |
+| [INFRA-231](#infra-231) | Retune 10k Spring partitions and CKC telemetry workers from the completed split-host measurements. | DONE |
+| [INFRA-232](#infra-232) | Compare one- and two-replica CKC capacity at 10k on same- and split-host placements. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -397,6 +402,7 @@
 | [DOC-4](#doc-4) | Refine the `ckc-micrometer` README wording around ConsumerMetrics, tag customization, filtering, and histograms. | DONE |
 | [DOC-5](#doc-5) | Remove the alternatives and related-projects section from the main README while OSS positioning is still being refined. | DONE |
 | [DOC-6](#doc-6) | Update the main README module list so it matches the current repository modules. | DONE |
+| [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 
 ## Task Details
 
@@ -4502,3 +4508,68 @@ Validate timing, memory use, and result equivalence against preserved real audit
 The analyzer now retains per-topic matching state only, derives aggregate totals from those results, and routes measurement-window records through the existing open/closed state instead of duplicate cohort sets.
 Audit bundles preserve already-compressed streams as concatenated `audit.log.gz` members and use fast outer compression, avoiding a full decompression and recompression cycle.
 Verification: 132 internal-lab, 32 AWS, 13 analyzer, and eight focused result-bundle tests passed. Three real 7.2-million-record audits completed concurrently in 2m09s at 279% CPU with identical full YAML results, a 2.3 GiB per-process peak, and about 5.7 GiB available memory at peak. The same full bundle finalized in 8.5s instead of roughly six minutes; its audit archive grew from 148 MiB to 206 MiB. Live acquire/release checks applied 2 GHz to both nodes and restored the controller to 4.1 GHz and worker to 2.1 GHz. Incremental installation rebuilt and redeployed nothing, and application workloads remain at zero replicas.
+
+<a id="infra-228"></a>
+### INFRA-228 - Per-target application placement comparison
+
+_Date: 2026-09-26_
+
+Allow an experiment target to place the application on the controller or the dedicated application worker while retaining the environment default.
+Persist the requested and actual placement for every target and group report topology diagrams by the resolved workload placement.
+Include the chosen placement in experiment-start and target-start notifications so detached runs remain unambiguous.
+Add an eight-minute 5,000 messages/s placement experiment with a two-minute warm-up, five-minute maximum stage, one-minute cool-down, and a three-minute measurement window beginning at minute four.
+Add an otherwise identical 10,000 messages/s variant to expose the placement-dependent capacity limit without changing the lab or target runtime settings.
+Run Spring and CKC on the controller first, followed by Spring and CKC on the worker, without changing the fixed lab configuration between targets.
+Verification: 137 internal-lab, 32 AWS, and 40 shared orchestration tests passed; the installed lab updated incrementally without rebuilding images or redeploying workloads.
+Fixed the preparation boundary to preserve the target-specific application selector when `prepare-test.sh` reloads the installed lab environment; controller and worker manifests were rendered and checked independently.
+The 10,000 messages/s variant resolves Spring to 49 / 23 / 164 partitions and pollers while retaining CKC's three partitions, one poller, and 500 workers per topic; validation, materialization, and all 40 shared orchestration tests passed, and the installed lab updated without rebuilding or redeploying images.
+Its four targets retain a 1 CPU request and 3 GiB memory limit but omit the CPU limit, allowing the capacity comparison to use all CPU available on each selected host without CFS quota throttling.
+The 10,000 messages/s experiment uses three one-core Kafka brokers, replication factor three, and minimum ISR two; CKC retains exactly three partitions per topic while Spring retains its capacity-planned partition counts.
+
+<a id="infra-229"></a>
+### INFRA-229 - Experiment-owned target preparation
+
+_Date: 2026-09-26_
+
+Prepare the fixed Kafka and Redis runtime once per experiment instead of invoking Docker Compose for every target.
+Keep target preparation limited to application teardown, state reset, topic recreation, readiness checks, and deployment.
+Replace continuous JVM-based Kafka health checks with lightweight liveness checks and explicit bounded quorum and ISR readiness validation.
+Remove the public standalone internal-lab test runner and keep target execution as an experiment-internal operation.
+Verification: 140 internal-lab, 40 shared orchestration, and 32 AWS tests passed; shell and Compose validation passed. The installed lab removed the public runner, installed the guarded internal target executor, and reports the lightweight Kafka health check as healthy without rebuilding application images.
+
+<a id="infra-230"></a>
+### INFRA-230 - Fix Kafka topic readiness parsing
+
+_Date: 2026-09-26_
+
+Make the Apache Kafka full-ISR readiness parser compatible with Ubuntu `mawk` and cover real Kafka topic-description output with an executable regression test.
+Keep the warm-up duration distinct from subsequent target topic preparation in failure diagnosis.
+Verification: all 141 internal-lab tests passed. The installed parser accepted the live 49-, 23-, and 164-partition topics at replication factor three, and the incremental lab update rebuilt and redeployed nothing.
+
+<a id="infra-231"></a>
+### INFRA-231 - Retune 10k target parallelism
+
+_Date: 2026-09-26_
+
+Round Spring topic partition and poller counts up to multiples of the three Kafka brokers using the measured split-host processing latency plus capacity headroom.
+Increase only the saturated CKC telemetry worker pool; retain the order and batch worker counts that sustained their full input rates.
+Verification: 141 internal-lab and 41 shared orchestration tests passed. Materialization produced Spring partition/poller counts of 84 / 57 / 321 and CKC worker counts of 500 / 500 / 900 for both placements. The completed experiment remained untouched; the subsequent incremental installation rebuilt and redeployed nothing.
+
+<a id="infra-232"></a>
+### INFRA-232 - CKC replica scaling at 10k
+
+_Date: 2026-09-26_
+
+Add a focused four-target experiment comparing one and two CKC replicas on the controller and application worker.
+Keep the three-broker Kafka lab, three partitions per topic, per-pod worker pools, load profile, and measurement window fixed so the result isolates process-level scaling.
+Verification: 141 internal-lab and 42 shared orchestration tests passed. All four targets materialized with replicas 1 / 2 / 1 / 2, three partitions and one poller per topic, and per-pod worker pools of 500 / 500 / 900. The experiment installed incrementally without rebuilding images or redeploying the base lab.
+
+<a id="doc-7"></a>
+### DOC-7 - Document internal-lab CPU equivalence
+
+_Date: 2026-09-27_
+
+Record a repeatable single-thread CPU comparison of the controller and application worker at the experiment's fixed 2 GHz policy.
+Document the measured results and the resulting assumption that placement comparisons use computationally equivalent nodes.
+Treat inter-host network effects as part of the intended split topology rather than an uncontrolled CPU-capacity difference.
+Verification: the documented three-run means reproduce as 685.36 and 685.69 events/s, a 0.05% difference; Markdown whitespace validation passed.

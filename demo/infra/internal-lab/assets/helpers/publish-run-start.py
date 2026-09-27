@@ -47,6 +47,7 @@ def target_started_payload(metadata: dict[str, Any]) -> dict[str, Any]:
         "index": experiment.get("target_index"),
         "total": experiment.get("target_total"),
         "profile": application.get("profile"),
+        "placement": application.get("placement_requested"),
         "replicas": application.get("replica_count"),
         "base_tps": load_test.get("base_tps"),
         "expected_duration_seconds": experiment.get("expected_duration_seconds"),

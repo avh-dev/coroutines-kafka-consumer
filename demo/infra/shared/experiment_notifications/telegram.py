@@ -77,6 +77,8 @@ def target_text(target: Any) -> str:
     details = []
     if target.get("profile"):
         details.append(str(target["profile"]))
+    if target.get("placement"):
+        details.append(f"placement {target['placement']}")
     if target.get("replicas") not in (None, ""):
         details.append(f"{target['replicas']} replica(s)")
     if target.get("base_tps") not in (None, ""):
@@ -123,6 +125,8 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         details = []
         if payload.get("profile"):
             details.append(str(payload["profile"]))
+        if payload.get("placement"):
+            details.append(f"placement {payload['placement']}")
         if payload.get("replicas") not in (None, ""):
             details.append(f"{payload['replicas']} replica(s)")
         if payload.get("base_tps") not in (None, ""):

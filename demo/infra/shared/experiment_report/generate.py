@@ -31,11 +31,22 @@ def write_report(report_dir: Path, report: Any) -> None:
         yaml.safe_dump(model, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    environment_svg = report_dir / "environment-topology.svg"
-    if report.environment:
-        environment_svg.write_text(environment_topology_svg(report), encoding="utf-8")
-    else:
-        environment_svg.unlink(missing_ok=True)
+    for stale in report_dir.glob("environment-topology*.svg"):
+        stale.unlink()
+    topologies = report.environment_topologies or (
+        [{"targets": [target.name for target in report.targets], "environment": report.environment}]
+        if report.environment else []
+    )
+    for index, topology in enumerate(topologies, start=1):
+        filename = "environment-topology.svg" if len(topologies) == 1 else f"environment-topology-{index}.svg"
+        (report_dir / filename).write_text(
+            environment_topology_svg(
+                report,
+                topology.get("environment"),
+                topology.get("targets"),
+            ),
+            encoding="utf-8",
+        )
     (report_dir / "stub-latency.svg").unlink(missing_ok=True)
     (report_dir / "load-profile.svg").write_text(load_profile_svg(report), encoding="utf-8")
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")

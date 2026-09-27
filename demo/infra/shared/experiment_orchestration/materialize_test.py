@@ -68,6 +68,7 @@ class MaterializeTest(unittest.TestCase):
             expected_spring["runtime"]["topics"][topic]["pollers"] = partitions
         self.assertEqual(expected_spring, candidate["targets"][0])
         self.assertNotIn("chaos", candidate["workload"])
+
         self.assertEqual(
             {
                 "implementation": "apache-kafka",
@@ -126,6 +127,71 @@ class MaterializeTest(unittest.TestCase):
 
                 self.assertEqual(2000, definition["load_test"]["base_tps"])
                 self.assertEqual(expected, actual)
+
+    def test_10k_placement_comparison_uses_balanced_spring_partitions_and_measured_ckc_workers(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/application-placement-10k-comparison.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        spring = candidate["targets"][0]["runtime"]["topics"]
+        ckc = candidate["targets"][1]["runtime"]["topics"]
+
+        for topic, partitions in {"order": 84, "batch": 57, "telemetry": 321}.items():
+            self.assertEqual(partitions, spring[topic]["partitions"])
+            self.assertEqual(partitions, spring[topic]["pollers"])
+            self.assertEqual(0, partitions % 3)
+        self.assertEqual(500, ckc["order"]["workers"])
+        self.assertEqual(500, ckc["batch"]["workers"])
+        self.assertEqual(900, ckc["telemetry"]["workers"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plans = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))[
+                    "deployment"
+                ]["run_plan"]["topics"]
+                for target in materialized
+            }
+
+        for name in ("spring-kafka.jdk.same-host", "spring-kafka.jdk.split-host"):
+            self.assertEqual([84, 57, 321], [topic["partitions"] for topic in plans[name]])
+            self.assertEqual([84, 57, 321], [topic["poll_loop_concurrency"] for topic in plans[name]])
+        for name in ("ckc.fixed.1.same-host", "ckc.fixed.1.split-host"):
+            self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plans[name]])
+
+    def test_materializes_ckc_replica_scaling_comparison_at_10k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-replica-scaling-10k-comparison.yaml"
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plans = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))[
+                    "deployment"
+                ]["run_plan"]
+                for target in materialized
+            }
+
+        self.assertEqual(
+            [
+                "ckc.fixed.1.same-host",
+                "ckc.fixed.2.same-host",
+                "ckc.fixed.1.split-host",
+                "ckc.fixed.2.split-host",
+            ],
+            list(plans),
+        )
+        self.assertEqual([1, 2, 1, 2], [plan["replica_count"] for plan in plans.values()])
+        for plan in plans.values():
+            self.assertEqual([3, 3, 3], [topic["partitions"] for topic in plan["topics"]])
+            self.assertEqual([1, 1, 1], [topic["poll_loop_concurrency"] for topic in plan["topics"]])
+            self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plan["topics"]])
 
     def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-2k-comparison.yaml"

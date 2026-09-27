@@ -2,6 +2,12 @@
 
 set -eu
 
+MODE="${1:-}"
+case "${MODE}" in
+  --ensure-runtime|--reset-target) ;;
+  *) echo "Usage: $0 --ensure-runtime|--reset-target" >&2; exit 2 ;;
+esac
+
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_ENV="${LAB_ROOT}/config/lab.env"
 TOPIC_SPECS="${TOPIC_SPECS:-order.events.v1:4,batch.events.v1:4,cauldron.events.v1:4}"
@@ -129,6 +135,64 @@ apache_kafka_topics() {
 
 apache_kafka_groups() {
   docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+}
+
+wait_for_kafka_ready() {
+  attempts=0
+  while [ "${attempts}" -lt 30 ]; do
+    attempts=$((attempts + 1))
+    if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+      if timeout 15 docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" cluster health >/dev/null 2>&1; then
+        return
+      fi
+    elif timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --list >/dev/null 2>&1; then
+      if [ "${LAB_KAFKA_TOPOLOGY}" != "cluster" ]; then
+        return
+      fi
+      broker_count="$(timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
+        /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" 2>/dev/null \
+        | grep -c 'isFenced: false' || true)"
+      if [ "${broker_count}" -eq "${LAB_KAFKA_BROKER_COUNT}" ]; then
+        return
+      fi
+    fi
+    sleep 2
+  done
+  echo "Kafka runtime did not become ready: implementation=${LAB_KAFKA_IMPLEMENTATION}, topology=${LAB_KAFKA_TOPOLOGY}, brokers=${LAB_KAFKA_BROKER_COUNT}." >&2
+  exit 1
+}
+
+wait_for_topic_ready() {
+  topic="$1"
+  expected_partitions="$2"
+  attempts=0
+  while [ "${attempts}" -lt 30 ]; do
+    attempts=$((attempts + 1))
+    if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+      if rpk topic describe "${topic}" -p 2>/dev/null | awk -v expected_partitions="${expected_partitions}" '
+        $1 ~ /^[0-9]+$/ {
+          partition_rows++
+          if ($2 == "-" || $2 == "-1") bad = 1
+        }
+        END { exit !(partition_rows == expected_partitions && !bad) }
+      '; then
+        return
+      fi
+      sleep 1
+      continue
+    fi
+    description="$(topic_description "${topic}" 2>/dev/null || true)"
+    if printf '%s\n' "${description}" | awk \
+      -v expected_partitions="${expected_partitions}" \
+      -v expected_replication="${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+      -f "${LAB_ROOT}/libexec/check-apache-topic-ready.awk"; then
+      return
+    fi
+    sleep 1
+  done
+  echo "Kafka topic did not reach full ISR: topic=${topic}, partitions=${expected_partitions}, replication=${KAFKA_TOPIC_REPLICATION_FACTOR}." >&2
+  exit 1
 }
 
 delete_group() {
@@ -293,44 +357,61 @@ warm_apache_kafka() {
 }
 
 KAFKA_RUNTIME_SIGNATURE_FILE="${LAB_ROOT}/state/kafka-runtime.signature"
-KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"
-KAFKA_RUNTIME_PREVIOUS="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
+if [ "${MODE}" = "--ensure-runtime" ]; then
+  KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"
+  KAFKA_RUNTIME_PREVIOUS="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
 
-if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
-  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
-else
-  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
-  if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+  if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
   else
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s redpanda >/dev/null 2>&1 || true
+    if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+      docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka >/dev/null 2>&1 || true
+    else
+      docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
+    fi
   fi
-fi
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
-LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
-LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
-  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
-  docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
-KAFKA_RUNTIME_AFTER="$(kafka_runtime_signature)"
-KAFKA_WARMUP_REASON=""
-if [ "${KAFKA_RUNTIME_BEFORE}" != "${KAFKA_RUNTIME_AFTER}" ]; then
-  KAFKA_WARMUP_REASON="Kafka broker containers were created or replaced"
-elif [ -n "${KAFKA_RUNTIME_PREVIOUS}" ] && [ "${KAFKA_RUNTIME_PREVIOUS}" != "${KAFKA_RUNTIME_AFTER}" ]; then
-  KAFKA_WARMUP_REASON="Kafka broker containers restarted since the previous target"
-fi
-if [ -n "${KAFKA_WARMUP_REASON}" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
-  if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
-    python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
-      --file "${EXPERIMENT_PROGRESS_FILE}" --step warming_kafka --label "warming Kafka" >/dev/null 2>&1 || true
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
+  LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
+  LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis
+  wait_for_kafka_ready
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
+  KAFKA_RUNTIME_AFTER="$(kafka_runtime_signature)"
+  KAFKA_WARMUP_REASON=""
+  if [ "${KAFKA_RUNTIME_BEFORE}" != "${KAFKA_RUNTIME_AFTER}" ]; then
+    KAFKA_WARMUP_REASON="Kafka broker containers were created or replaced"
+  elif [ -n "${KAFKA_RUNTIME_PREVIOUS}" ] && [ "${KAFKA_RUNTIME_PREVIOUS}" != "${KAFKA_RUNTIME_AFTER}" ]; then
+    KAFKA_WARMUP_REASON="Kafka broker containers restarted since the previous experiment"
   fi
-  warm_apache_kafka "${KAFKA_WARMUP_REASON}"
-  if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
-    python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
-      --file "${EXPERIMENT_PROGRESS_FILE}" --step preparing_target --label "preparing target" >/dev/null 2>&1 || true
+  if [ -n "${KAFKA_WARMUP_REASON}" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
+    if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+      python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+        --file "${EXPERIMENT_PROGRESS_FILE}" --step warming_kafka --label "warming Kafka" >/dev/null 2>&1 || true
+    fi
+    warm_apache_kafka "${KAFKA_WARMUP_REASON}"
+    if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+      python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+        --file "${EXPERIMENT_PROGRESS_FILE}" --step preparing_experiment --label "preparing experiment" >/dev/null 2>&1 || true
+    fi
   fi
+  record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"
+  echo "Kafka and Redis runtime is ready for the experiment."
+  exit 0
 fi
-record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"
+
+KAFKA_RUNTIME_EXPECTED="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
+KAFKA_RUNTIME_ACTUAL="$(kafka_runtime_signature)"
+if [ -z "${KAFKA_RUNTIME_EXPECTED}" ] || [ "${KAFKA_RUNTIME_EXPECTED}" != "${KAFKA_RUNTIME_ACTUAL}" ]; then
+  echo "Kafka runtime changed after experiment preparation; refusing to repair it between targets." >&2
+  echo "expected runtime:" >&2
+  printf '%s\n' "${KAFKA_RUNTIME_EXPECTED:-<missing>}" >&2
+  echo "actual runtime:" >&2
+  printf '%s\n' "${KAFKA_RUNTIME_ACTUAL}" >&2
+  exit 1
+fi
+wait_for_kafka_ready
 docker exec ckc-perf-redis redis-cli FLUSHALL
 
 IFS=","
@@ -349,6 +430,11 @@ for spec in ${TOPIC_SPECS}; do
   wait_topic_deleted "${topic}"
   partitions="${spec##*:}"
   create_topic "${topic}" "${partitions}"
+done
+for spec in ${TOPIC_SPECS}; do
+  topic="${spec%:*}"
+  partitions="${spec##*:}"
+  wait_for_topic_ready "${topic}" "${partitions}"
 done
 unset IFS
 

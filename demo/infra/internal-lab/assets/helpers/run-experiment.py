@@ -94,7 +94,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true", help="Run all experiment definitions sequentially.")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE", help="Global env override for all experiment targets.")
     parser.add_argument("--lab-root", default=lab_root)
-    parser.add_argument("--run-test", default=f"{lab_root}/bin/run-test.sh")
     parser.add_argument("--experiment-dir", default=f"{lab_root}/experiments")
     parser.add_argument("--result-dir", default=f"{lab_root}/results/experiments")
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:30090")
@@ -406,6 +405,19 @@ def application_override_args(application: dict[str, Any]) -> list[str]:
     return args
 
 
+def application_placement_environment(application: Any) -> dict[str, str]:
+    if application in (None, ""):
+        return {}
+    if not isinstance(application, dict):
+        raise ValueError("target.application must be an object")
+    placement = str(application.get("placement") or "").strip()
+    if not placement:
+        return {}
+    if placement not in {"controller", "worker"}:
+        raise ValueError("target.application.placement must be controller or worker")
+    return {"EXPERIMENT_APPLICATION_PLACEMENT": placement}
+
+
 def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
     targets = experiment.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -665,8 +677,8 @@ def notify_hook_path(lab_root: Path, configured: str) -> Path | None:
     return None
 
 
-def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
-    command = [str(run_test), "--skip-analysis"]
+def command_for_run(target_runner: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
+    command = [str(target_runner), "--skip-analysis"]
     if test.get("consumer_profiles_path"):
         command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
     if test.get("deployment_plan_path"):
@@ -709,8 +721,78 @@ def command_for_run(run_test: Path, test: dict[str, Any], test_definition: str, 
     return command
 
 
+def prepare_experiment_runtime(
+    lab_root: Path,
+    experiment_name: str,
+    experiment_env: dict[str, str],
+    log_file,
+    hook: Path | None,
+    log_dir: Path,
+) -> None:
+    global ACTIVE_TARGET_PROCESS
+    cleanup = quiesce_application(lab_root, timeout_seconds=30)
+    if cleanup.get("status") != "clean":
+        raise RuntimeError(
+            "Application workloads could not be stopped before preparing the experiment runtime: "
+            f"{cleanup.get('error') or cleanup.get('application_state')}"
+        )
+
+    command = [str(lab_root / "libexec/reset-kafka-redis.sh"), "--ensure-runtime"]
+    environment = {
+        **os.environ,
+        **experiment_env,
+        "LAB_ROOT": str(lab_root),
+        "EXPERIMENT_NAME": experiment_name,
+        "EXPERIMENT_PROGRESS_FILE": str(lab_root / "state/experiment/progress.json"),
+    }
+    if hook is not None:
+        environment.setdefault("CKC_NOTIFY_HOOK", str(hook))
+        environment.setdefault("CKC_NOTIFICATION_DIR", str(log_dir / "notifications"))
+
+    log_file.write("\n=== Preparing fixed experiment runtime ===\n")
+    log_file.write("command: " + " ".join(command) + "\n")
+    log_file.flush()
+    update_progress("preparing_experiment", "preparing Kafka and Redis runtime", target=None, details=None)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+        env=environment,
+        start_new_session=os.name == "posix",
+    )
+    ACTIVE_TARGET_PROCESS = process
+    output: queue.Queue[str] = queue.Queue()
+    reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
+    reader.start()
+    try:
+        while process.poll() is None or not output.empty():
+            while not output.empty():
+                line = output.get_nowait()
+                print(line, end="")
+                log_file.write(line)
+                log_file.flush()
+            if STOP_REQUESTED.is_set() and process.poll() is None:
+                request_graceful_stop(process)
+                force_stop_if_needed(process)
+                raise InterruptedError("experiment cancelled while preparing its runtime")
+            time.sleep(0.1)
+        reader.join(timeout=1)
+        while not output.empty():
+            line = output.get_nowait()
+            print(line, end="")
+            log_file.write(line)
+        log_file.flush()
+        if process.returncode != 0:
+            raise RuntimeError(f"Experiment runtime preparation failed with exit code {process.returncode}")
+    finally:
+        ACTIVE_TARGET_PROCESS = None
+
+
 def run_one(
-    run_test: Path,
+    target_runner: Path,
     lab_root: Path,
     defaults: dict[str, Any],
     global_env: dict[str, str],
@@ -729,6 +811,7 @@ def run_one(
     test_definition = str(test["test_definition"])
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
+    env.update(application_placement_environment(test.get("application")))
     for key in KAFKA_LAB_ENV_KEYS:
         if key in global_env:
             env[key] = global_env[key]
@@ -740,7 +823,7 @@ def run_one(
     if hook is not None:
         env.setdefault("CKC_NOTIFY_HOOK", str(hook))
         env.setdefault("CKC_NOTIFICATION_DIR", str(log_dir / "notifications"))
-    command = command_for_run(run_test, test, resolved_test_path, env)
+    command = command_for_run(target_runner, test, resolved_test_path, env)
     expected_seconds = test_expected_seconds(lab_root, resolved_test_path)
 
     before = run_dirs(lab_root)
@@ -763,6 +846,7 @@ def run_one(
         details=None,
     )
     env["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
+    env["CKC_EXPERIMENT_INTERNAL"] = "1"
     if expected_seconds is not None:
         env["EXPERIMENT_TARGET_EXPECTED_SECONDS"] = str(expected_seconds)
     process = subprocess.Popen(
@@ -973,7 +1057,7 @@ def analyze_one(
 
 def run_experiment(
     experiment_path: Path,
-    run_test: Path,
+    target_runner: Path,
     lab_root: Path,
     log_dir: Path,
     experiment_set_id: str,
@@ -1040,6 +1124,7 @@ def run_experiment(
             "name": target.get("name"),
             "profile": profile,
             "replicas": application.get("replicas", target.get("replicas")),
+            "placement": application.get("placement"),
             "base_tps": target_load.get("base_tps", base_tps),
             "duration_seconds": load_profile_seconds(str(target_load.get("load_profile") or "")),
         })
@@ -1070,6 +1155,14 @@ def run_experiment(
         description = experiment.get("description")
         if description:
             log_file.write(f"description: {description}\n")
+        prepare_experiment_runtime(
+            lab_root,
+            experiment_name,
+            experiment_env,
+            log_file,
+            hook,
+            log_dir,
+        )
         for index, target in enumerate(targets, start=1):
             resolved_target = resolved_experiment.targets[index - 1]
             materialized_target = materialized_targets[index - 1] if materialized_targets else None
@@ -1104,7 +1197,7 @@ def run_experiment(
                 }
             )
             result = run_one(
-                run_test,
+                target_runner,
                 lab_root,
                 defaults,
                 experiment_env,
@@ -1371,7 +1464,15 @@ def run_main() -> int:
             update_progress("preparing_experiment", "acquiring measurement CPU policy", target=None, details=None)
             change_performance_policy(lab_root, "acquire")
         FAILURE_NOTIFICATION_CONTEXT.pop("application_cleanup", None)
-        summary = run_experiment(experiment_path, Path(args.run_test), lab_root, log_dir, experiment_set_id, global_env, hook)
+        summary = run_experiment(
+            experiment_path,
+            lab_root / "libexec/run-target.sh",
+            lab_root,
+            log_dir,
+            experiment_set_id,
+            global_env,
+            hook,
+        )
         summaries.append(summary)
         if summary_interrupted(summary):
             break
