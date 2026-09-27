@@ -190,8 +190,12 @@ cd ckc-experiment-aws-smoke-20260905T0517Z
 ./run-grafana.sh
 ```
 
-Grafana binds to `127.0.0.1:3002` by default. The script stays attached; press
-`q` or `Ctrl-C` to stop and remove the local containers.
+Grafana starts at `127.0.0.1:3002` by default. If that port or restore Loki's
+default `3102` is occupied, the launcher selects the next available port and
+prints the resolved dashboard URL. Explicit `CKC_RESTORE_GRAFANA_PORT` and
+`CKC_RESTORE_LOKI_PORT` values remain strict and fail clearly when occupied.
+The script stays attached; press `q` or `Ctrl-C` to stop and remove the local
+containers.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are

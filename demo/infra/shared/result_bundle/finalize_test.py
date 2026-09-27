@@ -178,6 +178,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn(f"{identity}/restore/loki/kubernetes.jsonl", evidence_names)
             self.assertIn(f"{identity}/restore/victoriametrics-data.tar.gz", evidence_names)
             self.assertIn(f"{identity}/restore/_implementation/provisioning/dashboards/ckc.yml", evidence_names)
+            self.assertIn(f"{identity}/restore/_implementation/select_port.py", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/thread-stats/summary.json", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/tcpdump/steady/application/capture.pcap.gz", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/pcap-analysis/summary.json", evidence_names)

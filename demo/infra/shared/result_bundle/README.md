@@ -30,6 +30,14 @@ starts Grafana, Loki, and the matching Prometheus-compatible metrics engine, imp
 the dashboard URL, and remains attached. Press `q` or `Ctrl-C` to stop and
 remove the containers. Runtime files remain owned by the invoking user.
 
+The launcher starts with host ports `3002` for Grafana and `3102` for Loki. If
+either default is occupied, it selects the next available port and prints the
+resolved Grafana URL. This permits different extracted bundles to run at the
+same time; their Compose project names are derived from their bundle directory
+names. `CKC_RESTORE_GRAFANA_PORT` and `CKC_RESTORE_LOKI_PORT` remain strict
+overrides: when an explicitly requested port is occupied, startup fails with a
+clear error instead of choosing another port.
+
 Raw audit chunks are never duplicated into evidence. The independent audit
 archive has the same named root and contains `README.md`, a combined
 `summary.yaml`, and `runs/<run-id>/audit/`.

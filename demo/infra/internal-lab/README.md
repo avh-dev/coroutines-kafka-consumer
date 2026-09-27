@@ -333,9 +333,11 @@ cd ckc-experiment-smoke-repeat-20260905T0441Z
 ./run-grafana.sh
 ```
 
-Grafana is available at `http://127.0.0.1:3002`. Set
-`CKC_RESTORE_GRAFANA_PORT` to use another port. Press `q` or `Ctrl-C` to stop
-the stack.
+Grafana starts at `http://127.0.0.1:3002`. If that port or the restore Loki
+port `3102` is occupied, the launcher selects the next available port and
+prints the resolved dashboard URL. Set `CKC_RESTORE_GRAFANA_PORT` or
+`CKC_RESTORE_LOKI_PORT` to require a specific port; an occupied explicit port
+is reported as an error. Press `q` or `Ctrl-C` to stop the stack.
 
 ## Verification
 

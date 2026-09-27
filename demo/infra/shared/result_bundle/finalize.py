@@ -26,6 +26,7 @@ RESTORE_FILES = {
     "import-grafana-annotations.py",
     "import-loki.py",
     "loki.yaml",
+    "select_port.py",
 }
 
 

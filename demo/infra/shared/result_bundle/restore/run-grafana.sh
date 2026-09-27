@@ -5,13 +5,43 @@ BUNDLE_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RESTORE_DIR="${BUNDLE_DIR}/restore"
 IMPLEMENTATION_DIR="${RESTORE_DIR}/_implementation"
 WORK_DIR="${IMPLEMENTATION_DIR}/.runtime"
-GRAFANA_PORT="${CKC_RESTORE_GRAFANA_PORT:-3002}"
-LOKI_PORT="${CKC_RESTORE_LOKI_PORT:-3102}"
+BIND_ADDRESS="${CKC_RESTORE_BIND_ADDRESS:-127.0.0.1}"
+LOKI_BIND_ADDRESS="127.0.0.1"
+GRAFANA_PREFERRED_PORT="${CKC_RESTORE_GRAFANA_PORT:-3002}"
+LOKI_PREFERRED_PORT="${CKC_RESTORE_LOKI_PORT:-3102}"
 PROJECT="ckc-result-$(basename "${BUNDLE_DIR}" | tr '[:upper:]' '[:lower:]')"
 
 if [ ! -t 0 ]; then
   echo "run-grafana.sh requires an interactive terminal so it can wait for q or Ctrl-C" >&2
   exit 2
+fi
+
+GRAFANA_PORT_ARGS=(
+  --bind-address "${BIND_ADDRESS}"
+  --preferred-port "${GRAFANA_PREFERRED_PORT}"
+  --service Grafana
+)
+if [[ -v CKC_RESTORE_GRAFANA_PORT ]]; then
+  GRAFANA_PORT_ARGS+=(--explicit)
+fi
+GRAFANA_PORT="$(python3 "${IMPLEMENTATION_DIR}/select_port.py" "${GRAFANA_PORT_ARGS[@]}")"
+
+LOKI_PORT_ARGS=(
+  --bind-address "${LOKI_BIND_ADDRESS}"
+  --preferred-port "${LOKI_PREFERRED_PORT}"
+  --exclude-port "${GRAFANA_PORT}"
+  --service Loki
+)
+if [[ -v CKC_RESTORE_LOKI_PORT ]]; then
+  LOKI_PORT_ARGS+=(--explicit)
+fi
+LOKI_PORT="$(python3 "${IMPLEMENTATION_DIR}/select_port.py" "${LOKI_PORT_ARGS[@]}")"
+
+if [[ "${GRAFANA_PORT}" != "${GRAFANA_PREFERRED_PORT}" ]]; then
+  echo "Grafana port ${GRAFANA_PREFERRED_PORT} is occupied; using ${GRAFANA_PORT}."
+fi
+if [[ "${LOKI_PORT}" != "${LOKI_PREFERRED_PORT}" ]]; then
+  echo "Loki port ${LOKI_PREFERRED_PORT} is occupied; using ${LOKI_PORT}."
 fi
 
 cleanup() {
@@ -48,7 +78,7 @@ export CKC_RESTORE_DASHBOARD="${RESTORE_DIR}/dashboard/ckc-experiment.json"
 export CKC_RESTORE_WORK_DIR="${WORK_DIR}"
 export CKC_RESTORE_GRAFANA_PORT="${GRAFANA_PORT}"
 export CKC_RESTORE_LOKI_PORT="${LOKI_PORT}"
-export CKC_RESTORE_BIND_ADDRESS="${CKC_RESTORE_BIND_ADDRESS:-127.0.0.1}"
+export CKC_RESTORE_BIND_ADDRESS="${BIND_ADDRESS}"
 export CKC_RESTORE_UID="${CKC_RESTORE_UID:-$(id -u)}"
 export CKC_RESTORE_GID="${CKC_RESTORE_GID:-$(id -g)}"
 
@@ -86,7 +116,7 @@ if [ ! -f "${WORK_DIR}/.loki-imported" ]; then
 fi
 
 echo
-echo "Result dashboard: http://${CKC_RESTORE_BIND_ADDRESS}:${GRAFANA_PORT}/d/ckc-experiment/ckc-experiment"
+echo "Result dashboard: http://${BIND_ADDRESS}:${GRAFANA_PORT}/d/ckc-experiment/ckc-experiment"
 echo "Press q to stop the restored stack. Ctrl-C works too."
 while true; do
   if IFS= read -r -n 1 key && [ "${key}" = "q" ]; then
