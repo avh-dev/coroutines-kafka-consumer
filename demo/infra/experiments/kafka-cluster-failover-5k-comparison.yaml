@@ -1,6 +1,6 @@
 schema_version: 2
-name: kafka-cluster-failover-2k-comparison
-description: Compare CKC and Spring Kafka at 2k/s while individual brokers in a three-node KRaft cluster pause and crash.
+name: kafka-cluster-failover-5k-comparison
+description: Compare three-replica CKC and Spring Kafka deployments at 5k/s on the isolated application worker while individual brokers in a three-node KRaft cluster pause and crash.
 workload:
   stubs:
     error_rate_percent: 0
@@ -24,11 +24,11 @@ workload:
         p100: 5
   load:
     shards: 1
-    base_tps: 2000
+    base_tps: 5000
     producer_capacity_tps:
-      order: 2000
-      batch: 2000
-      telemetry: 2000
+      order: 5000
+      batch: 5000
+      telemetry: 5000
     load_profile: 0 -> (60s, warmup) -> 100 -> (480s, broker-failover) -> 100 -> (60s, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
@@ -93,19 +93,21 @@ workload:
         delivery: not_guaranteed
         ordering: not_guaranteed
 targets:
-- name: spring-kafka.jdk-cluster-failover
+- name: spring-kafka.jdk.3-cluster-failover
+  annotation_label: Spring Kafka · 3 pods · split host · broker failover
   implementation: spring-kafka
   application:
-    replicas: 1
+    placement: worker
+    replicas: 3
     resources:
       requests:
         cpu: '1'
         memory: 1Gi
       limits:
-        cpu: '4'
         memory: 3Gi
     hpa:
       enabled: false
+    java_options: -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
   runtime:
     env:
       PROCESSING_ENABLED: true
@@ -129,30 +131,34 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 24
-        pollers: 24
+        partitions: 60
+        pollers: 20
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 18
-        pollers: 18
+        partitions: 45
+        pollers: 15
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 75
-        pollers: 75
+        partitions: 189
+        pollers: 63
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-- name: ckc.fixed.1-cluster-failover
+- name: ckc.fixed.3-cluster-failover
+  annotation_label: CKC · 3 pods · split host · broker failover
   implementation: ckc
   application:
-    replicas: 1
+    placement: worker
+    replicas: 3
     resources:
       requests:
         cpu: '1'
         memory: 1Gi
       limits:
-        cpu: '4'
         memory: 3Gi
     hpa:
       enabled: false
+    java_options: >-
+      -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
+      -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
   runtime:
     env:
       PROCESSING_ENABLED: true
@@ -174,21 +180,26 @@ targets:
       batch_ms: 50
       telemetry_ms: 150
     parallelism:
+    - partitions
     - workers
+    - pollers
     topics:
       order:
         partitions: 3
         workers: 500
+        pollers: 1
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         partitions: 3
         workers: 500
+        pollers: 1
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
         partitions: 3
         workers: 500
+        pollers: 1
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
 environments:
   internal-lab:
