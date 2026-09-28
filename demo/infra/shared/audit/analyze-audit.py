@@ -6,12 +6,14 @@ import argparse
 import gzip
 import json
 import math
+import struct
 import sys
+import tempfile
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import NamedTuple, TextIO
+from typing import BinaryIO, Callable, NamedTuple, TextIO
 
 TOPIC_NAMES = {
     1: "order.events.v1",
@@ -23,6 +25,118 @@ class RecordKey(NamedTuple):
     topic_id: int
     partition: int
     offset: int
+
+
+PUBLISHED_FLAG = 1
+PROCESSED_FLAG = 2
+FAILED_FLAG = 4
+DROPPED_FLAG = 8
+TERMINAL_FLAGS = PROCESSED_FLAG | FAILED_FLAG | DROPPED_FLAG
+OFFSET_PAGE_SIZE = 1 << 16
+KEY_ORDER_HEADER = struct.Struct("<HHiqcI")
+
+
+class ClosedOffsetStore:
+    """Compact exact outcome flags indexed by topic-partition offset."""
+
+    def __init__(self) -> None:
+        self.pages: dict[tuple[int, int], bytearray] = {}
+
+    def get(self, key: RecordKey) -> int:
+        page = self.pages.get((key.partition, key.offset // OFFSET_PAGE_SIZE))
+        return page[key.offset % OFFSET_PAGE_SIZE] if page is not None else 0
+
+    def set(self, key: RecordKey, flags: int) -> None:
+        page_key = (key.partition, key.offset // OFFSET_PAGE_SIZE)
+        page = self.pages.get(page_key)
+        if page is None:
+            page = bytearray(OFFSET_PAGE_SIZE)
+            self.pages[page_key] = page
+        page[key.offset % OFFSET_PAGE_SIZE] = flags
+
+    def clear(self) -> None:
+        self.pages.clear()
+
+
+class ExactKeyOrderSpool:
+    """Keep exact key-order events on disk and reduce one bounded shard at a time."""
+
+    def __init__(self, shard_count: int = 64) -> None:
+        if shard_count <= 0 or shard_count & (shard_count - 1):
+            raise ValueError("key-order shard count must be a positive power of two")
+        self.shard_count = shard_count
+        self.directory = tempfile.TemporaryDirectory(prefix="ckc-audit-key-order-")
+        self.paths = [Path(self.directory.name) / f"{index:02d}.bin" for index in range(shard_count)]
+        self.files: dict[int, BinaryIO] = {}
+        self.targets: dict[tuple[int, int], ProcessingOrderStats] = {}
+        self.next_scope_id = 0
+        self.finished = False
+
+    def new_scope(self) -> int:
+        scope_id = self.next_scope_id
+        self.next_scope_id += 1
+        return scope_id
+
+    def bind(self, scope_id: int, topic_id: int, target: ProcessingOrderStats) -> None:
+        self.targets[(scope_id, topic_id)] = target
+
+    def add(self, scope_id: int, record: AuditRecord) -> None:
+        shard = hash((record.key.topic_id, record.key.partition, record.message_key)) & (self.shard_count - 1)
+        file = self.files.get(shard)
+        if file is None:
+            file = self.paths[shard].open("ab", buffering=64 * 1024)
+            self.files[shard] = file
+        key = record.message_key.encode("utf-8")
+        file.write(
+            KEY_ORDER_HEADER.pack(
+                scope_id,
+                record.key.topic_id,
+                record.key.partition,
+                record.key.offset,
+                b"C" if record.record_type == "C" else b"F",
+                len(key),
+            )
+            + key
+        )
+
+    def finish(self) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        for file in self.files.values():
+            file.close()
+        self.files.clear()
+        try:
+            for path in self.paths:
+                if path.is_file():
+                    self._reduce(path)
+        finally:
+            self.directory.cleanup()
+
+    def _reduce(self, path: Path) -> None:
+        last_offsets: dict[tuple[int, int, int, bytes], int] = {}
+        with path.open("rb", buffering=1024 * 1024) as file:
+            while True:
+                header = file.read(KEY_ORDER_HEADER.size)
+                if not header:
+                    break
+                if len(header) != KEY_ORDER_HEADER.size:
+                    raise ValueError(f"truncated key-order spool header: {path}")
+                scope_id, topic_id, partition, offset, record_type, key_size = KEY_ORDER_HEADER.unpack(header)
+                key_bytes = file.read(key_size)
+                if len(key_bytes) != key_size:
+                    raise ValueError(f"truncated key-order spool record: {path}")
+                group = (scope_id, topic_id, partition, key_bytes)
+                last = last_offsets.get(group)
+                if last is not None and offset < last:
+                    target = self.targets[(scope_id, topic_id)]
+                    target.out_of_order += 1
+                    if record_type == b"C":
+                        target.out_of_order_processed += 1
+                    else:
+                        target.out_of_order_failed += 1
+                elif last is None or offset > last:
+                    last_offsets[group] = offset
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,8 +670,12 @@ class AuditStats:
     failed_without_publish: int = 0
     dropped_without_publish: int = 0
     conflicting_terminal_outcomes: int = 0
+    replay_dropped_after_processed: int = 0
+    replay_dropped_after_processed_by_reason: dict[str, int] = field(default_factory=dict)
+    unexpected_terminal_outcomes: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
+    closed_offsets: ClosedOffsetStore = field(default_factory=ClosedOffsetStore)
     open_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
     recent_closed_expiry_queue: deque[tuple[int, RecordKey]] = field(default_factory=deque)
     partition_order: ProcessingOrderStats = field(default_factory=ProcessingOrderStats)
@@ -570,6 +688,7 @@ class AuditStats:
     e2e_latency_histogram: dict[int, int] = field(default_factory=dict)
     e2e_exceeded: int = 0
     e2e_invalid_negative: int = 0
+    key_order_collector: Callable[[AuditRecord], None] | None = None
 
     def __post_init__(self) -> None:
         self.latency_sla = {
@@ -605,6 +724,7 @@ class AuditStats:
         for key in list(self.open_by_key):
             self._evict_open_record(key)
         self.recent_closed_by_key.clear()
+        self.closed_offsets.clear()
         if self.key_fairness is not None:
             self.key_fairness.finish(self.watermark_ms)
 
@@ -613,6 +733,10 @@ class AuditStats:
         if not self._valid_key(record):
             return
 
+        closed_flags = self.closed_offsets.get(record.key)
+        if closed_flags:
+            self.duplicate_published += 1
+            return
         closed = self.recent_closed_by_key.get(record.key)
         if closed is not None:
             self.duplicate_published += 1
@@ -642,6 +766,10 @@ class AuditStats:
         if not self._valid_key(record):
             return
 
+        closed_flags = self.closed_offsets.get(record.key)
+        if closed_flags:
+            self._add_terminal_to_compact_closed(record, closed_flags)
+            return
         closed = self.recent_closed_by_key.get(record.key)
         if closed is not None:
             self._add_terminal_to_closed(record, closed)
@@ -654,6 +782,8 @@ class AuditStats:
 
         if record.record_type == "C":
             if state.processed is None:
+                if state.failed is not None or state.dropped is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.processed = record
                 state.processed_count = 1
                 self.processed_unique += 1
@@ -668,6 +798,8 @@ class AuditStats:
                 self.duplicate_processed += 1
         elif record.record_type == "F":
             if state.failed is None:
+                if state.processed is not None or state.dropped is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.failed = record
                 state.failed_count = 1
                 self.failed_unique += 1
@@ -679,6 +811,10 @@ class AuditStats:
                 self.duplicate_failed += 1
         else:
             if state.dropped is None:
+                if state.processed is not None:
+                    self._add_replay_drop(record)
+                elif state.failed is not None:
+                    self.unexpected_terminal_outcomes += 1
                 state.dropped = record
                 state.dropped_count = 1
                 self.dropped_unique += 1
@@ -710,6 +846,7 @@ class AuditStats:
                 self.processed_unique += 1
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    self.unexpected_terminal_outcomes += 1
         elif record.record_type == "F":
             if closed.failed_seen:
                 self.duplicate_failed += 1
@@ -719,6 +856,7 @@ class AuditStats:
                 self.failed_unique += 1
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    self.unexpected_terminal_outcomes += 1
         else:
             if closed.dropped_seen:
                 self.duplicate_dropped += 1
@@ -729,6 +867,40 @@ class AuditStats:
                 self._add_drop_reason(record)
                 if had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
+                    if closed.processed_seen:
+                        self._add_replay_drop(record)
+                    else:
+                        self.unexpected_terminal_outcomes += 1
+
+    def _add_terminal_to_compact_closed(self, record: AuditRecord, flags: int) -> None:
+        outcome_flag = {
+            "C": PROCESSED_FLAG,
+            "F": FAILED_FLAG,
+            "D": DROPPED_FLAG,
+        }[record.record_type]
+        if flags & outcome_flag:
+            if record.record_type == "C":
+                self.duplicate_processed += 1
+            elif record.record_type == "F":
+                self.duplicate_failed += 1
+            else:
+                self.duplicate_dropped += 1
+            return
+
+        if flags & TERMINAL_FLAGS:
+            self.conflicting_terminal_outcomes += 1
+            if record.record_type == "D" and flags & PROCESSED_FLAG:
+                self._add_replay_drop(record)
+            else:
+                self.unexpected_terminal_outcomes += 1
+        if record.record_type == "C":
+            self.processed_unique += 1
+        elif record.record_type == "F":
+            self.failed_unique += 1
+        else:
+            self.dropped_unique += 1
+            self._add_drop_reason(record)
+        self.closed_offsets.set(record.key, flags | outcome_flag)
 
     def _state(self, record: AuditRecord) -> RecordState:
         state = self.open_by_key.get(record.key)
@@ -745,11 +917,21 @@ class AuditStats:
                 self.terminal_unique += 1
                 if record.record_type in {"C", "F"}:
                     self.partition_order.add_partition_order(record)
-                    self.key_order.add_key_order(record)
+                    if self.key_order_collector is not None:
+                        self.key_order_collector(record)
+                    else:
+                        self.key_order.add_key_order(record)
 
     def _add_drop_reason(self, record: AuditRecord) -> None:
         reason = record.drop_reason or "unknown"
         self.dropped_by_reason[reason] = self.dropped_by_reason.get(reason, 0) + 1
+
+    def _add_replay_drop(self, record: AuditRecord) -> None:
+        reason = record.drop_reason or "unknown"
+        self.replay_dropped_after_processed += 1
+        self.replay_dropped_after_processed_by_reason[reason] = (
+            self.replay_dropped_after_processed_by_reason.get(reason, 0) + 1
+        )
 
     def _close_if_complete(self, key: RecordKey) -> None:
         state = self.open_by_key.get(key)
@@ -774,13 +956,22 @@ class AuditStats:
                     if latency.rule.applies_to(key.topic_id):
                         latency.add_latency(latency_ms)
         del self.open_by_key[key]
-        self.recent_closed_by_key[key] = ClosedRecordState(
-            closed_ms=state.last_seen_ms,
-            processed_seen=state.processed is not None,
-            failed_seen=state.failed is not None,
-            dropped_seen=state.dropped is not None,
-        )
-        if self.open_record_ttl_ms is not None:
+        if self.open_record_ttl_ms is None:
+            flags = PUBLISHED_FLAG
+            if state.processed is not None:
+                flags |= PROCESSED_FLAG
+            if state.failed is not None:
+                flags |= FAILED_FLAG
+            if state.dropped is not None:
+                flags |= DROPPED_FLAG
+            self.closed_offsets.set(key, flags)
+        else:
+            self.recent_closed_by_key[key] = ClosedRecordState(
+                closed_ms=state.last_seen_ms,
+                processed_seen=state.processed is not None,
+                failed_seen=state.failed is not None,
+                dropped_seen=state.dropped is not None,
+            )
             self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
     def _evict_expired(self, cutoff_ms: int) -> None:
@@ -819,10 +1010,22 @@ class AuditAccumulator:
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
         cohort_keys: set[RecordKey] | None = None,
+        key_order_spool: ExactKeyOrderSpool | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
         self.latency_sla_rules = latency_sla_rules
         self.latency_limits_ms = latency_limits_ms or {}
+        self.owns_key_order_spool = open_record_ttl_ms is None and key_order_spool is None
+        self.key_order_spool = (
+            key_order_spool or ExactKeyOrderSpool()
+            if open_record_ttl_ms is None
+            else None
+        )
+        self.key_order_scope = (
+            self.key_order_spool.new_scope()
+            if self.key_order_spool is not None
+            else None
+        )
         self.by_topic = {
             topic_id: self._new_topic_stats(topic_id)
             for topic_id in TOPIC_NAMES
@@ -843,12 +1046,18 @@ class AuditAccumulator:
     def finish(self) -> None:
         for stats in self.by_topic.values():
             stats.finish()
+        if self.owns_key_order_spool and self.key_order_spool is not None:
+            self.key_order_spool.finish()
 
     def contains_key(self, key: RecordKey) -> bool:
         stats = self.by_topic.get(key.topic_id)
         return bool(
             stats is not None
-            and (key in stats.open_by_key or key in stats.recent_closed_by_key)
+            and (
+                key in stats.open_by_key
+                or key in stats.recent_closed_by_key
+                or bool(stats.closed_offsets.get(key))
+            )
         )
 
     def state_for(self, key: RecordKey) -> RecordState | None:
@@ -856,7 +1065,7 @@ class AuditAccumulator:
         return stats.open_by_key.get(key) if stats is not None else None
 
     def _new_topic_stats(self, topic_id: int) -> AuditStats:
-        return AuditStats(
+        stats = AuditStats(
             open_record_ttl_ms=self.open_record_ttl_ms,
             latency_limit_ms=self.latency_limits_ms.get(topic_id),
             latency_sla_rules=tuple(
@@ -864,6 +1073,13 @@ class AuditAccumulator:
             ),
             key_fairness=KeyFairnessStats() if topic_id == 3 else None,
         )
+        if self.key_order_spool is not None and self.key_order_scope is not None:
+            self.key_order_spool.bind(self.key_order_scope, topic_id, stats.key_order)
+            stats.key_order_collector = lambda record, scope=self.key_order_scope: self.key_order_spool.add(
+                scope,
+                record,
+            )
+        return stats
 
 
 @dataclass(frozen=True, slots=True)
@@ -884,10 +1100,12 @@ class MultiWindowAuditAccumulator:
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
     ) -> None:
+        self.key_order_spool = ExactKeyOrderSpool() if open_record_ttl_ms is None else None
         self.complete = AuditAccumulator(
             open_record_ttl_ms=open_record_ttl_ms,
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
+            key_order_spool=self.key_order_spool,
         )
         self.windows = tuple(
             (
@@ -896,6 +1114,7 @@ class MultiWindowAuditAccumulator:
                     open_record_ttl_ms=open_record_ttl_ms,
                     latency_sla_rules=latency_sla_rules,
                     latency_limits_ms=latency_limits_ms,
+                    key_order_spool=self.key_order_spool,
                 ),
             )
             for window in windows
@@ -934,6 +1153,8 @@ class MultiWindowAuditAccumulator:
         self.complete.finish()
         for _, accumulator in self.windows:
             accumulator.finish()
+        if self.key_order_spool is not None:
+            self.key_order_spool.finish()
         self.pending_before_publish.clear()
 
 
@@ -1039,7 +1260,7 @@ def read_gzip_path(
         with gzip.GzipFile(fileobj=compressed, mode="rb") as file:
             for line in file:
                 count += add_line(line.decode("utf-8"), accumulator)
-                if total_bytes <= 0:
+                if total_bytes <= 0 or count % 8192:
                     continue
                 current_percent = min(100, int(compressed.tell() * 100 / total_bytes))
                 while current_percent >= next_progress_percent:
@@ -1071,14 +1292,15 @@ def read_plain_path(
     count = 0
     total_bytes = path.stat().st_size
     next_progress_percent = progress_step_percent
+    processed_bytes = 0
 
     with path.open("rb") as file:
         for line in file:
+            processed_bytes += len(line)
             count += add_line(line.decode("utf-8"), accumulator)
             if total_bytes <= 0:
                 continue
 
-            processed_bytes = file.tell()
             current_percent = min(100, int(processed_bytes * 100 / total_bytes))
             while current_percent >= next_progress_percent:
                 print_analysis_progress(
@@ -1200,6 +1422,9 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
                 "dropped": stats.dropped_without_publish,
             },
             "conflicting_terminal_outcomes": stats.conflicting_terminal_outcomes,
+            "replay_dropped_after_processed": stats.replay_dropped_after_processed,
+            "replay_dropped_after_processed_by_reason": stats.replay_dropped_after_processed_by_reason,
+            "unexpected_terminal_outcomes": stats.unexpected_terminal_outcomes,
             "ordering": {
                 "by_partition": ordering_summary(stats.partition_order),
                 "by_key": ordering_summary(stats.key_order),
@@ -1370,6 +1595,8 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "failed_without_publish",
         "dropped_without_publish",
         "conflicting_terminal_outcomes",
+        "replay_dropped_after_processed",
+        "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )
     for stats in accumulator.by_topic.values():
@@ -1377,6 +1604,10 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
             setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
         for reason, count in stats.dropped_by_reason.items():
             aggregate.dropped_by_reason[reason] = aggregate.dropped_by_reason.get(reason, 0) + count
+        for reason, count in stats.replay_dropped_after_processed_by_reason.items():
+            aggregate.replay_dropped_after_processed_by_reason[reason] = (
+                aggregate.replay_dropped_after_processed_by_reason.get(reason, 0) + count
+            )
         for latency_ms, count in stats.e2e_latency_histogram.items():
             aggregate.e2e_latency_histogram[latency_ms] = (
                 aggregate.e2e_latency_histogram.get(latency_ms, 0) + count

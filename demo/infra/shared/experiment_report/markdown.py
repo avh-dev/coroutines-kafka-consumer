@@ -345,6 +345,13 @@ def render_markdown(report: ExperimentReport) -> str:
     def formatted(values: list[float | None], digits: int, suffix: str) -> list[str]:
         return ["—" if value is None else f"{number(value, digits)}{suffix}" for value in values]
 
+    def plain_counts(values: list[Any]) -> list[str]:
+        return ["—" if value is None else number(int(value), 0) for value in values]
+
+    def optional_plain_count_row(label: str, values: list[Any]) -> None:
+        if any(int(value or 0) for value in values):
+            row(label, plain_counts(values), "audit")
+
     def dropped_share(data: dict[str, Any]) -> float | None:
         published = int(data.get("published") or 0)
         return 100 * int(data.get("dropped") or 0) / published if published else None
@@ -423,6 +430,28 @@ def render_markdown(report: ExperimentReport) -> str:
     def drop_reason(data: dict[str, Any], reason: str) -> int:
         reasons = data.get("dropped_by_reason")
         return int(reasons.get(reason) or 0) if isinstance(reasons, dict) else 0
+
+    def replay_drop_reason(data: dict[str, Any], reason: str) -> int:
+        reasons = data.get("replay_dropped_after_processed_by_reason")
+        if isinstance(reasons, dict):
+            return int(reasons.get(reason) or 0)
+        return drop_reason(data, reason) if reason == "already_processed" else 0
+
+    def freshness_replay_drops(data: dict[str, Any]) -> int:
+        total = data.get("replay_dropped_after_processed")
+        if total is None:
+            return 0
+        return max(0, int(total) - replay_drop_reason(data, "already_processed"))
+
+    def unexpected_terminal_conflicts(data: dict[str, Any]) -> int:
+        unexpected = data.get("unexpected_terminal_outcomes")
+        if unexpected is not None:
+            return int(unexpected)
+        return max(
+            0,
+            int(data.get("conflicting_terminal_outcomes") or 0)
+            - drop_reason(data, "already_processed"),
+        )
 
     def drop_reason_rows(data: list[dict[str, Any]]) -> None:
         if not any(int(value.get("dropped") or 0) for value in data):
@@ -982,13 +1011,21 @@ def render_markdown(report: ExperimentReport) -> str:
             counts([(delivery.get("duplicates") or {}).get("processed") for delivery in deliveries]),
             "audit",
         )
+        optional_plain_count_row(
+            "Replay dropped · already processed",
+            [replay_drop_reason(delivery, "already_processed") for delivery in deliveries],
+        )
+        optional_plain_count_row(
+            "Replay dropped · freshness policy",
+            [freshness_replay_drops(delivery) for delivery in deliveries],
+        )
         integrity_row(
             "Terminal outcomes without publish",
             [without_publish_count(delivery) for delivery in deliveries],
         )
         integrity_row(
             "Conflicting terminal outcomes",
-            [delivery.get("conflicting_terminal_outcomes") for delivery in deliveries],
+            [unexpected_terminal_conflicts(delivery) for delivery in deliveries],
         )
         row(
             "Per-key ordering violations",
@@ -1061,8 +1098,19 @@ def render_markdown(report: ExperimentReport) -> str:
             row("Failed processing", counts([value.get("failed") for value in values]), "audit")
             row("Lost messages", counts([value.get("missing_terminal") for value in values]), "audit")
             row("Processed duplicates", counts([(value.get("duplicates") or {}).get("processed") for value in values]), "audit")
+            optional_plain_count_row(
+                "Replay dropped · already processed",
+                [replay_drop_reason(value, "already_processed") for value in values],
+            )
+            optional_plain_count_row(
+                "Replay dropped · freshness policy",
+                [freshness_replay_drops(value) for value in values],
+            )
             integrity_row("Terminal outcomes without publish", [without_publish_count(value) for value in values])
-            integrity_row("Conflicting terminal outcomes", [value.get("conflicting_terminal_outcomes") for value in values])
+            integrity_row(
+                "Conflicting terminal outcomes",
+                [unexpected_terminal_conflicts(value) for value in values],
+            )
             if topic_contract(topic).get("ordering") == "per_key":
                 row("Per-key ordering violations", counts([key_order_value(value) for value in values]), "audit")
             for percentile in ("p50", "p95", "p99", "max"):

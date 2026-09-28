@@ -1546,6 +1546,10 @@ class ExperimentReportTest(unittest.TestCase):
             audit["audit"]["totals"].update({
                 "processed": 994,
                 "dropped": 6,
+                "conflicting_terminal_outcomes": 2,
+                "replay_dropped_after_processed": 2,
+                "replay_dropped_after_processed_by_reason": {"stale_age": 2},
+                "unexpected_terminal_outcomes": 0,
                 "dropped_by_reason": {
                     "replaced_by_newer_key_record": 3,
                     "stale_age": 2,
@@ -1580,6 +1584,13 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Replaced by newer record for key", markdown)
             self.assertIn("Dropped as stale", markdown)
             self.assertIn("New key rejected · queue full", markdown)
+            self.assertIn("Replay dropped · freshness policy", markdown)
+            self.assertNotIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn(
+                'Replay dropped · freshness policy<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td><span class="champion">',
+                markdown,
+            )
             self.assertIn("Successfully processed", markdown)
             self.assertIn("994 · 99.400% of published", markdown)
             self.assertIn("Published with on-time processed outcome", markdown)
@@ -1667,6 +1678,7 @@ class ExperimentReportTest(unittest.TestCase):
             audit["audit"]["totals"].update({
                 "without_publish": {"processed": 1, "failed": 0, "dropped": 0},
                 "conflicting_terminal_outcomes": 2,
+                "dropped_by_reason": {"already_processed": 1},
             })
             audit["audit"]["topics"] = {
                 "order.events.v1": dict(audit["audit"]["totals"]),
@@ -1677,8 +1689,13 @@ class ExperimentReportTest(unittest.TestCase):
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("Terminal outcomes without publish", markdown)
             self.assertIn("Conflicting terminal outcomes", markdown)
+            self.assertIn("Replay dropped · already processed", markdown)
             self.assertIn('class="audit-anomaly">1</span>', markdown)
-            self.assertIn('class="audit-anomaly">2</span>', markdown)
+            self.assertNotIn(
+                'Replay dropped · already processed<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td><span class="champion">',
+                markdown,
+            )
             self.assertNotIn("FAIL ·", markdown)
 
     def test_report_omits_network_analysis_without_configured_capture_steps(self) -> None:
