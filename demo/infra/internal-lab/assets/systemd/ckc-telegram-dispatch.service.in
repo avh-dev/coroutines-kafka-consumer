@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispatch queued CKC Telegram notifications
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=LAB_ROOT=@LAB_ROOT@
+ExecStart=@LAB_ROOT@/notify/notify.sh --drain
+StandardOutput=append:@LAB_ROOT@/logs/telegram-notifications.log
+StandardError=append:@LAB_ROOT@/logs/telegram-notifications.log

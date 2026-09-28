@@ -11,4 +11,10 @@ fi
 
 # shellcheck disable=SC1090
 source "${TELEGRAM_ENV}"
-exec "${LAB_ROOT}/notify/notify-telegram.py" "$@"
+
+if [[ "${1:-}" == "--drain" ]]; then
+  exec "${LAB_ROOT}/notify/notify-telegram.py" drain
+fi
+
+"${LAB_ROOT}/notify/notify-telegram.py" enqueue "$@"
+systemctl --user start --no-block ckc-telegram-dispatch.service >/dev/null 2>&1 || true

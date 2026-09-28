@@ -401,6 +401,7 @@
 | [INFRA-237](#infra-237) | Make workload-diagram chaos labels describe the affected component, action, and parameters. | DONE |
 | [INFRA-238](#infra-238) | Reduce Telegram experiment notification noise and identify the actual environment topology. | DONE |
 | [INFRA-239](#infra-239) | Retune the three-broker Kafka failover comparison for 5k on the split-host lab. | DONE |
+| [INFRA-240](#infra-240) | Persist and retry internal-lab Telegram notifications across temporary network failures. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4654,3 +4655,14 @@ Keep Spring Kafka partition counts divisible by the three brokers while preservi
 Use per-pod Spring poller counts whose three-replica totals match the topic partitions, while CKC assigns one three-partition poll loop to each replica.
 Permit the next target to accept and warm a broker restart caused by declared Kafka crash chaos, while still rejecting container replacement, missing containers, or brokers that did not recover.
 Verification: 148 internal-lab, 43 shared orchestration, and 12 chaos tests passed; canonical validation and installed-lab inspection confirmed 5k, worker placement, three replicas, broker-aligned partitions, planned-restart recovery, and removal of the superseded 2k definition without rebuilding or redeploying workloads.
+
+<a id="infra-240"></a>
+### INFRA-240 - Add a durable Telegram notification outbox
+
+_Date: 2026-09-28_
+
+Persist internal-lab Telegram lifecycle notifications before attempting delivery.
+Retry queued messages in order after temporary DNS or network failures without blocking experiment execution.
+Retain failed messages across experiment completion and host restarts while keeping successful delivery cleanup bounded.
+Quarantine permanent Telegram 4xx responses so invalid messages cannot block later lifecycle events.
+Verification: all 152 internal-lab tests passed; the installed `ckc-telegram-dispatch.timer` is enabled and active with an empty pending queue, without rebuilding images or redeploying workloads.
