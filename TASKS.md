@@ -4652,4 +4652,5 @@ Return the Kafka broker failover comparison to 5,000 messages/s on the split-hos
 Place three replicas of each application target on the isolated application worker and remove application CPU quotas.
 Keep Spring Kafka partition counts divisible by the three brokers while preserving the focused broker pause and crash sequence.
 Use per-pod Spring poller counts whose three-replica totals match the topic partitions, while CKC assigns one three-partition poll loop to each replica.
-Verification: 146 internal-lab, 43 shared orchestration, and 12 chaos tests passed; canonical validation and installed-lab inspection confirmed 5k, worker placement, three replicas, broker-aligned partitions, and removal of the superseded 2k definition without rebuilding or redeploying workloads.
+Permit the next target to accept and warm a broker restart caused by declared Kafka crash chaos, while still rejecting container replacement, missing containers, or brokers that did not recover.
+Verification: 148 internal-lab, 43 shared orchestration, and 12 chaos tests passed; canonical validation and installed-lab inspection confirmed 5k, worker placement, three replicas, broker-aligned partitions, planned-restart recovery, and removal of the superseded 2k definition without rebuilding or redeploying workloads.

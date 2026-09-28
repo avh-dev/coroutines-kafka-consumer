@@ -63,6 +63,7 @@ KAFKA_LAB_ENV_KEYS = {
     "LAB_KAFKA_MEMORY_PER_BROKER",
     "LAB_KAFKA_HEAP_PER_BROKER",
 }
+KAFKA_CHAOS_RESTART_ENV = "CKC_ALLOW_KAFKA_CHAOS_RESTART"
 STOP_REQUESTED = threading.Event()
 FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
 PROGRESS_WRITER: ProgressWriter | None = None
@@ -143,6 +144,18 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "LAB_KAFKA_HEAP_PER_BROKER": str(resources["heap_per_broker"]),
     }
     return kafka, environment
+
+
+def target_restarts_kafka(definition: dict[str, Any]) -> bool:
+    chaos_steps = definition.get("chaos_steps") or []
+    if not isinstance(chaos_steps, list):
+        return False
+    return any(
+        isinstance(step, dict)
+        and step.get("target") == "kafka"
+        and step.get("type") in {"service_crash", "service_restart"}
+        for step in chaos_steps
+    )
 
 
 def internal_lab_notification_environment(lab_root: Path) -> dict[str, str]:
@@ -825,6 +838,9 @@ def run_one(
     test_definition = str(test["test_definition"])
     resolved_test_path = str(test["resolved_test_path"])
     env = merge_env(defaults, global_env, test)
+    env.pop(KAFKA_CHAOS_RESTART_ENV, None)
+    if global_env.get(KAFKA_CHAOS_RESTART_ENV) == "true":
+        env[KAFKA_CHAOS_RESTART_ENV] = "true"
     env.update(application_placement_environment(test.get("application")))
     for key in KAFKA_LAB_ENV_KEYS:
         if key in global_env:
@@ -1177,6 +1193,7 @@ def run_experiment(
             hook,
             log_dir,
         )
+        kafka_restart_expected = False
         for index, target in enumerate(targets, start=1):
             resolved_target = resolved_experiment.targets[index - 1]
             materialized_target = materialized_targets[index - 1] if materialized_targets else None
@@ -1210,11 +1227,15 @@ def run_experiment(
                     } if materialized_target else {}),
                 }
             )
+            target_experiment_env = dict(experiment_env)
+            target_experiment_env.pop(KAFKA_CHAOS_RESTART_ENV, None)
+            if kafka_restart_expected:
+                target_experiment_env[KAFKA_CHAOS_RESTART_ENV] = "true"
             result = run_one(
                 target_runner,
                 lab_root,
                 defaults,
-                experiment_env,
+                target_experiment_env,
                 target_run,
                 index,
                 len(targets),
@@ -1231,6 +1252,7 @@ def run_experiment(
                     f"Experiment target {result['name']!r} failed during preparation with "
                     f"exit code {result['exit_code']}; remaining targets were not started"
                 )
+            kafka_restart_expected = target_restarts_kafka(target_definition)
 
         runs_exit_code = next((target["exit_code"] for target in results if target["exit_code"] != 0), 0)
         auditable_runs = [
