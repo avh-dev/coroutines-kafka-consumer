@@ -275,14 +275,14 @@ class MaterializeTest(unittest.TestCase):
         load = candidate["workload"]["load"]
         self.assertEqual(5000, load["base_tps"])
         self.assertEqual(
-            "0 -> (3m, warmup) -> 100 -> (3h55m, replica-churn) -> 100 -> (2m, cool-down) -> 0",
+            "0 -> (3m, warmup) -> 100 -> (235m, replica-churn) -> 100 -> (2m, cool-down) -> 0",
             load["load_profile"],
         )
         self.assertEqual(
-            {"name": "replica-churn", "start": "3m", "duration": "3h55m"},
+            {"name": "replica-churn", "start": "3m", "duration": "235m"},
             candidate["workload"]["measurement_window"],
         )
-        self.assertEqual("3h55m", candidate["workload"]["chaos"][0]["duration"])
+        self.assertEqual("235m", candidate["workload"]["chaos"][0]["duration"])
         self.assertEqual(
             [
                 {"type": "deployment_scale", "params": {"replicas": 3}},

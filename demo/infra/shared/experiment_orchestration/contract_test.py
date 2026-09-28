@@ -196,6 +196,19 @@ class CanonicalExperimentContractTest(unittest.TestCase):
                 capabilities={"internal-lab": {"chaos.sequence"}},
             )
 
+    def test_rejects_load_profile_duration_unsupported_by_load_generator(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["load"]["load_profile"] = (
+            "0 -> (3m, warmup) -> 100 -> (3h55m, steady) -> 100"
+        )
+
+        with self.assertRaisesRegex(ValueError, "expected '\\(200s, optional label\\)'"):
+            validate_canonical_experiment(
+                experiment,
+                self.source,
+                environment="internal-lab",
+            )
+
     def test_rejects_legacy_indirection_in_canonical_document(self) -> None:
         experiment = canonical_experiment()
         experiment["test_definition"] = "smoke"

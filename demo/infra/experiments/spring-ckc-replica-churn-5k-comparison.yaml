@@ -29,7 +29,7 @@ workload:
       order: 5000
       batch: 5000
       telemetry: 5000
-    load_profile: 0 -> (3m, warmup) -> 100 -> (3h55m, replica-churn) -> 100 -> (2m, cool-down) -> 0
+    load_profile: 0 -> (3m, warmup) -> 100 -> (235m, replica-churn) -> 100 -> (2m, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -55,10 +55,10 @@ workload:
   measurement_window:
     name: replica-churn
     start: 3m
-    duration: 3h55m
+    duration: 235m
   chaos:
   - at: 3m
-    duration: 3h55m
+    duration: 235m
     type: sequence
     name: replica-churn
     steps:
