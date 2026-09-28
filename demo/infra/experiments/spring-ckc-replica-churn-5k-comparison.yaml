@@ -1,6 +1,6 @@
 schema_version: 2
 name: spring-ckc-replica-churn-5k-comparison
-description: Compare Spring Kafka and CKC at 5k/s while a two-replica split-host deployment repeatedly scales to three replicas and back to two for ten minutes.
+description: Compare Spring Kafka and CKC at 5k/s over two four-hour endurance targets while a two-replica split-host deployment repeatedly scales to three replicas and back to two.
 workload:
   stubs:
     error_rate_percent: 0
@@ -29,7 +29,7 @@ workload:
       order: 5000
       batch: 5000
       telemetry: 5000
-    load_profile: 0 -> (3m, warmup) -> 100 -> (10m, replica-churn) -> 100 -> (2m, cool-down) -> 0
+    load_profile: 0 -> (3m, warmup) -> 100 -> (3h55m, replica-churn) -> 100 -> (2m, cool-down) -> 0
     cauldron_count: 32
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -55,10 +55,10 @@ workload:
   measurement_window:
     name: replica-churn
     start: 3m
-    duration: 10m
+    duration: 3h55m
   chaos:
   - at: 3m
-    duration: 10m
+    duration: 3h55m
     type: sequence
     name: replica-churn
     steps:
@@ -114,7 +114,7 @@ targets:
   runtime:
     env:
       PROCESSING_ENABLED: true
-      AUDIT_LOG_ENABLED: true
+      AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
       MODEL_SYNC_HTTP_CLIENT: JDK
@@ -165,7 +165,7 @@ targets:
   runtime:
     env:
       PROCESSING_ENABLED: true
-      AUDIT_LOG_ENABLED: true
+      AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
       MODEL_SYNC_HTTP_CLIENT: ARMERIA

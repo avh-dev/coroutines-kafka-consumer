@@ -275,13 +275,14 @@ class MaterializeTest(unittest.TestCase):
         load = candidate["workload"]["load"]
         self.assertEqual(5000, load["base_tps"])
         self.assertEqual(
-            "0 -> (3m, warmup) -> 100 -> (10m, replica-churn) -> 100 -> (2m, cool-down) -> 0",
+            "0 -> (3m, warmup) -> 100 -> (3h55m, replica-churn) -> 100 -> (2m, cool-down) -> 0",
             load["load_profile"],
         )
         self.assertEqual(
-            {"name": "replica-churn", "start": "3m", "duration": "10m"},
+            {"name": "replica-churn", "start": "3m", "duration": "3h55m"},
             candidate["workload"]["measurement_window"],
         )
+        self.assertEqual("3h55m", candidate["workload"]["chaos"][0]["duration"])
         self.assertEqual(
             [
                 {"type": "deployment_scale", "params": {"replicas": 3}},
@@ -314,6 +315,13 @@ class MaterializeTest(unittest.TestCase):
             self.assertEqual("worker", application["placement"])
             self.assertEqual("1500m", application["resources"]["requests"]["cpu"])
             self.assertNotIn("cpu", application["resources"]["limits"])
+        self.assertEqual(
+            {False},
+            {
+                target.target.definition["env"]["AUDIT_LOG_ENABLED"]
+                for target in materialized
+            },
+        )
 
     def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
