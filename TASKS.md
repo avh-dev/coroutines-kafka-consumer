@@ -4677,4 +4677,5 @@ Compose existing chaos actions and explicit delays into a sequential cycle that 
 Estimate the next full cycle from completed-cycle durations and stop before the remaining window is too short.
 Preserve detailed iteration events while presenting the repeated sequence compactly in experiment reports.
 Ensure interrupted or failed sequences recover active duration-based actions before the executor exits.
-Verification: 157 internal-lab, 28 focused shared orchestration/materialization, and 32 AWS tests passed; the installed lab assets compile as `ckc-lab`, and an installed dry run confirmed that replica churn and an independent pod crash execute concurrently without rebuilding or redeploying workloads.
+Add a 5k Spring Kafka versus CKC acceptance experiment with two-to-three-to-two replica churn across a ten-minute measurement window on the split application host.
+Verification: 159 internal-lab, 27 focused shared orchestration/materialization, and 32 AWS tests passed; the installed lab is synchronized without rebuilding images or redeploying workloads, and the six-CPU worker can schedule the experiment's 4.5-CPU peak request with headroom.
