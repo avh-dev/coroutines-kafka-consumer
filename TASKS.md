@@ -400,6 +400,7 @@
 | [INFRA-236](#infra-236) | Bound exact audit-analysis memory and recover the two-hour resilience report. | DONE |
 | [INFRA-237](#infra-237) | Make workload-diagram chaos labels describe the affected component, action, and parameters. | DONE |
 | [INFRA-238](#infra-238) | Reduce Telegram experiment notification noise and identify the actual environment topology. | DONE |
+| [INFRA-239](#infra-239) | Retune the three-broker Kafka failover comparison for 5k on the split-host lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4641,3 +4642,15 @@ Keep target-start messages focused on target identity, profile, placement, repli
 Describe the configured internal-lab host topology rather than reporting only the controller hostname.
 Retain per-target rate or duration details only when a target genuinely overrides the common workload, and use natural singular/plural component counts.
 Verification: 146 internal-lab, 32 AWS, and 2 shared notification tests passed; the installed split-host lab matches the repository notification sources without rebuilding images or redeploying workloads.
+
+<a id="infra-239"></a>
+### INFRA-239 - Retune Kafka failover comparison for 5k
+
+_Date: 2026-09-28_
+
+Return the Kafka broker failover comparison to 5,000 messages/s on the split-host internal lab.
+Place three replicas of each application target on the isolated application worker and remove application CPU quotas.
+Keep Spring Kafka partition counts divisible by the three brokers while preserving the focused broker pause and crash sequence.
+Use per-pod Spring poller counts whose three-replica totals match the topic partitions, while CKC assigns one three-partition poll loop to each replica.
+Permit the next target to accept and warm a broker restart caused by declared Kafka crash chaos, while still rejecting container replacement, missing containers, or brokers that did not recover.
+Verification: 148 internal-lab, 43 shared orchestration, and 12 chaos tests passed; canonical validation and installed-lab inspection confirmed 5k, worker placement, three replicas, broker-aligned partitions, planned-restart recovery, and removal of the superseded 2k definition without rebuilding or redeploying workloads.

@@ -193,8 +193,8 @@ class MaterializeTest(unittest.TestCase):
             self.assertEqual([1, 1, 1], [topic["poll_loop_concurrency"] for topic in plan["topics"]])
             self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plan["topics"]])
 
-    def test_materializes_broker_aligned_failover_comparison_at_shared_2k(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-2k-comparison.yaml"
+    def test_materializes_broker_aligned_split_host_failover_comparison_at_5k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-5k-comparison.yaml"
         with tempfile.TemporaryDirectory() as directory:
             experiment = resolve_experiment_definition(source, environment="internal-lab")
             materialized = materialize_experiment(
@@ -206,22 +206,48 @@ class MaterializeTest(unittest.TestCase):
                 target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
                 for target in materialized
             }
+            deployment_plans = {
+                target.target.name: yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
 
         self.assertEqual(
-            ["spring-kafka.jdk-cluster-failover", "ckc.fixed.1-cluster-failover"],
+            ["spring-kafka.jdk.3-cluster-failover", "ckc.fixed.3-cluster-failover"],
             [target.target.name for target in materialized],
         )
         self.assertEqual(
-            {2000},
+            {5000},
             {definition["load_test"]["base_tps"] for definition in definitions.values()},
         )
         partitions = {
             name: [topic["partitions"] for topic in definition["deployment"]["run_plan"]["topics"]]
             for name, definition in definitions.items()
         }
-        self.assertEqual([3, 3, 3], partitions["ckc.fixed.1-cluster-failover"])
-        self.assertEqual([24, 18, 75], partitions["spring-kafka.jdk-cluster-failover"])
+        self.assertEqual([3, 3, 3], partitions["ckc.fixed.3-cluster-failover"])
+        self.assertEqual([60, 45, 189], partitions["spring-kafka.jdk.3-cluster-failover"])
         self.assertTrue(all(value % 3 == 0 for values in partitions.values() for value in values))
+        plans = {
+            name: definition["deployment"]["run_plan"]
+            for name, definition in definitions.items()
+        }
+        self.assertEqual({3}, {plan["replica_count"] for plan in plans.values()})
+        self.assertEqual(
+            {"worker"},
+            {
+                plan["application"]["configuration"]["placement"]
+                for plan in deployment_plans.values()
+            },
+        )
+        self.assertEqual(
+            [20, 15, 63],
+            [topic["poll_loop_concurrency"] for topic in plans["spring-kafka.jdk.3-cluster-failover"]["topics"]],
+        )
+        self.assertEqual(
+            [1, 1, 1],
+            [topic["poll_loop_concurrency"] for topic in plans["ckc.fixed.3-cluster-failover"]["topics"]],
+        )
+        for plan in deployment_plans.values():
+            self.assertNotIn("cpu", plan["application"]["configuration"]["resources"]["limits"])
 
     def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"

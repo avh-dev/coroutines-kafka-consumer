@@ -22,6 +22,16 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
         guarded = 'if [ -n "${KAFKA_WARMUP_REASON}" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then'
         self.assertIn(guarded, script)
         self.assertEqual(1, script.count('warm_apache_kafka "${KAFKA_WARMUP_REASON}"'))
+        self.assertIn('CKC_ALLOW_KAFKA_CHAOS_RESTART:-false', script)
+        self.assertIn('warm_apache_kafka "Kafka broker restarted during the previous target chaos"', script)
+
+    def test_planned_restart_acceptance_preserves_broker_identity_check(self) -> None:
+        script = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
+
+        self.assertIn("kafka_runtime_identity()", script)
+        self.assertIn('"${KAFKA_RUNTIME_EXPECTED_IDENTITY}" = "${KAFKA_RUNTIME_ACTUAL_IDENTITY}"', script)
+        self.assertIn('record_kafka_runtime_signature "${KAFKA_RUNTIME_ACTUAL}"', script)
+        self.assertIn("refusing to repair it between targets", script)
 
     def test_runner_propagates_notification_hook_to_warmup(self) -> None:
         runner = (ROOT / "assets/helpers/run-experiment.py").read_text(encoding="utf-8")

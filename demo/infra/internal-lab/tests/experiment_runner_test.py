@@ -383,6 +383,9 @@ class ExperimentRunnerTest(unittest.TestCase):
                 "resources": {"cpu_per_broker": 0.5, "memory_per_broker": "1536Mi", "heap_per_broker": "1Gi"},
             }}}}
             source["workload"]["load"].update({"base_tps": 1000, "workers": 4})
+            source["workload"]["chaos"] = [
+                {"at": "30s", "duration": "10s", "type": "service_crash", "target": "kafka"}
+            ]
             baseline = copy.deepcopy(source["targets"][0])
             baseline["name"] = "baseline"
             ckc = copy.deepcopy(baseline)
@@ -430,6 +433,8 @@ class ExperimentRunnerTest(unittest.TestCase):
             self.assertEqual("cluster", prepare_runtime.call_args.args[2]["LAB_KAFKA_TOPOLOGY"])
             self.assertEqual("3", prepare_runtime.call_args.args[2]["LAB_KAFKA_BROKER_COUNT"])
             self.assertEqual(["cluster", "cluster"], [env["LAB_KAFKA_TOPOLOGY"] for env in global_envs])
+            self.assertNotIn("CKC_ALLOW_KAFKA_CHAOS_RESTART", global_envs[0])
+            self.assertEqual("true", global_envs[1]["CKC_ALLOW_KAFKA_CHAOS_RESTART"])
             self.assertEqual(["2", "2"], [env["LAB_KAFKA_REPLICATION_FACTOR"] for env in global_envs])
             self.assertEqual(["0.5", "0.5"], [env["LAB_KAFKA_CPU_PER_BROKER"] for env in global_envs])
             self.assertEqual("cluster", summary["kafka_topology"])
@@ -446,6 +451,20 @@ class ExperimentRunnerTest(unittest.TestCase):
             events = [call.args[1] for call in notify.call_args_list]
             self.assertIn("measurements_finished", events)
             self.assertNotIn("experiment_finished", events)
+
+    def test_only_kafka_restart_chaos_authorizes_runtime_timestamp_change(self) -> None:
+        self.assertTrue(RUNNER.target_restarts_kafka({
+            "chaos_steps": [{"type": "service_crash", "target": "kafka"}],
+        }))
+        self.assertTrue(RUNNER.target_restarts_kafka({
+            "chaos_steps": [{"type": "service_restart", "target": "kafka"}],
+        }))
+        self.assertFalse(RUNNER.target_restarts_kafka({
+            "chaos_steps": [{"type": "service_outage", "target": "kafka"}],
+        }))
+        self.assertFalse(RUNNER.target_restarts_kafka({
+            "chaos_steps": [{"type": "service_crash", "target": "redis"}],
+        }))
 
     def test_application_is_quiesced_before_audit_analysis_starts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

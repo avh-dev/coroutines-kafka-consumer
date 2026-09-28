@@ -331,6 +331,14 @@ kafka_runtime_signature() {
   done
 }
 
+kafka_runtime_identity() {
+  printf '%s\n' "$1" | awk -F '|' '
+    NF == 2 { print $1 "|" $2; next }
+    NF == 4 { print $1 "|" $2 "|" $3; next }
+    { print }
+  '
+}
+
 record_kafka_runtime_signature() {
   signature="$1"
   mkdir -p "$(dirname "${KAFKA_RUNTIME_SIGNATURE_FILE}")"
@@ -404,12 +412,34 @@ fi
 KAFKA_RUNTIME_EXPECTED="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
 KAFKA_RUNTIME_ACTUAL="$(kafka_runtime_signature)"
 if [ -z "${KAFKA_RUNTIME_EXPECTED}" ] || [ "${KAFKA_RUNTIME_EXPECTED}" != "${KAFKA_RUNTIME_ACTUAL}" ]; then
-  echo "Kafka runtime changed after experiment preparation; refusing to repair it between targets." >&2
-  echo "expected runtime:" >&2
-  printf '%s\n' "${KAFKA_RUNTIME_EXPECTED:-<missing>}" >&2
-  echo "actual runtime:" >&2
-  printf '%s\n' "${KAFKA_RUNTIME_ACTUAL}" >&2
-  exit 1
+  KAFKA_RUNTIME_EXPECTED_IDENTITY="$(kafka_runtime_identity "${KAFKA_RUNTIME_EXPECTED}")"
+  KAFKA_RUNTIME_ACTUAL_IDENTITY="$(kafka_runtime_identity "${KAFKA_RUNTIME_ACTUAL}")"
+  if [ "${CKC_ALLOW_KAFKA_CHAOS_RESTART:-false}" = "true" ] \
+    && [ -n "${KAFKA_RUNTIME_EXPECTED}" ] \
+    && [ "${KAFKA_RUNTIME_EXPECTED_IDENTITY}" = "${KAFKA_RUNTIME_ACTUAL_IDENTITY}" ]; then
+    echo "Accepting the planned Kafka broker restart from the previous target."
+    wait_for_kafka_ready
+    if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
+      if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+        python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+          --file "${EXPERIMENT_PROGRESS_FILE}" --step warming_kafka --label "warming Kafka after broker crash" >/dev/null 2>&1 || true
+      fi
+      warm_apache_kafka "Kafka broker restarted during the previous target chaos"
+      if [ -n "${EXPERIMENT_PROGRESS_FILE:-}" ]; then
+        python3 "${LAB_ROOT}/helpers/experiment_progress.py" \
+          --file "${EXPERIMENT_PROGRESS_FILE}" --step preparing_target --label "preparing target" >/dev/null 2>&1 || true
+      fi
+    fi
+    KAFKA_RUNTIME_ACTUAL="$(kafka_runtime_signature)"
+    record_kafka_runtime_signature "${KAFKA_RUNTIME_ACTUAL}"
+  else
+    echo "Kafka runtime changed after experiment preparation; refusing to repair it between targets." >&2
+    echo "expected runtime:" >&2
+    printf '%s\n' "${KAFKA_RUNTIME_EXPECTED:-<missing>}" >&2
+    echo "actual runtime:" >&2
+    printf '%s\n' "${KAFKA_RUNTIME_ACTUAL}" >&2
+    exit 1
+  fi
 fi
 wait_for_kafka_ready
 docker exec ckc-perf-redis redis-cli FLUSHALL
