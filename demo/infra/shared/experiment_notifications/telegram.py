@@ -50,6 +50,11 @@ def format_duration(seconds: Any) -> str:
     return f"{secs}s"
 
 
+def count_text(value: Any, singular: str, plural: str | None = None) -> str:
+    suffix = singular if int(value) == 1 else (plural or f"{singular}s")
+    return f"{value} {suffix}"
+
+
 def environment_text(payload: dict[str, Any]) -> str:
     environment = payload.get("environment") or {}
     if isinstance(environment, str):
@@ -66,11 +71,41 @@ def kafka_text(payload: dict[str, Any]) -> str:
     implementation = str(kafka.get("implementation") or "Kafka")
     topology = str(kafka.get("topology") or "unknown")
     brokers = kafka.get("brokers")
-    suffix = "" if brokers in (None, "") else f" · {brokers} broker(s)"
+    suffix = "" if brokers in (None, "") else f" · {count_text(brokers, 'broker')}"
     return f"{implementation} · {topology}{suffix}"
 
 
-def target_text(target: Any) -> str:
+def common_target_value(targets: list[Any], key: str) -> Any:
+    values = [target.get(key) for target in targets if isinstance(target, dict)]
+    if len(values) != len(targets) or not values or any(value in (None, "") for value in values):
+        return None
+    return values[0] if all(value == values[0] for value in values) else None
+
+
+def workload_text(payload: dict[str, Any], targets: list[Any]) -> str:
+    common_tps = common_target_value(targets, "base_tps")
+    common_duration = common_target_value(targets, "duration_seconds")
+    details = []
+    if common_tps is not None:
+        details.append(f"{common_tps} TPS")
+    else:
+        details.append("rate varies by target")
+    if common_duration is not None:
+        details.append(f"{format_duration(common_duration)} per target")
+    else:
+        details.append("duration varies by target")
+    total_duration = payload.get("expected_duration_seconds")
+    if total_duration not in (None, ""):
+        details.append(f"{format_duration(total_duration)} total")
+    return " · ".join(details)
+
+
+def target_text(
+    target: Any,
+    *,
+    include_tps: bool = False,
+    include_duration: bool = False,
+) -> str:
     if not isinstance(target, dict):
         return str(target)
     name = str(target.get("name") or target.get("id") or "target")
@@ -80,10 +115,10 @@ def target_text(target: Any) -> str:
     if target.get("placement"):
         details.append(f"placement {target['placement']}")
     if target.get("replicas") not in (None, ""):
-        details.append(f"{target['replicas']} replica(s)")
-    if target.get("base_tps") not in (None, ""):
+        details.append(count_text(target["replicas"], "replica"))
+    if include_tps and target.get("base_tps") not in (None, ""):
         details.append(f"{target['base_tps']} TPS")
-    if target.get("duration_seconds") not in (None, ""):
+    if include_duration and target.get("duration_seconds") not in (None, ""):
         details.append(format_duration(target["duration_seconds"]))
     return f"{name} ({', '.join(details)})" if details else name
 
@@ -100,14 +135,19 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
     experiment = payload.get("experiment") or payload.get("name") or "ckc experiment"
     if event == "experiment_started":
         targets = payload.get("targets") or []
+        common_tps = common_target_value(targets, "base_tps")
+        common_duration = common_target_value(targets, "duration_seconds")
         lines = [
             f"🚀 CKC experiment started: {experiment}",
             f"Environment: {environment_text(payload)}",
             f"Kafka: {kafka_text(payload)}",
-            f"Expected workload: {format_duration(payload.get('expected_duration_seconds'))}",
+            f"Workload: {workload_text(payload, targets)}",
             f"Targets ({len(targets)}):",
         ]
-        lines.extend(f"• {target_text(target)}" for target in targets)
+        lines.extend(
+            f"• {target_text(target, include_tps=common_tps is None, include_duration=common_duration is None)}"
+            for target in targets
+        )
         return "\n".join(lines)
     if event == "kafka_warmup_started":
         return (
@@ -119,7 +159,7 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         total = payload.get("total")
         position = f"{index}/{total}" if index not in (None, "") and total not in (None, "") else "?/?"
         lines = [
-            f"▶️ CKC target started: {position} — {experiment}",
+            f"▶️ CKC target started: {position}",
             f"Target: {payload.get('name') or 'unknown'}",
         ]
         details = []
@@ -128,9 +168,7 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         if payload.get("placement"):
             details.append(f"placement {payload['placement']}")
         if payload.get("replicas") not in (None, ""):
-            details.append(f"{payload['replicas']} replica(s)")
-        if payload.get("base_tps") not in (None, ""):
-            details.append(f"{payload['base_tps']} TPS")
+            details.append(count_text(payload["replicas"], "replica"))
         if details:
             lines.append("Profile: " + " · ".join(details))
         lines.append(f"Expected workload: {format_duration(payload.get('expected_duration_seconds'))}")

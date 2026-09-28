@@ -24,6 +24,21 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_notification_environment_describes_configured_host_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lab_root = Path(directory)
+            config = lab_root / "config"
+            config.mkdir()
+            (config / "lab.env").write_text(
+                "LAB_TOPOLOGY=split-application\nLAB_APPLICATION_LINK=direct\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                {"name": "internal-lab", "detail": "split-host · 2 nodes"},
+                RUNNER.internal_lab_notification_environment(lab_root),
+            )
+
     def test_application_placement_is_passed_to_target_process(self) -> None:
         self.assertEqual(
             {"EXPERIMENT_APPLICATION_PLACEMENT": "controller"},

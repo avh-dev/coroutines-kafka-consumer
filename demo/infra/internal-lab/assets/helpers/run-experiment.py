@@ -27,7 +27,7 @@ if SHARED_ROOT.is_dir():
 
 from experiment_report import generate_experiment_reports
 from experiment_report.analyze import parse_load_profile
-from experiment_notifications import notify
+from experiment_notifications import load_environment_file, notify
 from experiment_progress import ProgressWriter
 from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
 from audit_windows import write_measurement_windows
@@ -143,6 +143,20 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "LAB_KAFKA_HEAP_PER_BROKER": str(resources["heap_per_broker"]),
     }
     return kafka, environment
+
+
+def internal_lab_notification_environment(lab_root: Path) -> dict[str, str]:
+    lab_environment = load_environment_file(lab_root / "config/lab.env")
+    topology = lab_environment.get("LAB_TOPOLOGY", "").strip()
+    if topology == "split-application":
+        detail = "split-host · 2 nodes"
+    elif topology == "single-host":
+        detail = "single-host · 1 node"
+    elif topology:
+        detail = topology
+    else:
+        detail = socket.gethostname()
+    return {"name": "internal-lab", "detail": detail}
 
 
 def experiment_files(experiment_dir: Path) -> list[Path]:
@@ -1139,7 +1153,7 @@ def run_experiment(
             "experiment_file": str(experiment_path),
             "test_definition": test_definition,
             "base_tps": base_tps,
-            "environment": {"name": "internal-lab", "detail": socket.gethostname()},
+            "environment": internal_lab_notification_environment(lab_root),
             "kafka": kafka_configuration,
             "targets": notification_targets,
             "expected_duration_seconds": sum(target["duration_seconds"] for target in notification_targets),
