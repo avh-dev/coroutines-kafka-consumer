@@ -398,6 +398,7 @@
 | [INFRA-234](#infra-234) | Preserve valid Loki JSONL while redacting portable result bundles. | DONE |
 | [INFRA-235](#infra-235) | Add a two-hour split-host CKC resilience experiment with ten measured chaos episodes. | DONE |
 | [INFRA-236](#infra-236) | Bound exact audit-analysis memory and recover the two-hour resilience report. | DONE |
+| [INFRA-237](#infra-237) | Make workload-diagram chaos labels describe the affected component, action, and parameters. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4618,3 +4619,13 @@ Spool full message keys into bounded disk shards for exact per-key ordering, and
 Verification: 15 analyzer, 143 internal-lab, 43 shared orchestration, 32 AWS, and 38 result-bundle tests passed; a 7.8-million-record real audit matched its prior summary exactly with 43 MiB peak RSS.
 The preserved 96.7-million-record resilience audit completed in 23m17s with 341 MiB peak RSS instead of being OOM-killed above 10 GiB; its report, report ZIP, evidence bundle, and audit bundle were generated successfully.
 Reports show replay drops after successful processing as plain expected-behavior rows, split between `already_processed` and freshness-policy outcomes, and reserve anomalous terminal conflicts for genuinely unexpected outcome orderings.
+
+<a id="infra-237"></a>
+### INFRA-237 - Make chaos timeline labels descriptive
+
+_Date: 2026-09-28_
+
+Make every workload-diagram chaos card identify the affected application or service without relying on its icon.
+Include operational parameters such as replica transitions, Kafka broker ids, network impairment, and recovery behavior where applicable.
+Derive consecutive application replica transitions when all experiment targets share the same initial replica count, and allow wider cards for parameter-rich labels.
+Verification: 144 internal-lab, 43 shared orchestration, and 32 AWS tests passed; the two-hour resilience definition resolves to explicit application, Redis, and Kafka actions without regenerating prior artifacts.

@@ -586,7 +586,7 @@ def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
         if duration is not None
         else format_duration(at)
     )
-    return min(480, max(260, 104 + len(title) * 7.0 + len(time_label) * 6.2)), 38
+    return min(680, max(260, 104 + len(title) * 7.0 + len(time_label) * 6.2)), 38
 
 
 def stubs_table_svg(
@@ -969,7 +969,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
             chaos_markers.append(f'<circle cx="{start_x:.1f}" cy="{point_y:.1f}" r="4.5" fill="{color}" stroke="white" stroke-width="1.5"/>')
         chaos_cards.extend(
             [
-                f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} on {esc(target)} at {esc(time_label)}</title>',
+                f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} at {esc(time_label)}</title>',
                 f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="{color}" stroke-opacity="0.72"/>',
                 action_icon(action, action_x, icon_y),
                 *( [service_icon(target, service_x - 1, card_y + 4, 30)] if target else [] ),
