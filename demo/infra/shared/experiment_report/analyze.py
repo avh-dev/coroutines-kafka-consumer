@@ -80,15 +80,15 @@ def parse_load_profile(value: str) -> list[dict[str, Any]]:
     return phases
 
 
-CHAOS_PRESENTATION = {
-    "deployment_scale": ("scale", "Scale deployment"),
-    "pod_delete": ("delete", "Delete random pod"),
-    "pod_crash": ("crash", "Crash random pod"),
-    "service_restart": ("restart", "Restart service"),
-    "stubs_degradation": ("degradation", "Degrade stubs"),
-    "network_degradation": ("network", "Degrade network"),
-    "service_outage": ("outage", "Service outage"),
-    "service_crash": ("crash", "Crash service"),
+CHAOS_ACTIONS = {
+    "deployment_scale": "scale",
+    "pod_delete": "delete",
+    "pod_crash": "crash",
+    "service_restart": "restart",
+    "stubs_degradation": "degradation",
+    "network_degradation": "network",
+    "service_outage": "outage",
+    "service_crash": "crash",
 }
 
 
@@ -244,7 +244,93 @@ def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
     }
 
 
-def normalize_chaos_scenarios(raw_scenarios: Any, baseline_stubs: Any = None) -> list[dict[str, Any]]:
+def chaos_param(params: dict[str, Any], snake_name: str, camel_name: str) -> Any:
+    return params.get(snake_name, params.get(camel_name))
+
+
+def compact_duration(seconds: float) -> str:
+    remaining = max(0, int(seconds))
+    parts = []
+    for suffix, unit_seconds in (("h", 3600), ("m", 60), ("s", 1)):
+        value, remaining = divmod(remaining, unit_seconds)
+        if value:
+            parts.append(f"{value}{suffix}")
+    return " ".join(parts) or "0s"
+
+
+def chaos_target_name(target: str, params: dict[str, Any]) -> str:
+    if target == "kafka":
+        broker_id = chaos_param(params, "broker_id", "brokerId") or 1
+        return f"Kafka broker {broker_id}"
+    return {
+        "ckc-demo": "application",
+        "demo-stubs": "downstream stubs",
+        "redis": "Redis",
+        "audit": "audit collector",
+    }.get(target, target or "service")
+
+
+def chaos_scenario_title(scenario: dict[str, Any], previous_replicas: int | None = None) -> str:
+    scenario_type = str(scenario.get("type") or "chaos")
+    target = str(scenario.get("target") or "").strip().lower()
+    params = scenario.get("params") if isinstance(scenario.get("params"), dict) else {}
+    target_name = chaos_target_name(target, params)
+    if scenario_type == "deployment_scale":
+        replicas = params.get("replicas")
+        if previous_replicas is not None:
+            return f"Scale {target_name}: {previous_replicas} → {replicas} replicas"
+        return f"Scale {target_name} to {replicas} replicas"
+    if scenario_type == "pod_delete":
+        return f"Delete random {target_name} pod"
+    if scenario_type == "pod_crash":
+        return f"Crash random {target_name} pod"
+    if scenario_type == "service_restart":
+        return f"Restart {target_name}"
+    if scenario_type == "service_outage":
+        return f"Pause {target_name}"
+    if scenario_type == "service_crash":
+        duration = scenario.get("duration_seconds")
+        recovery = f"; start after {compact_duration(float(duration))}" if duration is not None else ""
+        return f"Kill {target_name}{recovery}"
+    if scenario_type == "stubs_degradation":
+        return "Degrade downstream responses"
+    if scenario_type == "network_degradation":
+        effects = []
+        delay = chaos_param(params, "delay_ms", "delayMs")
+        jitter = chaos_param(params, "jitter_ms", "jitterMs")
+        loss = chaos_param(params, "loss_percent", "lossPercent")
+        rate = params.get("rate")
+        if delay or jitter:
+            latency = f"+{delay or 0} ms"
+            if jitter:
+                latency += f" ± {jitter} ms"
+            effects.append(latency)
+        if loss:
+            effects.append(f"{loss}% loss")
+        if rate:
+            effects.append(f"limit {rate}")
+        detail = f": {', '.join(effects)}" if effects else ""
+        return f"Degrade {target_name} network{detail}"
+    return scenario_type.replace("_", " ").capitalize()
+
+
+def common_application_replicas(experiment: dict[str, Any]) -> int | None:
+    replicas = {
+        application.get("replicas")
+        for target in experiment.get("targets", [])
+        if isinstance(target, dict)
+        and isinstance((application := target.get("application")), dict)
+        and isinstance(application.get("replicas"), int)
+        and not isinstance(application.get("replicas"), bool)
+    }
+    return next(iter(replicas)) if len(replicas) == 1 else None
+
+
+def normalize_chaos_scenarios(
+    raw_scenarios: Any,
+    baseline_stubs: Any = None,
+    initial_application_replicas: int | None = None,
+) -> list[dict[str, Any]]:
     if not isinstance(raw_scenarios, list):
         return []
     result = []
@@ -252,10 +338,7 @@ def normalize_chaos_scenarios(raw_scenarios: Any, baseline_stubs: Any = None) ->
         if not isinstance(raw, dict):
             continue
         scenario_type = str(raw.get("type") or "chaos")
-        action, title = CHAOS_PRESENTATION.get(
-            scenario_type,
-            ("chaos", scenario_type.replace("_", " ").capitalize()),
-        )
+        action = CHAOS_ACTIONS.get(scenario_type, "chaos")
         at_seconds = duration_value_seconds(str(raw.get("at") or "0"))
         duration_seconds = (
             duration_value_seconds(str(raw["duration"]))
@@ -266,7 +349,6 @@ def normalize_chaos_scenarios(raw_scenarios: Any, baseline_stubs: Any = None) ->
         scenario = {
             "type": scenario_type,
             "action": action,
-            "title": title,
             "target": target,
             "at_seconds": at_seconds,
             "duration_seconds": duration_seconds,
@@ -276,7 +358,14 @@ def normalize_chaos_scenarios(raw_scenarios: Any, baseline_stubs: Any = None) ->
         if scenario_type == "stubs_degradation":
             scenario["stubs_changes"] = stubs_change_table(baseline_stubs, scenario["params"])
         result.append(scenario)
-    return sorted(result, key=lambda scenario: float(scenario["at_seconds"]))
+    result.sort(key=lambda scenario: float(scenario["at_seconds"]))
+    current_replicas = initial_application_replicas
+    for scenario in result:
+        scenario["title"] = chaos_scenario_title(scenario, current_replicas)
+        if scenario["type"] == "deployment_scale":
+            replicas = scenario["params"].get("replicas")
+            current_replicas = replicas if isinstance(replicas, int) and not isinstance(replicas, bool) else None
+    return result
 
 
 def nested_value(document: dict[str, Any], path: list[Any]) -> Any:
@@ -790,6 +879,7 @@ def analyze_experiment(
     chaos_scenarios = normalize_chaos_scenarios(
         test_definition.get("chaos_steps"),
         test_definition.get("stubs"),
+        common_application_replicas(experiment),
     )
     sla_profile = load_sla_profile(lab_root, experiment)
     prometheus = PrometheusClient(prometheus_url)

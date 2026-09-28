@@ -504,6 +504,7 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(200, scenarios[0]["duration_seconds"])
         self.assertEqual(450, scenarios[0]["end_seconds"])
         self.assertEqual("outage", scenarios[0]["action"])
+        self.assertEqual("Pause Redis", scenarios[0]["title"])
         self.assertEqual("2m", svg_renderer.format_phase_duration(120))
         self.assertEqual("2m 5s", svg_renderer.format_phase_duration(125))
         self.assertEqual("0m", svg_renderer.format_duration(0))
@@ -511,6 +512,60 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual("1h 5m 2s", svg_renderer.format_duration(3902))
         self.assertEqual(60, svg_renderer.horizontal_tick_seconds(7 * 60))
         self.assertEqual(120, svg_renderer.horizontal_tick_seconds(15 * 60))
+
+    def test_chaos_titles_describe_operation_target_and_parameters(self) -> None:
+        scenarios = normalize_chaos_scenarios(
+            [
+                {
+                    "at": "10s",
+                    "type": "deployment_scale",
+                    "target": "ckc-demo",
+                    "params": {"replicas": 3},
+                },
+                {
+                    "at": "20s",
+                    "type": "deployment_scale",
+                    "target": "ckc-demo",
+                    "params": {"replicas": 2},
+                },
+                {"at": "30s", "type": "pod_crash", "target": "ckc-demo"},
+                {
+                    "at": "40s",
+                    "duration": "45s",
+                    "type": "service_outage",
+                    "target": "kafka",
+                    "params": {"broker_id": 1},
+                },
+                {
+                    "at": "50s",
+                    "duration": "90s",
+                    "type": "service_crash",
+                    "target": "kafka",
+                    "params": {"brokerId": 2},
+                },
+                {
+                    "at": "60s",
+                    "duration": "10s",
+                    "type": "network_degradation",
+                    "target": "redis",
+                    "params": {"delay_ms": 50, "jitter_ms": 10, "loss_percent": 2, "rate": "100mbit"},
+                },
+            ],
+            initial_application_replicas=2,
+        )
+        self.assertEqual(
+            [
+                "Scale application: 2 → 3 replicas",
+                "Scale application: 3 → 2 replicas",
+                "Crash random application pod",
+                "Pause Kafka broker 1",
+                "Kill Kafka broker 2; start after 1m 30s",
+                "Degrade Redis network: +50 ms ± 10 ms, 2% loss, limit 100mbit",
+            ],
+            [scenario["title"] for scenario in scenarios],
+        )
+        network_card_width, _ = svg_renderer.chaos_card_dimensions(scenarios[-1])
+        self.assertGreater(network_card_width, 480)
 
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {
@@ -722,7 +777,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
             self.assertIn(">warmup · 10s</text>", svg)
             self.assertIn(">Measurement window • max load</text>", svg)
-            self.assertIn(">Delete random pod</text>", svg)
+            self.assertIn(">Delete random application pod</text>", svg)
             self.assertIn(">· 40s–50s · 10s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
@@ -766,12 +821,12 @@ class ExperimentReportTest(unittest.TestCase):
             chronological_card_y = [
                 float(text_elements[label].attrib["y"])
                 for label in (
-                    "Delete random pod",
+                    "Delete random application pod",
                     "Measurement window • max load",
                     "Kafka network packet capture • Max load",
-                    "Service outage",
-                    "Restart service",
-                    "Degrade stubs",
+                    "Pause Kafka broker 1",
+                    "Restart Redis",
+                    "Degrade downstream responses",
                 )
             ]
             self.assertEqual(
@@ -783,10 +838,10 @@ class ExperimentReportTest(unittest.TestCase):
             chaos_y = [
                 float(text_elements[label].attrib["y"])
                 for label in (
-                    "Delete random pod",
-                    "Service outage",
-                    "Restart service",
-                    "Degrade stubs",
+                    "Delete random application pod",
+                    "Pause Kafka broker 1",
+                    "Restart Redis",
+                    "Degrade downstream responses",
                 )
             ]
             self.assertGreater(chaos_y[0], chaos_y[1])
