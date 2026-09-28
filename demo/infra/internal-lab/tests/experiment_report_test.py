@@ -564,6 +564,32 @@ class ExperimentReportTest(unittest.TestCase):
             ],
             [scenario["title"] for scenario in scenarios],
         )
+
+    def test_repeating_sequence_is_one_compact_chaos_interval(self) -> None:
+        scenarios = normalize_chaos_scenarios(
+            [{
+                "at": "10m",
+                "duration": "30m",
+                "type": "sequence",
+                "name": "replica-churn",
+                "steps": [
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                    {"type": "delay", "duration": "30s"},
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 2}},
+                    {"type": "delay", "duration": "30s"},
+                ],
+            }],
+            initial_application_replicas=2,
+        )
+
+        self.assertEqual(1, len(scenarios))
+        self.assertEqual(600, scenarios[0]["at_seconds"])
+        self.assertEqual(1800, scenarios[0]["duration_seconds"])
+        self.assertEqual("ckc-demo", scenarios[0]["target"])
+        self.assertEqual(
+            "Repeat replica churn: 2 ↔ 3 replicas; 30s delay",
+            scenarios[0]["title"],
+        )
         network_card_width, _ = svg_renderer.chaos_card_dimensions(scenarios[-1])
         self.assertGreater(network_card_width, 480)
 

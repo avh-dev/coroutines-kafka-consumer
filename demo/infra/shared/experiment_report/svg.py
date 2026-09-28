@@ -14,6 +14,8 @@ from .theme import topic_palette
 PALETTE = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#4f46e5", "#64748b"]
 ICON_ROOT = Path(__file__).resolve().parent / "icons" / "services"
 ACTION_COLORS = {
+    "scale": "#4f46e5",
+    "sequence": "#7c3aed",
     "delete": "#dc2626",
     "crash": "#dc2626",
     "restart": "#2563eb",

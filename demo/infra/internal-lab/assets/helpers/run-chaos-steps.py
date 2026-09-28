@@ -10,7 +10,9 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,7 @@ SERVICE_TARGETS = {
 
 INSTANT_SCENARIO_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
 DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
+COMPOSITE_SCENARIO_TYPES = {"sequence"}
 
 
 def service_target(params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -289,6 +292,45 @@ def free_local_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def validate_runtime_scenario(step: dict[str, Any], context: str, *, top_level: bool) -> None:
+    scenario_type = str(step.get("type", ""))
+    if not scenario_type:
+        raise ValueError(f"{context} must define type.")
+    supported = INSTANT_SCENARIO_TYPES | DURATION_SCENARIO_TYPES | (COMPOSITE_SCENARIO_TYPES if top_level else {"delay"})
+    if scenario_type not in supported:
+        raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
+    if scenario_type == "delay":
+        if int(step.get("durationSeconds", 0)) <= 0:
+            raise ValueError(f"{context} delay must define positive durationSeconds.")
+        return
+    if scenario_type == "sequence":
+        if int(step.get("durationSeconds", 0)) <= 0:
+            raise ValueError(f"{context} sequence must define positive durationSeconds.")
+        nested_steps = step.get("steps")
+        if not isinstance(nested_steps, list) or not nested_steps:
+            raise ValueError(f"{context} sequence must define non-empty steps.")
+        for index, nested_step in enumerate(nested_steps, start=1):
+            if not isinstance(nested_step, dict):
+                raise ValueError(f"{context} step {index} must be an object.")
+            if "atSeconds" in nested_step:
+                raise ValueError(f"{context} step {index} must not define atSeconds.")
+            validate_runtime_scenario(nested_step, f"{context} step {index}", top_level=False)
+        minimum_cycle_seconds = sum(int(nested.get("durationSeconds", 0)) for nested in nested_steps)
+        if minimum_cycle_seconds <= 0:
+            raise ValueError(f"{context} sequence must include a delay or duration-based action.")
+        if int(step["durationSeconds"]) < minimum_cycle_seconds:
+            raise ValueError(f"{context} sequence window must fit at least one complete cycle.")
+        return
+    if scenario_type in DURATION_SCENARIO_TYPES:
+        if int(step.get("durationSeconds", 0)) <= 0:
+            raise ValueError(f"{context} duration-based scenario must define positive durationSeconds.")
+    elif "durationSeconds" in step:
+        raise ValueError(f"{context} instant scenario must not define durationSeconds.")
+    params = step.get("params", {})
+    if params is not None and not isinstance(params, dict):
+        raise ValueError(f"{context} params must be an object.")
+
+
 def load_steps(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.steps_file:
         raw = Path(args.steps_file).read_text(encoding="utf-8")
@@ -307,26 +349,17 @@ def load_steps(args: argparse.Namespace) -> list[dict[str, Any]]:
         if at_seconds < previous_at:
             raise ValueError("chaos scenarios must be ordered by atSeconds.")
         previous_at = at_seconds
-        scenario_type = str(step.get("type", ""))
-        if not scenario_type:
-            raise ValueError(f"chaos scenario {index} must define type.")
-        if scenario_type not in INSTANT_SCENARIO_TYPES | DURATION_SCENARIO_TYPES:
-            raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
-        if scenario_type in DURATION_SCENARIO_TYPES:
-            duration_seconds = int(step.get("durationSeconds", 0))
-            if duration_seconds <= 0:
-                raise ValueError(f"duration-based chaos scenario {index} must define positive durationSeconds.")
-        elif "durationSeconds" in step:
-            raise ValueError(f"instant chaos scenario {index} must not define durationSeconds.")
-        params = step.get("params", {})
-        if params is None:
-            step["params"] = {}
-        elif not isinstance(params, dict):
-            raise ValueError(f"chaos scenario {index} params must be an object.")
+        validate_runtime_scenario(step, f"chaos scenario {index}", top_level=True)
     return steps
 
 
-def wait_until(start_epoch_seconds: float, target_offset_seconds: int, *, dry_run: bool) -> None:
+def wait_until(
+    start_epoch_seconds: float,
+    target_offset_seconds: int,
+    *,
+    dry_run: bool,
+    check: Any = None,
+) -> None:
     remaining = start_epoch_seconds + target_offset_seconds - time.time()
     if remaining <= 0:
         return
@@ -334,7 +367,11 @@ def wait_until(start_epoch_seconds: float, target_offset_seconds: int, *, dry_ru
         log(f"dry-run: would wait {remaining:.1f}s before chaos scenario action")
         return
     log(f"waiting {remaining:.1f}s before chaos scenario action")
-    time.sleep(remaining)
+    deadline = time.time() + remaining
+    while (remaining := deadline - time.time()) > 0:
+        if check is not None:
+            check()
+        time.sleep(min(1.0, remaining))
 
 
 def random_running_pod(namespace: str, selector: str) -> str:
@@ -412,6 +449,35 @@ def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
         "deployment",
         deployment,
         f"--replicas={replicas}",
+    ])
+
+
+def deployment_replicas(namespace: str, deployment: str) -> int:
+    result = run(
+        ["kubectl", "-n", namespace, "get", "deployment", deployment, "-o", "jsonpath={.spec.replicas}"],
+        capture_output=True,
+    )
+    return int(result.stdout.strip())
+
+
+def wait_for_deployment_rollout(params: dict[str, Any], *, dry_run: bool) -> None:
+    namespace = str(params.get("namespace", "ckc-perf"))
+    deployment = str(params.get("target", "ckc-demo")).strip()
+    timeout_seconds = int(params.get("rolloutTimeoutSeconds", 300))
+    if dry_run:
+        log(
+            f"dry-run: would wait for deployment rollout namespace={namespace} "
+            f"deployment={deployment} timeout={timeout_seconds}s"
+        )
+        return
+    run([
+        "kubectl",
+        "-n",
+        namespace,
+        "rollout",
+        "status",
+        f"deployment/{deployment}",
+        f"--timeout={timeout_seconds}s",
     ])
 
 
@@ -530,6 +596,262 @@ def recover_scenario(
         raise ValueError(f"Chaos scenario is not duration-based: {scenario_type}")
 
 
+@dataclass
+class SequenceExecution:
+    scenario: dict[str, Any]
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
+    error: BaseException | None = None
+    result: dict[str, Any] | None = None
+
+
+def sequence_estimated_cycle_seconds(completed_cycle_seconds: list[float], minimum_cycle_seconds: float) -> float:
+    if not completed_cycle_seconds:
+        return minimum_cycle_seconds
+    return sum(completed_cycle_seconds) / len(completed_cycle_seconds)
+
+
+def sequence_can_start_cycle(
+    remaining_seconds: float,
+    completed_cycle_seconds: list[float],
+    minimum_cycle_seconds: float,
+) -> bool:
+    return remaining_seconds >= sequence_estimated_cycle_seconds(
+        completed_cycle_seconds,
+        minimum_cycle_seconds,
+    )
+
+
+def wait_sequence_delay(seconds: float, stop_event: threading.Event, *, dry_run: bool) -> bool:
+    if dry_run:
+        log(f"dry-run: would wait {seconds:.1f}s in chaos sequence")
+        return False
+    return stop_event.wait(seconds)
+
+
+def sequence_step_event(
+    scenario: dict[str, Any],
+    step: dict[str, Any],
+    iteration: int,
+    step_index: int,
+    step_total: int,
+    status: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    step_type = str(step["type"])
+    name = str(scenario.get("name") or "repeating-sequence")
+    event = {
+        "source": "chaos",
+        "type": step_type,
+        "status": status,
+        "title": f"Chaos sequence · {name} · cycle {iteration} · step {step_index}/{step_total} · {step_type}",
+        "details": {
+            "sequence": name,
+            "iteration": iteration,
+            "step": step_index,
+            "stepTotal": step_total,
+            "target": step.get("target", ""),
+            **extra,
+        },
+    }
+    return event
+
+
+def execute_sequence(
+    scenario: dict[str, Any],
+    configure_stubs: str,
+    stop_event: threading.Event,
+    *,
+    dry_run: bool,
+) -> dict[str, Any]:
+    name = str(scenario.get("name") or "repeating-sequence")
+    steps = scenario["steps"]
+    window_seconds = float(scenario["durationSeconds"])
+    minimum_cycle_seconds = float(
+        scenario.get("minimumCycleSeconds")
+        or sum(float(step.get("durationSeconds", 0)) for step in steps)
+    )
+    started = time.monotonic()
+    deadline = started + window_seconds
+    completed_cycle_seconds: list[float] = []
+    active_duration_steps: list[dict[str, Any]] = []
+    original_replicas: dict[tuple[str, str], int] = {}
+    stop_reason = "window_exhausted"
+    iteration = 0
+    try:
+        while not stop_event.is_set():
+            remaining = deadline - time.monotonic()
+            estimated = sequence_estimated_cycle_seconds(completed_cycle_seconds, minimum_cycle_seconds)
+            if not sequence_can_start_cycle(remaining, completed_cycle_seconds, minimum_cycle_seconds):
+                stop_reason = "remaining_below_estimated_cycle"
+                log(
+                    f"chaos sequence name={name} stopping before next cycle: "
+                    f"remaining={remaining:.1f}s estimated_cycle={estimated:.1f}s"
+                )
+                break
+            iteration += 1
+            cycle_started = time.monotonic()
+            log(
+                f"chaos sequence name={name} starting cycle={iteration} "
+                f"remaining={remaining:.1f}s estimated_cycle={estimated:.1f}s"
+            )
+            cycle_complete = True
+            for step_index, step in enumerate(steps, start=1):
+                if stop_event.is_set():
+                    cycle_complete = False
+                    stop_reason = "interrupted"
+                    break
+                step_type = str(step["type"])
+                started_event = sequence_step_event(
+                    scenario, step, iteration, step_index, len(steps), "started"
+                )
+                append_event(started_event, publish_annotation=False)
+                try:
+                    if step_type == "delay":
+                        interrupted = wait_sequence_delay(
+                            float(step["durationSeconds"]), stop_event, dry_run=dry_run
+                        )
+                    elif step_type in DURATION_SCENARIO_TYPES:
+                        active_duration_steps.append(step)
+                        start_scenario(step, configure_stubs, dry_run=dry_run)
+                        interrupted = wait_sequence_delay(
+                            float(step["durationSeconds"]), stop_event, dry_run=dry_run
+                        )
+                        recover_scenario(step, configure_stubs, dry_run=dry_run)
+                        active_duration_steps.remove(step)
+                    else:
+                        interrupted = False
+                        if step_type == "deployment_scale":
+                            params = scenario_params(step)
+                            namespace = str(params.get("namespace", "ckc-perf"))
+                            deployment = str(params.get("target", "ckc-demo"))
+                            key = (namespace, deployment)
+                            if key not in original_replicas and not dry_run:
+                                original_replicas[key] = deployment_replicas(namespace, deployment)
+                            start_scenario(step, configure_stubs, dry_run=dry_run)
+                            wait_for_deployment_rollout(params, dry_run=dry_run)
+                        else:
+                            start_scenario(step, configure_stubs, dry_run=dry_run)
+                except Exception as error:
+                    append_event(
+                        sequence_step_event(
+                            scenario,
+                            step,
+                            iteration,
+                            step_index,
+                            len(steps),
+                            "failed",
+                            error=str(error),
+                        ),
+                        publish_annotation=False,
+                    )
+                    raise
+                if interrupted:
+                    append_event(
+                        sequence_step_event(
+                            scenario, step, iteration, step_index, len(steps), "interrupted"
+                        ),
+                        publish_annotation=False,
+                    )
+                    cycle_complete = False
+                    stop_reason = "interrupted"
+                    break
+                append_event(
+                    sequence_step_event(
+                        scenario, step, iteration, step_index, len(steps), "completed"
+                    ),
+                    publish_annotation=False,
+                )
+            if not cycle_complete:
+                break
+            cycle_seconds = time.monotonic() - cycle_started
+            completed_cycle_seconds.append(cycle_seconds)
+            log(f"chaos sequence name={name} completed cycle={iteration} duration={cycle_seconds:.1f}s")
+            if dry_run:
+                stop_reason = "dry_run"
+                break
+    finally:
+        for step in reversed(active_duration_steps):
+            try:
+                recover_scenario(step, configure_stubs, dry_run=dry_run, best_effort=True)
+            except Exception as error:
+                log(f"sequence cleanup failed type={step.get('type')} error={error}")
+        for (namespace, deployment), replicas in reversed(original_replicas.items()):
+            params = {"namespace": namespace, "target": deployment, "replicas": replicas}
+            try:
+                if deployment_replicas(namespace, deployment) != replicas:
+                    log(
+                        f"restoring chaos sequence deployment namespace={namespace} "
+                        f"deployment={deployment} replicas={replicas}"
+                    )
+                    scale_deployment(params, dry_run=False)
+                    wait_for_deployment_rollout(params, dry_run=False)
+            except Exception as error:
+                log(f"sequence deployment cleanup failed deployment={deployment} error={error}")
+    average = (
+        sum(completed_cycle_seconds) / len(completed_cycle_seconds)
+        if completed_cycle_seconds
+        else None
+    )
+    if stop_event.is_set() and stop_reason == "window_exhausted":
+        stop_reason = "interrupted"
+    return {
+        "sequence": name,
+        "completedCycles": len(completed_cycle_seconds),
+        "averageCycleSeconds": round(average, 3) if average is not None else None,
+        "minimumCycleSeconds": round(minimum_cycle_seconds, 3),
+        "windowSeconds": int(window_seconds),
+        "stopReason": stop_reason,
+    }
+
+
+def start_sequence_execution(
+    scenario: dict[str, Any],
+    configure_stubs: str,
+    event: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> SequenceExecution:
+    execution = SequenceExecution(scenario=scenario)
+
+    def target() -> None:
+        try:
+            execution.result = execute_sequence(
+                scenario,
+                configure_stubs,
+                execution.stop_event,
+                dry_run=dry_run,
+            )
+            append_event({
+                **event,
+                "status": "completed",
+                "details": {**event.get("details", {}), **execution.result},
+            })
+        except BaseException as error:
+            execution.error = error
+            append_event({**event, "status": "failed", "error": str(error)})
+
+    execution.thread = threading.Thread(target=target, name=f"chaos-sequence-{scenario.get('name', 'sequence')}")
+    execution.thread.start()
+    return execution
+
+
+def check_sequence_executions(executions: list[SequenceExecution]) -> None:
+    for execution in executions:
+        if execution.error is not None:
+            raise RuntimeError(
+                f"Chaos sequence {execution.scenario.get('name', 'sequence')!r} failed"
+            ) from execution.error
+
+
+def stop_sequence_executions(executions: list[SequenceExecution]) -> None:
+    for execution in executions:
+        execution.stop_event.set()
+    for execution in executions:
+        if execution.thread is not None:
+            execution.thread.join()
+
+
 def scheduled_events(scenarios: list[dict[str, Any]]) -> list[tuple[int, int, int, str, dict[str, Any]]]:
     events: list[tuple[int, int, int, str, dict[str, Any]]] = []
     for index, scenario in enumerate(scenarios):
@@ -548,7 +870,23 @@ def cleanup_scenarios(
     dry_run: bool,
 ) -> None:
     recovered: set[tuple[str, str]] = set()
-    for scenario in reversed(scenarios):
+    cleanup_candidates = []
+    sequence_scale_fallbacks: dict[tuple[str, str], dict[str, Any]] = {}
+    for scenario in scenarios:
+        if scenario.get("type") == "sequence":
+            for step in scenario.get("steps", []):
+                if step.get("type") in DURATION_SCENARIO_TYPES:
+                    cleanup_candidates.append(step)
+                elif step.get("type") == "deployment_scale":
+                    params = scenario_params(step)
+                    key = (
+                        str(params.get("namespace", "ckc-perf")),
+                        str(params.get("target", "ckc-demo")),
+                    )
+                    sequence_scale_fallbacks[key] = params
+        else:
+            cleanup_candidates.append(scenario)
+    for scenario in reversed(cleanup_candidates):
         if scenario.get("type") not in DURATION_SCENARIO_TYPES:
             continue
         params = scenario_params(scenario)
@@ -569,6 +907,16 @@ def cleanup_scenarios(
             )
         except Exception as error:
             log(f"cleanup failed type={key[0]} target={key[1] or '-'} error={error}")
+    for (namespace, deployment), params in sequence_scale_fallbacks.items():
+        try:
+            log(
+                f"cleanup chaos sequence scale target namespace={namespace} "
+                f"deployment={deployment} replicas={params['replicas']}"
+            )
+            scale_deployment(params, dry_run=dry_run)
+            wait_for_deployment_rollout(params, dry_run=dry_run)
+        except Exception as error:
+            log(f"cleanup sequence scale failed deployment={deployment} error={error}")
 
 
 def execute_scenarios(
@@ -579,12 +927,18 @@ def execute_scenarios(
     dry_run: bool,
 ) -> None:
     active: dict[int, dict[str, Any]] = {}
+    sequence_executions: list[SequenceExecution] = []
     events = scheduled_events(scenarios)
     log(f"starting chaos executor with {len(scenarios)} scenario(s) and {len(events)} scheduled action(s)")
     try:
         for at_seconds, _phase_order, index, phase, scenario in events:
             scenario_type = str(scenario["type"])
-            wait_until(start_epoch_seconds, at_seconds, dry_run=dry_run)
+            wait_until(
+                start_epoch_seconds,
+                at_seconds,
+                dry_run=dry_run,
+                check=lambda: check_sequence_executions(sequence_executions),
+            )
             log(
                 f"running chaos scenario {index + 1}/{len(scenarios)} "
                 f"phase={phase} at={at_seconds}s type={scenario_type} target={scenario.get('target', '-')}"
@@ -599,6 +953,16 @@ def execute_scenarios(
             append_event(event)
             try:
                 if phase == "start":
+                    if scenario_type == "sequence":
+                        sequence_executions.append(
+                            start_sequence_execution(
+                                scenario,
+                                configure_stubs,
+                                event,
+                                dry_run=dry_run,
+                            )
+                        )
+                        continue
                     if scenario_type in DURATION_SCENARIO_TYPES:
                         active[index] = scenario
                     start_scenario(scenario, configure_stubs, dry_run=dry_run)
@@ -609,8 +973,13 @@ def execute_scenarios(
                 append_event({**event, "status": "failed", "error": str(error)})
                 raise
             append_event({**event, "status": "completed"})
+        for execution in sequence_executions:
+            if execution.thread is not None:
+                execution.thread.join()
+        check_sequence_executions(sequence_executions)
         log("chaos executor finished")
     finally:
+        stop_sequence_executions(sequence_executions)
         cleanup_scenarios(list(active.values()), configure_stubs, dry_run=dry_run)
 
 

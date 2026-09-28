@@ -81,6 +81,7 @@ def parse_load_profile(value: str) -> list[dict[str, Any]]:
 
 
 CHAOS_ACTIONS = {
+    "sequence": "sequence",
     "deployment_scale": "scale",
     "pod_delete": "delete",
     "pod_crash": "crash",
@@ -275,6 +276,32 @@ def chaos_scenario_title(scenario: dict[str, Any], previous_replicas: int | None
     target = str(scenario.get("target") or "").strip().lower()
     params = scenario.get("params") if isinstance(scenario.get("params"), dict) else {}
     target_name = chaos_target_name(target, params)
+    if scenario_type == "sequence":
+        name = str(scenario.get("name") or "repeating sequence").replace("_", " ").replace("-", " ")
+        steps = scenario.get("steps") if isinstance(scenario.get("steps"), list) else []
+        replicas = [
+            step.get("params", {}).get("replicas")
+            for step in steps
+            if isinstance(step, dict)
+            and step.get("type") == "deployment_scale"
+            and isinstance(step.get("params"), dict)
+        ]
+        delays = [
+            step.get("duration_seconds")
+            for step in steps
+            if isinstance(step, dict) and step.get("type") == "delay"
+        ]
+        details = []
+        if replicas:
+            transitions = ([previous_replicas] if previous_replicas is not None else []) + replicas
+            details.append(f"{' ↔ '.join(str(value) for value in dict.fromkeys(transitions))} replicas")
+        unique_delays = list(dict.fromkeys(delay for delay in delays if delay is not None))
+        if len(unique_delays) == 1:
+            details.append(f"{compact_duration(float(unique_delays[0]))} delay")
+        elif len(unique_delays) > 1:
+            details.append("variable delays")
+        suffix = f": {'; '.join(details)}" if details else ""
+        return f"Repeat {name}{suffix}"
     if scenario_type == "deployment_scale":
         replicas = params.get("replicas")
         if previous_replicas is not None:
@@ -346,6 +373,27 @@ def normalize_chaos_scenarios(
             else None
         )
         target = str(raw.get("target") or "").strip()
+        sequence_steps = []
+        if scenario_type == "sequence" and isinstance(raw.get("steps"), list):
+            for raw_step in raw["steps"]:
+                if not isinstance(raw_step, dict):
+                    continue
+                nested_duration = (
+                    duration_value_seconds(str(raw_step["duration"]))
+                    if raw_step.get("duration") not in (None, "")
+                    else None
+                )
+                sequence_steps.append({
+                    "type": str(raw_step.get("type") or "chaos"),
+                    "target": str(raw_step.get("target") or "").strip(),
+                    "duration_seconds": nested_duration,
+                    "params": raw_step.get("params") if isinstance(raw_step.get("params"), dict) else {},
+                })
+            sequence_targets = {
+                step["target"] for step in sequence_steps if step["type"] != "delay" and step["target"]
+            }
+            if not target and len(sequence_targets) == 1:
+                target = next(iter(sequence_targets))
         scenario = {
             "type": scenario_type,
             "action": action,
@@ -354,6 +402,8 @@ def normalize_chaos_scenarios(
             "duration_seconds": duration_seconds,
             "end_seconds": at_seconds + duration_seconds if duration_seconds is not None else None,
             "params": raw.get("params") if isinstance(raw.get("params"), dict) else {},
+            "name": str(raw.get("name") or "") if scenario_type == "sequence" else "",
+            "steps": sequence_steps,
         }
         if scenario_type == "stubs_degradation":
             scenario["stubs_changes"] = stubs_change_table(baseline_stubs, scenario["params"])

@@ -27,6 +27,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.service_crash",
         "chaos.service_restart",
         "chaos.stubs_degradation",
+        "chaos.sequence",
     }),
     "aws": frozenset({"diagnostics.tcpdump"}),
 }
@@ -470,12 +471,20 @@ def canonical_targets(experiment: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def required_capabilities(workload: Mapping[str, Any]) -> frozenset[str]:
     result: set[str] = set()
-    for index, step in enumerate(workload.get("chaos") or [], start=1):
-        item = require_mapping(step, f"Experiment workload.chaos[{index}]")
+    def add_chaos_capabilities(step: Any, context: str) -> None:
+        item = require_mapping(step, context)
         step_type = str(item.get("type") or "").strip()
         if not step_type:
-            raise ValueError(f"Experiment workload.chaos[{index}].type must not be empty")
+            raise ValueError(f"{context}.type must not be empty")
+        if step_type == "delay":
+            return
         result.add(f"chaos.{step_type}")
+        if step_type == "sequence":
+            for nested_index, nested_step in enumerate(item.get("steps") or [], start=1):
+                add_chaos_capabilities(nested_step, f"{context}.steps[{nested_index}]")
+
+    for index, step in enumerate(workload.get("chaos") or [], start=1):
+        add_chaos_capabilities(step, f"Experiment workload.chaos[{index}]")
     for index, step in enumerate(workload.get("diagnostics") or [], start=1):
         item = require_mapping(step, f"Experiment workload.diagnostics[{index}]")
         step_type = str(item.get("type") or "").strip()

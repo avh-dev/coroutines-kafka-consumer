@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -140,6 +141,146 @@ class ChaosScenariosTest(unittest.TestCase):
                     self.normalize(
                         [{"at": "1m", "type": "deployment_scale", "params": {"replicas": replicas}}]
                     )
+
+    def test_repeating_sequence_normalizes_existing_actions_and_delays(self) -> None:
+        scenarios = self.normalize(
+            [{
+                "at": "10m",
+                "duration": "30m",
+                "type": "sequence",
+                "name": "replica-churn",
+                "steps": [
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                    {"type": "delay", "duration": "30s"},
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 2}},
+                    {"type": "delay", "duration": "30s"},
+                ],
+            }]
+        )
+
+        self.assertEqual(600, scenarios[0]["atSeconds"])
+        self.assertEqual(1800, scenarios[0]["durationSeconds"])
+        self.assertEqual(60, scenarios[0]["minimumCycleSeconds"])
+        self.assertEqual("replica-churn", scenarios[0]["name"])
+        self.assertEqual(
+            ["deployment_scale", "delay", "deployment_scale", "delay"],
+            [step["type"] for step in scenarios[0]["steps"]],
+        )
+        self.assertEqual(
+            [3, 2],
+            [
+                step["params"]["replicas"]
+                for step in scenarios[0]["steps"]
+                if step["type"] == "deployment_scale"
+            ],
+        )
+
+    def test_sequence_requires_a_complete_cycle_to_fit_its_window(self) -> None:
+        with self.assertRaisesRegex(ValueError, "fit at least one complete cycle"):
+            self.normalize(
+                [{
+                    "at": "1m",
+                    "duration": "20s",
+                    "type": "sequence",
+                    "steps": [{"type": "delay", "duration": "30s"}],
+                }]
+            )
+
+    def test_sequence_uses_completed_cycle_average_before_starting_another(self) -> None:
+        self.assertTrue(chaos_runner.sequence_can_start_cycle(60, [], 60))
+        self.assertFalse(chaos_runner.sequence_can_start_cycle(59.9, [], 60))
+        self.assertEqual(75, chaos_runner.sequence_estimated_cycle_seconds([60, 90], 30))
+        self.assertTrue(chaos_runner.sequence_can_start_cycle(75, [60, 90], 30))
+        self.assertFalse(chaos_runner.sequence_can_start_cycle(74.9, [60, 90], 30))
+
+    def test_sequence_dry_run_executes_one_complete_cycle(self) -> None:
+        scenario = {
+            "type": "sequence",
+            "name": "replica-churn",
+            "durationSeconds": 120,
+            "minimumCycleSeconds": 30,
+            "steps": [
+                {
+                    "type": "deployment_scale",
+                    "target": "ckc-demo",
+                    "params": {"namespace": "ckc-perf", "replicas": 3},
+                },
+                {"type": "delay", "durationSeconds": 30},
+            ],
+        }
+        with (
+            patch.object(chaos_runner, "append_event"),
+            patch.object(chaos_runner, "start_scenario") as start,
+            patch.object(chaos_runner, "wait_for_deployment_rollout") as rollout,
+        ):
+            result = chaos_runner.execute_sequence(
+                scenario,
+                "/configure-stubs",
+                threading.Event(),
+                dry_run=True,
+            )
+
+        self.assertEqual(1, result["completedCycles"])
+        self.assertEqual("dry_run", result["stopReason"])
+        start.assert_called_once_with(scenario["steps"][0], "/configure-stubs", dry_run=True)
+        rollout.assert_called_once_with(
+            {"namespace": "ckc-perf", "replicas": 3, "target": "ckc-demo"},
+            dry_run=True,
+        )
+
+    def test_sequence_does_not_block_independent_scheduled_chaos(self) -> None:
+        sequence_action = {"type": "service_restart", "target": "redis", "params": {}}
+        independent_action = {
+            "atSeconds": 1,
+            "type": "pod_delete",
+            "target": "ckc-demo",
+            "params": {"namespace": "ckc-perf", "selector": "app=ckc-demo"},
+        }
+        scenarios = [
+            {
+                "atSeconds": 0,
+                "type": "sequence",
+                "name": "service-cycle",
+                "durationSeconds": 30,
+                "minimumCycleSeconds": 1,
+                "steps": [sequence_action, {"type": "delay", "durationSeconds": 1}],
+            },
+            independent_action,
+        ]
+        with (
+            patch.object(chaos_runner, "append_event"),
+            patch.object(chaos_runner, "wait_until"),
+            patch.object(chaos_runner, "start_scenario") as start,
+        ):
+            chaos_runner.execute_scenarios(scenarios, 0, "/configure-stubs", dry_run=True)
+
+        self.assertIn(
+            ((sequence_action, "/configure-stubs"), {"dry_run": True}),
+            [(call.args, call.kwargs) for call in start.call_args_list],
+        )
+        self.assertIn(
+            ((independent_action, "/configure-stubs"), {"dry_run": True}),
+            [(call.args, call.kwargs) for call in start.call_args_list],
+        )
+
+    def test_reset_cleanup_returns_sequence_to_its_final_scale(self) -> None:
+        sequence = {
+            "type": "sequence",
+            "steps": [
+                {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                {"type": "delay", "durationSeconds": 30},
+                {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 2}},
+            ],
+        }
+        with (
+            patch.object(chaos_runner, "scale_deployment") as scale,
+            patch.object(chaos_runner, "wait_for_deployment_rollout") as rollout,
+        ):
+            chaos_runner.cleanup_scenarios([sequence], "/configure-stubs", dry_run=True)
+
+        expected = {"target": "ckc-demo", "replicas": 2}
+        scale.assert_called_once_with(expected, dry_run=True)
+        rollout.assert_called_once_with(expected, dry_run=True)
 
     def test_legacy_command_types_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported"):

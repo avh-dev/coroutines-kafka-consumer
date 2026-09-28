@@ -186,6 +186,143 @@ def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, 
     }
 
 
+CHAOS_INSTANT_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
+CHAOS_DURATION_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
+CHAOS_SERVICE_TARGETS = {"kafka", "redis", "audit"}
+
+
+def _normalize_chaos_action(
+    raw_step: dict[str, Any],
+    baseline_stubs: dict[str, Any],
+    definition_path: Path,
+    context: str,
+    *,
+    allow_sequence: bool,
+) -> dict[str, Any]:
+    if "type" not in raw_step:
+        raise ValueError(f"{context} must define type: {definition_path}")
+    step_type = str(raw_step["type"])
+    supported_types = CHAOS_INSTANT_TYPES | CHAOS_DURATION_TYPES | ({"sequence"} if allow_sequence else {"delay"})
+    if step_type not in supported_types:
+        raise ValueError(f"Unsupported {context}.type {step_type!r}: {definition_path}")
+
+    if step_type == "delay":
+        duration_seconds = required_duration_seconds(raw_step.get("duration"), f"{context}.duration")
+        return {"type": "delay", "durationSeconds": duration_seconds}
+
+    if step_type == "sequence":
+        duration_seconds = required_duration_seconds(raw_step.get("duration"), f"{context}.duration")
+        name = str(raw_step.get("name") or "repeating-sequence").strip()
+        if not name:
+            raise ValueError(f"{context}.name must not be empty: {definition_path}")
+        raw_nested_steps = raw_step.get("steps")
+        if not isinstance(raw_nested_steps, list) or not raw_nested_steps:
+            raise ValueError(f"{context}.steps must be a non-empty list: {definition_path}")
+        nested_steps = []
+        for nested_index, nested_step in enumerate(raw_nested_steps, start=1):
+            nested_context = f"{context}.steps[{nested_index}]"
+            if not isinstance(nested_step, dict):
+                raise ValueError(f"{nested_context} must be an object: {definition_path}")
+            if "at" in nested_step:
+                raise ValueError(f"{nested_context} must not define at: {definition_path}")
+            nested_steps.append(
+                _normalize_chaos_action(
+                    nested_step,
+                    baseline_stubs,
+                    definition_path,
+                    nested_context,
+                    allow_sequence=False,
+                )
+            )
+        minimum_cycle_seconds = sum(int(step.get("durationSeconds", 0)) for step in nested_steps)
+        if minimum_cycle_seconds <= 0:
+            raise ValueError(f"{context}.steps must include at least one delay or duration-based action: {definition_path}")
+        if duration_seconds < minimum_cycle_seconds:
+            raise ValueError(
+                f"{context}.duration must fit at least one complete cycle ({minimum_cycle_seconds}s): {definition_path}"
+            )
+        return {
+            "type": "sequence",
+            "name": name,
+            "durationSeconds": duration_seconds,
+            "minimumCycleSeconds": minimum_cycle_seconds,
+            "steps": nested_steps,
+        }
+
+    params = raw_step.get("params", {})
+    if params in ("", None):
+        params = {}
+    if not isinstance(params, dict):
+        raise ValueError(f"{context}.params must be an object: {definition_path}")
+
+    duration_seconds = None
+    if step_type in CHAOS_DURATION_TYPES:
+        duration_seconds = required_duration_seconds(raw_step.get("duration"), f"{context}.duration")
+    elif "duration" in raw_step:
+        raise ValueError(f"{context}.duration is only valid for duration-based scenarios: {definition_path}")
+
+    normalized: dict[str, Any] = {"type": step_type}
+    if duration_seconds is not None:
+        normalized["durationSeconds"] = duration_seconds
+
+    if step_type == "deployment_scale":
+        target = str(raw_step.get("target", "ckc-demo")).strip()
+        if not target:
+            raise ValueError(f"{context}.target must not be empty: {definition_path}")
+        replicas = params.get("replicas")
+        if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas <= 0:
+            raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
+        normalized["target"] = target
+        normalized["params"] = {"namespace": str(params.get("namespace", "ckc-perf")), "replicas": replicas}
+    elif step_type in {"pod_delete", "pod_crash"}:
+        target = str(raw_step.get("target", "ckc-demo")).strip()
+        if not target:
+            raise ValueError(f"{context}.target must not be empty: {definition_path}")
+        normalized["target"] = target
+        normalized["params"] = {
+            "namespace": str(params.get("namespace", "ckc-perf")),
+            "selector": str(params.get("selector", "app.kubernetes.io/name=ckc-demo")),
+        }
+        if step_type == "pod_crash" and "endpoint" in params:
+            normalized["params"]["endpoint"] = str(params["endpoint"])
+    elif step_type == "stubs_degradation":
+        target = str(raw_step.get("target", "demo-stubs")).strip()
+        if not target:
+            raise ValueError(f"{context}.target must not be empty: {definition_path}")
+        normalized["target"] = target
+        merged_stubs = deep_merge(baseline_stubs, params)
+        normalized["params"] = {
+            "settings": stub_settings_from_definition(merged_stubs, definition_path, f"{context}.params"),
+            "baselineSettings": stub_settings_from_definition(baseline_stubs, definition_path),
+        }
+    elif step_type in {"network_degradation", "service_outage", "service_restart", "service_crash"}:
+        target = str(raw_step.get("target", "")).strip().lower()
+        if target not in CHAOS_SERVICE_TARGETS:
+            raise ValueError(f"{context}.target must be one of {sorted(CHAOS_SERVICE_TARGETS)}: {definition_path}")
+        normalized["target"] = target
+        normalized["params"] = {}
+        if target == "kafka":
+            broker_id = int(params.get("broker_id", 1))
+            if broker_id not in {1, 2, 3}:
+                raise ValueError(f"{context}.params.broker_id must be 1, 2, or 3: {definition_path}")
+            normalized["params"]["brokerId"] = broker_id
+        if step_type == "network_degradation":
+            normalized["params"].update({
+                "delayMs": non_negative_int(params, "delay_ms", 0, f"{context}.params"),
+                "jitterMs": non_negative_int(params, "jitter_ms", 0, f"{context}.params"),
+                "lossPercent": percentage(params, "loss_percent", 0, f"{context}.params"),
+            })
+            if "rate" in params and params["rate"] not in ("", None):
+                normalized["params"]["rate"] = str(params["rate"])
+            if (
+                normalized["params"]["delayMs"] == 0
+                and normalized["params"]["lossPercent"] == 0
+                and "rate" not in normalized["params"]
+            ):
+                raise ValueError(f"{context}.params must define delay_ms, loss_percent, or rate: {definition_path}")
+    return normalized
+
+
 def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
     raw_steps = definition.get("chaos_steps", [])
     if raw_steps in ("", None):
@@ -193,127 +330,41 @@ def normalized_chaos_steps(definition: dict[str, Any], baseline_stubs: dict[str,
     if not isinstance(raw_steps, list):
         raise ValueError(f"Test definition chaos_steps must be a list: {definition_path}")
 
-    instant_types = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
-    duration_types = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
-    supported_types = instant_types | duration_types
-    service_targets = {"kafka", "redis", "audit"}
     result: list[dict[str, Any]] = []
     intervals_by_target: dict[str, list[tuple[int, int, int]]] = {}
     previous_at = -1
     for index, raw_step in enumerate(raw_steps, start=1):
+        context = f"chaos_steps[{index}]"
         if not isinstance(raw_step, dict):
-            raise ValueError(f"chaos_steps[{index}] must be an object: {definition_path}")
+            raise ValueError(f"{context} must be an object: {definition_path}")
         if "at" not in raw_step:
-            raise ValueError(f"chaos_steps[{index}] must define at: {definition_path}")
-        if "type" not in raw_step:
-            raise ValueError(f"chaos_steps[{index}] must define type: {definition_path}")
-
-        at_seconds = parse_duration_seconds(raw_step["at"], f"chaos_steps[{index}].at")
-        step_type = str(raw_step["type"])
-        if step_type not in supported_types:
-            raise ValueError(f"Unsupported chaos_steps[{index}].type {step_type!r}: {definition_path}")
+            raise ValueError(f"{context} must define at: {definition_path}")
+        at_seconds = parse_duration_seconds(raw_step["at"], f"{context}.at")
         if at_seconds < previous_at:
             raise ValueError(f"chaos_steps must be ordered by at: {definition_path}")
         previous_at = at_seconds
 
-        params = raw_step.get("params", {})
-        if params in ("", None):
-            params = {}
-        if not isinstance(params, dict):
-            raise ValueError(f"chaos_steps[{index}].params must be an object: {definition_path}")
-
-        duration_seconds = None
-        if step_type in duration_types:
-            duration_seconds = required_duration_seconds(
-                raw_step.get("duration"),
-                f"chaos_steps[{index}].duration",
-            )
-        elif "duration" in raw_step:
-            raise ValueError(f"chaos_steps[{index}].duration is only valid for duration-based scenarios: {definition_path}")
-
-        normalized: dict[str, Any] = {"atSeconds": at_seconds, "type": step_type}
-        if duration_seconds is not None:
-            normalized["durationSeconds"] = duration_seconds
-
-        if step_type == "deployment_scale":
-            context = f"chaos_steps[{index}]"
-            target = str(raw_step.get("target", "ckc-demo")).strip()
-            if not target:
-                raise ValueError(f"{context}.target must not be empty: {definition_path}")
-            replicas = params.get("replicas")
-            if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas <= 0:
-                raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
-            normalized["target"] = target
-            normalized["params"] = {
-                "namespace": str(params.get("namespace", "ckc-perf")),
-                "replicas": replicas,
-            }
-        elif step_type in {"pod_delete", "pod_crash"}:
-            target = str(raw_step.get("target", "ckc-demo")).strip()
-            if not target:
-                raise ValueError(f"chaos_steps[{index}].target must not be empty: {definition_path}")
-            normalized["target"] = target
-            normalized["params"] = {
-                "namespace": str(params.get("namespace", "ckc-perf")),
-                "selector": str(params.get("selector", "app.kubernetes.io/name=ckc-demo")),
-            }
-            if step_type == "pod_crash" and "endpoint" in params:
-                normalized["params"]["endpoint"] = str(params["endpoint"])
-        elif step_type == "stubs_degradation":
-            target = str(raw_step.get("target", "demo-stubs")).strip()
-            if not target:
-                raise ValueError(f"chaos_steps[{index}].target must not be empty: {definition_path}")
-            normalized["target"] = target
-            merged_stubs = deep_merge(baseline_stubs, params)
-            normalized["params"] = {
-                "settings": stub_settings_from_definition(
-                    merged_stubs, definition_path, f"chaos_steps[{index}].params"
-                ),
-                "baselineSettings": stub_settings_from_definition(baseline_stubs, definition_path),
-            }
-        elif step_type in {"network_degradation", "service_outage", "service_restart", "service_crash"}:
-            context = f"chaos_steps[{index}]"
-            target = str(raw_step.get("target", "")).strip().lower()
-            if target not in service_targets:
-                raise ValueError(f"{context}.target must be one of {sorted(service_targets)}: {definition_path}")
-            normalized["target"] = target
-            normalized["params"] = {}
-            if target == "kafka":
-                broker_id = int(params.get("broker_id", 1))
-                if broker_id not in {1, 2, 3}:
-                    raise ValueError(f"{context}.params.broker_id must be 1, 2, or 3: {definition_path}")
-                normalized["params"]["brokerId"] = broker_id
-            if step_type == "network_degradation":
-                normalized["params"].update(
-                    {
-                        "delayMs": non_negative_int(params, "delay_ms", 0, f"{context}.params"),
-                        "jitterMs": non_negative_int(params, "jitter_ms", 0, f"{context}.params"),
-                        "lossPercent": percentage(params, "loss_percent", 0, f"{context}.params"),
-                    }
-                )
-                if "rate" in params and params["rate"] not in ("", None):
-                    normalized["params"]["rate"] = str(params["rate"])
-                if (
-                    normalized["params"]["delayMs"] == 0
-                    and normalized["params"]["lossPercent"] == 0
-                    and "rate" not in normalized["params"]
-                ):
-                    raise ValueError(f"{context}.params must define delay_ms, loss_percent, or rate: {definition_path}")
-
-        if duration_seconds is not None:
+        normalized = _normalize_chaos_action(
+            raw_step,
+            baseline_stubs,
+            definition_path,
+            context,
+            allow_sequence=True,
+        )
+        normalized = {"atSeconds": at_seconds, **normalized}
+        duration_seconds = normalized.get("durationSeconds")
+        if duration_seconds is not None and normalized["type"] in CHAOS_DURATION_TYPES:
             target = str(normalized["target"])
             broker_id = normalized.get("params", {}).get("brokerId")
             interval_target = f"{target}:{broker_id}" if broker_id is not None else target
-            end_seconds = at_seconds + duration_seconds
+            end_seconds = at_seconds + int(duration_seconds)
             for other_start, other_end, other_index in intervals_by_target.get(interval_target, []):
                 if at_seconds < other_end and other_start < end_seconds:
                     raise ValueError(
-                        f"chaos_steps[{index}] overlaps chaos_steps[{other_index}] for target {target!r}: {definition_path}"
+                        f"{context} overlaps chaos_steps[{other_index}] for target {target!r}: {definition_path}"
                     )
             intervals_by_target.setdefault(interval_target, []).append((at_seconds, end_seconds, index))
-
         result.append(normalized)
-
     return result
 
 

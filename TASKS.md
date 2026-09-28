@@ -402,6 +402,7 @@
 | [INFRA-238](#infra-238) | Reduce Telegram experiment notification noise and identify the actual environment topology. | DONE |
 | [INFRA-239](#infra-239) | Retune the three-broker Kafka failover comparison for 5k on the split-host lab. | DONE |
 | [INFRA-240](#infra-240) | Persist and retry internal-lab Telegram notifications across temporary network failures. | DONE |
+| [INFRA-241](#infra-241) | Add time-bounded repeating composite chaos sequences with compact report presentation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4666,3 +4667,14 @@ Retry queued messages in order after temporary DNS or network failures without b
 Retain failed messages across experiment completion and host restarts while keeping successful delivery cleanup bounded.
 Quarantine permanent Telegram 4xx responses so invalid messages cannot block later lifecycle events.
 Verification: all 152 internal-lab tests passed; the installed `ckc-telegram-dispatch.timer` is enabled and active with an empty pending queue, without rebuilding images or redeploying workloads.
+
+<a id="infra-241"></a>
+### INFRA-241 - Add repeating composite chaos sequences
+
+_Date: 2026-09-28_
+
+Compose existing chaos actions and explicit delays into a sequential cycle that repeats within a fixed time window.
+Estimate the next full cycle from completed-cycle durations and stop before the remaining window is too short.
+Preserve detailed iteration events while presenting the repeated sequence compactly in experiment reports.
+Ensure interrupted or failed sequences recover active duration-based actions before the executor exits.
+Verification: 157 internal-lab, 28 focused shared orchestration/materialization, and 32 AWS tests passed; the installed lab assets compile as `ckc-lab`, and an installed dry run confirmed that replica churn and an independent pod crash execute concurrently without rebuilding or redeploying workloads.

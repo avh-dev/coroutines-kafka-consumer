@@ -172,6 +172,30 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "chaos.pod_delete"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
+    def test_internal_lab_accepts_sequence_and_checks_nested_capabilities(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["chaos"] = [{
+            "at": "1s",
+            "duration": "10s",
+            "type": "sequence",
+            "name": "replica-churn",
+            "steps": [
+                {"type": "deployment_scale", "params": {"replicas": 3}},
+                {"type": "delay", "duration": "1s"},
+            ],
+        }]
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+        self.assertEqual("sequence", snapshot["workload"]["chaos"][0]["type"])
+
+        with self.assertRaisesRegex(ValueError, "chaos.deployment_scale"):
+            validate_canonical_experiment(
+                experiment,
+                self.source,
+                environment="internal-lab",
+                capabilities={"internal-lab": {"chaos.sequence"}},
+            )
+
     def test_rejects_legacy_indirection_in_canonical_document(self) -> None:
         experiment = canonical_experiment()
         experiment["test_definition"] = "smoke"
