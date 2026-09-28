@@ -21,11 +21,11 @@ class NotifyTelegramTest(unittest.TestCase):
             "\n".join([
                 "🚀 CKC experiment started: comparison",
                 "Environment: internal-lab · optilab",
-                "Kafka: apache-kafka · cluster · 3 broker(s)",
-                "Expected workload: 6m 00s",
+                "Kafka: apache-kafka · cluster · 3 brokers",
+                "Workload: 1000 TPS · 3m 00s per target · 6m 00s total",
                 "Targets (2):",
-                "• baseline (spring, 2 replica(s), 1000 TPS, 3m 00s)",
-                "• ckc (ckc, 2 replica(s), 1000 TPS, 3m 00s)",
+                "• baseline (spring, 2 replicas)",
+                "• ckc (ckc, 2 replicas)",
             ]),
             NOTIFY.message_for("experiment_started", {
                 "experiment": "comparison",
@@ -38,6 +38,23 @@ class NotifyTelegramTest(unittest.TestCase):
                 ],
             }),
         )
+
+    def test_experiment_start_keeps_only_actual_workload_variants_on_targets(self) -> None:
+        message = NOTIFY.message_for("experiment_started", {
+            "experiment": "comparison",
+            "environment": "aws · eu-central-1",
+            "kafka": {"implementation": "apache-kafka", "topology": "cluster", "brokers": 3},
+            "expected_duration_seconds": 360,
+            "targets": [
+                {"name": "baseline", "profile": "spring", "base_tps": 1000, "duration_seconds": 180},
+                {"name": "ckc", "profile": "ckc", "base_tps": 2000, "duration_seconds": 180},
+            ],
+        })
+
+        self.assertIn("Workload: rate varies by target · 3m 00s per target · 6m 00s total", message)
+        self.assertIn("• baseline (spring, 1000 TPS)", message)
+        self.assertIn("• ckc (ckc, 2000 TPS)", message)
+        self.assertNotIn("3m 00s)", message)
 
     def test_default_events_follow_the_high_signal_lifecycle(self) -> None:
         self.assertEqual(
@@ -58,9 +75,9 @@ class NotifyTelegramTest(unittest.TestCase):
     def test_target_start_follows_preparation_and_identifies_the_target(self) -> None:
         self.assertEqual(
             "\n".join([
-                "▶️ CKC target started: 1/3 — comparison",
+                "▶️ CKC target started: 1/3",
                 "Target: spring-kafka.jdk",
-                "Profile: spring-kafka · placement worker · 1 replica(s) · 5000 TPS",
+                "Profile: spring-kafka · placement worker · 1 replica",
                 "Expected workload: 13m 00s",
             ]),
             NOTIFY.message_for("target_started", {

@@ -399,6 +399,7 @@
 | [INFRA-235](#infra-235) | Add a two-hour split-host CKC resilience experiment with ten measured chaos episodes. | DONE |
 | [INFRA-236](#infra-236) | Bound exact audit-analysis memory and recover the two-hour resilience report. | DONE |
 | [INFRA-237](#infra-237) | Make workload-diagram chaos labels describe the affected component, action, and parameters. | DONE |
+| [INFRA-238](#infra-238) | Reduce Telegram experiment notification noise and identify the actual environment topology. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4629,3 +4630,14 @@ Make every workload-diagram chaos card identify the affected application or serv
 Include operational parameters such as replica transitions, Kafka broker ids, network impairment, and recovery behavior where applicable.
 Derive consecutive application replica transitions when all experiment targets share the same initial replica count, and allow wider cards for parameter-rich labels.
 Verification: 144 internal-lab, 43 shared orchestration, and 32 AWS tests passed; the two-hour resilience definition resolves to explicit application, Redis, and Kafka actions without regenerating prior artifacts.
+
+<a id="infra-238"></a>
+### INFRA-238 - Reduce Telegram experiment notification noise
+
+_Date: 2026-09-28_
+
+Show uniform workload rate and duration once at experiment start instead of repeating them for every target.
+Keep target-start messages focused on target identity, profile, placement, replicas, and the remaining target workload duration.
+Describe the configured internal-lab host topology rather than reporting only the controller hostname.
+Retain per-target rate or duration details only when a target genuinely overrides the common workload, and use natural singular/plural component counts.
+Verification: 146 internal-lab, 32 AWS, and 2 shared notification tests passed; the installed split-host lab matches the repository notification sources without rebuilding images or redeploying workloads.
