@@ -107,6 +107,13 @@ The first message identifies the environment, Kafka shape, targets, and expected
 workload duration. Report and bundle readiness are emitted in that order, and the
 terminal completion event is sent only after final artifacts exist. Warm-up is
 reported only when it actually runs.
+Notifications are first persisted under
+`/opt/ckc-lab/state/notifications/telegram/pending`. Delivery runs outside the
+experiment process, preserves event order, and retries temporary DNS, network,
+HTTP 429, and Telegram server failures with exponential backoff. A user-systemd
+timer also retries every 30 seconds, so queued messages survive experiment
+completion and host restarts. Permanent Telegram 4xx rejections are moved to the
+neighboring `failed` directory instead of blocking later lifecycle events.
 Override this with a comma-separated allowlist:
 
 ```sh
@@ -128,3 +135,11 @@ If the message does not arrive, check:
 - the bot has received at least one message from you or was added to the group;
 - `TELEGRAM_CHAT_ID` matches the chat from `getUpdates`;
 - the wrapper is executable.
+
+Inspect delivery state with:
+
+```sh
+systemctl --user status ckc-telegram-dispatch.timer
+find /opt/ckc-lab/state/notifications/telegram -maxdepth 2 -type f -printf '%P\n' | sort
+tail -100 /opt/ckc-lab/logs/telegram-notifications.log
+```

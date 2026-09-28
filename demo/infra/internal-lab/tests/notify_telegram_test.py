@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "assets/notify/notify-telegram.py"
@@ -16,6 +20,70 @@ SPEC.loader.exec_module(NOTIFY)
 
 
 class NotifyTelegramTest(unittest.TestCase):
+    def test_outbox_delivers_persisted_messages_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "outbox"
+            first = Path(directory) / "first.json"
+            second = Path(directory) / "second.json"
+            first.write_text('{"experiment":"first"}\n', encoding="utf-8")
+            second.write_text('{"experiment":"second"}\n', encoding="utf-8")
+            with patch.object(NOTIFY.time, "time_ns", side_effect=[1, 2]):
+                NOTIFY.enqueue("experiment_failed", first, root)
+                NOTIFY.enqueue("experiment_failed", second, root)
+
+            messages: list[str] = []
+            result = NOTIFY.drain_outbox(root, sender=messages.append, now=100)
+
+            self.assertEqual(["first", "second"], [message.split(": ", 1)[1].splitlines()[0] for message in messages])
+            self.assertEqual({"delivered": 2, "deferred": 0, "rejected": 0}, result)
+            self.assertEqual([], list((root / "pending").glob("*.json")))
+
+    def test_outbox_retries_network_failure_without_overtaking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "outbox"
+            first = Path(directory) / "first.json"
+            second = Path(directory) / "second.json"
+            first.write_text('{"experiment":"first"}\n', encoding="utf-8")
+            second.write_text('{"experiment":"second"}\n', encoding="utf-8")
+            with patch.object(NOTIFY.time, "time_ns", side_effect=[1, 2]):
+                NOTIFY.enqueue("experiment_failed", first, root)
+                NOTIFY.enqueue("experiment_failed", second, root)
+
+            failure = NOTIFY.drain_outbox(
+                root,
+                sender=lambda _message: (_ for _ in ()).throw(urllib.error.URLError("offline")),
+                now=100,
+            )
+            queued = sorted((root / "pending").glob("*.json"))
+            first_envelope = json.loads(queued[0].read_text(encoding="utf-8"))
+
+            self.assertEqual({"delivered": 0, "deferred": 1, "rejected": 0}, failure)
+            self.assertEqual(1, first_envelope["attempts"])
+            self.assertEqual(130, first_envelope["next_attempt_at"])
+            self.assertEqual(2, len(queued))
+            messages: list[str] = []
+            self.assertEqual(1, NOTIFY.drain_outbox(root, sender=messages.append, now=129)["deferred"])
+            self.assertEqual([], messages)
+            recovered = NOTIFY.drain_outbox(root, sender=messages.append, now=130)
+            self.assertEqual({"delivered": 2, "deferred": 0, "rejected": 0}, recovered)
+
+    def test_outbox_quarantines_permanent_telegram_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "outbox"
+            payload = Path(directory) / "payload.json"
+            payload.write_text('{"experiment":"broken"}\n', encoding="utf-8")
+            NOTIFY.enqueue("experiment_failed", payload, root)
+            rejection = urllib.error.HTTPError("https://api.telegram.org", 400, "Bad Request", {}, None)
+
+            result = NOTIFY.drain_outbox(
+                root,
+                sender=lambda _message: (_ for _ in ()).throw(rejection),
+                now=100,
+            )
+
+            self.assertEqual({"delivered": 0, "deferred": 0, "rejected": 1}, result)
+            self.assertEqual(1, len(list((root / "failed").glob("*.http-400.json"))))
+
     def test_experiment_start_is_detailed(self) -> None:
         self.assertEqual(
             "\n".join([

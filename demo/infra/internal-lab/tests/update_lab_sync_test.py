@@ -86,6 +86,15 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("stop it before updating the lab", script)
         self.assertIn("install-user-service.sh", script)
 
+    def test_user_service_installer_enables_durable_telegram_retry_timer(self) -> None:
+        installer = (SCRIPT.parents[1] / "assets/libexec/install-user-service.sh").read_text(encoding="utf-8")
+        systemd = SCRIPT.parents[1] / "assets/systemd"
+
+        self.assertIn("systemctl --user enable --now ckc-telegram-dispatch.timer", installer)
+        self.assertIn("systemctl --user start --no-block ckc-telegram-dispatch.service", installer)
+        self.assertTrue((systemd / "ckc-telegram-dispatch.service.in").is_file())
+        self.assertTrue((systemd / "ckc-telegram-dispatch.timer.in").is_file())
+
     def test_update_checks_worker_and_distributes_images(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         rebuild = (SCRIPT.parents[1] / "assets/libexec/rebuild-images.sh").read_text(encoding="utf-8")
