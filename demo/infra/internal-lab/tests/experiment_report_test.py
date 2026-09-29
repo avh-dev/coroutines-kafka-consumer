@@ -92,9 +92,32 @@ class ExperimentReportTest(unittest.TestCase):
 
         self.assertIn("avg_over_time((sum(rate(", cpu_query)
         self.assertIn("[1m])))[{window}:15s]", cpu_query)
+        self.assertIn('namespace=~"ckc-perf|ckc-app"', cpu_query)
         self.assertIn("avg_over_time((sum(container_memory_working_set_bytes", memory_query)
         self.assertIn("))[{window}:15s]", memory_query)
         self.assertNotIn("sum(avg_over_time", memory_query)
+
+    def test_aws_capacity_measurements_cover_managed_dependencies_and_workload_pods(self) -> None:
+        self.assertIn(
+            "aws_kafka_cpu_user_average",
+            STANDARD_MEASUREMENTS["msk_cpu_average_percent"],
+        )
+        self.assertIn(
+            "aws_kafka_network_processor_avg_idle_percent_minimum",
+            STANDARD_MEASUREMENTS["msk_network_processor_utilization_max_percent"],
+        )
+        self.assertIn(
+            "aws_elasticache_engine_cpu_utilization_maximum",
+            STANDARD_MEASUREMENTS["redis_engine_cpu_max_percent"],
+        )
+        self.assertIn(
+            'container="load-test"',
+            STANDARD_MEASUREMENTS["load_test_cpu_average_cores"],
+        )
+        self.assertIn(
+            'container="demo-stubs"',
+            STANDARD_MEASUREMENTS["stubs_cpu_average_cores"],
+        )
 
     def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
         query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
@@ -1663,7 +1686,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("FAIL ·", markdown)
             self.assertIn('class="champion"', markdown)
             self.assertIn(
-                'CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
+                'Host Kafka CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
             self.assertIn(

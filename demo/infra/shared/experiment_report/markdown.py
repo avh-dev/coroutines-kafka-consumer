@@ -1138,10 +1138,23 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection("Resource usage")
         row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Application network receive average", compared([value.get("application_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("Application network transmit average", compared([value.get("application_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
         row("Application context switches average", compared([value.get("context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
+        row("Load generator CPU average", compared([value.get("load_test_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Load generator memory average", compared([value.get("load_test_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Load generator network transmit average", compared([value.get("load_test_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("Stubs CPU average", compared([value.get("stubs_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Stubs memory average", compared([value.get("stubs_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Stubs network receive average", compared([value.get("stubs_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
         row("Producer CPU average", compared([value.get("producer_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Producer memory average", compared([value.get("producer_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
         row("Producer Kafka buffer utilization maximum", compared([value.get("producer_buffer_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("ElastiCache engine CPU maximum", compared([value.get("redis_engine_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("ElastiCache network receive average", compared([value.get("redis_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("ElastiCache network transmit average", compared([value.get("redis_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("ElastiCache connections maximum", compared([value.get("redis_connections_max") for value in measurements], 0, ""), "prometheus")
+        row("ElastiCache evictions", counts([value.get("redis_evictions_total") for value in measurements]), "prometheus")
         available = {name for target_evidence in evidence for name in target_evidence}
         interval_topics = [topic for topic in preferred_topics if topic in available]
         interval_topics.extend(sorted(available - set(interval_topics)))
@@ -1241,19 +1254,35 @@ def render_markdown(report: ExperimentReport) -> str:
     )
 
     section("Kafka broker metrics")
+
+    def broker_capacity_rows(label: str, measurements: list[dict[str, Any]]) -> None:
+        suffix = f" · {label}"
+        row("Host Kafka CPU average" + suffix, compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("MSK CPU average" + suffix, compared([value.get("msk_cpu_average_percent") for value in measurements], 1, "%"), "prometheus")
+        row("MSK CPU maximum" + suffix, compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("MSK network processor utilization maximum" + suffix, compared([value.get("msk_network_processor_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("MSK request handler utilization maximum" + suffix, compared([value.get("msk_request_handler_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("MSK ingress average" + suffix, compared([value.get("msk_ingress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("MSK egress average" + suffix, compared([value.get("msk_egress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("MSK produce latency maximum" + suffix, compared([value.get("msk_produce_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
+        row("MSK consumer fetch latency maximum" + suffix, compared([value.get("msk_fetch_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
+        row("MSK produce throttle maximum" + suffix, compared([value.get("msk_produce_throttle_max_ms") for value in measurements], 1, " ms"), "prometheus")
+        row("MSK consumer fetch throttle maximum" + suffix, compared([value.get("msk_fetch_throttle_max_ms") for value in measurements], 1, " ms"), "prometheus")
+        row("MSK storage I/O average" + suffix, compared([value.get("msk_storage_io_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("MSK data disk used maximum" + suffix, compared([value.get("msk_disk_used_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("MSK CPU credit balance minimum" + suffix, compared([value.get("msk_cpu_credit_balance_min") for value in measurements], 1, ""), "prometheus")
+        row("MSK under-replicated partitions maximum" + suffix, counts([value.get("msk_under_replicated_partitions_max") for value in measurements]), "prometheus")
+        row("MSK offline partitions maximum" + suffix, counts([value.get("msk_offline_partitions_max") for value in measurements]), "prometheus")
+
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):
             continue
         window_results = [target_window(target, window_index) for target in targets]
-        row(
-            f"CPU average · {escaped(window.get('name') or 'measurement')} window",
-            compared([
-                (result.get("measurements") or {}).get("broker_cpu_average_cores")
-                for result in window_results
-            ], 3, " cores"),
-            "prometheus",
+        broker_capacity_rows(
+            f"{escaped(window.get('name') or 'measurement')} window",
+            [result.get("measurements") or {} for result in window_results],
         )
-    row("CPU average · full run", compared([target.measurements.get("broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+    broker_capacity_rows("full run", [target.measurements for target in targets])
 
     def request_metrics(capture_name: str, topic: str, role: str, api_name: str, record_direction: str | None) -> None:
         label = "Consumer fetch" if role == "consumer" else "Producer"

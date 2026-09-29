@@ -165,6 +165,41 @@ class DashboardTest(unittest.TestCase):
                 continue
             self.assertNotIn("${pod_grouping}", " ".join(target.get("expr", "") for target in panel.get("targets", [])))
 
+    def test_aws_dependency_capacity_panels_cover_msk_and_elasticache(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("title") == "AWS Managed Dependencies")
+        panels = {panel["title"]: panel for panel in row["panels"]}
+
+        self.assertEqual(
+            {
+                "MSK Broker CPU",
+                "MSK Broker Executor Utilization",
+                "MSK Client Network Throughput",
+                "MSK Storage Capacity",
+                "MSK Health and Burst Credits",
+                "MSK Request Latency and Throttling",
+                "ElastiCache Capacity",
+            },
+            set(panels),
+        )
+        expressions = " ".join(
+            target["expr"] for panel in panels.values() for target in panel["targets"]
+        )
+        for metric in (
+            "aws_kafka_cpu_user_average",
+            "aws_kafka_bytes_out_per_sec_average",
+            "aws_kafka_cpu_credit_balance_minimum",
+            "aws_kafka_fetch_consumer_total_time_ms_mean_maximum",
+            "aws_elasticache_engine_cpu_utilization_maximum",
+            "aws_elasticache_network_bytes_out_sum",
+        ):
+            self.assertIn(metric, expressions)
+
+        exported_metrics = metric_names_from_dashboard(dashboard_path.parent)
+        self.assertIn("aws_kafka_cpu_user_average", exported_metrics)
+        self.assertIn("aws_elasticache_engine_cpu_utilization_maximum", exported_metrics)
+
     def test_redis_panels_do_not_depend_on_event_type_control(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
@@ -179,6 +214,22 @@ class DashboardTest(unittest.TestCase):
         self.assertNotIn("event_type_grouping", expressions)
         self.assertNotIn("breakdown", panels["Redis Command Rate — Total"]["targets"][0]["expr"])
         self.assertIn("command", panels["Redis Command Rate — By Command"]["targets"][0]["expr"])
+
+    def test_workload_resource_panels_separate_application_load_and_stubs(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("title") == "Application Resources")
+        panels = {panel["title"]: panel for panel in row["panels"]}
+
+        for title in (
+            "Workload CPU by Component",
+            "Workload Memory by Component",
+            "Workload Network by Component",
+        ):
+            expressions = " ".join(target["expr"] for target in panels[title]["targets"])
+            self.assertIn("ckc-demo", expressions)
+            self.assertIn("ckc-load-test", expressions)
+            self.assertIn("ckc-demo-stubs", expressions)
 
     def test_dashboard_aggregates_offset_trackers_and_exposes_commit_metadata(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
@@ -429,6 +480,7 @@ class DashboardTest(unittest.TestCase):
                 decoded_content = str(json.loads(content))
                 self.assertEqual(has_host_rows, "Host Services: Redis" in content)
                 self.assertEqual(has_msk, "MSK CloudWatch Time Lag" in content)
+                self.assertEqual(has_msk, "AWS Managed Dependencies" in content)
                 self.assertIn(namespace, decoded_content)
 
     def test_uses_latest_aws_lab_context_for_live_dashboard_mode(self) -> None:

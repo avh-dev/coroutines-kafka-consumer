@@ -564,12 +564,13 @@ EOF
   kubectl -n ckc-observability rollout status deployment/ckc-kafka-exporter --timeout=5m
 }
 
-stop_msk_cloudwatch_exporter() {
-  docker rm -f ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent >/dev/null 2>&1 || true
+stop_aws_cloudwatch_exporter() {
+  docker rm -f ckc-aws-cloudwatch-exporter ckc-aws-cloudwatch-vmagent >/dev/null 2>&1 || true
 }
 
-configure_msk_cloudwatch_exporter() {
+configure_aws_cloudwatch_exporter() {
   local cluster_name="$1"
+  local elasticache_member_clusters="$2"
   local config_dir="${RUNNER_HOME}/observability/cloudwatch"
   mkdir -p "${config_dir}"
 
@@ -613,13 +614,181 @@ metrics:
     period_seconds: 60
     range_seconds: 900
     delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: CPUUser
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: CPUSystem
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: CPUCreditBalance
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Minimum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: NetworkProcessorAvgIdlePercent
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Minimum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: RequestHandlerAvgIdlePercent
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Minimum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: BytesInPerSec
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: BytesOutPerSec
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: ProduceTotalTimeMsMean
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: FetchConsumerTotalTimeMsMean
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: ProduceThrottleTime
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: FetchThrottleTime
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: VolumeReadBytes
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Sum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: VolumeWriteBytes
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Sum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: KafkaDataLogsDiskUsed
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: UnderReplicatedPartitions
+    aws_dimensions: ["Cluster Name", "Broker ID"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/Kafka
+    aws_metric_name: OfflinePartitionsCount
+    aws_dimensions: ["Cluster Name"]
+    aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/ElastiCache
+    aws_metric_name: EngineCPUUtilization
+    aws_dimensions: ["CacheClusterId"]
+    aws_dimension_select: {"CacheClusterId": ${elasticache_member_clusters}}
+    aws_statistics: [Average, Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/ElastiCache
+    aws_metric_name: NetworkBytesIn
+    aws_dimensions: ["CacheClusterId"]
+    aws_dimension_select: {"CacheClusterId": ${elasticache_member_clusters}}
+    aws_statistics: [Sum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/ElastiCache
+    aws_metric_name: NetworkBytesOut
+    aws_dimensions: ["CacheClusterId"]
+    aws_dimension_select: {"CacheClusterId": ${elasticache_member_clusters}}
+    aws_statistics: [Sum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/ElastiCache
+    aws_metric_name: CurrConnections
+    aws_dimensions: ["CacheClusterId"]
+    aws_dimension_select: {"CacheClusterId": ${elasticache_member_clusters}}
+    aws_statistics: [Maximum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
+  - aws_namespace: AWS/ElastiCache
+    aws_metric_name: Evictions
+    aws_dimensions: ["CacheClusterId"]
+    aws_dimension_select: {"CacheClusterId": ${elasticache_member_clusters}}
+    aws_statistics: [Sum]
+    period_seconds: 60
+    range_seconds: 900
+    delay_seconds: 120
 EOF
 
   cat > "${config_dir}/vmagent-prometheus.yml" <<EOF
 global:
   scrape_interval: 60s
 scrape_configs:
-  - job_name: ckc-msk-cloudwatch
+  - job_name: ckc-aws-cloudwatch
     static_configs:
       - targets: ["127.0.0.1:9106"]
         labels:
@@ -627,11 +796,11 @@ scrape_configs:
           msk_cluster_name: "${cluster_name}"
 EOF
 
-  stop_msk_cloudwatch_exporter
-  docker run -d --name ckc-msk-cloudwatch-exporter --restart unless-stopped --network host \
+  stop_aws_cloudwatch_exporter
+  docker run -d --name ckc-aws-cloudwatch-exporter --restart unless-stopped --network host \
     -v "${config_dir}/cloudwatch-exporter.yml:/config/config.yml:ro" \
     quay.io/prometheus/cloudwatch-exporter:v0.16.0 >/dev/null
-  docker run -d --name ckc-msk-cloudwatch-vmagent --restart unless-stopped --network host \
+  docker run -d --name ckc-aws-cloudwatch-vmagent --restart unless-stopped --network host \
     -v "${config_dir}/vmagent-prometheus.yml:/etc/vmagent/prometheus.yml:ro" \
     victoriametrics/vmagent:v1.102.1 \
     -promscrape.config=/etc/vmagent/prometheus.yml \
@@ -780,12 +949,13 @@ deploy_observability_agent "${REMOTE_WRITE_URL}" "${LOKI_WRITE_URL}"
 
 MSK_CLOUDWATCH_ENABLED=false
 MSK_CLOUDWATCH_CLUSTER_NAME=""
+ELASTICACHE_MEMBER_CLUSTERS="$(infra_output elasticache_member_clusters)"
 if [ "${KAFKA_MODE}" = "msk" ]; then
   MSK_CLOUDWATCH_ENABLED=true
   MSK_CLOUDWATCH_CLUSTER_NAME="${CLUSTER_NAME}-msk"
-  configure_msk_cloudwatch_exporter "${MSK_CLOUDWATCH_CLUSTER_NAME}"
+  configure_aws_cloudwatch_exporter "${MSK_CLOUDWATCH_CLUSTER_NAME}" "${ELASTICACHE_MEMBER_CLUSTERS}"
 else
-  stop_msk_cloudwatch_exporter
+  stop_aws_cloudwatch_exporter
 fi
 
 python3 - <<PY
@@ -811,6 +981,7 @@ context = {
     "kafka_exporter_enabled": True,
     "msk_cloudwatch_enabled": "${MSK_CLOUDWATCH_ENABLED}" == "true",
     "msk_cloudwatch_cluster_name": "${MSK_CLOUDWATCH_CLUSTER_NAME}",
+    "elasticache_member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
     "environment_evidence": {
         "platform": "Amazon EKS",
         "provider": "AWS",
@@ -829,7 +1000,10 @@ context = {
             "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
             "disk_gib": ${MSK_EBS_VOLUME_SIZE:-0},
         },
-        "redis": {"mode": "${REDIS_MODE}"},
+        "redis": {
+            "mode": "${REDIS_MODE}",
+            "member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
+        },
     },
 }
 Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")

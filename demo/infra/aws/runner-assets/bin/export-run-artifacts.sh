@@ -30,7 +30,7 @@ if [ -f "${AUDIT_SOURCE}" ] && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -typ
   gzip -c "${AUDIT_SOURCE}" > "${RUN_DIR}/audit/chunks/audit-000001.log.gz"
 fi
 
-for container in prometheus loki grafana audit ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent; do
+for container in prometheus loki grafana audit ckc-aws-cloudwatch-exporter ckc-aws-cloudwatch-vmagent; do
   docker logs "${container}" > "${RUN_DIR}/logs/runner/${container}.log" 2>&1 || true
 done
 

@@ -29,11 +29,43 @@ STANDARD_MEASUREMENTS = {
     ),
     "cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
-        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
     ),
     "application_memory_average_mib": (
         "avg_over_time((sum(container_memory_working_set_bytes"
-        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s]) / 1024 / 1024'
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s]) / 1024 / 1024'
+    ),
+    "application_network_receive_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_receive_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
+    ),
+    "application_network_transmit_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_transmit_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
+    ),
+    "load_test_cpu_average_cores": (
+        "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-loadtest", container="load-test", pod=~"ckc-load-test-.+"}}[1m])))[{window}:15s])'
+    ),
+    "load_test_memory_average_mib": (
+        "avg_over_time((sum(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-loadtest", container="load-test", pod=~"ckc-load-test-.+"}}))[{window}:15s]) / 1024 / 1024'
+    ),
+    "load_test_network_transmit_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_transmit_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-loadtest", pod=~"ckc-load-test-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
+    ),
+    "stubs_cpu_average_cores": (
+        "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo-stubs", pod=~"ckc-demo-stubs-.+"}}[1m])))[{window}:15s])'
+    ),
+    "stubs_memory_average_mib": (
+        "avg_over_time((sum(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo-stubs", pod=~"ckc-demo-stubs-.+"}}))[{window}:15s]) / 1024 / 1024'
+    ),
+    "stubs_network_receive_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_receive_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-demo-stubs-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
     ),
     "broker_cpu_average_cores": (
         "sum(increase(namedprocess_namegroup_cpu_seconds_total"
@@ -86,6 +118,69 @@ STANDARD_MEASUREMENTS = {
     "context_switches_average_per_second": (
         "sum(increase(thread_stats_context_switches_total"
         '{{job="ckc-demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+    ),
+    "msk_cpu_average_percent": (
+        "max(avg_over_time((aws_kafka_cpu_user_average + "
+        "aws_kafka_cpu_system_average)[{window}:60s]))"
+    ),
+    "msk_cpu_max_percent": (
+        "max(max_over_time((aws_kafka_cpu_user_maximum + "
+        "aws_kafka_cpu_system_maximum)[{window}:60s]))"
+    ),
+    "msk_network_processor_utilization_max_percent": (
+        "100 - min(min_over_time(aws_kafka_network_processor_avg_idle_percent_minimum[{window}]))"
+    ),
+    "msk_request_handler_utilization_max_percent": (
+        "100 - min(min_over_time(aws_kafka_request_handler_avg_idle_percent_minimum[{window}]))"
+    ),
+    "msk_ingress_average_mib_per_second": (
+        "avg_over_time((sum(aws_kafka_bytes_in_per_sec_average))[{window}:60s]) / 1024 / 1024"
+    ),
+    "msk_egress_average_mib_per_second": (
+        "avg_over_time((sum(aws_kafka_bytes_out_per_sec_average))[{window}:60s]) / 1024 / 1024"
+    ),
+    "msk_produce_latency_max_ms": (
+        "max(max_over_time(aws_kafka_produce_total_time_ms_mean_maximum[{window}]))"
+    ),
+    "msk_fetch_latency_max_ms": (
+        "max(max_over_time(aws_kafka_fetch_consumer_total_time_ms_mean_maximum[{window}]))"
+    ),
+    "msk_produce_throttle_max_ms": (
+        "max(max_over_time(aws_kafka_produce_throttle_time_maximum[{window}]))"
+    ),
+    "msk_fetch_throttle_max_ms": (
+        "max(max_over_time(aws_kafka_fetch_throttle_time_maximum[{window}]))"
+    ),
+    "msk_storage_io_average_mib_per_second": (
+        "avg_over_time((sum(aws_kafka_volume_read_bytes_sum + "
+        "aws_kafka_volume_write_bytes_sum) / 60)[{window}:60s]) / 1024 / 1024"
+    ),
+    "msk_disk_used_max_percent": (
+        "max(max_over_time(aws_kafka_kafka_data_logs_disk_used_maximum[{window}]))"
+    ),
+    "msk_cpu_credit_balance_min": (
+        "min(min_over_time(aws_kafka_cpu_credit_balance_minimum[{window}]))"
+    ),
+    "msk_under_replicated_partitions_max": (
+        "max(max_over_time(aws_kafka_under_replicated_partitions_maximum[{window}]))"
+    ),
+    "msk_offline_partitions_max": (
+        "max(max_over_time(aws_kafka_offline_partitions_count_maximum[{window}]))"
+    ),
+    "redis_engine_cpu_max_percent": (
+        "max(max_over_time(aws_elasticache_engine_cpu_utilization_maximum[{window}]))"
+    ),
+    "redis_network_receive_average_mib_per_second": (
+        "avg_over_time((sum(aws_elasticache_network_bytes_in_sum) / 60)[{window}:60s]) / 1024 / 1024"
+    ),
+    "redis_network_transmit_average_mib_per_second": (
+        "avg_over_time((sum(aws_elasticache_network_bytes_out_sum) / 60)[{window}:60s]) / 1024 / 1024"
+    ),
+    "redis_connections_max": (
+        "max(max_over_time(aws_elasticache_curr_connections_maximum[{window}]))"
+    ),
+    "redis_evictions_total": (
+        "sum(sum_over_time(aws_elasticache_evictions_sum[{window}]))"
     ),
 }
 

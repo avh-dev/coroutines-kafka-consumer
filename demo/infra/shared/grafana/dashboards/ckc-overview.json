@@ -4198,6 +4198,52 @@
       "title": "Application Container Working Set — Average per Pod",
           "type": "timeseries",
           "id": 140
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Total CPU consumed by the measured application, load generator, and downstream stub pods so support-workload saturation is visible separately.",
+          "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 29},
+          "id": 150,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))", "legendFormat": "application", "refId": "A"},
+            {"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-loadtest\", container=\"load-test\", pod=~\"ckc-load-test-.+\"}[$__rate_interval]))", "legendFormat": "load generator", "refId": "B"},
+            {"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-app\", container=\"demo-stubs\", pod=~\"ckc-demo-stubs-.+\"}[$__rate_interval]))", "legendFormat": "stubs", "refId": "C"}
+          ],
+          "title": "Workload CPU by Component",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Working-set memory summed independently for the measured application, load generator, and downstream stubs.",
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 37},
+          "id": 151,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"$pod\"})", "legendFormat": "application", "refId": "A"},
+            {"expr": "sum(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-loadtest\", container=\"load-test\", pod=~\"ckc-load-test-.+\"})", "legendFormat": "load generator", "refId": "B"},
+            {"expr": "sum(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo-stubs\", pod=~\"ckc-demo-stubs-.+\"})", "legendFormat": "stubs", "refId": "C"}
+          ],
+          "title": "Workload Memory by Component",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Pod-network throughput for application, load generator, and stubs. These bytes explain component traffic but are not a substitute for billed cross-AZ transfer line items.",
+          "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 37},
+          "id": 152,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"ckc-perf|ckc-app\", pod=~\"ckc-demo-.+\"}[$__rate_interval]))", "legendFormat": "application receive", "refId": "A"},
+            {"expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"ckc-perf|ckc-app\", pod=~\"ckc-demo-.+\"}[$__rate_interval]))", "legendFormat": "application transmit", "refId": "B"},
+            {"expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"ckc-perf|ckc-loadtest\", pod=~\"ckc-load-test-.+\"}[$__rate_interval]))", "legendFormat": "load generator transmit", "refId": "C"},
+            {"expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"ckc-perf|ckc-app\", pod=~\"ckc-demo-stubs-.+\"}[$__rate_interval]))", "legendFormat": "stubs receive", "refId": "D"}
+          ],
+          "title": "Workload Network by Component",
+          "type": "timeseries"
         }
       ],
       "title": "Application Resources",
@@ -7875,6 +7921,139 @@
         }
       ],
       "title": "Load Test: Kafka Producers",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 142,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Amazon MSK broker CPU from CloudWatch. CPU user plus system is shown per broker so the hottest broker remains visible.",
+          "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 72},
+          "id": 143,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {
+              "expr": "aws_kafka_cpu_user_average + aws_kafka_cpu_system_average",
+              "legendFormat": "broker {{broker_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "MSK Broker CPU",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Busy share of the MSK network processor and request handler, calculated as 100% minus their CloudWatch idle percentages.",
+          "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 72},
+          "id": 144,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {
+              "expr": "100 - aws_kafka_network_processor_avg_idle_percent_minimum",
+              "legendFormat": "network broker {{broker_id}}",
+              "refId": "A"
+            },
+            {
+              "expr": "100 - aws_kafka_request_handler_avg_idle_percent_minimum",
+              "legendFormat": "request handler broker {{broker_id}}",
+              "refId": "B"
+            }
+          ],
+          "title": "MSK Broker Executor Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "MSK client ingress and egress throughput summed across brokers. Broker replication traffic is not included in these client byte metrics.",
+          "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 80},
+          "id": 145,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(aws_kafka_bytes_in_per_sec_average)", "legendFormat": "ingress", "refId": "A"},
+            {"expr": "sum(aws_kafka_bytes_out_per_sec_average)", "legendFormat": "egress", "refId": "B"}
+          ],
+          "title": "MSK Client Network Throughput",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "MSK storage activity and data-log disk utilization. Storage bytes are CloudWatch one-minute sums converted to bytes per second.",
+          "fieldConfig": {"defaults": {}, "overrides": [{"matcher": {"id": "byName", "options": "storage I/O"}, "properties": [{"id": "unit", "value": "Bps"}]}, {"matcher": {"id": "byName", "options": "disk used"}, "properties": [{"id": "unit", "value": "percent"}]}]},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 80},
+          "id": 146,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(aws_kafka_volume_read_bytes_sum + aws_kafka_volume_write_bytes_sum) / 60", "legendFormat": "storage I/O", "refId": "A"},
+            {"expr": "max(aws_kafka_kafka_data_logs_disk_used_maximum)", "legendFormat": "disk used", "refId": "B"}
+          ],
+          "title": "MSK Storage Capacity",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "MSK health indicators and the minimum remaining CPU credit balance for burstable T3 brokers.",
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 88},
+          "id": 147,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max(aws_kafka_under_replicated_partitions_maximum)", "legendFormat": "under-replicated partitions", "refId": "A"},
+            {"expr": "max(aws_kafka_offline_partitions_count_maximum)", "legendFormat": "offline partitions", "refId": "B"},
+            {"expr": "min(aws_kafka_cpu_credit_balance_minimum)", "legendFormat": "minimum CPU credits", "refId": "C"}
+          ],
+          "title": "MSK Health and Burst Credits",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "ElastiCache engine CPU, active connections, network throughput, and evictions from CloudWatch for the managed Redis dependency.",
+          "fieldConfig": {"defaults": {}, "overrides": [{"matcher": {"id": "byName", "options": "engine CPU"}, "properties": [{"id": "unit", "value": "percent"}]}, {"matcher": {"id": "byRegexp", "options": "/network/"}, "properties": [{"id": "unit", "value": "Bps"}]}]},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 88},
+          "id": 148,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max(aws_elasticache_engine_cpu_utilization_maximum)", "legendFormat": "engine CPU", "refId": "A"},
+            {"expr": "max(aws_elasticache_curr_connections_maximum)", "legendFormat": "connections", "refId": "B"},
+            {"expr": "sum(aws_elasticache_network_bytes_in_sum) / 60", "legendFormat": "network in", "refId": "C"},
+            {"expr": "sum(aws_elasticache_network_bytes_out_sum) / 60", "legendFormat": "network out", "refId": "D"},
+            {"expr": "sum(aws_elasticache_evictions_sum)", "legendFormat": "evictions", "refId": "E"}
+          ],
+          "title": "ElastiCache Capacity",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Maximum one-minute mean produce and consumer-fetch request latency plus any broker bandwidth-throttle time reported by Amazon MSK.",
+          "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 96},
+          "id": 149,
+          "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max(aws_kafka_produce_total_time_ms_mean_maximum)", "legendFormat": "produce latency", "refId": "A"},
+            {"expr": "max(aws_kafka_fetch_consumer_total_time_ms_mean_maximum)", "legendFormat": "consumer fetch latency", "refId": "B"},
+            {"expr": "max(aws_kafka_produce_throttle_time_maximum)", "legendFormat": "produce throttle", "refId": "C"},
+            {"expr": "max(aws_kafka_fetch_throttle_time_maximum)", "legendFormat": "consumer fetch throttle", "refId": "D"}
+          ],
+          "title": "MSK Request Latency and Throttling",
+          "type": "timeseries"
+        }
+      ],
+      "title": "AWS Managed Dependencies",
       "type": "row"
     }
   ],
