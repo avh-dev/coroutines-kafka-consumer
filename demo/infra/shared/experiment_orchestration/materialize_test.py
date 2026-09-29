@@ -29,17 +29,22 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(
             [
                 {"name": "max-load", "start": "20s", "duration": "80s"},
-                {"name": "post-degradation", "start": "55s", "duration": "40s"},
+                {"name": "post-degradation", "start": "60s", "duration": "35s"},
             ],
             workload["measurement_windows"],
         )
         self.assertEqual("30s", workload["diagnostics"][0]["at"])
         self.assertEqual("10s", workload["diagnostics"][0]["duration"])
         self.assertEqual("25s", workload["chaos"][0]["at"])
-        self.assertEqual("20s", workload["chaos"][0]["duration"])
+        self.assertEqual("30s", workload["chaos"][0]["duration"])
+        self.assertEqual("sequence", workload["chaos"][0]["type"])
+        self.assertEqual("eta-tail-degradation", workload["chaos"][0]["name"])
+        self.assertEqual("stubs_degradation", workload["chaos"][0]["steps"][0]["type"])
+        self.assertEqual("8s", workload["chaos"][0]["steps"][0]["duration"])
+        self.assertEqual({"type": "delay", "duration": "5s"}, workload["chaos"][0]["steps"][1])
         self.assertEqual(
             {"p99": 500, "p999": 1000, "p100": 2000},
-            workload["chaos"][0]["params"]["eta"]["percentiles"],
+            workload["chaos"][0]["steps"][0]["params"]["eta"]["percentiles"],
         )
 
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:

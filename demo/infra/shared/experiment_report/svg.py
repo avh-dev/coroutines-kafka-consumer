@@ -16,6 +16,7 @@ ICON_ROOT = Path(__file__).resolve().parent / "icons" / "services"
 ACTION_COLORS = {
     "scale": "#4f46e5",
     "sequence": "#7c3aed",
+    "delay": "#64748b",
     "delete": "#dc2626",
     "crash": "#dc2626",
     "restart": "#2563eb",
@@ -490,6 +491,25 @@ def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
             f'<line x1="{x+7:.1f}" y1="{y+8:.1f}" x2="{x+21:.1f}" y2="{y+8:.1f}" {common}/>'
             f'<line x1="{x+11:.1f}" y1="{y+5:.1f}" x2="{x+17:.1f}" y2="{y+5:.1f}" {common}/>'
         )
+    elif action == "scale":
+        symbol = (
+            f'<path d="M {x+9:.1f} {y+13:.1f} L {x+14:.1f} {y+8:.1f} L {x+19:.1f} {y+13:.1f}" {common}/>'
+            f'<line x1="{x+14:.1f}" y1="{y+8:.1f}" x2="{x+14:.1f}" y2="{y+20:.1f}" {common}/>'
+            f'<path d="M {x+8:.1f} {y+22:.1f} H {x+20:.1f}" {common}/>'
+        )
+    elif action == "sequence":
+        symbol = (
+            f'<path d="M {x+20:.1f} {y+9:.1f} A 8 8 0 0 0 {x+7:.1f} {y+14:.1f}" {common}/>'
+            f'<path d="M {x+8:.1f} {y+10:.1f} L {x+7:.1f} {y+15:.1f} L {x+12:.1f} {y+14:.1f}" {common}/>'
+            f'<path d="M {x+8:.1f} {y+19:.1f} A 8 8 0 0 0 {x+21:.1f} {y+14:.1f}" {common}/>'
+            f'<path d="M {x+20:.1f} {y+18:.1f} L {x+21:.1f} {y+13:.1f} L {x+16:.1f} {y+14:.1f}" {common}/>'
+        )
+    elif action == "delay":
+        symbol = (
+            f'<circle cx="{center_x:.1f}" cy="{center_y:.1f}" r="8" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{center_y:.1f}" x2="{center_x:.1f}" y2="{y+9:.1f}" {common}/>'
+            f'<line x1="{center_x:.1f}" y1="{center_y:.1f}" x2="{x+19:.1f}" y2="{y+17:.1f}" {common}/>'
+        )
     elif action == "crash":
         symbol = f'<path d="M {x+16:.1f} {y+4:.1f} L {x+8:.1f} {y+16:.1f} H {x+14:.1f} L {x+12:.1f} {y+24:.1f} L {x+21:.1f} {y+12:.1f} H {x+15:.1f} Z" fill="white"/>'
     elif action == "restart":
@@ -574,6 +594,25 @@ def stubs_table_rows(scenario: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
+    if scenario.get("type") == "sequence":
+        steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
+        title = str(scenario.get("title") or "Repeating chaos sequence")
+        at = float(scenario.get("at_seconds") or 0)
+        duration = scenario.get("duration_seconds")
+        end = float(scenario.get("end_seconds") or at)
+        time_label = (
+            f"{format_duration(at)}–{format_duration(end)} · {format_duration(float(duration))}"
+            if duration is not None
+            else format_duration(at)
+        )
+        header_width = 72 + len(title) * 7.0 + len(time_label) * 6.2
+        step_widths = []
+        step_heights = []
+        for step in steps:
+            step_width, step_height = chaos_card_dimensions(step)
+            step_widths.append(step_width + 18)
+            step_heights.append(max(38, step_height))
+        return min(900, max(420, header_width, *step_widths)), 50 + sum(step_heights) + 8
     rows = stubs_table_rows(scenario)
     if rows:
         table = scenario.get("stubs_changes")
@@ -589,6 +628,57 @@ def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
         else format_duration(at)
     )
     return min(680, max(260, 104 + len(title) * 7.0 + len(time_label) * 6.2)), 38
+
+
+def sequence_steps_svg(
+    scenario: dict[str, Any],
+    card_x: float,
+    card_y: float,
+    card_width: float,
+) -> list[str]:
+    steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
+    if not steps:
+        return []
+    result = [
+        '<g data-sequence-layout="vertical">',
+        f'<line x1="{card_x+10:.1f}" y1="{card_y+42:.1f}" x2="{card_x+card_width-10:.1f}" '
+        f'y2="{card_y+42:.1f}" stroke="#ddd6fe"/>',
+    ]
+    row_y = card_y + 48
+    for index, step in enumerate(steps, start=1):
+        _step_width, step_height = chaos_card_dimensions(step)
+        step_height = max(38, step_height)
+        action = str(step.get("action") or "chaos")
+        target = str(step.get("target") or "")
+        title = str(step.get("title") or step.get("type") or "Chaos")
+        duration = step.get("duration_seconds")
+        step_color = ACTION_COLORS.get(action, ACTION_COLORS["chaos"])
+        background = "#fafafa" if index % 2 else "#f8fafc"
+        result.extend(
+            [
+                f'<g data-sequence-step="{index}" data-scenario-type="{esc(step.get("type"))}">',
+                f'<rect x="{card_x+8:.1f}" y="{row_y:.1f}" width="{card_width-16:.1f}" '
+                f'height="{step_height:.1f}" rx="6" fill="{background}"/>',
+                action_icon(action, card_x + 14, row_y + 5),
+            ]
+        )
+        if target:
+            result.append(service_icon(target, card_x + 49, row_y + 5))
+            title_x = card_x + 84
+        else:
+            title_x = card_x + 49
+        result.append(f'<text class="card-title" x="{title_x:.1f}" y="{row_y+23:.1f}">{esc(title)}</text>')
+        if duration is not None:
+            time_x = title_x + len(title) * 6.8 + 10
+            result.append(
+                f'<text class="card-time" x="{time_x:.1f}" y="{row_y+23:.1f}">'
+                f'· {esc(format_duration(float(duration)))}</text>'
+            )
+        result.extend(stubs_table_svg(step, card_x + 8, row_y, card_width - 16, step_color))
+        result.append("</g>")
+        row_y += step_height
+    result.append("</g>")
+    return result
 
 
 def stubs_table_svg(
@@ -907,6 +997,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         end = float(scenario.get("end_seconds") or at)
         action = str(scenario.get("action") or "chaos")
         target = str(scenario.get("target") or "")
+        header_target = "" if scenario.get("type") == "sequence" else target
         title = str(scenario.get("title") or scenario.get("type") or "Chaos")
         color = ACTION_COLORS.get(action, ACTION_COLORS["chaos"])
         start_x = x(at)
@@ -937,6 +1028,8 @@ def load_profile_svg(report: ExperimentReport) -> str:
             action_x = card_x + estimated_width - 33
             service_x = action_x - 34
             title_x = card_x + 10
+        if scenario.get("type") == "sequence" and action_x < card_x + estimated_width / 2:
+            title_x = action_x + 38
         icon_y = card_y + 5
         title_width = len(title) * 6.8
         time_x = title_x + title_width + 10
@@ -974,9 +1067,10 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 f'<g data-chaos-card="{esc(scenario.get("type"))}"><title>{esc(title)} at {esc(time_label)}</title>',
                 f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="{color}" stroke-opacity="0.72"/>',
                 action_icon(action, action_x, icon_y),
-                *( [service_icon(target, service_x - 1, card_y + 4, 30)] if target else [] ),
+                *( [service_icon(header_target, service_x - 1, card_y + 4, 30)] if header_target else [] ),
                 f'<text class="card-title" x="{title_x:.1f}" y="{card_y+24:.1f}">{esc(title)}</text>',
                 f'<text class="card-time" x="{time_x:.1f}" y="{card_y+24:.1f}">· {esc(time_label)}</text>',
+                *sequence_steps_svg(scenario, card_x, card_y, estimated_width),
                 *stubs_table_svg(scenario, card_x, card_y, estimated_width, color),
                 "</g>",
             ]

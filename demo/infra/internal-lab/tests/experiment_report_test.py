@@ -9,6 +9,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import yaml
@@ -583,9 +584,9 @@ class ExperimentReportTest(unittest.TestCase):
                 "type": "sequence",
                 "name": "replica-churn",
                 "steps": [
-                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                    {"type": "deployment_scale", "params": {"replicas": 3}},
                     {"type": "delay", "duration": "30s"},
-                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 2}},
+                    {"type": "deployment_scale", "params": {"replicas": 2}},
                     {"type": "delay", "duration": "30s"},
                 ],
             }],
@@ -597,11 +598,106 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(1800, scenarios[0]["duration_seconds"])
         self.assertEqual("ckc-demo", scenarios[0]["target"])
         self.assertEqual(
-            "Repeat replica churn: 2 ↔ 3 replicas; 30s delay",
+            "Repeating chaos sequence • Replica churn",
             scenarios[0]["title"],
         )
-        network_card_width, _ = svg_renderer.chaos_card_dimensions(scenarios[-1])
-        self.assertGreater(network_card_width, 480)
+        self.assertEqual(
+            [
+                "Scale application: 2 → 3 replicas",
+                "Wait",
+                "Scale application: 3 → 2 replicas",
+                "Wait",
+            ],
+            [step["title"] for step in scenarios[0]["steps"]],
+        )
+        sequence_card_width, sequence_card_height = svg_renderer.chaos_card_dimensions(scenarios[-1])
+        self.assertGreater(sequence_card_width, 420)
+        self.assertGreater(sequence_card_height, 180)
+
+    def test_repeating_sequence_card_renders_nested_icons_timing_and_degradation(self) -> None:
+        baseline = {
+            "error_rate_percent": 0,
+            "eta": {"percentiles": {"p90": 25, "p95": 40, "p99": 160, "p100": 300}},
+        }
+        scenarios = normalize_chaos_scenarios(
+            [{
+                "at": "1m",
+                "duration": "2m",
+                "type": "sequence",
+                "name": "eta-tail-degradation",
+                "steps": [
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                    {"type": "delay", "duration": "30s"},
+                    {
+                        "type": "stubs_degradation",
+                        "target": "demo-stubs",
+                        "duration": "10s",
+                        "params": {"eta": {"percentiles": {"p95": 150, "p99": 250}}},
+                    },
+                ],
+            }],
+            baseline,
+            initial_application_replicas=2,
+        )
+        report = SimpleNamespace(test_definition={
+            "base_tps": 5000,
+            "load_phases": [{
+                "name": "maximum",
+                "start_seconds": 0,
+                "duration_seconds": 180,
+                "start_percent": 100,
+                "end_percent": 100,
+            }],
+            "load_topics": [],
+            "chaos_scenarios": scenarios,
+            "measurement_windows": [],
+            "diagnostic_steps": [],
+        })
+
+        root = ET.fromstring(svg_renderer.load_profile_svg(report))
+        namespace = "{http://www.w3.org/2000/svg}"
+        sequence_card = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-chaos-card") == "sequence"
+        )
+        steps = [
+            element
+            for element in sequence_card.iter(f"{namespace}g")
+            if element.attrib.get("data-sequence-step")
+        ]
+        self.assertEqual(
+            ["deployment_scale", "delay", "stubs_degradation"],
+            [step.attrib["data-scenario-type"] for step in steps],
+        )
+        self.assertEqual(
+            {"sequence", "scale", "delay", "degradation"},
+            {
+                element.attrib["data-action"]
+                for element in sequence_card.iter(f"{namespace}g")
+                if element.attrib.get("data-icon-role") == "action"
+            },
+        )
+        self.assertEqual(
+            {"ckc-demo", "demo-stubs"},
+            {
+                element.attrib["data-service"]
+                for element in sequence_card.iter(f"{namespace}g")
+                if element.attrib.get("data-icon-role") == "service"
+            },
+        )
+        rendered_labels = ["".join(element.itertext()) for element in sequence_card.iter(f"{namespace}text")]
+        labels = set(rendered_labels)
+        self.assertIn("Repeating chaos sequence • ETA tail degradation", labels)
+        self.assertIn("Scale application: 2 → 3 replicas", labels)
+        self.assertIn("Wait", labels)
+        self.assertIn("· 30s", labels)
+        self.assertIn("Degrade downstream responses", labels)
+        self.assertIn("· 10s", labels)
+        self.assertTrue(any(
+            element.attrib.get("data-stubs-layout") == "vertical"
+            for element in sequence_card.iter(f"{namespace}g")
+        ))
 
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {

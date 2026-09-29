@@ -404,6 +404,7 @@
 | [INFRA-240](#infra-240) | Persist and retry internal-lab Telegram notifications across temporary network failures. | DONE |
 | [INFRA-241](#infra-241) | Add time-bounded repeating composite chaos sequences with compact report presentation. | DONE |
 | [INFRA-242](#infra-242) | Harden observability and drain handling for long replica-churn experiments. | DONE |
+| [INFRA-243](#infra-243) | Render repeating chaos sequences as detailed multi-step report cards. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4694,3 +4695,14 @@ Fall back to Kafka-native lag inspection when Prometheus is temporarily unavaila
 Aggregate resource usage by time rather than summing every historical pod series created during replica churn.
 Enable delivery auditing for the eight-hour Spring Kafka versus CKC endurance comparison without restoring high-cardinality Kafka client metrics.
 Verification: 163 internal-lab tests and 42 focused report/materialization tests pass; the installed Prometheus is ready with a 2 GiB limit, accepts the churn-safe queries, and the previous report was regenerated from the surviving TSDB data without starting an experiment.
+
+<a id="infra-243"></a>
+### INFRA-243 - Render detailed repeating chaos sequences
+
+_Date: 2026-09-29_
+
+Render a repeating sequence as one structured report card whose nested actions retain the icons, labels, timing, and parameter detail of standalone chaos cards.
+Keep multi-line degradation detail inside the enclosing sequence card instead of collapsing the cycle into an ambiguous one-line summary.
+Add distinct scale, repeat, and delay symbols, preserve default application and stub targets in report normalization, and size the enclosing card from all nested rows.
+Exercise the composite card in the two-minute smoke experiment with a repeating ETA degradation-and-recovery cycle, leaving replica placement unchanged.
+Verification: 164 internal-lab, 28 shared materialization/contract, and 32 AWS tests pass; the installed runtime is updated without starting an experiment or regenerating prior reports.

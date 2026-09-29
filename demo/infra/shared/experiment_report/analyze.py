@@ -82,6 +82,7 @@ def parse_load_profile(value: str) -> list[dict[str, Any]]:
 
 CHAOS_ACTIONS = {
     "sequence": "sequence",
+    "delay": "delay",
     "deployment_scale": "scale",
     "pod_delete": "delete",
     "pod_crash": "crash",
@@ -98,6 +99,19 @@ STUB_STREAM_NAMES = {
     "flavour": "Order flavour ML",
     "registry": "Legacy brewing registry",
 }
+
+
+def chaos_scenario_target(scenario_type: str, configured: Any) -> str:
+    target = str(configured or "").strip()
+    if target:
+        return target
+    if scenario_type in {"deployment_scale", "pod_delete", "pod_crash"}:
+        return "ckc-demo"
+    if scenario_type == "stubs_degradation":
+        return "demo-stubs"
+    return ""
+
+
 LOAD_TOPIC_FIELDS = (
     ("order.events.v1", "order", "order_event_percent"),
     ("batch.events.v1", "batch", "batch_event_percent"),
@@ -277,31 +291,12 @@ def chaos_scenario_title(scenario: dict[str, Any], previous_replicas: int | None
     params = scenario.get("params") if isinstance(scenario.get("params"), dict) else {}
     target_name = chaos_target_name(target, params)
     if scenario_type == "sequence":
-        name = str(scenario.get("name") or "repeating sequence").replace("_", " ").replace("-", " ")
-        steps = scenario.get("steps") if isinstance(scenario.get("steps"), list) else []
-        replicas = [
-            step.get("params", {}).get("replicas")
-            for step in steps
-            if isinstance(step, dict)
-            and step.get("type") == "deployment_scale"
-            and isinstance(step.get("params"), dict)
-        ]
-        delays = [
-            step.get("duration_seconds")
-            for step in steps
-            if isinstance(step, dict) and step.get("type") == "delay"
-        ]
-        details = []
-        if replicas:
-            transitions = ([previous_replicas] if previous_replicas is not None else []) + replicas
-            details.append(f"{' ↔ '.join(str(value) for value in dict.fromkeys(transitions))} replicas")
-        unique_delays = list(dict.fromkeys(delay for delay in delays if delay is not None))
-        if len(unique_delays) == 1:
-            details.append(f"{compact_duration(float(unique_delays[0]))} delay")
-        elif len(unique_delays) > 1:
-            details.append("variable delays")
-        suffix = f": {'; '.join(details)}" if details else ""
-        return f"Repeat {name}{suffix}"
+        words = str(scenario.get("name") or "sequence").replace("_", " ").replace("-", " ").split()
+        acronyms = {"ckc": "CKC", "eta": "ETA"}
+        name = " ".join(acronyms.get(word.lower(), word) for word in words)
+        return f"Repeating chaos sequence • {name[:1].upper()}{name[1:]}"
+    if scenario_type == "delay":
+        return "Wait"
     if scenario_type == "deployment_scale":
         replicas = params.get("replicas")
         if previous_replicas is not None:
@@ -372,7 +367,7 @@ def normalize_chaos_scenarios(
             if raw.get("duration") not in (None, "")
             else None
         )
-        target = str(raw.get("target") or "").strip()
+        target = chaos_scenario_target(scenario_type, raw.get("target"))
         sequence_steps = []
         if scenario_type == "sequence" and isinstance(raw.get("steps"), list):
             for raw_step in raw["steps"]:
@@ -383,12 +378,19 @@ def normalize_chaos_scenarios(
                     if raw_step.get("duration") not in (None, "")
                     else None
                 )
+                nested_type = str(raw_step.get("type") or "chaos")
                 sequence_steps.append({
-                    "type": str(raw_step.get("type") or "chaos"),
-                    "target": str(raw_step.get("target") or "").strip(),
+                    "type": nested_type,
+                    "action": CHAOS_ACTIONS.get(nested_type, "chaos"),
+                    "target": chaos_scenario_target(nested_type, raw_step.get("target")),
                     "duration_seconds": nested_duration,
                     "params": raw_step.get("params") if isinstance(raw_step.get("params"), dict) else {},
                 })
+                if sequence_steps[-1]["type"] == "stubs_degradation":
+                    sequence_steps[-1]["stubs_changes"] = stubs_change_table(
+                        baseline_stubs,
+                        sequence_steps[-1]["params"],
+                    )
             sequence_targets = {
                 step["target"] for step in sequence_steps if step["type"] != "delay" and step["target"]
             }
@@ -412,6 +414,14 @@ def normalize_chaos_scenarios(
     current_replicas = initial_application_replicas
     for scenario in result:
         scenario["title"] = chaos_scenario_title(scenario, current_replicas)
+        if scenario["type"] == "sequence":
+            nested_replicas = current_replicas
+            for step in scenario["steps"]:
+                step["title"] = chaos_scenario_title(step, nested_replicas)
+                if step["type"] == "deployment_scale":
+                    replicas = step["params"].get("replicas")
+                    nested_replicas = replicas if isinstance(replicas, int) and not isinstance(replicas, bool) else None
+            current_replicas = nested_replicas
         if scenario["type"] == "deployment_scale":
             replicas = scenario["params"].get("replicas")
             current_replicas = replicas if isinstance(replicas, int) and not isinstance(replicas, bool) else None
