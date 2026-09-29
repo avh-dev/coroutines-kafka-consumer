@@ -1,6 +1,21 @@
 locals {
-  name               = "${var.project}-${var.environment}"
-  observability_root = "${path.module}/../../../shared/grafana"
+  name = "${var.project}-${var.environment}"
+
+  runner_user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+    docker_compose = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
+      prometheus_retention_size = var.prometheus_retention_size
+    })
+    default_prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
+      prometheus_scrape_interval     = var.prometheus_scrape_interval
+      prometheus_evaluation_interval = var.prometheus_evaluation_interval
+    })
+    configure_observability_script_content = templatefile("${path.module}/templates/configure-observability.sh.tftpl", {
+      prometheus_scrape_interval     = var.prometheus_scrape_interval
+      prometheus_evaluation_interval = var.prometheus_evaluation_interval
+    })
+  })
+  runner_user_data_base64            = base64gzip(local.runner_user_data)
+  runner_user_data_bytes_upper_bound = length(local.runner_user_data_base64) * 3 / 4
 
   tags = {
     Project      = var.project
@@ -200,23 +215,7 @@ resource "aws_instance" "runner" {
   iam_instance_profile        = aws_iam_instance_profile.runner.name
   associate_public_ip_address = true
   user_data_replace_on_change = true
-  user_data_base64 = base64gzip(templatefile("${path.module}/user_data.sh.tftpl", {
-    docker_compose = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
-      prometheus_retention_size = var.prometheus_retention_size
-    })
-    default_prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
-      prometheus_scrape_interval     = var.prometheus_scrape_interval
-      prometheus_evaluation_interval = var.prometheus_evaluation_interval
-    })
-    grafana_dashboard_provider_config    = file("${local.observability_root}/provisioning/dashboards/ckc.yml")
-    grafana_prometheus_datasource_config = file("${local.observability_root}/provisioning/datasources/prometheus.yml")
-    grafana_loki_datasource_config       = file("${path.module}/../../../shared/result_bundle/restore/provisioning/datasources/loki.yml")
-    grafana_ckc_overview_dashboard       = file("${local.observability_root}/dashboards/ckc-overview.json")
-    configure_observability_script_content = templatefile("${path.module}/templates/configure-observability.sh.tftpl", {
-      prometheus_scrape_interval     = var.prometheus_scrape_interval
-      prometheus_evaluation_interval = var.prometheus_evaluation_interval
-    })
-  }))
+  user_data_base64            = local.runner_user_data_base64
 
   root_block_device {
     volume_size = var.root_volume_size
@@ -227,6 +226,13 @@ resource "aws_instance" "runner" {
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "required"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.runner_user_data_bytes_upper_bound <= 16384
+      error_message = "Compressed runner user data exceeds the EC2 16 KiB limit; move large assets to sync-runner-assets.sh."
+    }
   }
 
   tags = merge(local.tags, {

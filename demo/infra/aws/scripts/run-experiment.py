@@ -125,33 +125,65 @@ class SessionController:
         command: list[str],
         *,
         capture: bool = False,
+        tee: bool = False,
         check: bool = True,
         env: dict[str, str] | None = None,
     ) -> str:
+        if capture and tee:
+            raise ValueError("capture and tee cannot be enabled together")
         rendered = " ".join(command)
         with self.command_log.open("a", encoding="utf-8") as log:
             log.write(f"{utc_text()} + {rendered}\n")
-        completed = subprocess.run(
-            command,
-            cwd=self.repo,
-            env={**os.environ, **(env or {})},
-            text=True,
-            stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.PIPE if capture else None,
-            check=False,
-        )
+        command_env = {**os.environ, **(env or {}), "AWS_PAGER": ""}
+        if tee:
+            output: list[str] = []
+            with (
+                self.command_log.open("a", encoding="utf-8") as log,
+                subprocess.Popen(
+                    command,
+                    cwd=self.repo,
+                    env=command_env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                ) as process,
+            ):
+                if process.stdout is None:
+                    raise RuntimeError(f"Could not capture command output: {rendered}")
+                for line in process.stdout:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    log.write(line)
+                    log.flush()
+                    output.append(line)
+                returncode = process.wait()
+            stdout = "".join(output)
+            stderr = ""
+        else:
+            completed = subprocess.run(
+                command,
+                cwd=self.repo,
+                env=command_env,
+                text=True,
+                stdout=subprocess.PIPE if capture else None,
+                stderr=subprocess.PIPE if capture else None,
+                check=False,
+            )
+            returncode = completed.returncode
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
         if capture:
             with self.command_log.open("a", encoding="utf-8") as log:
-                if completed.stdout:
-                    log.write(completed.stdout)
-                if completed.stderr:
-                    log.write(completed.stderr)
-            if not check and completed.returncode != 0:
+                if stdout:
+                    log.write(stdout)
+                if stderr:
+                    log.write(stderr)
+            if not check and returncode != 0:
                 return ""
-        if check and completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
-            raise CommandError(f"Command failed ({completed.returncode}): {rendered}\n{detail}")
-        return completed.stdout.strip() if capture else ""
+        if check and returncode != 0:
+            detail = (stderr or stdout).strip()
+            raise CommandError(f"Command failed ({returncode}): {rendered}\n{detail}")
+        return stdout.strip() if capture or tee else ""
 
     def terraform_paths(self, stack: str) -> tuple[Path, Path]:
         state_path = (self.session_dir / "terraform" / f"{stack}.tfstate").resolve()
@@ -166,7 +198,7 @@ class SessionController:
         init_command = ["terraform", f"-chdir={module}", "init", "-input=false"]
         for attempt in range(1, 5):
             try:
-                self.run(init_command, env=environment)
+                self.run(init_command, env=environment, tee=True)
                 break
             except CommandError:
                 if attempt == 4:
@@ -191,7 +223,7 @@ class SessionController:
                 rendered = str(value)
             command.append(f"-var={name}={rendered}")
         command.extend(extra or [])
-        self.run(command, env=environment)
+        self.run(command, env=environment, tee=True)
 
     def terraform_outputs(self, stack: str, module: Path) -> dict[str, Any]:
         state_path, data_path = self.terraform_paths(stack)
@@ -357,13 +389,6 @@ class SessionController:
                 str(self.repo / "demo/infra/aws/scripts/libexec/build-and-push.sh"),
                 self.config["region"], self.config["image_environment"],
             ])
-        else:
-            prefix = f"ckc-load-lab-{self.config['image_environment']}"
-            for image in ("demo", "demo-stubs", "load-test"):
-                self.run([
-                    "aws", "ecr", "describe-images", "--region", self.config["region"],
-                    "--repository-name", f"{prefix}/{image}", "--image-ids", "imageTag=latest",
-                ])
         prefix = f"ckc-load-lab-{self.config['image_environment']}"
         self.state["images"] = {
             image: self.run(
@@ -371,6 +396,7 @@ class SessionController:
                     "aws", "ecr", "describe-images", "--region", self.config["region"],
                     "--repository-name", f"{prefix}/{image}", "--image-ids", "imageTag=latest",
                     "--query", "imageDetails[0].imageDigest", "--output", "text",
+                    "--no-cli-pager",
                 ],
                 capture=True,
             )

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,6 +81,8 @@ class AwsSessionTest(unittest.TestCase):
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
+        user_data = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
+        runner_terraform = (AWS_ROOT / "terraform/runner/main.tf").read_text(encoding="utf-8")
 
         self.assertIn("result_bundle/dashboard.py", create_script)
         self.assertIn("--environment aws", create_script)
@@ -89,6 +93,10 @@ class AwsSessionTest(unittest.TestCase):
             'cp "${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json"',
             sync_script,
         )
+        self.assertIn("systemctl restart ckc-runner-observability.service", sync_script)
+        self.assertNotIn("grafana_ckc_overview_dashboard", user_data)
+        self.assertNotIn("grafana_dashboard_provider_config", user_data)
+        self.assertIn("runner_user_data_bytes_upper_bound <= 16384", runner_terraform)
 
     def test_aws_cloudwatch_exporter_captures_dependency_capacity(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
@@ -519,13 +527,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
-            calls: list[tuple[list[str], dict[str, str]]] = []
-
-            def completed(command, **kwargs):
-                calls.append((command, kwargs["env"]))
-                return subprocess.CompletedProcess(command, 0, stdout="" if kwargs.get("stdout") else None, stderr="")
-
-            with patch.object(session_module.subprocess, "run", side_effect=completed):
+            with patch.object(controller, "run", return_value="") as run_command:
                 controller.terraform(
                     "lab",
                     REPO_ROOT / "demo/infra/aws/assets/terraform/load-lab",
@@ -533,11 +535,55 @@ class AwsSessionTest(unittest.TestCase):
                     {"environment": "test", "availability_zones": ["a", "b", "c"]},
                 )
 
-            self.assertEqual(2, len(calls))
-            apply_command, apply_env = calls[1]
+            self.assertEqual(2, run_command.call_count)
+            apply_call = run_command.call_args_list[1]
+            apply_command = apply_call.args[0]
+            apply_env = apply_call.kwargs["env"]
             self.assertIn(f"-state={Path(directory).resolve() / 'terraform/lab.tfstate'}", apply_command)
             self.assertIn('-var=availability_zones=["a","b","c"]', apply_command)
             self.assertEqual(str(Path(directory).resolve() / "terraform-data/lab"), apply_env["TF_DATA_DIR"])
+            self.assertTrue(apply_call.kwargs["tee"])
+
+    def test_tee_command_streams_and_preserves_combined_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            terminal = io.StringIO()
+            with redirect_stdout(terminal):
+                controller.run([
+                    sys.executable,
+                    "-c",
+                    "import sys; print('terraform stdout'); print('terraform stderr', file=sys.stderr)",
+                ], tee=True)
+
+            command_log = controller.command_log.read_text(encoding="utf-8")
+            self.assertIn("terraform stdout", terminal.getvalue())
+            self.assertIn("terraform stderr", terminal.getvalue())
+            self.assertIn("terraform stdout", command_log)
+            self.assertIn("terraform stderr", command_log)
+
+    def test_preflight_ecr_image_checks_are_non_interactive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.config["image_environment"] = "test"
+            with (
+                patch.object(session_module.shutil, "which", return_value="/usr/bin/tool"),
+                patch.object(controller, "aws_json", side_effect=[
+                    {"Account": "123456789012"},
+                    ["us-east-1a", "us-east-1b", "us-east-1c"],
+                ]),
+                patch.object(controller, "ensure_ecr"),
+                patch.object(controller, "run", return_value="sha256:digest") as run_command,
+            ):
+                controller.preflight(build_images=False)
+
+            image_checks = [
+                call for call in run_command.call_args_list
+                if call.args[0][:3] == ["aws", "ecr", "describe-images"]
+            ]
+            self.assertEqual(3, len(image_checks))
+            for call in image_checks:
+                self.assertIn("--no-cli-pager", call.args[0])
+                self.assertTrue(call.kwargs["capture"])
 
     def test_cleanup_attempts_every_stack_in_dependency_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

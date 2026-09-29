@@ -80,22 +80,6 @@ pipeline:
       template: '{message}'
 EOF
 
-cat > /opt/ckc-runner/observability/grafana/provisioning/dashboards/ckc.yml <<'EOF'
-${grafana_dashboard_provider_config}
-EOF
-
-cat > /opt/ckc-runner/observability/grafana/provisioning/datasources/prometheus.yml <<'EOF'
-${grafana_prometheus_datasource_config}
-EOF
-
-cat > /opt/ckc-runner/observability/grafana/provisioning/datasources/loki.yml <<'EOF'
-${grafana_loki_datasource_config}
-EOF
-
-cat > /opt/ckc-runner/observability/grafana/dashboards/ckc-overview.json <<'EOF'
-${grafana_ckc_overview_dashboard}
-EOF
-
 cat > /opt/ckc-runner/bin/configure-observability.sh <<'EOF'
 ${configure_observability_script_content}
 EOF
