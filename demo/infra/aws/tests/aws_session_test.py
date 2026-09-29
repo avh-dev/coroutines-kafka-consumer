@@ -90,6 +90,44 @@ class AwsSessionTest(unittest.TestCase):
             sync_script,
         )
 
+    def test_aws_cloudwatch_exporter_captures_dependency_capacity(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        outputs = (AWS_ROOT / "assets/terraform/load-lab/outputs.tf").read_text(encoding="utf-8")
+
+        for metric in (
+            "CPUUser",
+            "CPUSystem",
+            "CPUCreditBalance",
+            "NetworkProcessorAvgIdlePercent",
+            "RequestHandlerAvgIdlePercent",
+            "BytesInPerSec",
+            "BytesOutPerSec",
+            "ProduceTotalTimeMsMean",
+            "FetchConsumerTotalTimeMsMean",
+            "ProduceThrottleTime",
+            "FetchThrottleTime",
+            "VolumeReadBytes",
+            "VolumeWriteBytes",
+            "KafkaDataLogsDiskUsed",
+            "UnderReplicatedPartitions",
+            "OfflinePartitionsCount",
+        ):
+            self.assertIn(f"aws_metric_name: {metric}", script)
+        for metric in (
+            "EngineCPUUtilization",
+            "NetworkBytesIn",
+            "NetworkBytesOut",
+            "CurrConnections",
+            "Evictions",
+        ):
+            self.assertIn(f"aws_metric_name: {metric}", script)
+        self.assertIn('"CacheClusterId": ${elasticache_member_clusters}', script)
+        self.assertIn('output "elasticache_member_clusters"', outputs)
+        self.assertIn("ckc-aws-cloudwatch-exporter", script)
+        self.assertIn('enhanced_monitoring    = "PER_BROKER"', (
+            AWS_ROOT / "assets/terraform/load-lab/main.tf"
+        ).read_text(encoding="utf-8"))
+
     def test_generated_helm_inputs_and_commands_are_exported_as_lab_evidence(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")

@@ -17,6 +17,9 @@ INTERNAL_HOST_ROW_TITLES = {
     "Host Services: Kafka Thread Stats",
     "Host Services: Redis",
 }
+AWS_ONLY_ROW_TITLES = {
+    "AWS Managed Dependencies",
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -128,7 +131,9 @@ def environment_dashboard_options(environment: str, kafka_mode: str | None) -> d
     if environment not in {"aws", "internal-lab"}:
         raise ValueError(f"Unsupported dashboard environment: {environment}")
 
-    excluded_rows = set(INTERNAL_HOST_ROW_TITLES) if environment == "aws" else set()
+    excluded_rows = set(INTERNAL_HOST_ROW_TITLES) if environment == "aws" else set(AWS_ONLY_ROW_TITLES)
+    if environment == "aws" and kafka_mode != "msk":
+        excluded_rows.update(AWS_ONLY_ROW_TITLES)
     excluded_panels = set() if environment == "aws" and kafka_mode == "msk" else set(AWS_ONLY_PANEL_TITLES)
     substitutions = {'namespace="ckc-perf"': 'namespace="ckc-app"'} if environment == "aws" else {}
     return {
@@ -239,7 +244,7 @@ def iter_dashboard_expressions(value: Any) -> Iterable[str]:
 def referenced_metric_names(expression: str) -> set[str]:
     names = set(match.group(1) for match in re.finditer(r"\b([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{|\[)", expression))
     names.update(match.group(1) for match in re.finditer(r"label_values\(\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*,", expression))
-    prefixes = ("ckc_", "demo_", "jvm_", "process_", "kafka_", "container_", "kube_", "up")
+    prefixes = ("aws_", "ckc_", "demo_", "jvm_", "process_", "kafka_", "container_", "kube_", "up")
     for match in re.finditer(r"\b([a-zA-Z_:][a-zA-Z0-9_:]*)\b", expression):
         if match.group(1).startswith(prefixes):
             names.add(match.group(1))

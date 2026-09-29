@@ -211,7 +211,7 @@ resource "aws_msk_cluster" "load_lab" {
   cluster_name           = "${local.name}-msk"
   kafka_version          = var.msk_kafka_version
   number_of_broker_nodes = var.msk_number_of_broker_nodes
-  enhanced_monitoring    = "DEFAULT"
+  enhanced_monitoring    = "PER_BROKER"
 
   broker_node_group_info {
     instance_type   = var.msk_broker_instance_type

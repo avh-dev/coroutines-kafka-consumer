@@ -35,7 +35,7 @@ export KUBECONFIG="${KUBECONFIG_PATH}"
 kubectl delete namespace ckc-loadtest --ignore-not-found=true
 kubectl delete namespace ckc-app --ignore-not-found=true
 kubectl delete namespace ckc-observability --ignore-not-found=true
-docker rm -f ckc-msk-cloudwatch-exporter ckc-msk-cloudwatch-vmagent >/dev/null 2>&1
+docker rm -f ckc-aws-cloudwatch-exporter ckc-aws-cloudwatch-vmagent >/dev/null 2>&1
 
 if [ "${SKIP_TERRAFORM}" != "true" ]; then
   terraform -chdir="${TERRAFORM_DIR}" init

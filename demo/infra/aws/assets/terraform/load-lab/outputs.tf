@@ -97,3 +97,8 @@ output "elasticache_primary_endpoint" {
   description = "Primary endpoint for the ElastiCache replication group when elasticache_mode=elasticache."
   value       = try(aws_elasticache_replication_group.load_lab[0].primary_endpoint_address, "")
 }
+
+output "elasticache_member_clusters" {
+  description = "Cache cluster identifiers backing the ElastiCache replication group."
+  value       = try(aws_elasticache_replication_group.load_lab[0].member_clusters, [])
+}
