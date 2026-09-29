@@ -4680,4 +4680,5 @@ Ensure interrupted or failed sequences recover active duration-based actions bef
 Add a 5k Spring Kafka versus CKC acceptance experiment with two-to-three-to-two replica churn across a ten-minute measurement window on the split application host.
 Extend the comparison to eight hours total, four hours per target, and disable delivery auditing so the endurance run retains metrics without producing or analyzing a large audit stream.
 Validate load-profile syntax against the actual load-generator grammar before preparing a target, preventing unsupported compound duration tokens from failing only after deployment.
+Disable per-consumer native Kafka metrics in the endurance comparison, avoiding tens of thousands of short-lived time series per Spring pod while preserving shared processing and resource measurements.
 Verification: 159 internal-lab, 28 focused shared orchestration/materialization, and 32 AWS tests passed; all 24 internal-lab experiment definitions pass the stricter load-profile validation, and the six-CPU worker can schedule the experiment's 4.5-CPU peak request with headroom.

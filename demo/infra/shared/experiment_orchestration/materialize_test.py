@@ -322,6 +322,13 @@ class MaterializeTest(unittest.TestCase):
                 for target in materialized
             },
         )
+        self.assertEqual(
+            {False},
+            {
+                target.target.definition["env"]["KAFKA_CLIENT_METRICS_ENABLED"]
+                for target in materialized
+            },
+        )
 
     def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
