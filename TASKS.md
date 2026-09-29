@@ -4704,4 +4704,5 @@ _Date: 2026-09-29_
 Render a repeating sequence as one structured report card whose nested actions retain the icons, labels, timing, and parameter detail of standalone chaos cards.
 Keep multi-line degradation detail inside the enclosing sequence card instead of collapsing the cycle into an ambiguous one-line summary.
 Add distinct scale, repeat, and delay symbols, preserve default application and stub targets in report normalization, and size the enclosing card from all nested rows.
-Verification: 164 internal-lab and 32 AWS tests pass; the installed report runtime is updated without redeploying the lab or regenerating prior reports.
+Exercise the composite card in the two-minute smoke experiment with a repeating ETA degradation-and-recovery cycle, leaving replica placement unchanged.
+Verification: 164 internal-lab, 28 shared materialization/contract, and 32 AWS tests pass; the installed runtime is updated without starting an experiment or regenerating prior reports.

@@ -45,19 +45,24 @@ workload:
     start: 20s
     duration: 80s
   - name: post-degradation
-    start: 55s
-    duration: 40s
+    start: 60s
+    duration: 35s
   chaos:
   - at: 25s
-    duration: 20s
-    type: stubs_degradation
-    target: demo-stubs
-    params:
-      eta:
-        percentiles:
-          p99: 500
-          p999: 1000
-          p100: 2000
+    duration: 30s
+    type: sequence
+    name: eta-tail-degradation
+    steps:
+    - duration: 8s
+      type: stubs_degradation
+      params:
+        eta:
+          percentiles:
+            p99: 500
+            p999: 1000
+            p100: 2000
+    - type: delay
+      duration: 5s
   topics:
     order:
       kafka_topic: order.events.v1
