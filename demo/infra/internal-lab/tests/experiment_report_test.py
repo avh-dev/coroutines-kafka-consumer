@@ -31,6 +31,16 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_application_resources_are_averaged_after_summing_live_pods(self) -> None:
+        cpu_query = STANDARD_MEASUREMENTS["cpu_average_cores"]
+        memory_query = STANDARD_MEASUREMENTS["application_memory_average_mib"]
+
+        self.assertIn("avg_over_time((sum(rate(", cpu_query)
+        self.assertIn("[1m])))[{window}:15s]", cpu_query)
+        self.assertIn("avg_over_time((sum(container_memory_working_set_bytes", memory_query)
+        self.assertIn("))[{window}:15s]", memory_query)
+        self.assertNotIn("sum(avg_over_time", memory_query)
+
     def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
         query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
 
@@ -563,6 +573,32 @@ class ExperimentReportTest(unittest.TestCase):
                 "Degrade Redis network: +50 ms ± 10 ms, 2% loss, limit 100mbit",
             ],
             [scenario["title"] for scenario in scenarios],
+        )
+
+    def test_repeating_sequence_is_one_compact_chaos_interval(self) -> None:
+        scenarios = normalize_chaos_scenarios(
+            [{
+                "at": "10m",
+                "duration": "30m",
+                "type": "sequence",
+                "name": "replica-churn",
+                "steps": [
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
+                    {"type": "delay", "duration": "30s"},
+                    {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 2}},
+                    {"type": "delay", "duration": "30s"},
+                ],
+            }],
+            initial_application_replicas=2,
+        )
+
+        self.assertEqual(1, len(scenarios))
+        self.assertEqual(600, scenarios[0]["at_seconds"])
+        self.assertEqual(1800, scenarios[0]["duration_seconds"])
+        self.assertEqual("ckc-demo", scenarios[0]["target"])
+        self.assertEqual(
+            "Repeat replica churn: 2 ↔ 3 replicas; 30s delay",
+            scenarios[0]["title"],
         )
         network_card_width, _ = svg_renderer.chaos_card_dimensions(scenarios[-1])
         self.assertGreater(network_card_width, 480)

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+LOAD_PROFILE_RATE_PATTERN = re.compile(r"^\d+$")
+LOAD_PROFILE_PHASE_PATTERN = re.compile(
+    r"^\(\s*\d+[smh]\s*(?:,\s*(.+))?\s*\)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -41,12 +49,37 @@ def validate_resolved_test(definition: dict[str, Any]) -> None:
     load_test = definition.get("load_test")
     if not isinstance(load_test, dict):
         raise ValueError("Resolved experiment test must define load_test")
-    if not str(load_test.get("load_profile") or "").strip():
+    load_profile = str(load_test.get("load_profile") or "").strip()
+    if not load_profile:
         raise ValueError("Resolved experiment test must define load_test.load_profile")
+    validate_load_profile(load_profile)
     for field in ("chaos_steps", "diagnostic_steps"):
         value = definition.get(field, [])
         if not isinstance(value, list):
             raise ValueError(f"Resolved experiment test {field} must be a list")
+
+
+def validate_load_profile(profile: str) -> None:
+    tokens = [token.strip() for token in profile.split("->") if token.strip()]
+    if len(tokens) < 3 or len(tokens) % 2 != 1:
+        raise ValueError(
+            "load_test.load_profile must alternate integer rates and phase descriptors: "
+            f"{profile!r}"
+        )
+    if not LOAD_PROFILE_RATE_PATTERN.fullmatch(tokens[0]):
+        raise ValueError(f"load_test.load_profile must start with an integer rate: {profile!r}")
+    for index in range(1, len(tokens), 2):
+        phase = tokens[index]
+        if not LOAD_PROFILE_PHASE_PATTERN.fullmatch(phase):
+            raise ValueError(
+                "Invalid load_test.load_profile phase "
+                f"{phase!r}; expected '(200s, optional label)' with one s, m, or h unit"
+            )
+        rate = tokens[index + 1]
+        if not LOAD_PROFILE_RATE_PATTERN.fullmatch(rate):
+            raise ValueError(
+                f"Invalid load_test.load_profile rate {rate!r}; expected an integer percentage"
+            )
 
 
 def write_resolved_test(path: Path, definition: dict[str, Any]) -> None:

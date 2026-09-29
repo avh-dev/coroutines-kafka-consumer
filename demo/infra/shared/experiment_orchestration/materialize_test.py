@@ -249,6 +249,87 @@ class MaterializeTest(unittest.TestCase):
         for plan in deployment_plans.values():
             self.assertNotIn("cpu", plan["application"]["configuration"]["resources"]["limits"])
 
+    def test_materializes_split_host_replica_churn_comparison_at_5k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-ckc-replica-churn-5k-comparison.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+            deployment_plans = {
+                target.target.name: yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        self.assertEqual(
+            ["spring-kafka.jdk.2-replica-churn", "ckc.fixed.2-replica-churn"],
+            [target.target.name for target in materialized],
+        )
+        load = candidate["workload"]["load"]
+        self.assertEqual(5000, load["base_tps"])
+        self.assertEqual(
+            "0 -> (3m, warmup) -> 100 -> (235m, replica-churn) -> 100 -> (2m, cool-down) -> 0",
+            load["load_profile"],
+        )
+        self.assertEqual(
+            {"name": "replica-churn", "start": "3m", "duration": "235m"},
+            candidate["workload"]["measurement_window"],
+        )
+        self.assertEqual("235m", candidate["workload"]["chaos"][0]["duration"])
+        self.assertEqual(
+            [
+                {"type": "deployment_scale", "params": {"replicas": 3}},
+                {"type": "delay", "duration": "45s"},
+                {"type": "deployment_scale", "params": {"replicas": 2}},
+                {"type": "delay", "duration": "45s"},
+            ],
+            candidate["workload"]["chaos"][0]["steps"],
+        )
+        self.assertEqual({2}, {
+            definition["deployment"]["run_plan"]["replica_count"]
+            for definition in definitions.values()
+        })
+        self.assertEqual(
+            [60, 48, 192],
+            [
+                topic["partitions"]
+                for topic in definitions["spring-kafka.jdk.2-replica-churn"]["deployment"]["run_plan"]["topics"]
+            ],
+        )
+        self.assertEqual(
+            [6, 6, 6],
+            [
+                topic["partitions"]
+                for topic in definitions["ckc.fixed.2-replica-churn"]["deployment"]["run_plan"]["topics"]
+            ],
+        )
+        for plan in deployment_plans.values():
+            application = plan["application"]["configuration"]
+            self.assertEqual("worker", application["placement"])
+            self.assertEqual("1500m", application["resources"]["requests"]["cpu"])
+            self.assertNotIn("cpu", application["resources"]["limits"])
+        self.assertEqual(
+            {True},
+            {
+                target.target.definition["env"]["AUDIT_LOG_ENABLED"]
+                for target in materialized
+            },
+        )
+        self.assertEqual(
+            {False},
+            {
+                target.target.definition["env"]["KAFKA_CLIENT_METRICS_ENABLED"]
+                for target in materialized
+            },
+        )
+
     def test_materializes_canonical_snapshot_and_planner_capabilities(self) -> None:
         source = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/portable-smoke.yaml"
         with tempfile.TemporaryDirectory() as directory:

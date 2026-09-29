@@ -49,6 +49,18 @@ class MetricsPortContractTest(unittest.TestCase):
             self.assertIn(f'broker_id: "{broker_id}"', prometheus_config)
         self.assertIn("ckc-external-load-test.ckc-perf.svc.cluster.local:9405", prometheus_config)
 
+    def test_prometheus_has_capacity_for_long_high_churn_runs(self) -> None:
+        documents = list(yaml.safe_load_all(PROMETHEUS.read_text(encoding="utf-8")))
+        deployment = next(document for document in documents if document.get("kind") == "Deployment")
+        prometheus = next(
+            container
+            for container in deployment["spec"]["template"]["spec"]["containers"]
+            if container["name"] == "prometheus"
+        )
+
+        self.assertEqual("512Mi", prometheus["resources"]["requests"]["memory"])
+        self.assertEqual("2Gi", prometheus["resources"]["limits"]["memory"])
+
 
 if __name__ == "__main__":
     unittest.main()

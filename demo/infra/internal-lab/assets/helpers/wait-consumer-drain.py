@@ -195,7 +195,13 @@ def normalize_kafka_implementation(value: str) -> str:
 
 def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str]:
     if args.prometheus_url:
-        lag = query_lag(args.prometheus_url, args.group_regex)
+        try:
+            lag = query_lag(args.prometheus_url, args.group_regex)
+        except Exception:
+            # Drain completion must not depend on the observability stack. A
+            # Prometheus restart near the end of a long run must not turn an
+            # otherwise completed workload into a failed target.
+            lag = None
         if lag is not None:
             return lag, "prometheus"
 
@@ -212,6 +218,15 @@ def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str
     return None, "missing"
 
 
+def query_processing_total_optional(prometheus_url: str | None) -> float | None:
+    if not prometheus_url:
+        return None
+    try:
+        return query_processing_total(prometheus_url)
+    except Exception:
+        return None
+
+
 def main() -> int:
     args = parse_args()
     deadline = time.monotonic() + args.timeout_seconds
@@ -221,7 +236,7 @@ def main() -> int:
 
     while time.monotonic() < deadline:
         lag, source = query_lag_with_fallback(args)
-        processed = query_processing_total(args.prometheus_url) if args.prometheus_url else None
+        processed = query_processing_total_optional(args.prometheus_url)
         now = time.monotonic()
         outcome = tracker.observe(lag, processed, now)
         lag_text = "missing" if lag is None else f"{lag:.0f}"

@@ -307,6 +307,44 @@ workload:
       replicas: 2
 ```
 
+A `sequence` composes ordinary chaos actions and explicit delays into complete
+cycles that repeat inside one time window. Nested actions omit `at`; duration
+actions still apply and recover normally. The executor measures completed cycle
+times and starts another cycle only while the remaining window can fit the
+running average. A cycle is never cut short merely because the window expired.
+Deployment-scale steps wait for rollout readiness, and the original replica
+count is restored after completion, interruption, or failure:
+
+```yaml
+workload:
+  chaos:
+  - at: 10m
+    duration: 30m
+    type: sequence
+    name: replica-churn
+    steps:
+    - type: deployment_scale
+      target: ckc-demo
+      params:
+        replicas: 3
+    - type: delay
+      duration: 30s
+    - type: deployment_scale
+      target: ckc-demo
+      params:
+        replicas: 2
+    - type: delay
+      duration: 30s
+  - at: 20m
+    type: pod_crash
+    target: ckc-demo
+```
+
+The sequence runs independently of the absolute-time scheduler, so the pod
+crash above is applied while replica churn continues. Detailed cycle and step
+events remain in experiment evidence, while the planned workload diagram shows
+the sequence as one interval rather than expanding every repetition.
+
 ## Results
 
 Every experiment finalizes the same named result layout as AWS:

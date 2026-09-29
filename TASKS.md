@@ -402,6 +402,8 @@
 | [INFRA-238](#infra-238) | Reduce Telegram experiment notification noise and identify the actual environment topology. | DONE |
 | [INFRA-239](#infra-239) | Retune the three-broker Kafka failover comparison for 5k on the split-host lab. | DONE |
 | [INFRA-240](#infra-240) | Persist and retry internal-lab Telegram notifications across temporary network failures. | DONE |
+| [INFRA-241](#infra-241) | Add time-bounded repeating composite chaos sequences with compact report presentation. | DONE |
+| [INFRA-242](#infra-242) | Harden observability and drain handling for long replica-churn experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4666,3 +4668,29 @@ Retry queued messages in order after temporary DNS or network failures without b
 Retain failed messages across experiment completion and host restarts while keeping successful delivery cleanup bounded.
 Quarantine permanent Telegram 4xx responses so invalid messages cannot block later lifecycle events.
 Verification: all 152 internal-lab tests passed; the installed `ckc-telegram-dispatch.timer` is enabled and active with an empty pending queue, without rebuilding images or redeploying workloads.
+
+<a id="infra-241"></a>
+### INFRA-241 - Add repeating composite chaos sequences
+
+_Date: 2026-09-28_
+
+Compose existing chaos actions and explicit delays into a sequential cycle that repeats within a fixed time window.
+Estimate the next full cycle from completed-cycle durations and stop before the remaining window is too short.
+Preserve detailed iteration events while presenting the repeated sequence compactly in experiment reports.
+Ensure interrupted or failed sequences recover active duration-based actions before the executor exits.
+Add a 5k Spring Kafka versus CKC acceptance experiment with two-to-three-to-two replica churn across a ten-minute measurement window on the split application host.
+Extend the comparison to eight hours total, four hours per target, and disable delivery auditing so the endurance run retains metrics without producing or analyzing a large audit stream.
+Validate load-profile syntax against the actual load-generator grammar before preparing a target, preventing unsupported compound duration tokens from failing only after deployment.
+Disable per-consumer native Kafka metrics in the endurance comparison, avoiding tens of thousands of short-lived time series per Spring pod while preserving shared processing and resource measurements.
+Verification: 159 internal-lab, 28 focused shared orchestration/materialization, and 32 AWS tests passed; all 24 internal-lab experiment definitions pass the stricter load-profile validation, and the six-CPU worker can schedule the experiment's 4.5-CPU peak request with headroom.
+
+<a id="infra-242"></a>
+### INFRA-242 - Harden long replica-churn observability
+
+_Date: 2026-09-29_
+
+Keep Prometheus healthy while high-concurrency deployments repeatedly replace pods during long experiments.
+Fall back to Kafka-native lag inspection when Prometheus is temporarily unavailable during consumer drain.
+Aggregate resource usage by time rather than summing every historical pod series created during replica churn.
+Enable delivery auditing for the eight-hour Spring Kafka versus CKC endurance comparison without restoring high-cardinality Kafka client metrics.
+Verification: 163 internal-lab tests and 42 focused report/materialization tests pass; the installed Prometheus is ready with a 2 GiB limit, accepts the churn-safe queries, and the previous report was regenerated from the surviving TSDB data without starting an experiment.

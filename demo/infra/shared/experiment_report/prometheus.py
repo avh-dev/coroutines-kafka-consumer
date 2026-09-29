@@ -28,12 +28,12 @@ STANDARD_MEASUREMENTS = {
         '{{pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
     "cpu_average_cores": (
-        "sum(increase(container_cpu_usage_seconds_total"
-        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+        "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
+        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
     ),
     "application_memory_average_mib": (
-        "sum(avg_over_time(container_memory_working_set_bytes"
-        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / 1024 / 1024'
+        "avg_over_time((sum(container_memory_working_set_bytes"
+        '{{namespace="ckc-perf", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s]) / 1024 / 1024'
     ),
     "broker_cpu_average_cores": (
         "sum(increase(namedprocess_namegroup_cpu_seconds_total"
