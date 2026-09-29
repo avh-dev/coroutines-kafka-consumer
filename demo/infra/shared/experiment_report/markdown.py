@@ -125,6 +125,76 @@ def planned_rate(report: ExperimentReport, start: float, duration: float) -> flo
     return total / duration
 
 
+def e2e_compliance_stats(data: dict[str, Any], denominator: str) -> dict[str, float | int] | None:
+    e2e = data.get("e2e_latency")
+    if not isinstance(e2e, dict):
+        return None
+    total = int(data.get(denominator) or 0)
+    if total <= 0:
+        return None
+    measured = max(0, int(e2e.get("count") or 0))
+    exceeded = max(0, int(e2e.get("exceeded") or 0))
+    within = min(total, max(0, measured - exceeded))
+    outside = total - within
+    return {
+        "total": total,
+        "within": within,
+        "outside": outside,
+        "within_percent": 100 * within / total,
+        "outside_percent": 100 * outside / total,
+    }
+
+
+def e2e_compliance_cells(
+    data: list[dict[str, Any]],
+    *,
+    denominator: str,
+    primary_label: str,
+    complement_label: str,
+    comparison_noun: str,
+    zero_note: str,
+) -> list[str]:
+    stats = [e2e_compliance_stats(value, denominator) for value in data]
+    baseline = stats[0] if stats else None
+    available = [float(value["outside_percent"]) for value in stats if value is not None]
+    best = min(available) if available else None
+    cells = []
+    for index, value in enumerate(stats):
+        if value is None:
+            cells.append("—")
+            continue
+        outside_percent = float(value["outside_percent"])
+        outside_count = int(value["outside"])
+        message_word = "message" if outside_count == 1 else "messages"
+        primary = f'{number(value["within_percent"], 2)}% {primary_label}'
+        complement = (
+            f'{number(outside_percent, 2)}% {complement_label} · '
+            f'{number(outside_count, 0)} {message_word}'
+        )
+        if baseline is None:
+            note = ""
+        elif index == 0:
+            note = "baseline"
+        else:
+            baseline_outside = float(baseline["outside_percent"])
+            if baseline_outside == 0:
+                note = "≈ baseline" if outside_percent == 0 else f"{comparison_noun} appeared"
+            elif outside_percent == 0:
+                note = zero_note
+            elif math.isclose(outside_percent, baseline_outside, rel_tol=0.005):
+                note = "≈ baseline"
+            elif outside_percent < baseline_outside:
+                note = f"{baseline_outside / outside_percent:.2f}× fewer {comparison_noun}"
+            else:
+                note = f"{outside_percent / baseline_outside:.2f}× more {comparison_noun}"
+        detail = complement + (f" · {note}" if note else "")
+        content = f'{primary}<br><span class="delta">{detail}</span>'
+        if best is not None and math.isclose(outside_percent, best, rel_tol=0.0, abs_tol=1e-12):
+            content = f'<span class="champion">{content}</span>'
+        cells.append(content)
+    return cells
+
+
 def render_markdown(report: ExperimentReport) -> str:
     targets = report.targets
     column_count = len(targets) + 1
@@ -385,17 +455,6 @@ def render_markdown(report: ExperimentReport) -> str:
             primary_values=displays,
         )
 
-    def within_e2e_percent(data: dict[str, Any], denominator: str) -> float | None:
-        e2e = data.get("e2e_latency")
-        if not isinstance(e2e, dict):
-            return None
-        measured = int(e2e.get("count") or 0)
-        exceeded = int(e2e.get("exceeded") or 0)
-        total = int(data.get(denominator) or 0)
-        if total <= 0:
-            return None
-        return 100 * max(0, measured - exceeded) / total
-
     def e2e_compliance_rows(data: list[dict[str, Any]], *, freshness_first: bool) -> None:
         if not any(
             isinstance(value.get("e2e_latency"), dict)
@@ -405,24 +464,26 @@ def render_markdown(report: ExperimentReport) -> str:
             return
         row(
             "Processed within E2E limit",
-            compared(
-                [within_e2e_percent(value, "processed") for value in data],
-                2,
-                "%",
-                lower_is_better=False,
-                best_rel_tol=0.0,
+            e2e_compliance_cells(
+                data,
+                denominator="processed",
+                primary_label="within SLA",
+                complement_label="outside SLA",
+                comparison_noun="SLA misses",
+                zero_note="no observed SLA misses",
             ),
             "audit",
         )
         if freshness_first:
             row(
                 "Published with on-time processed outcome",
-                compared(
-                    [within_e2e_percent(value, "published") for value in data],
-                    2,
-                    "%",
-                    lower_is_better=False,
-                    best_rel_tol=0.0,
+                e2e_compliance_cells(
+                    data,
+                    denominator="published",
+                    primary_label="with on-time outcome",
+                    complement_label="without on-time outcome",
+                    comparison_noun="missing on-time outcomes",
+                    zero_note="no missing on-time outcomes",
                 ),
                 "audit",
             )
@@ -1038,6 +1099,7 @@ def render_markdown(report: ExperimentReport) -> str:
             "</tbody></table>",
             "",
             "Multipliers compare each metric with the first target in the same measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
+            "SLA-compliance rows show the successful share first, but their multipliers and highlighting compare the complementary share outside the limit.",
             "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
             "",
             "### Detailed results",

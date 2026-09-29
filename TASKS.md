@@ -405,6 +405,7 @@
 | [INFRA-241](#infra-241) | Add time-bounded repeating composite chaos sequences with compact report presentation. | DONE |
 | [INFRA-242](#infra-242) | Harden observability and drain handling for long replica-churn experiments. | DONE |
 | [INFRA-243](#infra-243) | Render repeating chaos sequences as detailed multi-step report cards. | DONE |
+| [INFRA-244](#infra-244) | Compare SLA compliance by the relative rate of messages outside the limit. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4706,3 +4707,14 @@ Keep multi-line degradation detail inside the enclosing sequence card instead of
 Add distinct scale, repeat, and delay symbols, preserve default application and stub targets in report normalization, and size the enclosing card from all nested rows.
 Exercise the composite card in the two-minute smoke experiment with a repeating ETA degradation-and-recovery cycle, leaving replica placement unchanged.
 Verification: 164 internal-lab, 28 shared materialization/contract, and 32 AWS tests pass; the installed runtime is updated without starting an experiment or regenerating prior reports.
+
+<a id="infra-244"></a>
+### INFRA-244 - Compare SLA miss rates
+
+_Date: 2026-09-29_
+
+Keep the intuitive within-SLA percentage as the primary value while exposing the complementary miss rate and exact count.
+Calculate relative improvement and highlight the winner from messages outside the limit instead of ratios between success percentages close to 100%.
+Handle zero-miss baselines and targets without misleading infinite multipliers.
+Use the same complementary comparison for freshness-first on-time outcomes, where the complement also includes messages without a processed outcome.
+Verification: 166 internal-lab report/orchestration tests and 32 AWS tests pass; the installed report runtime is updated without starting an experiment or modifying prior reports.
