@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -39,10 +40,10 @@ def notify(
     payload_dir: Path,
     *,
     environment: Mapping[str, str] | None = None,
-) -> None:
-    """Persist and dispatch one best-effort lifecycle event."""
+) -> dict[str, Any]:
+    """Persist and dispatch one best-effort lifecycle event with a delivery receipt."""
     if hook is None:
-        return
+        return {"event": event, "status": "disabled"}
     payload_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w",
@@ -55,12 +56,34 @@ def notify(
         json.dump(dict(payload), file, indent=2)
         file.write("\n")
         payload_path = file.name
+    receipt_path = Path(payload_path).with_suffix(".delivery.json")
+    receipt: dict[str, Any] = {
+        "event": event,
+        "attempted_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "payload": str(payload_path),
+        "hook": str(hook),
+    }
     try:
         command = [sys.executable, str(hook), event, payload_path] if hook.suffix == ".py" else [str(hook), event, payload_path]
-        subprocess.run(
+        completed = subprocess.run(
             command,
             check=False,
             env={**os.environ, **dict(environment or {})},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
+        receipt.update({
+            "status": "delivered" if completed.returncode == 0 else "failed",
+            "returncode": completed.returncode,
+        })
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if detail:
+            receipt["detail"] = detail
+        if completed.returncode != 0:
+            print(f"Notification hook failed for {event}: {detail or f'exit {completed.returncode}'}", file=sys.stderr)
     except Exception as error:
+        receipt.update({"status": "failed", "error": str(error)})
         print(f"Notification hook failed for {event}: {error}", file=sys.stderr)
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return receipt

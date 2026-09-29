@@ -279,6 +279,28 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("warmup_completed", command)
         self.assertEqual("completed", controller.state["kafka_warmup"]["status"])
 
+    def test_aws_notifies_when_target_execution_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with patch.object(controller, "notify") as notify, patch.object(
+                controller, "ssm", return_value={"Status": "Success"}
+            ):
+                controller.execute_test()
+
+        self.assertEqual("target_started", notify.call_args_list[0].args[0])
+        self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
+        self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
+        self.assertEqual("measurements_finished", notify.call_args_list[1].args[0])
+
     def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
         self.assertIn("demo/infra/shared/kafka_warmup", sync_script)
@@ -360,6 +382,24 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(str(limits_path), command[command.index("--latency-limits-file") + 1])
         self.assertEqual("steady", windows[0]["name"])
         self.assertEqual(str(windows_path), command[command.index("--measurement-windows-file") + 1])
+
+    def test_local_audit_analysis_skips_audit_disabled_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            run_dir = session_dir / "result/runs/run-ckc"
+            run_dir.mkdir(parents=True)
+            (run_dir / "resolved-test.json").write_text(
+                json.dumps({"load_test": {"audit_log_enabled": False}}),
+                encoding="utf-8",
+            )
+            controller = self.controller(session_dir)
+            controller.state["local_result_dirs"] = {"ckc": str(run_dir)}
+            controller.state["local_result_dir"] = str(run_dir)
+            controller.analyze_local_audit()
+
+        self.assertEqual(["ckc"], controller.state["audit_analysis_skipped_targets"])
+        self.assertEqual({}, controller.state["audit_summaries"])
+        self.assertIsNone(controller.state["audit_summary"])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -598,6 +638,24 @@ class AwsSessionTest(unittest.TestCase):
             failures = controller.cleanup()
         self.assertEqual([], failures)
         self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+
+    def test_cleanup_preparation_failure_is_warning_when_verification_is_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: (_ for _ in ()).throw(RuntimeError("temporary EKS outage"))
+            controller.destroy_stack = lambda _stack: None
+            controller.delete_cloudwatch_log_group = lambda: None
+            controller.verify_cleanup = lambda: None
+            controller.prune_terraform_cache = lambda: None
+            failures = controller.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertEqual("CLEAN", controller.state["cleanup_status"])
+        self.assertEqual(
+            ["EKS node-group pre-cleanup: temporary EKS outage"],
+            controller.state["cleanup_warnings"],
+        )
 
     def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

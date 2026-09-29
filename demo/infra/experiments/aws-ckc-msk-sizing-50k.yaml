@@ -132,10 +132,10 @@ environments:
         - 10.42.160.0/20
       nodes:
         instance_types:
-        - m7i.xlarge
-        desired_size: 5
-        min_size: 5
-        max_size: 5
+        - m7i.2xlarge
+        desired_size: 6
+        min_size: 6
+        max_size: 6
         disk_size_gib: 100
       kafka:
         mode: msk

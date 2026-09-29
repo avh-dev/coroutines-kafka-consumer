@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +28,8 @@ class NotificationLifecycleTest(unittest.TestCase):
             root = Path(directory)
             hook = root / "notify.py"
             hook.write_text("", encoding="utf-8")
-            notify(
+            run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            receipt = notify(
                 hook,
                 "bundle_ready",
                 {"experiment": "comparison", "artifacts": {"evidence": "/result/evidence.tar.gz"}},
@@ -38,10 +40,26 @@ class NotificationLifecycleTest(unittest.TestCase):
             command = run.call_args.args[0]
             payload_path = Path(command[-1])
             payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            persisted_receipt = json.loads(payload_path.with_suffix(".delivery.json").read_text(encoding="utf-8"))
 
         self.assertEqual("bundle_ready", command[-2])
         self.assertEqual("comparison", payload["experiment"])
         self.assertEqual("secret", run.call_args.kwargs["env"]["TELEGRAM_BOT_TOKEN"])
+        self.assertEqual("delivered", receipt["status"])
+        self.assertEqual(receipt, persisted_receipt)
+
+    @patch("demo.infra.shared.experiment_notifications.lifecycle.subprocess.run")
+    def test_failed_hook_is_preserved_in_delivery_receipt(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess([], 1, stdout="", stderr="topic not found\n")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hook = root / "notify.py"
+            hook.write_text("", encoding="utf-8")
+            receipt = notify(hook, "target_started", {"name": "ckc"}, root / "events")
+
+        self.assertEqual("failed", receipt["status"])
+        self.assertEqual(1, receipt["returncode"])
+        self.assertEqual("topic not found", receipt["detail"])
 
 
 if __name__ == "__main__":

@@ -98,13 +98,15 @@ class SessionController:
         self.save()
 
     def notify(self, event: str, payload: dict[str, Any]) -> None:
-        notify(
+        receipt = notify(
             self.notification_hook,
             event,
             payload,
             self.session_dir / "notifications",
             environment=self.notification_environment,
         )
+        self.state.setdefault("notification_deliveries", []).append(receipt)
+        self.save()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -578,6 +580,17 @@ class SessionController:
                 "exit ${status}"
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
+            self.notify("target_started", {
+                "experiment": config["experiment_name"],
+                "environment": {"name": "aws", "detail": config["region"]},
+                "index": index,
+                "total": len(targets),
+                "id": target["id"],
+                "name": target["name"],
+                "profile": target.get("profile"),
+                "replicas": target.get("replicas"),
+                "expected_duration_seconds": target.get("duration_seconds"),
+            })
             invocation = self.ssm(
                 command,
                 f"run AWS experiment target {index}/{len(targets)}: {target['name']}",
@@ -770,14 +783,15 @@ class SessionController:
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
         failures: list[str] = []
+        warnings: list[str] = []
         try:
             self.cleanup_remote_lab()
         except Exception as error:
-            failures.append(f"remote lab cleanup: {error}")
+            warnings.append(f"remote lab cleanup: {error}")
         try:
             self.prepare_lab_destroy()
         except Exception as error:
-            failures.append(f"EKS node-group pre-cleanup: {error}")
+            warnings.append(f"EKS node-group pre-cleanup: {error}")
         for stack in ("lab", "runner", "artifacts"):
             try:
                 self.destroy_stack(stack)
@@ -796,6 +810,7 @@ class SessionController:
                 self.prune_terraform_cache()
             except Exception as error:
                 failures.append(f"local Terraform cache cleanup: {error}")
+        self.state["cleanup_warnings"] = warnings
         self.state["cleanup_failures"] = failures
         self.state["cleanup_status"] = "CLEAN" if not failures else "INCOMPLETE"
         self.state["phase"] = "CLEANED" if not failures else "CLEANUP_INCOMPLETE"
@@ -983,6 +998,24 @@ class SessionController:
             if isinstance(target, dict) and target.get("id")
         }
         summaries: dict[str, str] = {}
+        audit_disabled_targets: list[str] = []
+        auditable_results: dict[str, str] = {}
+        for target_id, value in result_dirs.items():
+            resolved = Path(value) / "resolved-test.json"
+            definition = json.loads(resolved.read_text(encoding="utf-8")) if resolved.is_file() else {}
+            load_test = definition.get("load_test") if isinstance(definition.get("load_test"), dict) else {}
+            if load_test.get("audit_log_enabled", True) is False:
+                audit_disabled_targets.append(target_id)
+            else:
+                auditable_results[target_id] = value
+
+        if audit_disabled_targets:
+            self.state["audit_analysis_skipped_targets"] = sorted(audit_disabled_targets)
+        if not auditable_results:
+            self.state["audit_summaries"] = {}
+            self.state["audit_summary"] = None
+            self.save()
+            return
 
         def analyze_target(target_id: str, value: str) -> tuple[str, str]:
             result_dir = Path(value)
@@ -1021,11 +1054,11 @@ class SessionController:
                 raise CommandError(f"Local audit analysis failed; see {progress}")
             return target_id, str(summary)
 
-        worker_count = min(len(result_dirs), max(1, min(2, (os.cpu_count() or 2) // 2)))
+        worker_count = min(len(auditable_results), max(1, min(2, (os.cpu_count() or 2) // 2)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
                 executor.submit(analyze_target, target_id, value)
-                for target_id, value in result_dirs.items()
+                for target_id, value in auditable_results.items()
             ]
             for future in concurrent.futures.as_completed(futures):
                 target_id, summary = future.result()

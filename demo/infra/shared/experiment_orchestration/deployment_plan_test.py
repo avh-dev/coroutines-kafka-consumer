@@ -77,9 +77,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
         self.assertEqual("kafka.t3.small", variables["msk_broker_instance_type"])
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
-        self.assertEqual(["m7i.xlarge"], variables["node_instance_types"])
+        self.assertEqual(["m7i.2xlarge"], variables["node_instance_types"])
         self.assertEqual(
-            (5, 5, 5),
+            (6, 6, 6),
             (
                 variables["node_desired_size"],
                 variables["node_min_size"],

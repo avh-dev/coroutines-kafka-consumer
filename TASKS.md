@@ -409,6 +409,7 @@
 | [INFRA-245](#infra-245) | Add AWS dependency observability for sizing MSK, Redis, load generation, stubs, and application capacity. | DONE |
 | [INFRA-246](#infra-246) | Add a fixed-replica AWS CKC sizing experiment at 50,000 messages per second. | DONE |
 | [INFRA-247](#infra-247) | Harden AWS runner bootstrap and preserve provisioning failures in session logs. | DONE |
+| [INFRA-248](#infra-248) | Stabilize AWS sizing execution, notifications, and cleanup reporting. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4754,3 +4755,14 @@ Keep EC2 user data safely below the platform limit by transferring large runner 
 Make ECR image checks non-interactive so `--skip-build-images` cannot wait for an AWS CLI pager.
 Preserve complete Terraform output in the session logs while continuing to stream progress to the terminal.
 Verification: 35 AWS session tests, Python compilation, shell syntax, Terraform formatting and validation, and whitespace validation pass; compressed runner user data is 1,932 bytes against the 16,384-byte EC2 limit, without launching an experiment.
+
+<a id="infra-248"></a>
+### INFRA-248 - Stabilize the AWS sizing run
+
+_Date: 2026-09-29_
+
+Give the temporary EKS fleet enough headroom to schedule the fixed application replicas, generator, stubs, and observability workloads together.
+Emit the actual AWS target start and preserve notification delivery outcomes for diagnosis.
+Do not report cleanup as incomplete when an optional pre-destroy optimization fails but final independent verification proves the session clean.
+Handle audit-disabled sizing runs without attempting to analyze an intentionally empty audit stream.
+Verification: 167 internal-lab, 3 shared notification, 47 shared orchestration, and 38 AWS session tests pass with Python and whitespace validation; no AWS experiment was launched.
