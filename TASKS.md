@@ -165,6 +165,7 @@
 | [DEMO-97](#demo-97) | Make the demo-stub server request timeout configurable so configured long-tail delays are not truncated. | DONE |
 | [DEMO-98](#demo-98) | Support arbitrary percentile latency distributions in demo-stub settings. | DONE |
 | [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
+| [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4776,3 +4777,13 @@ _Date: 2026-09-29_
 Return the temporary EKS fleet to the five `m7i.xlarge` nodes already proven to launch in the account.
 Use scheduling requests rather than CPU limits to reserve enough capacity for twelve CKC replicas and the generator while retaining burst headroom.
 Run the corrected twenty-minute sizing experiment after local validation and preserve its evidence and cleanup result.
+
+<a id="demo-100"></a>
+### DEMO-100 - Bound brewing burst simulation state
+
+_Date: 2026-09-29_
+
+Apply each same-key brewing-step burst to one simulated batch without retaining intermediate copies in the brewing queue.
+Keep the simulated brewing population bounded by active cauldrons during sustained generation.
+Add regression coverage for repeated bursts and lifecycle completion.
+Verification: all `ckc-demo-load-test` tests pass; whitespace validation passes.

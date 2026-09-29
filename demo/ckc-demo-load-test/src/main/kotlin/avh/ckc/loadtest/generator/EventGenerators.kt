@@ -252,8 +252,9 @@ private class DelegatingGenerationContext(
             .coerceAtMost(activeBatch.brewingStepsTotal - activeBatch.brewingStepsCompleted)
         repeat(burstSize) {
             publisher.sendBatch(activeBatch.batchId, factory.batchBrewingStepCompleted(activeBatch, now))
-            activeBatch = state.markBrewingStepCompleted(activeBatch)
+            activeBatch = activeBatch.copy(brewingStepsCompleted = activeBatch.brewingStepsCompleted + 1)
         }
+        state.retainBrewingProgress(activeBatch)
         return EmitResult(emitted = true, emittedCount = burstSize, delegated = delegated)
     }
 

@@ -26,7 +26,7 @@ class EventGeneratorsTest {
     @Test
     fun `brewing step generator emits configured same-key burst`() {
         val publisher = RecordingPublisher()
-        val generator = brewingStepGenerator(
+        val fixture = brewingStepGenerator(
             publisher = publisher,
             config = config(
                 minBrewingSteps = 5,
@@ -37,7 +37,7 @@ class EventGeneratorsTest {
             )
         )
 
-        val result = generator.emit(Instant.parse("2026-06-05T10:00:00Z"))
+        val result = fixture.generator.emit(Instant.parse("2026-06-05T10:00:00Z"))
 
         val steps = publisher.batchEvents.filter { it.event.eventType == BatchLifecycleEventType.BATCH_BREWING_STEP_COMPLETED }
         assertEquals(3, result.emittedCount)
@@ -45,12 +45,13 @@ class EventGeneratorsTest {
         assertEquals(1, steps.map { it.key }.toSet().size)
         assertEquals(listOf(1, 2, 3), steps.map { it.event.getBatchBrewingStepCompleted().stepNumber })
         assertTrue(steps.map { it.event.metadata.eventId }.toSet().size == steps.size)
+        assertEquals(1, fixture.state.snapshot().brewingBatches)
     }
 
     @Test
     fun `brewing step burst is capped by remaining batch steps`() {
         val publisher = RecordingPublisher()
-        val generator = brewingStepGenerator(
+        val fixture = brewingStepGenerator(
             publisher = publisher,
             config = config(
                 minBrewingSteps = 2,
@@ -61,25 +62,52 @@ class EventGeneratorsTest {
             )
         )
 
-        val result = generator.emit(Instant.parse("2026-06-05T10:00:00Z"))
+        val result = fixture.generator.emit(Instant.parse("2026-06-05T10:00:00Z"))
 
         val steps = publisher.batchEvents.filter { it.event.eventType == BatchLifecycleEventType.BATCH_BREWING_STEP_COMPLETED }
         assertEquals(2, result.emittedCount)
         assertEquals(2, steps.size)
         assertEquals(listOf(1, 2), steps.map { it.event.getBatchBrewingStepCompleted().stepNumber })
+        assertEquals(0, fixture.state.snapshot().brewingBatches)
+        assertEquals(1, fixture.state.snapshot().brewingCompletedBatches)
+    }
+
+    @Test
+    fun `repeated brewing bursts keep queued batches bounded by active cauldrons`() {
+        val fixture = brewingStepGenerator(
+            publisher = RecordingPublisher(),
+            config = config(
+                minBrewingSteps = 20,
+                maxBrewingSteps = 20,
+                brewingStepBurstEvery = 1,
+                minBrewingStepBurst = 5,
+                maxBrewingStepBurst = 5
+            )
+        )
+
+        repeat(40) { iteration ->
+            fixture.generator.emit(Instant.parse("2026-06-05T10:00:00Z").plusMillis(iteration.toLong()))
+            val snapshot = fixture.state.snapshot()
+            assertTrue(
+                snapshot.brewingBatches + snapshot.brewingCompletedBatches <= snapshot.activeCauldrons,
+                "Brewing queues escaped the active-cauldron bound after iteration $iteration: $snapshot"
+            )
+        }
     }
 
     private fun brewingStepGenerator(
         publisher: LoadTestPublisher,
         config: LoadTestConfig
-    ): EventGenerator {
+    ): BrewingStepFixture {
         val identity = GeneratorIdentity(externalShardIndex = 0, totalExternalShards = 1, workerIndex = 0, totalWorkers = 1)
-        return eventGenerators(
+        val state = SimulationState(cauldronCount = config.cauldronCount, identity = identity)
+        val generator = eventGenerators(
             config = config,
-            state = SimulationState(cauldronCount = config.cauldronCount, identity = identity),
+            state = state,
             factory = LoadTestEventFactory(identity),
             publisher = publisher
         ).single { it.name == "batch_brewing_step_completed" }
+        return BrewingStepFixture(generator, state)
     }
 
     private fun config(
@@ -134,5 +162,10 @@ class EventGeneratorsTest {
     private data class BatchRecord(
         val key: String,
         val event: BatchLifecycleEvent
+    )
+
+    private data class BrewingStepFixture(
+        val generator: EventGenerator,
+        val state: SimulationState
     )
 }
