@@ -598,20 +598,20 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual(1800, scenarios[0]["duration_seconds"])
         self.assertEqual("ckc-demo", scenarios[0]["target"])
         self.assertEqual(
-            "Repeat replica churn: 2 ↔ 3 replicas; 30s delay",
+            "Repeating chaos sequence • Replica churn",
             scenarios[0]["title"],
         )
         self.assertEqual(
             [
                 "Scale application: 2 → 3 replicas",
-                "Wait 30s",
+                "Wait",
                 "Scale application: 3 → 2 replicas",
-                "Wait 30s",
+                "Wait",
             ],
             [step["title"] for step in scenarios[0]["steps"]],
         )
         sequence_card_width, sequence_card_height = svg_renderer.chaos_card_dimensions(scenarios[-1])
-        self.assertGreater(sequence_card_width, 480)
+        self.assertGreater(sequence_card_width, 420)
         self.assertGreater(sequence_card_height, 180)
 
     def test_repeating_sequence_card_renders_nested_icons_timing_and_degradation(self) -> None:
@@ -624,7 +624,7 @@ class ExperimentReportTest(unittest.TestCase):
                 "at": "1m",
                 "duration": "2m",
                 "type": "sequence",
-                "name": "mixed-cycle",
+                "name": "eta-tail-degradation",
                 "steps": [
                     {"type": "deployment_scale", "target": "ckc-demo", "params": {"replicas": 3}},
                     {"type": "delay", "duration": "30s"},
@@ -686,9 +686,12 @@ class ExperimentReportTest(unittest.TestCase):
                 if element.attrib.get("data-icon-role") == "service"
             },
         )
-        labels = {"".join(element.itertext()) for element in sequence_card.iter(f"{namespace}text")}
+        rendered_labels = ["".join(element.itertext()) for element in sequence_card.iter(f"{namespace}text")]
+        labels = set(rendered_labels)
+        self.assertIn("Repeating chaos sequence • ETA tail degradation", labels)
         self.assertIn("Scale application: 2 → 3 replicas", labels)
-        self.assertIn("Wait 30s", labels)
+        self.assertIn("Wait", labels)
+        self.assertIn("· 30s", labels)
         self.assertIn("Degrade downstream responses", labels)
         self.assertIn("· 10s", labels)
         self.assertTrue(any(

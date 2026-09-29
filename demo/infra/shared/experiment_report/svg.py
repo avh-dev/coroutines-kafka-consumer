@@ -596,7 +596,7 @@ def stubs_table_rows(scenario: dict[str, Any]) -> list[dict[str, Any]]:
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     if scenario.get("type") == "sequence":
         steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
-        title = str(scenario.get("title") or "Repeat sequence")
+        title = str(scenario.get("title") or "Repeating chaos sequence")
         at = float(scenario.get("at_seconds") or 0)
         duration = scenario.get("duration_seconds")
         end = float(scenario.get("end_seconds") or at)
@@ -668,7 +668,7 @@ def sequence_steps_svg(
         else:
             title_x = card_x + 49
         result.append(f'<text class="card-title" x="{title_x:.1f}" y="{row_y+23:.1f}">{esc(title)}</text>')
-        if duration is not None and step.get("type") != "delay":
+        if duration is not None:
             time_x = title_x + len(title) * 6.8 + 10
             result.append(
                 f'<text class="card-time" x="{time_x:.1f}" y="{row_y+23:.1f}">'

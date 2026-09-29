@@ -291,34 +291,12 @@ def chaos_scenario_title(scenario: dict[str, Any], previous_replicas: int | None
     params = scenario.get("params") if isinstance(scenario.get("params"), dict) else {}
     target_name = chaos_target_name(target, params)
     if scenario_type == "sequence":
-        name = str(scenario.get("name") or "repeating sequence").replace("_", " ").replace("-", " ")
-        steps = scenario.get("steps") if isinstance(scenario.get("steps"), list) else []
-        replicas = [
-            step.get("params", {}).get("replicas")
-            for step in steps
-            if isinstance(step, dict)
-            and step.get("type") == "deployment_scale"
-            and isinstance(step.get("params"), dict)
-        ]
-        delays = [
-            step.get("duration_seconds")
-            for step in steps
-            if isinstance(step, dict) and step.get("type") == "delay"
-        ]
-        details = []
-        if replicas:
-            transitions = ([previous_replicas] if previous_replicas is not None else []) + replicas
-            details.append(f"{' ↔ '.join(str(value) for value in dict.fromkeys(transitions))} replicas")
-        unique_delays = list(dict.fromkeys(delay for delay in delays if delay is not None))
-        if len(unique_delays) == 1:
-            details.append(f"{compact_duration(float(unique_delays[0]))} delay")
-        elif len(unique_delays) > 1:
-            details.append("variable delays")
-        suffix = f": {'; '.join(details)}" if details else ""
-        return f"Repeat {name}{suffix}"
+        words = str(scenario.get("name") or "sequence").replace("_", " ").replace("-", " ").split()
+        acronyms = {"ckc": "CKC", "eta": "ETA"}
+        name = " ".join(acronyms.get(word.lower(), word) for word in words)
+        return f"Repeating chaos sequence • {name[:1].upper()}{name[1:]}"
     if scenario_type == "delay":
-        duration = scenario.get("duration_seconds")
-        return f"Wait {compact_duration(float(duration))}" if duration is not None else "Wait"
+        return "Wait"
     if scenario_type == "deployment_scale":
         replicas = params.get("replicas")
         if previous_replicas is not None:
