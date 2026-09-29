@@ -25,13 +25,67 @@ from experiment_report.analyze import (  # noqa: E402
     peak_telemetry_fleet_size,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
-from experiment_report.markdown import is_freshness_zero_tail, shared_freshness_cutoff  # noqa: E402
+from experiment_report.markdown import (  # noqa: E402
+    e2e_compliance_cells,
+    is_freshness_zero_tail,
+    shared_freshness_cutoff,
+)
 from experiment_report.model import LatencySlaResult  # noqa: E402
 from experiment_report.prometheus import STANDARD_MEASUREMENTS  # noqa: E402
 from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_sla_compliance_compares_the_complement_instead_of_near_hundred_percentages(self) -> None:
+        values = [
+            {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 45}},
+            {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 5}},
+        ]
+
+        cells = e2e_compliance_cells(
+            values,
+            denominator="processed",
+            primary_label="within SLA",
+            complement_label="outside SLA",
+            comparison_noun="SLA misses",
+            zero_note="no observed SLA misses",
+        )
+
+        self.assertIn("95.50% within SLA", cells[0])
+        self.assertIn("4.50% outside SLA · 45 messages · baseline", cells[0])
+        self.assertIn("99.50% within SLA", cells[1])
+        self.assertIn("0.50% outside SLA · 5 messages · 9.00× fewer SLA misses", cells[1])
+        self.assertIn('class="champion"', cells[1])
+        self.assertNotIn("1.04×", "".join(cells))
+
+    def test_sla_compliance_handles_zero_misses_without_an_infinite_multiplier(self) -> None:
+        values = [
+            {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 5}},
+            {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 0}},
+        ]
+        cells = e2e_compliance_cells(
+            values,
+            denominator="processed",
+            primary_label="within SLA",
+            complement_label="outside SLA",
+            comparison_noun="SLA misses",
+            zero_note="no observed SLA misses",
+        )
+
+        self.assertIn("100.00% within SLA", cells[1])
+        self.assertIn("0.00% outside SLA · 0 messages · no observed SLA misses", cells[1])
+        self.assertNotIn("∞", "".join(cells))
+
+        reversed_cells = e2e_compliance_cells(
+            list(reversed(values)),
+            denominator="processed",
+            primary_label="within SLA",
+            complement_label="outside SLA",
+            comparison_noun="SLA misses",
+            zero_note="no observed SLA misses",
+        )
+        self.assertIn("SLA misses appeared", reversed_cells[1])
+
     def test_application_resources_are_averaged_after_summing_live_pods(self) -> None:
         cpu_query = STANDARD_MEASUREMENTS["cpu_average_cores"]
         memory_query = STANDARD_MEASUREMENTS["application_memory_average_mib"]
@@ -1572,7 +1626,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
             self.assertNotIn("Published with on-time processed outcome", markdown)
-            self.assertIn(">100.00%<", markdown)
+            self.assertIn(">100.00% within SLA<", markdown)
             self.assertIn(
                 'Published<span class="metric-source source-a" title="Audit records">A</span></th><td>1</td>',
                 markdown,
@@ -1781,7 +1835,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Successfully processed", markdown)
             self.assertIn("994 · 99.400% of published", markdown)
             self.assertIn("Published with on-time processed outcome", markdown)
-            self.assertIn("99.00%", markdown)
+            self.assertIn("99.00% with on-time outcome", markdown)
+            self.assertIn("1.00% without on-time outcome · 10 messages · baseline", markdown)
             self.assertIn("Skipped 1", markdown)
             self.assertNotIn('Skipped 1<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
             self.assertIn('Skipped &gt;2<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
