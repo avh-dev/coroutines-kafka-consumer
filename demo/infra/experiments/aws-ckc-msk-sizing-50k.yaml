@@ -39,7 +39,7 @@ workload:
     diagnostics_blob_size: 64
     stats_log_interval_seconds: 15
     audit_log_enabled: false
-    cpu_request: '4'
+    cpu_request: 1500m
     memory_request: 2Gi
     cpu_limit: null
     memory_limit: 4Gi
@@ -71,7 +71,7 @@ targets:
     replicas: 12
     resources:
       requests:
-        cpu: '1'
+        cpu: 500m
         memory: 1Gi
       limits:
         memory: 3Gi
@@ -132,10 +132,10 @@ environments:
         - 10.42.160.0/20
       nodes:
         instance_types:
-        - m7i.2xlarge
-        desired_size: 6
-        min_size: 6
-        max_size: 6
+        - m7i.xlarge
+        desired_size: 5
+        min_size: 5
+        max_size: 5
         disk_size_gib: 100
       kafka:
         mode: msk

@@ -77,9 +77,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
         self.assertEqual("kafka.t3.small", variables["msk_broker_instance_type"])
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
-        self.assertEqual(["m7i.2xlarge"], variables["node_instance_types"])
+        self.assertEqual(["m7i.xlarge"], variables["node_instance_types"])
         self.assertEqual(
-            (6, 6, 6),
+            (5, 5, 5),
             (
                 variables["node_desired_size"],
                 variables["node_min_size"],
@@ -102,13 +102,13 @@ class DeploymentPlanTest(unittest.TestCase):
         )
         application_resources = application["spec"]["template"]["spec"]["containers"][0]["resources"]
         self.assertEqual(12, application["spec"]["replicas"])
-        self.assertEqual("1", application_resources["requests"]["cpu"])
+        self.assertEqual("500m", application_resources["requests"]["cpu"])
         self.assertNotIn("cpu", application_resources["limits"])
         self.assertFalse(any(item["kind"] == "HorizontalPodAutoscaler" for item in manifests))
 
         load_job = next(item for item in manifests if item["kind"] == "Job")
         load_resources = load_job["spec"]["template"]["spec"]["containers"][0]["resources"]
-        self.assertEqual("4", load_resources["requests"]["cpu"])
+        self.assertEqual("1500m", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:

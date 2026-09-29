@@ -410,6 +410,7 @@
 | [INFRA-246](#infra-246) | Add a fixed-replica AWS CKC sizing experiment at 50,000 messages per second. | DONE |
 | [INFRA-247](#infra-247) | Harden AWS runner bootstrap and preserve provisioning failures in session logs. | DONE |
 | [INFRA-248](#infra-248) | Stabilize AWS sizing execution, notifications, and cleanup reporting. | DONE |
+| [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4766,3 +4767,12 @@ Emit the actual AWS target start and preserve notification delivery outcomes for
 Do not report cleanup as incomplete when an optional pre-destroy optimization fails but final independent verification proves the session clean.
 Handle audit-disabled sizing runs without attempting to analyze an intentionally empty audit stream.
 Verification: 167 internal-lab, 3 shared notification, 47 shared orchestration, and 38 AWS session tests pass with Python and whitespace validation; no AWS experiment was launched.
+
+<a id="infra-249"></a>
+### INFRA-249 - Fit the AWS sizing run into current capacity
+
+_Date: 2026-09-29_
+
+Return the temporary EKS fleet to the five `m7i.xlarge` nodes already proven to launch in the account.
+Use scheduling requests rather than CPU limits to reserve enough capacity for twelve CKC replicas and the generator while retaining burst headroom.
+Run the corrected twenty-minute sizing experiment after local validation and preserve its evidence and cleanup result.
