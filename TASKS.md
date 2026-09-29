@@ -407,6 +407,7 @@
 | [INFRA-243](#infra-243) | Render repeating chaos sequences as detailed multi-step report cards. | DONE |
 | [INFRA-244](#infra-244) | Compare SLA compliance by the relative rate of messages outside the limit. | DONE |
 | [INFRA-245](#infra-245) | Add AWS dependency observability for sizing MSK, Redis, load generation, stubs, and application capacity. | DONE |
+| [INFRA-246](#infra-246) | Add a fixed-replica AWS CKC sizing experiment at 50,000 messages per second. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4730,3 +4731,15 @@ Add Redis, load-generator, stub, application, and EKS resource evidence so a siz
 Preserve the additional measurements in the portable evidence bundle and present a compact component-level capacity summary in the experiment report.
 Prepare observability for a later fixed-replica CKC sizing experiment without starting an AWS run.
 Verification: 167 internal-lab, 33 AWS session, and 26 dashboard/evidence tests pass; shell syntax, Terraform formatting, dashboard JSON, Python compilation, and whitespace validation pass without starting an experiment.
+
+<a id="infra-246"></a>
+### INFRA-246 - Add an AWS CKC sizing experiment
+
+_Date: 2026-09-29_
+
+Add a temporary twenty-minute AWS experiment that holds 50,000 messages per second after application readiness.
+Run twelve fixed CKC replicas against twelve topic partitions with one requested CPU per pod, no CPU limit, and no HPA.
+Exclude the first three minutes as JIT and runtime warm-up, then measure the remaining seventeen minutes.
+Use the dependency observability from INFRA-245 to identify MSK, Redis, generator, stub, application, or EKS saturation without launching the experiment automatically.
+Keep application auditing disabled so a 60-million-message sizing run measures the workload rather than audit transport and analysis overhead.
+Verification: the canonical AWS definition validates and materializes to the intended Terraform inputs and Kubernetes resources; 167 internal-lab, 47 shared orchestration, and 33 AWS session tests pass with Python and whitespace validation, without launching an experiment.

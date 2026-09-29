@@ -1,0 +1,156 @@
+schema_version: 2
+name: aws-ckc-msk-sizing-50k
+description: Size twelve fixed CKC replicas and the smallest three-broker MSK cluster at a constant 50k/s.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    flavour:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 50000
+    producer_capacity_tps:
+      order: 1000
+      batch: 1000
+      telemetry: 1000
+    load_profile: 100 -> (3m, warmup) -> 100 -> (17m, steady) -> 100
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    audit_log_enabled: false
+    cpu_request: '4'
+    memory_request: 2Gi
+    cpu_limit: null
+    memory_limit: 4Gi
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 180
+    maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: steady-state
+    start: 3m
+    duration: 17m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 2000
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 2000
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+targets:
+- name: ckc.fixed-12
+  implementation: ckc
+  application:
+    replicas: 12
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 12
+        pollers: 1
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      batch:
+        partitions: 12
+        pollers: 1
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        partitions: 12
+        pollers: 1
+        workers: 500
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+environments:
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.33'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones:
+        - eu-central-1a
+        - eu-central-1b
+        - eu-central-1c
+        private_subnets:
+        - 10.42.0.0/20
+        - 10.42.16.0/20
+        - 10.42.32.0/20
+        public_subnets:
+        - 10.42.128.0/20
+        - 10.42.144.0/20
+        - 10.42.160.0/20
+      nodes:
+        instance_types:
+        - m7i.xlarge
+        desired_size: 5
+        min_size: 5
+        max_size: 5
+        disk_size_gib: 100
+      kafka:
+        mode: msk
+        msk_version: 3.7.x
+        msk_brokers: 3
+        msk_instance_type: kafka.t3.small
+        msk_volume_size_gib: 20
+      redis:
+        mode: elasticache
+        elasticache_node_type: cache.r7g.large
+        elasticache_engine_version: '7.1'
+        elasticache_nodes: 2
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170

@@ -51,6 +51,66 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertNotIn("profile", variables)
         self.assertEqual("32.4.3", plan["third_party"][0]["version"])
 
+    def test_materializes_fixed_aws_ckc_sizing_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+        root = Path(self.temp.name) / "sizing"
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+        variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(50000, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            "100 -> (3m, warmup) -> 100 -> (17m, steady) -> 100",
+            plan["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            {"name": "steady-state", "start_seconds": 180, "duration_seconds": 1020},
+            definition["load_test"]["measurement_window"],
+        )
+        self.assertEqual(12, plan["application"]["configuration"]["replicas"])
+        self.assertEqual(
+            [12, 12, 12],
+            [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
+        self.assertEqual("kafka.t3.small", variables["msk_broker_instance_type"])
+        self.assertEqual(3, variables["msk_number_of_broker_nodes"])
+        self.assertEqual(["m7i.xlarge"], variables["node_instance_types"])
+        self.assertEqual(
+            (5, 5, 5),
+            (
+                variables["node_desired_size"],
+                variables["node_min_size"],
+                variables["node_max_size"],
+            ),
+        )
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="sizing-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="msk:9092",
+            redis_host="elasticache",
+            audit_host="audit",
+        ))
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        application_resources = application["spec"]["template"]["spec"]["containers"][0]["resources"]
+        self.assertEqual(12, application["spec"]["replicas"])
+        self.assertEqual("1", application_resources["requests"]["cpu"])
+        self.assertNotIn("cpu", application_resources["limits"])
+        self.assertFalse(any(item["kind"] == "HorizontalPodAutoscaler" for item in manifests))
+
+        load_job = next(item for item in manifests if item["kind"] == "Job")
+        load_resources = load_job["spec"]["template"]["spec"]["containers"][0]["resources"]
+        self.assertEqual("4", load_resources["requests"]["cpu"])
+        self.assertNotIn("cpu", load_resources["limits"])
+
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")
         manifests = render_project_manifests(plan, DeploymentBindings(
