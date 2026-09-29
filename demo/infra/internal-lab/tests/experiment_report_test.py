@@ -31,6 +31,16 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_application_resources_are_averaged_after_summing_live_pods(self) -> None:
+        cpu_query = STANDARD_MEASUREMENTS["cpu_average_cores"]
+        memory_query = STANDARD_MEASUREMENTS["application_memory_average_mib"]
+
+        self.assertIn("avg_over_time((sum(rate(", cpu_query)
+        self.assertIn("[1m])))[{window}:15s]", cpu_query)
+        self.assertIn("avg_over_time((sum(container_memory_working_set_bytes", memory_query)
+        self.assertIn("))[{window}:15s]", memory_query)
+        self.assertNotIn("sum(avg_over_time", memory_query)
+
     def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
         query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
 

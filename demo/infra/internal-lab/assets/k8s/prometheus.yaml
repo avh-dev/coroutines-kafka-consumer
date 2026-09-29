@@ -164,9 +164,9 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
             limits:
-              memory: 768Mi
+              memory: 2Gi
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus

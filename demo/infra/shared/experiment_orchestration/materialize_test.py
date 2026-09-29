@@ -316,7 +316,7 @@ class MaterializeTest(unittest.TestCase):
             self.assertEqual("1500m", application["resources"]["requests"]["cpu"])
             self.assertNotIn("cpu", application["resources"]["limits"])
         self.assertEqual(
-            {False},
+            {True},
             {
                 target.target.definition["env"]["AUDIT_LOG_ENABLED"]
                 for target in materialized
