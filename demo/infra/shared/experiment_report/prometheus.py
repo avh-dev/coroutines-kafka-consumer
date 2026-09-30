@@ -128,10 +128,12 @@ STANDARD_MEASUREMENTS = {
         "aws_kafka_cpu_system_maximum)[{window}:60s]))"
     ),
     "msk_network_processor_utilization_max_percent": (
-        "100 - min(min_over_time(aws_kafka_network_processor_avg_idle_percent_minimum[{window}]))"
+        "clamp(100 * (1 - min(min_over_time("
+        "aws_kafka_network_processor_avg_idle_percent_minimum[{window}]))), 0, 100)"
     ),
     "msk_request_handler_utilization_max_percent": (
-        "100 - min(min_over_time(aws_kafka_request_handler_avg_idle_percent_minimum[{window}]))"
+        "clamp(100 * (1 - min(min_over_time("
+        "aws_kafka_request_handler_avg_idle_percent_minimum[{window}]))), 0, 100)"
     ),
     "msk_ingress_average_mib_per_second": (
         "avg_over_time((sum(aws_kafka_bytes_in_per_sec_average))[{window}:60s]) / 1024 / 1024"

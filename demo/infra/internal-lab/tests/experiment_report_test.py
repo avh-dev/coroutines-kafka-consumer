@@ -106,6 +106,13 @@ class ExperimentReportTest(unittest.TestCase):
             "aws_kafka_network_processor_avg_idle_percent_minimum",
             STANDARD_MEASUREMENTS["msk_network_processor_utilization_max_percent"],
         )
+        for measurement in (
+            "msk_network_processor_utilization_max_percent",
+            "msk_request_handler_utilization_max_percent",
+        ):
+            query = STANDARD_MEASUREMENTS[measurement]
+            self.assertIn("clamp(100 * (1 - min(min_over_time(", query)
+            self.assertNotIn("100 - min", query)
         self.assertIn(
             "aws_elasticache_engine_cpu_utilization_maximum",
             STANDARD_MEASUREMENTS["redis_engine_cpu_max_percent"],

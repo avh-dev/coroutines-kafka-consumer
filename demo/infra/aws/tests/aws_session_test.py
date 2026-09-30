@@ -103,8 +103,8 @@ class AwsSessionTest(unittest.TestCase):
         outputs = (AWS_ROOT / "assets/terraform/load-lab/outputs.tf").read_text(encoding="utf-8")
 
         for metric in (
-            "CPUUser",
-            "CPUSystem",
+            "CpuUser",
+            "CpuSystem",
             "CPUCreditBalance",
             "NetworkProcessorAvgIdlePercent",
             "RequestHandlerAvgIdlePercent",

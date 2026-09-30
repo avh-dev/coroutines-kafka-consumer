@@ -412,6 +412,7 @@
 | [INFRA-247](#infra-247) | Harden AWS runner bootstrap and preserve provisioning failures in session logs. | DONE |
 | [INFRA-248](#infra-248) | Stabilize AWS sizing execution, notifications, and cleanup reporting. | DONE |
 | [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | IN_PROGRESS |
+| [INFRA-250](#infra-250) | Correct Amazon MSK CPU collection and idle-ratio utilization reporting. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4787,3 +4788,13 @@ Apply each same-key brewing-step burst to one simulated batch without retaining 
 Keep the simulated brewing population bounded by active cauldrons during sustained generation.
 Add regression coverage for repeated bursts and lifecycle completion.
 Verification: all `ckc-demo-load-test` tests pass; whitespace validation passes.
+
+<a id="infra-250"></a>
+### INFRA-250 - Correct MSK CloudWatch capacity metrics
+
+_Date: 2026-09-30_
+
+Collect Amazon MSK CPU metrics using their case-sensitive CloudWatch names.
+Convert network-processor and request-handler idle ratios into utilization percentages on the correct `0..100` scale.
+Add contract coverage for the exporter configuration and report queries.
+Verification: all 38 AWS and 167 internal-lab tests pass; shell syntax, Python compilation, and whitespace validation pass; the installed internal lab is updated without starting an experiment.
