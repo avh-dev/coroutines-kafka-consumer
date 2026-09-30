@@ -130,7 +130,12 @@ class NotifyTelegramTest(unittest.TestCase):
                 "experiment_started",
                 "kafka_warmup_started",
                 "target_started",
+                "target_workload_finished",
                 "measurements_finished",
+                "artifact_collection_started",
+                "cleanup_started",
+                "cleanup_finished",
+                "analysis_started",
                 "report_ready",
                 "bundle_ready",
                 "experiment_completed",
@@ -177,8 +182,43 @@ class NotifyTelegramTest(unittest.TestCase):
             }),
         )
         self.assertEqual(
-            "✅ Measurements completed · analysis started",
+            "✅ All target measurements and audit streams finalized",
             NOTIFY.message_for("measurements_finished", {}),
+        )
+
+    def test_aws_progress_events_explain_long_post_workload_stages(self) -> None:
+        self.assertEqual(
+            "\n".join([
+                "⏱️ CKC workload finished: 1/1",
+                "Target: ckc.fixed-12",
+                "Elapsed: 20m 04s",
+                "Status: success",
+                "Next: finalizing audit stream",
+            ]),
+            NOTIFY.message_for("target_workload_finished", {
+                "index": 1,
+                "total": 1,
+                "name": "ckc.fixed-12",
+                "elapsed_seconds": 1204,
+                "status": "Success",
+                "next_step": "finalizing audit stream",
+            }),
+        )
+        self.assertEqual(
+            "🧹 AWS cleanup started: sizing\nMeasurements: failed"
+            "\nDeleting EKS, MSK, Redis, runner, and temporary storage",
+            NOTIFY.message_for("cleanup_started", {
+                "experiment": "sizing",
+                "measurements_status": "failed",
+            }),
+        )
+        self.assertEqual(
+            "✅ AWS cleanup finished: sizing\nStatus: clean\nNext: local analysis",
+            NOTIFY.message_for("cleanup_finished", {
+                "experiment": "sizing",
+                "cleanup_status": "clean",
+                "next_step": "local analysis",
+            }),
         )
 
     def test_failures_are_compact_and_keep_the_exit_code(self) -> None:

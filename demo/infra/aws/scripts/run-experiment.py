@@ -601,16 +601,14 @@ class SessionController:
                     f"{shlex.quote(audit_prefix)} {shlex.quote(run_id)}"
                 )
             else:
-                audit_finalize = "true"
+                audit_finalize = None
             command = (
                 "set -uo pipefail; "
                 + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
                 + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
-                f"2>&1 | tee {shlex.quote(remote_log)}; status=${{PIPESTATUS[0]}}; "
-                f"audit_status=0; {audit_finalize} || audit_status=$?; "
-                "if [ ${status} -ne 0 ]; then exit ${status}; fi; exit ${audit_status}"
+                f"2>&1 | tee {shlex.quote(remote_log)}; exit ${{PIPESTATUS[0]}}"
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
             self.notify("target_started", {
@@ -624,12 +622,39 @@ class SessionController:
                 "replicas": target.get("replicas"),
                 "expected_duration_seconds": target.get("duration_seconds"),
             })
+            workload_started = time.monotonic()
             try:
-                invocation = self.ssm(
+                workload_invocation = self.ssm(
                     command,
-                    f"run AWS experiment target {index}/{len(targets)}: {target['name']}",
+                    f"run AWS experiment workload {index}/{len(targets)}: {target['name']}",
                     config["test_timeout_seconds"],
                     check=False,
+                )
+                self.notify("target_workload_finished", {
+                    "experiment": config["experiment_name"],
+                    "environment": {"name": "aws", "detail": config["region"]},
+                    "index": index,
+                    "total": len(targets),
+                    "id": target["id"],
+                    "name": target["name"],
+                    "elapsed_seconds": time.monotonic() - workload_started,
+                    "status": workload_invocation.get("Status"),
+                    "next_step": "finalizing audit stream" if audit_finalize else "collecting artifacts",
+                })
+                audit_invocation = (
+                    self.ssm(
+                        audit_finalize,
+                        f"finalize AWS audit stream {index}/{len(targets)}: {target['name']}",
+                        900,
+                        check=False,
+                    )
+                    if audit_finalize
+                    else {"Status": "Success"}
+                )
+                invocation = (
+                    workload_invocation
+                    if workload_invocation.get("Status") != "Success"
+                    else audit_invocation
                 )
             finally:
                 if prefetch_thread is not None:
@@ -672,7 +697,7 @@ class SessionController:
         chunks.mkdir(parents=True, exist_ok=True)
         self.run([
             "aws", "s3", "sync",
-            f"s3://{self.state['artifact_bucket']}//{self.audit_stream_prefix(target)}/",
+            f"s3://{self.state['artifact_bucket']}/{self.audit_stream_prefix(target)}/",
             str(chunks),
             "--region", self.config["region"],
             "--exclude", "*",
@@ -775,6 +800,11 @@ class SessionController:
         targets = self.state.get("target_results") or config.get("targets") or []
         if not targets:
             raise RuntimeError("No AWS experiment targets are available for artifact collection")
+        self.notify("artifact_collection_started", {
+            "experiment": config["experiment_name"],
+            "environment": {"name": "aws", "detail": config["region"]},
+            "targets_total": len(targets),
+        })
         result_root = self.session_dir / "result"
         result_root.mkdir(parents=True, exist_ok=True)
         local_results: dict[str, str] = {}
@@ -897,6 +927,11 @@ class SessionController:
 
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
+        self.notify("cleanup_started", {
+            "experiment": self.config.get("experiment_name") or self.config.get("session_id") or "AWS experiment",
+            "environment": {"name": "aws", "detail": self.config["region"]},
+            "measurements_status": str(self.state.get("test_status") or "unknown").lower(),
+        })
         failures: list[str] = []
         warnings: list[str] = []
         try:
@@ -930,6 +965,12 @@ class SessionController:
         self.state["cleanup_status"] = "CLEAN" if not failures else "INCOMPLETE"
         self.state["phase"] = "CLEANED" if not failures else "CLEANUP_INCOMPLETE"
         self.save()
+        self.notify("cleanup_finished", {
+            "experiment": self.config.get("experiment_name") or self.config.get("session_id") or "AWS experiment",
+            "environment": {"name": "aws", "detail": self.config["region"]},
+            "cleanup_status": self.state["cleanup_status"].lower(),
+            "next_step": "local audit analysis and evidence bundle preparation",
+        })
         return failures
 
     def eks_log_group_name(self) -> str:
@@ -1603,6 +1644,10 @@ def main() -> None:
     if controller.state.get("artifacts_verified"):
         try:
             controller.phase("ANALYZING_AUDIT")
+            controller.notify("analysis_started", {
+                "experiment": controller.config["experiment_name"],
+                "environment": {"name": "aws", "detail": controller.config["region"]},
+            })
             controller.analyze_local_audit()
             controller.prepare_experiment_bundle()
             controller.generate_local_experiment_report()

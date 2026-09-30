@@ -299,7 +299,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("target_started", notify.call_args_list[0].args[0])
         self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
         self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
-        self.assertEqual("measurements_finished", notify.call_args_list[1].args[0])
+        self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
+        self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
+        self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
 
     def test_aws_streams_and_prefetches_audit_while_target_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -323,14 +325,45 @@ class AwsSessionTest(unittest.TestCase):
             ):
                 controller.execute_test()
 
-        self.assertEqual(2, ssm.call_count)
+        self.assertEqual(3, ssm.call_count)
         configure = ssm.call_args_list[0].args[0]
         execute = ssm.call_args_list[1].args[0]
+        finalize = ssm.call_args_list[2].args[0]
         self.assertIn("configure-audit-stream.sh", configure)
         self.assertIn("s3://", f"s3://{controller.state['artifact_bucket']}")
-        self.assertIn("finalize-audit-stream.sh", execute)
+        self.assertNotIn("finalize-audit-stream.sh", execute)
+        self.assertIn("finalize-audit-stream.sh", finalize)
         self.assertGreaterEqual(sync.call_count, 1)
         self.assertEqual(3, controller.state["audit_prefetch"]["ckc"]["chunks"])
+
+    def test_workload_completion_is_not_hidden_by_audit_finalization_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": True,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with (
+                patch.object(controller, "notify") as notify,
+                patch.object(controller, "ssm", side_effect=[
+                    {"Status": "Success"}, {"Status": "Success"}, {"Status": "Failed"},
+                ]),
+                patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}),
+            ):
+                with self.assertRaisesRegex(session_module.CommandError, "target 'ckc.fixed-12' failed"):
+                    controller.execute_test()
+
+        self.assertEqual(
+            ["target_started", "target_workload_finished"],
+            [call.args[0] for call in notify.call_args_list],
+        )
+        self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
 
     def test_streamed_audit_marker_verifies_size_and_etag(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -369,13 +402,13 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("$UUID.log.gz", configure)
         self.assertIn("s3_key_format: '/${PREFIX}/", configure)
         self.assertIn("state_after", configure)
-        self.assertIn('--prefix "/${PREFIX}/"', finalize)
-        self.assertIn('s3://${BUCKET}//${PREFIX}/STREAM_COMPLETE.json', finalize)
+        self.assertIn('--prefix "${PREFIX}/"', finalize)
+        self.assertIn('s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json', finalize)
         self.assertIn("STREAM_COMPLETE.json", finalize)
         self.assertIn("streamed-to-s3", export)
         self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
 
-    def test_audit_prefetch_preserves_the_s3_plugin_leading_slash(self) -> None:
+    def test_audit_prefetch_uses_the_object_key_returned_by_s3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["artifact_bucket"] = "audit-bucket"
@@ -385,7 +418,7 @@ class AwsSessionTest(unittest.TestCase):
 
         command = run.call_args.args[0]
         self.assertEqual(
-            "s3://audit-bucket//sessions/s-20260829-120000-abcdef/result/runs/run-ckc/audit/streaming/",
+            "s3://audit-bucket/sessions/s-20260829-120000-abcdef/result/runs/run-ckc/audit/streaming/",
             command[3],
         )
 

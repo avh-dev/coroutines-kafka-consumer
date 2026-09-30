@@ -416,6 +416,7 @@
 | [INFRA-251](#infra-251) | Make large evidence-bundle Loki imports tolerate restore-time ingestion bursts. | DONE |
 | [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
 | [INFRA-253](#infra-253) | Tune the AWS 50k sizing workload for production-like Kafka batching and fleet cardinality. | DONE |
+| [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4833,3 +4834,14 @@ Use the intended ten-thousand-cauldron fleet and avoid fragmenting 50k/s across 
 Correct the Grafana conversion of MSK idle ratios so network-processor and request-handler utilization render on the proper percentage scale.
 Propagate producer-capacity settings into AWS jobs, repair ElastiCache CPU metric naming, and keep streamed audit S3 keys consistent with Fluent Bit's required leading slash.
 Verification: 47 shared orchestration, 42 result-bundle, 167 internal-lab, and 43 AWS tests pass; load-generator tests, Python compilation, Bash syntax, dashboard JSON, and whitespace validation pass. No experiment was launched.
+
+<a id="infra-254"></a>
+### INFRA-254 - Expand AWS lifecycle notifications
+
+_Date: 2026-09-30_
+
+Report workload completion independently from audit finalization so operators know when measured traffic has stopped.
+Announce artifact collection, paid-resource cleanup, local audit analysis, and evidence-bundle preparation with concise phase-specific Telegram messages.
+Keep terminal success or failure notifications after verified cleanup while exposing enough intermediate state to distinguish useful work from AWS teardown latency.
+Read streamed audit objects with the normalized S3 key returned by AWS so audit finalization does not falsely fail after a successful upload.
+Verification: 44 AWS, 15 notification, and 168 internal-lab tests pass; Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. No experiment was launched.

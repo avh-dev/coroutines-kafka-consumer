@@ -14,7 +14,12 @@ DEFAULT_EVENTS = {
     "experiment_started",
     "kafka_warmup_started",
     "target_started",
+    "target_workload_finished",
     "measurements_finished",
+    "artifact_collection_started",
+    "cleanup_started",
+    "cleanup_finished",
+    "analysis_started",
     "report_ready",
     "bundle_ready",
     "experiment_completed",
@@ -173,8 +178,44 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             lines.append("Profile: " + " · ".join(details))
         lines.append(f"Expected workload: {format_duration(payload.get('expected_duration_seconds'))}")
         return "\n".join(lines)
+    if event == "target_workload_finished":
+        index = payload.get("index")
+        total = payload.get("total")
+        position = f"{index}/{total}" if index not in (None, "") and total not in (None, "") else "?/?"
+        status = str(payload.get("status") or "unknown").lower()
+        lines = [
+            f"⏱️ CKC workload finished: {position}",
+            f"Target: {payload.get('name') or 'unknown'}",
+            f"Elapsed: {format_duration(payload.get('elapsed_seconds'))}",
+            f"Status: {status}",
+        ]
+        if payload.get("next_step"):
+            lines.append(f"Next: {payload['next_step']}")
+        return "\n".join(lines)
     if event in {"measurements_finished", "experiment_runs_finished"}:
-        return "✅ Measurements completed · analysis started"
+        return "✅ All target measurements and audit streams finalized"
+    if event == "artifact_collection_started":
+        return (
+            f"📥 Collecting AWS artifacts: {experiment}"
+            f"\nTargets: {payload.get('targets_total', 'unknown')}"
+            "\nNext: paid-resource cleanup"
+        )
+    if event == "cleanup_started":
+        return (
+            f"🧹 AWS cleanup started: {experiment}"
+            f"\nMeasurements: {payload.get('measurements_status', 'unknown')}"
+            "\nDeleting EKS, MSK, Redis, runner, and temporary storage"
+        )
+    if event == "cleanup_finished":
+        lines = [
+            f"✅ AWS cleanup finished: {experiment}",
+            f"Status: {payload.get('cleanup_status', 'unknown')}",
+        ]
+        if payload.get("next_step"):
+            lines.append(f"Next: {payload['next_step']}")
+        return "\n".join(lines)
+    if event == "analysis_started":
+        return f"🔎 Local analysis started: {experiment}\nAudit, report, and evidence bundle are being prepared"
     if event == "report_ready":
         reports = payload.get("reports") or []
         report = reports[0] if reports else "unknown"
