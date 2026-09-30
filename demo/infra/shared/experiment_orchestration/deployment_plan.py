@@ -521,6 +521,12 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         "AUDIT_TCP_HOST": bindings.audit_host,
         "AUDIT_TCP_PORT": bindings.audit_port,
     }
+    producer_capacity = load.get("producer_capacity_tps") or {}
+    environment.update({
+        "ORDER_TPS_PER_PRODUCER": producer_capacity.get("order", 1000),
+        "BATCH_TPS_PER_PRODUCER": producer_capacity.get("batch", 1000),
+        "CAULDRON_TELEMETRY_TPS_PER_PRODUCER": producer_capacity.get("telemetry", 1000),
+    })
     if bindings.started_at:
         environment["TEST_RUN_STARTED_AT"] = bindings.started_at
     container: dict[str, Any] = {

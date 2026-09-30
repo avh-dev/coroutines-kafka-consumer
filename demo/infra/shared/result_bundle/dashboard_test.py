@@ -191,14 +191,26 @@ class DashboardTest(unittest.TestCase):
             "aws_kafka_bytes_out_per_sec_average",
             "aws_kafka_cpu_credit_balance_minimum",
             "aws_kafka_fetch_consumer_total_time_ms_mean_maximum",
-            "aws_elasticache_engine_cpu_utilization_maximum",
+            "aws_elasticache_engine_cpuutilization_maximum",
             "aws_elasticache_network_bytes_out_sum",
         ):
             self.assertIn(metric, expressions)
+        executor_expressions = {
+            target["refId"]: target["expr"]
+            for target in panels["MSK Broker Executor Utilization"]["targets"]
+        }
+        self.assertEqual(
+            "100 * (1 - aws_kafka_network_processor_avg_idle_percent_minimum)",
+            executor_expressions["A"],
+        )
+        self.assertEqual(
+            "100 * (1 - aws_kafka_request_handler_avg_idle_percent_minimum)",
+            executor_expressions["B"],
+        )
 
         exported_metrics = metric_names_from_dashboard(dashboard_path.parent)
         self.assertIn("aws_kafka_cpu_user_average", exported_metrics)
-        self.assertIn("aws_elasticache_engine_cpu_utilization_maximum", exported_metrics)
+        self.assertIn("aws_elasticache_engine_cpuutilization_maximum", exported_metrics)
 
     def test_redis_panels_do_not_depend_on_event_type_control(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"

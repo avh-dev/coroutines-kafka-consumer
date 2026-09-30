@@ -672,7 +672,7 @@ class SessionController:
         chunks.mkdir(parents=True, exist_ok=True)
         self.run([
             "aws", "s3", "sync",
-            f"s3://{self.state['artifact_bucket']}/{self.audit_stream_prefix(target)}/",
+            f"s3://{self.state['artifact_bucket']}//{self.audit_stream_prefix(target)}/",
             str(chunks),
             "--region", self.config["region"],
             "--exclude", "*",

@@ -170,7 +170,7 @@ STANDARD_MEASUREMENTS = {
         "max(max_over_time(aws_kafka_offline_partitions_count_maximum[{window}]))"
     ),
     "redis_engine_cpu_max_percent": (
-        "max(max_over_time(aws_elasticache_engine_cpu_utilization_maximum[{window}]))"
+        "max(max_over_time(aws_elasticache_engine_cpuutilization_maximum[{window}]))"
     ),
     "redis_network_receive_average_mib_per_second": (
         "avg_over_time((sum(aws_elasticache_network_bytes_in_sum) / 60)[{window}:60s]) / 1024 / 1024"

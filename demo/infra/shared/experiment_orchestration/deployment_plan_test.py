@@ -80,6 +80,21 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
         self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
         self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
+        self.assertEqual(10000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(
+            {"order": 10000, "batch": 10000, "telemetry": 10000},
+            definition["load_test"]["producer_capacity_tps"],
+        )
+        self.assertEqual(300, definition["load_test"]["kafka_producer_linger_ms"])
+        self.assertEqual("lz4", definition["load_test"]["kafka_producer_compression_type"])
+        self.assertEqual(
+            {"order": 47, "batch": 33, "telemetry": 20},
+            {
+                "order": definition["load_test"]["order_event_percent"],
+                "batch": definition["load_test"]["batch_event_percent"],
+                "telemetry": definition["load_test"]["cauldron_telemetry_percent"],
+            },
+        )
         self.assertEqual(["m7i.xlarge"], variables["node_instance_types"])
         self.assertEqual(
             (5, 5, 5),
@@ -104,15 +119,30 @@ class DeploymentPlanTest(unittest.TestCase):
             if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
         )
         application_resources = application["spec"]["template"]["spec"]["containers"][0]["resources"]
+        application_environment = {
+            item["name"]: item["value"]
+            for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
         self.assertEqual(12, application["spec"]["replicas"])
         self.assertEqual("500m", application_resources["requests"]["cpu"])
         self.assertNotIn("cpu", application_resources["limits"])
+        self.assertEqual("65536", application_environment["KAFKA_CONSUMER_FETCH_MIN_BYTES"])
+        self.assertEqual("350", application_environment["KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"])
+        self.assertEqual("2000", application_environment["KAFKA_CONSUMER_MAX_POLL_RECORDS"])
         self.assertFalse(any(item["kind"] == "HorizontalPodAutoscaler" for item in manifests))
 
         load_job = next(item for item in manifests if item["kind"] == "Job")
-        load_resources = load_job["spec"]["template"]["spec"]["containers"][0]["resources"]
+        load_container = load_job["spec"]["template"]["spec"]["containers"][0]
+        load_resources = load_container["resources"]
+        load_environment = {item["name"]: item["value"] for item in load_container["env"]}
         self.assertEqual("1500m", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
+        self.assertEqual("10000", load_environment["ORDER_TPS_PER_PRODUCER"])
+        self.assertEqual("10000", load_environment["BATCH_TPS_PER_PRODUCER"])
+        self.assertEqual("10000", load_environment["CAULDRON_TELEMETRY_TPS_PER_PRODUCER"])
+        self.assertEqual("300", load_environment["KAFKA_PRODUCER_LINGER_MS"])
+        self.assertEqual("524288", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("131072", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")

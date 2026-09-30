@@ -64,16 +64,20 @@ pipeline:
       log_key: message
       preserve_data_ordering: on
       retry_limit: no_limits
-      s3_key_format: '${PREFIX}/audit-%Y%m%dT%H%M%S-\$UUID.log.gz'
+      s3_key_format: '/${PREFIX}/audit-%Y%m%dT%H%M%S-\$UUID.log.gz'
 EOF
 
 chown -R 1000:1000 "${AUDIT_DIR}"
 docker start audit >/dev/null
-sleep 2
 for _ in $(seq 1 30); do
-  if [[ "$(docker inspect --format '{{.State.Running}}' audit 2>/dev/null || true)" == "true" ]]; then
-    echo "AWS audit streaming configured: s3://${BUCKET}/${PREFIX}/"
-    exit 0
+  state_before="$(docker inspect --format '{{.State.Running}} {{.RestartCount}} {{.State.StartedAt}}' audit 2>/dev/null || true)"
+  if [[ "${state_before}" == true\ * ]]; then
+    sleep 3
+    state_after="$(docker inspect --format '{{.State.Running}} {{.RestartCount}} {{.State.StartedAt}}' audit 2>/dev/null || true)"
+    if [[ "${state_after}" == "${state_before}" ]]; then
+      echo "AWS audit streaming configured: s3://${BUCKET}/${PREFIX}/"
+      exit 0
+    fi
   fi
   sleep 1
 done

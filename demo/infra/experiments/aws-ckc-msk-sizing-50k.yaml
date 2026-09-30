@@ -27,17 +27,24 @@ workload:
     workers: 100
     base_tps: 50000
     producer_capacity_tps:
-      order: 1000
-      batch: 1000
-      telemetry: 1000
+      order: 10000
+      batch: 10000
+      telemetry: 10000
     load_profile: 100 -> (3m, warmup) -> 100 -> (17m, steady) -> 100
-    cauldron_count: 32
+    cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
     min_brewing_steps: 5
     max_brewing_steps: 8
     diagnostics_blob_size: 64
     stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_kafka_producer_batch_size: 131072
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 1
     audit_log_enabled: true
@@ -56,15 +63,15 @@ workload:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 35
+      traffic_percent: 47
       max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 25
+      traffic_percent: 33
       max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent: 40
+      traffic_percent: 20
       max_e2e_latency_ms: 1000
 targets:
 - name: ckc.fixed-12
@@ -86,6 +93,11 @@ targets:
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
     planning_latency:
       order_ms: 50
       batch_ms: 50

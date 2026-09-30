@@ -415,6 +415,7 @@
 | [INFRA-250](#infra-250) | Correct Amazon MSK CPU collection and idle-ratio utilization reporting. | DONE |
 | [INFRA-251](#infra-251) | Make large evidence-bundle Loki imports tolerate restore-time ingestion bursts. | DONE |
 | [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
+| [INFRA-253](#infra-253) | Tune the AWS 50k sizing workload for production-like Kafka batching and fleet cardinality. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4821,3 +4822,14 @@ Prefetch completed chunks on the internal lab while the target is running, verif
 Retain the runner-local audit file as a recovery fallback and cover streaming, fallback, and audit-disabled execution without launching an experiment automatically.
 Prepare the 50k sizing rerun with one-second fleet telemetry, full audit, twelve fixed CKC replicas, and three non-burstable `kafka.m7g.large` brokers.
 Verification: 42 AWS, 47 shared orchestration, and 58 audit/result-bundle tests pass; Python compilation, Bash syntax, ShellCheck, whitespace validation, and the Fluent Bit 4.2.3 S3 plugin capability check pass. No AWS experiment was launched.
+
+<a id="infra-253"></a>
+### INFRA-253 - Tune AWS Kafka batching at 50k
+
+_Date: 2026-09-30_
+
+Match the AWS sizing workload to the proven production-like Kafka producer and consumer batching used by internal-lab comparisons.
+Use the intended ten-thousand-cauldron fleet and avoid fragmenting 50k/s across dozens of low-rate producer clients.
+Correct the Grafana conversion of MSK idle ratios so network-processor and request-handler utilization render on the proper percentage scale.
+Propagate producer-capacity settings into AWS jobs, repair ElastiCache CPU metric naming, and keep streamed audit S3 keys consistent with Fluent Bit's required leading slash.
+Verification: 47 shared orchestration, 42 result-bundle, 167 internal-lab, and 43 AWS tests pass; load-generator tests, Python compilation, Bash syntax, dashboard JSON, and whitespace validation pass. No experiment was launched.

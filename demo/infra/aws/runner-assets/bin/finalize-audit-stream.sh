@@ -27,7 +27,7 @@ mkdir -p "$(dirname "${MARKER}")"
 aws s3api list-objects-v2 \
   --region "${REGION}" \
   --bucket "${BUCKET}" \
-  --prefix "${PREFIX}/" \
+  --prefix "/${PREFIX}/" \
   --output json > "${INVENTORY}"
 
 python3 - "${INVENTORY}" "${MARKER}" "${PREFIX}" <<'PY'
@@ -60,7 +60,7 @@ path = pathlib.Path(marker_path)
 path.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 
-aws s3 cp "${MARKER}" "s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json" \
+aws s3 cp "${MARKER}" "s3://${BUCKET}//${PREFIX}/STREAM_COMPLETE.json" \
   --region "${REGION}" --only-show-errors
 touch "${RUN_AUDIT_DIR}/streamed-to-s3"
 echo "AWS audit stream completed: s3://${BUCKET}/${PREFIX}/"

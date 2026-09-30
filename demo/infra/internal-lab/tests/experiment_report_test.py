@@ -114,7 +114,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("clamp(100 * (1 - min(min_over_time(", query)
             self.assertNotIn("100 - min", query)
         self.assertIn(
-            "aws_elasticache_engine_cpu_utilization_maximum",
+            "aws_elasticache_engine_cpuutilization_maximum",
             STANDARD_MEASUREMENTS["redis_engine_cpu_max_percent"],
         )
         self.assertIn(

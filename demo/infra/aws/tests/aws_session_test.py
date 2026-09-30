@@ -367,9 +367,27 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("use_put_object: on", configure)
         self.assertIn("compression: gzip", configure)
         self.assertIn("$UUID.log.gz", configure)
+        self.assertIn("s3_key_format: '/${PREFIX}/", configure)
+        self.assertIn("state_after", configure)
+        self.assertIn('--prefix "/${PREFIX}/"', finalize)
+        self.assertIn('s3://${BUCKET}//${PREFIX}/STREAM_COMPLETE.json', finalize)
         self.assertIn("STREAM_COMPLETE.json", finalize)
         self.assertIn("streamed-to-s3", export)
         self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
+
+    def test_audit_prefetch_preserves_the_s3_plugin_leading_slash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc"}
+            with patch.object(controller, "run") as run:
+                controller.sync_target_audit_stream(target)
+
+        command = run.call_args.args[0]
+        self.assertEqual(
+            "s3://audit-bucket//sessions/s-20260829-120000-abcdef/result/runs/run-ckc/audit/streaming/",
+            command[3],
+        )
 
     def test_missing_stream_marker_uses_runner_archive_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
