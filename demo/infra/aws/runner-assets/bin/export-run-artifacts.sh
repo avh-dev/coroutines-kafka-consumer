@@ -26,7 +26,9 @@ python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
   --require-application ckc-load-test
 
 sleep 2
-if [ -f "${AUDIT_SOURCE}" ] && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -type f -name '*.log.gz' | grep -q .; then
+if [ -f "${AUDIT_SOURCE}" ] \
+  && [ ! -f "${RUN_DIR}/audit/streamed-to-s3" ] \
+  && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -type f -name '*.log.gz' | grep -q .; then
   gzip -c "${AUDIT_SOURCE}" > "${RUN_DIR}/audit/chunks/audit-000001.log.gz"
 fi
 

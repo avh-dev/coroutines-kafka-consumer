@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import urllib.request
 import uuid
@@ -567,17 +568,49 @@ class SessionController:
         for index, target in enumerate(targets, start=1):
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
-            audit_chunk = f"/opt/ckc-runner/reports/{run_id}/audit/chunks/audit-000001.log.gz"
+            audit_enabled = target.get("audit_log_enabled", True) is not False
+            audit_prefix = self.audit_stream_prefix(target)
+            prefetch_stop = threading.Event()
+            prefetch_failures: list[str] = []
+            prefetch_thread: threading.Thread | None = None
+            if audit_enabled:
+                self.ssm(
+                    "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/configure-audit-stream.sh "
+                    f"{shlex.quote(config['region'])} {shlex.quote(self.state['artifact_bucket'])} "
+                    f"{shlex.quote(audit_prefix)} {shlex.quote(run_id)}",
+                    f"configure incremental audit stream for {target['name']}",
+                    300,
+                )
+
+                def prefetch() -> None:
+                    while not prefetch_stop.wait(15):
+                        try:
+                            self.sync_target_audit_stream(target)
+                        except Exception as error:
+                            prefetch_failures.append(str(error))
+
+                prefetch_thread = threading.Thread(
+                    target=prefetch,
+                    name=f"audit-prefetch-{target['id']}",
+                    daemon=True,
+                )
+                prefetch_thread.start()
+                audit_finalize = (
+                    "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/finalize-audit-stream.sh "
+                    f"{shlex.quote(config['region'])} {shlex.quote(self.state['artifact_bucket'])} "
+                    f"{shlex.quote(audit_prefix)} {shlex.quote(run_id)}"
+                )
+            else:
+                audit_finalize = "true"
             command = (
                 "set -uo pipefail; "
-                "truncate -s 0 /opt/ckc-runner/audit/audit.log; "
-                "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
+                + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
+                + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
                 f"2>&1 | tee {shlex.quote(remote_log)}; status=${{PIPESTATUS[0]}}; "
-                f"mkdir -p {shlex.quote(str(Path(audit_chunk).parent))}; "
-                f"gzip -c /opt/ckc-runner/audit/audit.log > {shlex.quote(audit_chunk)}; "
-                "exit ${status}"
+                f"audit_status=0; {audit_finalize} || audit_status=$?; "
+                "if [ ${status} -ne 0 ]; then exit ${status}; fi; exit ${audit_status}"
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
             self.notify("target_started", {
@@ -591,12 +624,27 @@ class SessionController:
                 "replicas": target.get("replicas"),
                 "expected_duration_seconds": target.get("duration_seconds"),
             })
-            invocation = self.ssm(
-                command,
-                f"run AWS experiment target {index}/{len(targets)}: {target['name']}",
-                config["test_timeout_seconds"],
-                check=False,
-            )
+            try:
+                invocation = self.ssm(
+                    command,
+                    f"run AWS experiment target {index}/{len(targets)}: {target['name']}",
+                    config["test_timeout_seconds"],
+                    check=False,
+                )
+            finally:
+                if prefetch_thread is not None:
+                    prefetch_stop.set()
+                    prefetch_thread.join(timeout=30)
+                    try:
+                        prefetch_result = self.sync_target_audit_stream(target)
+                    except Exception as error:
+                        prefetch_failures.append(str(error))
+                        prefetch_result = {"chunks": 0, "bytes": 0}
+                    self.state.setdefault("audit_prefetch", {})[target["id"]] = {
+                        **prefetch_result,
+                        "failures": prefetch_failures[-10:],
+                    }
+                    self.save()
             result = {**target, "status": invocation.get("Status")}
             results.append(result)
             self.state["target_results"] = results
@@ -612,6 +660,70 @@ class SessionController:
             "runs": len(results),
             "environment": {"name": "aws", "detail": config["region"]},
         })
+
+    def audit_stream_prefix(self, target: dict[str, Any]) -> str:
+        return (
+            f"sessions/{self.config['session_id']}/result/runs/{target['run_id']}"
+            "/audit/streaming"
+        )
+
+    def sync_target_audit_stream(self, target: dict[str, Any]) -> dict[str, int]:
+        chunks = self.session_dir / "audit-prefetch" / target["run_id"]
+        chunks.mkdir(parents=True, exist_ok=True)
+        self.run([
+            "aws", "s3", "sync",
+            f"s3://{self.state['artifact_bucket']}/{self.audit_stream_prefix(target)}/",
+            str(chunks),
+            "--region", self.config["region"],
+            "--exclude", "*",
+            "--include", "*.log.gz",
+            "--include", "STREAM_COMPLETE.json",
+            "--only-show-errors",
+        ])
+        files = list(chunks.glob("*.log.gz"))
+        return {"chunks": len(files), "bytes": sum(path.stat().st_size for path in files)}
+
+    def materialize_target_audit_stream(self, target: dict[str, Any], result_dir: Path) -> None:
+        if target.get("audit_log_enabled", True) is False:
+            return
+        self.sync_target_audit_stream(target)
+        chunks = self.session_dir / "audit-prefetch" / target["run_id"]
+        marker_path = chunks / "STREAM_COMPLETE.json"
+        if not marker_path.is_file():
+            fallback = result_dir / "audit" / "chunks" / "audit-000001.log.gz"
+            if fallback.is_file() and fallback.stat().st_size > 0:
+                self.state.setdefault("audit_stream_fallback_targets", []).append(target["id"])
+                self.save()
+                return
+            raise RuntimeError(f"AWS audit stream marker is missing for target {target['id']!r}")
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if marker.get("s3_prefix") != self.audit_stream_prefix(target):
+            raise RuntimeError(f"AWS audit stream prefix mismatch for target {target['id']!r}")
+        expected = marker.get("chunks") or []
+        if not expected:
+            raise RuntimeError(f"AWS audit stream contains no chunks for target {target['id']!r}")
+        seen: set[str] = set()
+        for item in expected:
+            name = str(item.get("name") or "")
+            if not re.fullmatch(r"audit-[A-Za-z0-9._-]+\.log\.gz", name) or name in seen:
+                raise RuntimeError(f"AWS audit stream contains an invalid chunk name: {name!r}")
+            seen.add(name)
+            path = chunks / name
+            if not path.is_file() or path.stat().st_size != int(item["size"]):
+                raise RuntimeError(f"AWS audit chunk is missing or incomplete: {name}")
+            etag = str(item.get("etag") or "")
+            if re.fullmatch(r"[a-fA-F0-9]{32}", etag):
+                digest = hashlib.md5(usedforsecurity=False)
+                with path.open("rb") as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(block)
+                if digest.hexdigest().lower() != etag.lower():
+                    raise RuntimeError(f"AWS audit chunk checksum mismatch: {name}")
+        destination = result_dir / "audit" / "chunks"
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in seen:
+            shutil.copy2(chunks / name, destination / name)
+        shutil.copy2(marker_path, destination / marker_path.name)
 
     def warm_kafka(self) -> None:
         config = self.config
@@ -681,8 +793,11 @@ class SessionController:
             result_dir.mkdir(parents=True, exist_ok=True)
             self.run([
                 "aws", "s3", "sync", f"s3://{self.state['artifact_bucket']}/{prefix}/", str(result_dir),
-                "--region", config["region"], "--only-show-errors",
+                "--region", config["region"],
+                "--exclude", "audit/streaming/*",
+                "--only-show-errors",
             ])
+            self.materialize_target_audit_stream(target, result_dir)
             self.verify_manifest(result_dir)
             local_results[target["id"]] = str(result_dir)
         self.state["local_result_dirs"] = local_results
@@ -1315,6 +1430,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "local_test_definition": str(item.definition_path.parent / "resolved-test-source.yaml"),
             "remote_definition": f"/opt/ckc-runner/materialized/{session_id}/{item.target.id}/resolved-test.yaml",
             "replicas": application.get("replicas"),
+            "audit_log_enabled": load.get("audit_log_enabled", True) is not False,
             "base_tps": load.get("base_tps"),
             "duration_seconds": load_profile_seconds(str(load.get("load_profile") or "")),
         })

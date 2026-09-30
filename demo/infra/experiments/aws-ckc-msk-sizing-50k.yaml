@@ -1,6 +1,6 @@
 schema_version: 2
 name: aws-ckc-msk-sizing-50k
-description: Size twelve fixed CKC replicas and the smallest three-broker MSK cluster at a constant 50k/s.
+description: Size twelve fixed CKC replicas and a non-burstable three-broker MSK cluster at a constant 50k/s.
 workload:
   stubs:
     error_rate_percent: 0
@@ -38,7 +38,9 @@ workload:
     max_brewing_steps: 8
     diagnostics_blob_size: 64
     stats_log_interval_seconds: 15
-    audit_log_enabled: false
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
     cpu_request: 1500m
     memory_request: 2Gi
     cpu_limit: null
@@ -80,7 +82,7 @@ targets:
   runtime:
     env:
       PROCESSING_ENABLED: true
-      AUDIT_LOG_ENABLED: false
+      AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
       WORKER_DISPATCHER_THREADS: 1
@@ -141,7 +143,7 @@ environments:
         mode: msk
         msk_version: 3.7.x
         msk_brokers: 3
-        msk_instance_type: kafka.t3.small
+        msk_instance_type: kafka.m7g.large
         msk_volume_size_gib: 20
       redis:
         mode: elasticache

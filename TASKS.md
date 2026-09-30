@@ -414,6 +414,7 @@
 | [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | IN_PROGRESS |
 | [INFRA-250](#infra-250) | Correct Amazon MSK CPU collection and idle-ratio utilization reporting. | DONE |
 | [INFRA-251](#infra-251) | Make large evidence-bundle Loki imports tolerate restore-time ingestion bursts. | DONE |
+| [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4809,3 +4810,14 @@ Raise the local restore-only Loki ingestion allowance for large experiment log b
 Retry rate-limited Loki pushes with bounded backoff so transient import bursts do not tear down Grafana restore.
 Add focused regression coverage for successful imports after HTTP 429 responses.
 Verification: 42 result-bundle, 38 AWS, and 167 internal-lab tests pass; Loki accepts the restore configuration; the current 78,311-record AWS evidence bundle restores successfully; the installed internal lab is updated without starting an experiment.
+
+<a id="infra-252"></a>
+### INFRA-252 - Stream AWS audit chunks during experiments
+
+_Date: 2026-09-30_
+
+Write immutable compressed AWS audit chunks to the session S3 bucket throughout each target instead of uploading one large file only after the workload ends.
+Prefetch completed chunks on the internal lab while the target is running, verify the final stream marker, and analyze the complete local set only after AWS cleanup.
+Retain the runner-local audit file as a recovery fallback and cover streaming, fallback, and audit-disabled execution without launching an experiment automatically.
+Prepare the 50k sizing rerun with one-second fleet telemetry, full audit, twelve fixed CKC replicas, and three non-burstable `kafka.m7g.large` brokers.
+Verification: 42 AWS, 47 shared orchestration, and 58 audit/result-bundle tests pass; Python compilation, Bash syntax, ShellCheck, whitespace validation, and the Fluent Bit 4.2.3 S3 plugin capability check pass. No AWS experiment was launched.

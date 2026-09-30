@@ -287,7 +287,7 @@ class AwsSessionTest(unittest.TestCase):
                 "targets": [{
                     "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
                     "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
-                    "replicas": 12, "duration_seconds": 1200,
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": False,
                 }],
                 "test_timeout_seconds": 1800,
             })
@@ -300,6 +300,90 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
         self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
         self.assertEqual("measurements_finished", notify.call_args_list[1].args[0])
+
+    def test_aws_streams_and_prefetches_audit_while_target_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": True,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with (
+                patch.object(controller, "notify"),
+                patch.object(controller, "ssm", return_value={"Status": "Success"}) as ssm,
+                patch.object(
+                    controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}
+                ) as sync,
+            ):
+                controller.execute_test()
+
+        self.assertEqual(2, ssm.call_count)
+        configure = ssm.call_args_list[0].args[0]
+        execute = ssm.call_args_list[1].args[0]
+        self.assertIn("configure-audit-stream.sh", configure)
+        self.assertIn("s3://", f"s3://{controller.state['artifact_bucket']}")
+        self.assertIn("finalize-audit-stream.sh", execute)
+        self.assertGreaterEqual(sync.call_count, 1)
+        self.assertEqual(3, controller.state["audit_prefetch"]["ckc"]["chunks"])
+
+    def test_streamed_audit_marker_verifies_size_and_etag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
+            chunks = Path(directory) / "audit-prefetch/run-ckc"
+            chunks.mkdir(parents=True)
+            payload = b"compressed-audit"
+            name = "audit-20260930T100000-example.log.gz"
+            (chunks / name).write_bytes(payload)
+            (chunks / "STREAM_COMPLETE.json").write_text(json.dumps({
+                "schema_version": 1,
+                "s3_prefix": controller.audit_stream_prefix(target),
+                "chunks": [{
+                    "name": name,
+                    "size": len(payload),
+                    "etag": hashlib.md5(payload, usedforsecurity=False).hexdigest(),
+                }],
+            }), encoding="utf-8")
+            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": len(payload)}):
+                controller.materialize_target_audit_stream(target, Path(directory) / "result")
+            self.assertEqual(payload, (Path(directory) / "result/audit/chunks" / name).read_bytes())
+            (chunks / name).write_bytes(b"x" * len(payload))
+            with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+                with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": 7}):
+                    controller.materialize_target_audit_stream(target, Path(directory) / "result")
+
+    def test_runner_audit_stream_uses_immutable_gzip_chunks_and_fallback(self) -> None:
+        configure = (AWS_ROOT / "runner-assets/bin/configure-audit-stream.sh").read_text(encoding="utf-8")
+        finalize = (AWS_ROOT / "runner-assets/bin/finalize-audit-stream.sh").read_text(encoding="utf-8")
+        export = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        self.assertIn("upload_timeout: 1m", configure)
+        self.assertIn("use_put_object: on", configure)
+        self.assertIn("compression: gzip", configure)
+        self.assertIn("$UUID.log.gz", configure)
+        self.assertIn("STREAM_COMPLETE.json", finalize)
+        self.assertIn("streamed-to-s3", export)
+        self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
+
+    def test_missing_stream_marker_uses_runner_archive_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
+            result = Path(directory) / "result"
+            fallback = result / "audit/chunks/audit-000001.log.gz"
+            fallback.parent.mkdir(parents=True)
+            fallback.write_bytes(b"fallback")
+            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
+                controller.materialize_target_audit_stream(target, result)
+
+        self.assertEqual(["ckc"], controller.state["audit_stream_fallback_targets"])
 
     def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")

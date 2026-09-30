@@ -75,8 +75,11 @@ class DeploymentPlanTest(unittest.TestCase):
             [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
         )
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
-        self.assertEqual("kafka.t3.small", variables["msk_broker_instance_type"])
+        self.assertEqual("kafka.m7g.large", variables["msk_broker_instance_type"])
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
+        self.assertTrue(definition["load_test"]["audit_log_enabled"])
+        self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
+        self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
         self.assertEqual(["m7i.xlarge"], variables["node_instance_types"])
         self.assertEqual(
             (5, 5, 5),
