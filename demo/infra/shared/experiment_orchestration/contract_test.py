@@ -128,6 +128,13 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "select one explicitly"):
             validate_canonical_experiment(canonical_experiment(), self.source)
 
+    def test_rejects_more_generator_shards_than_aggregate_tps(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["load"]["shards"] = 101
+
+        with self.assertRaisesRegex(ValueError, "shards must not exceed aggregate"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
     def test_internal_lab_accepts_target_application_placement(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["application"]["placement"] = "controller"

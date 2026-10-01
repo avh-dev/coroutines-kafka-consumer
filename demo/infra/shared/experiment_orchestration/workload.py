@@ -53,6 +53,14 @@ def validate_resolved_test(definition: dict[str, Any]) -> None:
     if not load_profile:
         raise ValueError("Resolved experiment test must define load_test.load_profile")
     validate_load_profile(load_profile)
+    base_tps = load_test.get("base_tps", 10_000)
+    shards = load_test.get("shards", 1)
+    if isinstance(base_tps, bool) or not isinstance(base_tps, int) or base_tps < 1:
+        raise ValueError("load_test.base_tps must be a positive integer")
+    if isinstance(shards, bool) or not isinstance(shards, int) or shards < 1:
+        raise ValueError("load_test.shards must be a positive integer")
+    if shards > base_tps:
+        raise ValueError("load_test.shards must not exceed aggregate load_test.base_tps")
     for field in ("chaos_steps", "diagnostic_steps"):
         value = definition.get(field, [])
         if not isinstance(value, list):

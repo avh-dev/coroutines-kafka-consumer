@@ -18,8 +18,10 @@ class SeedTelemetryFleetTest(unittest.TestCase):
             "shards": 2,
         }))
 
-        self.assertEqual(100, len(entries))
-        self.assertEqual(100, len({key for key, _ in entries}))
+        # Each worker rounds its fractional fleet requirement up independently,
+        # matching the runtime generator (4 workers x ceil(12.5 keys)).
+        self.assertEqual(52, len(entries))
+        self.assertEqual(52, len({key for key, _ in entries}))
         self.assertTrue(any("fleet-batch-0-0-" in key for key, _ in entries))
         self.assertTrue(any("fleet-batch-0-1-" in key for key, _ in entries))
         self.assertTrue(any("fleet-batch-1-0-" in key for key, _ in entries))
@@ -28,6 +30,21 @@ class SeedTelemetryFleetTest(unittest.TestCase):
         self.assertEqual(f"batch-state:{batch['batchId']}", key)
         self.assertTrue(batch["cauldronId"].startswith("fleet-cauldron-"))
         self.assertEqual("BREWING", batch["status"])
+
+    def test_distributes_indivisible_aggregate_rate_between_shards(self) -> None:
+        entries = list(fleet_entries({
+            "telemetry_source_mode": "FLEET",
+            "base_tps": 11,
+            "cauldron_telemetry_percent": 100,
+            "telemetry_publish_interval_seconds": 1,
+            "load_profile": "0 -> (1m, steady) -> 100",
+            "workers": 1,
+            "shards": 2,
+        }))
+
+        shard_zero = [key for key, _ in entries if "fleet-batch-0-" in key]
+        shard_one = [key for key, _ in entries if "fleet-batch-1-" in key]
+        self.assertEqual((6, 5), (len(shard_zero), len(shard_one)))
 
     def test_skips_non_fleet_sources(self) -> None:
         self.assertEqual([], list(fleet_entries({"telemetry_source_mode": "ACTIVE_BATCHES"})))

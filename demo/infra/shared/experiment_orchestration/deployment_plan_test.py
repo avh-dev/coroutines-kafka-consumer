@@ -149,6 +149,11 @@ class DeploymentPlanTest(unittest.TestCase):
         load_environment = {item["name"]: item["value"] for item in load_container["env"]}
         self.assertEqual("1500m", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
+        self.assertEqual(5, load_job["spec"]["completions"])
+        self.assertEqual(5, load_job["spec"]["parallelism"])
+        self.assertEqual("Indexed", load_job["spec"]["completionMode"])
+        self.assertEqual("5", load_environment["TOTAL_SHARDS"])
+        self.assertEqual("50000", load_environment["BASE_TPS"])
         self.assertEqual("10000", load_environment["ORDER_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["BATCH_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["CAULDRON_TELEMETRY_TPS_PER_PRODUCER"])

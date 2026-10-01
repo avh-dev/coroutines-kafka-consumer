@@ -29,7 +29,7 @@ def canonical_inputs(directory: Path) -> tuple[Path, Path]:
 class PlannerTest(unittest.TestCase):
     def test_sizes_freshness_channel_from_peak_telemetry_fleet(self) -> None:
         self.assertEqual(
-            404,
+            202,
             work_channel_capacity(
                 "telemetry",
                 "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY",

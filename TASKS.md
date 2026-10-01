@@ -423,6 +423,7 @@
 | [INFRA-256](#infra-256) | Report long AWS target drain and audit phases and include concrete lab resource types in Telegram. | DONE |
 | [INFRA-257](#infra-257) | Harden AWS Spring observability readiness, telemetry capacity, live target progress, and drain completion handling. | DONE |
 | [INFRA-258](#infra-258) | Derive the AWS target watchdog from the complete target lifecycle instead of a fixed thirty-minute timeout. | DONE |
+| [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4916,3 +4917,14 @@ Account for workload duration, consumer drain, telemetry settling, and a large s
 Keep a one-hour minimum and preserve an operator-supplied timeout only as a lower bound, never as a normal-phase deadline.
 Cover short and long target calculations and persist the resolved watchdog in session evidence without launching an experiment automatically.
 Verification: all 53 AWS tests pass; Python compilation and whitespace validation pass. The failed session cleanup is independently confirmed CLEAN; no new experiment was launched.
+
+<a id="infra-259"></a>
+### INFRA-259 - Distribute load across generator shards
+
+_Date: 2026-10-01_
+
+Treat `base_tps` as the aggregate experiment rate and distribute it deterministically across physical load-generator pods.
+Keep generator identities disjoint while distributing the telemetry fleet across shards without multiplying its global cardinality.
+Run the AWS 50k comparison with five generator pods capped at approximately 10k messages per second each.
+Add regression coverage for uneven TPS division, fleet sizing, deployment manifests, and capacity planning without launching an experiment automatically.
+Verification: load-test JVM tests, 49 shared orchestration, 53 AWS, and 170 internal-lab tests pass; Python compilation, exact 10k fleet materialization, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.

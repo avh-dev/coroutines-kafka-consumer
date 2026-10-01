@@ -23,7 +23,7 @@ workload:
         p99: 4
         p100: 5
   load:
-    shards: 1
+    shards: 5
     workers: 100
     base_tps: 50000
     producer_capacity_tps:

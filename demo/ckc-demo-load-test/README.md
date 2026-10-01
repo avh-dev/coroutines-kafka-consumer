@@ -32,7 +32,8 @@ Rules:
 - then alternates between `(duration, optional label)` and the next integer target percentage
 - labels are kept for logging and diagnostics
 - durations use compact units: `s`, `m`, `h`
-- `BASE_TPS` defines total generated messages per second at profile `100` for this JVM process
+- `BASE_TPS` defines the aggregate generated messages per second at profile `100` across all external shards
+- `TOTAL_SHARDS` and the Kubernetes `JOB_COMPLETION_INDEX` split `BASE_TPS` deterministically between generator JVMs; the first shards receive any indivisible remainder
 - `LOAD_TEST_WORKERS` controls in-process generator workers; it defaults to available CPU cores
 - workers split `BASE_TPS` across themselves and keep separate simulation state
 - active worker count is capped by `BASE_TPS` so each worker has at least one integer TPS permit

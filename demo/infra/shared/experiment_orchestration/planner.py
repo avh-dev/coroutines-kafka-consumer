@@ -315,6 +315,12 @@ def load_test_int(load_test: dict[str, Any], key: str, default: int) -> int:
     return int(value)
 
 
+def distributed_base_tps(base_tps: int, index: int, count: int) -> int:
+    if base_tps < count:
+        raise ValueError("base_tps must be at least the number of load-generator shards or workers")
+    return base_tps // count + (1 if index < base_tps % count else 0)
+
+
 def work_channel_capacity(topic: str, mode: str, load_test: dict[str, Any]) -> int:
     if topic != "telemetry":
         return DEFAULT_WORK_CHANNEL_CAPACITY
@@ -331,17 +337,21 @@ def work_channel_capacity(topic: str, mode: str, load_test: dict[str, Any]) -> i
             r"(?:^|->)\s*(\d+(?:\.\d+)?)\s*(?=->|$)", str(load_test.get("load_profile") or "")
         )]
         peak = max(percentages, default=100.0)
-        per_shard = sum(
-            int((
-                Decimal(base_tps // workers + (1 if worker < base_tps % workers else 0))
-                * Decimal(str(telemetry_percent))
-                * Decimal(str(peak))
-                * Decimal(interval)
-                / Decimal(10_000)
-            ).to_integral_value(rounding=ROUND_CEILING))
-            for worker in range(workers)
-        )
-        return max(1, per_shard * shards)
+        capacity = 0
+        for shard in range(shards):
+            shard_tps = distributed_base_tps(base_tps, shard, shards)
+            active_workers = min(workers, shard_tps)
+            capacity += sum(
+                int((
+                    Decimal(distributed_base_tps(shard_tps, worker, active_workers))
+                    * Decimal(str(telemetry_percent))
+                    * Decimal(str(peak))
+                    * Decimal(interval)
+                    / Decimal(10_000)
+                ).to_integral_value(rounding=ROUND_CEILING))
+                for worker in range(active_workers)
+            )
+        return max(1, capacity)
 
     cauldron_count = load_test_int(load_test, "cauldron_count", 32)
     workers = load_test_int(load_test, "workers", 1)

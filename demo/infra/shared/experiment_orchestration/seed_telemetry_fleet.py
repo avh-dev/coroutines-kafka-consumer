@@ -21,8 +21,10 @@ def peak_percent(profile: str) -> float:
     return max(values)
 
 
-def worker_base_tps(base_tps: int, worker: int, workers: int) -> int:
-    return base_tps // workers + (1 if worker < base_tps % workers else 0)
+def distributed_base_tps(base_tps: int, index: int, count: int) -> int:
+    if base_tps < count:
+        raise ValueError("base_tps must be at least the number of load-generator shards or workers")
+    return base_tps // count + (1 if index < base_tps % count else 0)
 
 
 def fleet_size(base_tps: int, telemetry_percent: object, peak: object, interval: int) -> int:
@@ -44,14 +46,25 @@ def fleet_entries(load: dict, shards: int | None = None) -> Iterator[tuple[str, 
         raise ValueError("FLEET telemetry requires an explicit positive load_test.workers value")
     shard_count = int(shards if shards is not None else load.get("shards", 1))
     base_tps = int(load["base_tps"])
+    if base_tps < shard_count:
+        raise ValueError("load_test.base_tps must be at least load_test.shards")
     telemetry_percent = load.get("cauldron_telemetry_percent", 40)
     interval = int(load.get("telemetry_publish_interval_seconds", 5))
     peak = peak_percent(str(load["load_profile"]))
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     recipes = (("mana-tonic", "mana-tonic-v1"), ("night-vision-draught", "night-vision-v3"), ("healing-elixir", "healing-elixir-v2"))
     for shard in range(shard_count):
+        shard_tps = distributed_base_tps(base_tps, shard, shard_count)
+        active_workers = min(workers, shard_tps)
         for worker in range(workers):
-            size = fleet_size(worker_base_tps(base_tps, worker, workers), telemetry_percent, peak, interval)
+            if worker >= active_workers:
+                continue
+            size = fleet_size(
+                distributed_base_tps(shard_tps, worker, active_workers),
+                telemetry_percent,
+                peak,
+                interval,
+            )
             for offset in range(size):
                 sequence = offset + 1
                 potion, recipe = recipes[offset % len(recipes)]

@@ -9,12 +9,21 @@ fun effectiveGeneratorWorkers(baseTps: Int, configuredWorkers: Int): Int {
 }
 
 fun workerBaseTps(baseTps: Int, workerIndex: Int, totalWorkers: Int): Int {
-    require(baseTps > 0) { "baseTps must be positive" }
-    require(workerIndex >= 0) { "workerIndex must be non-negative" }
-    require(totalWorkers > 0) { "totalWorkers must be positive" }
-    require(workerIndex < totalWorkers) { "workerIndex must be less than totalWorkers" }
+    return distributedBaseTps(baseTps, workerIndex, totalWorkers)
+}
 
-    val floor = baseTps / totalWorkers
-    val remainder = baseTps % totalWorkers
-    return floor + if (workerIndex < remainder) 1 else 0
+fun shardBaseTps(baseTps: Int, shardIndex: Int, totalShards: Int): Int {
+    require(baseTps >= totalShards) { "baseTps must be at least totalShards" }
+    return distributedBaseTps(baseTps, shardIndex, totalShards)
+}
+
+private fun distributedBaseTps(baseTps: Int, index: Int, count: Int): Int {
+    require(baseTps > 0) { "baseTps must be positive" }
+    require(index >= 0) { "index must be non-negative" }
+    require(count > 0) { "count must be positive" }
+    require(index < count) { "index must be less than count" }
+
+    val floor = baseTps / count
+    val remainder = baseTps % count
+    return floor + if (index < remainder) 1 else 0
 }
