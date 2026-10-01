@@ -422,6 +422,7 @@
 | [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
 | [INFRA-256](#infra-256) | Report long AWS target drain and audit phases and include concrete lab resource types in Telegram. | DONE |
 | [INFRA-257](#infra-257) | Harden AWS Spring observability readiness, telemetry capacity, live target progress, and drain completion handling. | DONE |
+| [INFRA-258](#infra-258) | Derive the AWS target watchdog from the complete target lifecycle instead of a fixed thirty-minute timeout. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4904,3 +4905,14 @@ Give Alloy enough memory headroom and publish runner phase events through S3 whi
 Treat zero lag observed at the drain deadline as drained and pin the comparison experiment's redundant high-cardinality metrics off.
 Add regression coverage for the readiness, live progress, and drain boundary behavior without launching an experiment automatically.
 Verification: 52 AWS, 47 shared orchestration, and 170 internal-lab tests pass; Python compilation, Bash syntax, YAML assertions, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-258"></a>
+### INFRA-258 - Derive the AWS target watchdog
+
+_Date: 2026-10-01_
+
+Replace the original smoke-runner's fixed thirty-minute SSM execution timeout with a per-target emergency watchdog.
+Account for workload duration, consumer drain, telemetry settling, and a large setup and evidence-collection safety allowance.
+Keep a one-hour minimum and preserve an operator-supplied timeout only as a lower bound, never as a normal-phase deadline.
+Cover short and long target calculations and persist the resolved watchdog in session evidence without launching an experiment automatically.
+Verification: all 53 AWS tests pass; Python compilation and whitespace validation pass. The failed session cleanup is independently confirmed CLEAN; no new experiment was launched.

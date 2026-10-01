@@ -67,6 +67,23 @@ class AwsSessionTest(unittest.TestCase):
         self.assertRegex(value, r"^s-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
         self.assertLessEqual(len(value), 35)
 
+    def test_target_watchdog_covers_full_lifecycle_with_one_hour_minimum(self) -> None:
+        self.assertEqual(3600, session_module.target_watchdog_seconds({
+            "duration_seconds": 1380,
+            "consumer_drain_timeout_seconds": 60,
+            "telemetry_settle_seconds": 180,
+        }))
+        self.assertEqual(10080, session_module.target_watchdog_seconds({
+            "duration_seconds": 7200,
+            "consumer_drain_timeout_seconds": 900,
+            "telemetry_settle_seconds": 180,
+        }))
+        self.assertEqual(12000, session_module.target_watchdog_seconds({
+            "duration_seconds": 7200,
+            "consumer_drain_timeout_seconds": 900,
+            "telemetry_settle_seconds": 180,
+        }, configured_floor_seconds=12000))
+
     def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
@@ -296,7 +313,7 @@ class AwsSessionTest(unittest.TestCase):
             })
             with patch.object(controller, "notify") as notify, patch.object(
                 controller, "ssm", return_value={"Status": "Success"}
-            ):
+            ) as ssm:
                 controller.execute_test()
 
         self.assertEqual("target_started", notify.call_args_list[0].args[0])
@@ -305,6 +322,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
         self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
+        self.assertEqual(3600, ssm.call_args.args[2])
 
     def test_target_progress_reports_only_a_long_active_consumer_drain(self) -> None:
         progress = session_module.TargetRunProgress()
@@ -617,6 +635,10 @@ class AwsSessionTest(unittest.TestCase):
             "nodes": 2,
         }, config["redis"])
         self.assertEqual({"instance_types": ["m7i.xlarge"], "nodes": 8}, config["eks"])
+        self.assertEqual(3600, config["target_watchdog_floor_seconds"])
+        self.assertEqual(60, config["targets"][0]["consumer_drain_timeout_seconds"])
+        self.assertEqual(180, config["targets"][0]["telemetry_settle_seconds"])
+        self.assertEqual(3600, config["targets"][0]["watchdog_seconds"])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
