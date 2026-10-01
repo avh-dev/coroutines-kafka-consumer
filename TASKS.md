@@ -421,6 +421,7 @@
 | [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
 | [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
 | [INFRA-256](#infra-256) | Report long AWS target drain and audit phases and include concrete lab resource types in Telegram. | DONE |
+| [INFRA-257](#infra-257) | Harden AWS Spring observability readiness, telemetry capacity, live target progress, and drain completion handling. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4892,3 +4893,14 @@ Report audit-stream finalization that lasts more than thirty seconds so post-wor
 Include concrete MSK broker, ElastiCache node, and EKS worker types and counts in the experiment-start message.
 Keep phase notifications tied to observed runner lifecycle markers rather than inferred workload duration.
 Verification: 48 AWS, 16 notification, and 170 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.
+
+<a id="infra-257"></a>
+### INFRA-257 - Harden AWS Spring observability
+
+_Date: 2026-10-01_
+
+Make telemetry readiness depend on an application metric shared by CKC and Spring Kafka profiles.
+Give Alloy enough memory headroom and publish runner phase events through S3 while the SSM command is still active.
+Treat zero lag observed at the drain deadline as drained and pin the comparison experiment's redundant high-cardinality metrics off.
+Add regression coverage for the readiness, live progress, and drain boundary behavior without launching an experiment automatically.
+Verification: 52 AWS, 47 shared orchestration, and 170 internal-lab tests pass; Python compilation, Bash syntax, YAML assertions, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
