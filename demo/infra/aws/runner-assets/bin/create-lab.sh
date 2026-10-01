@@ -615,7 +615,7 @@ metrics:
     range_seconds: 900
     delay_seconds: 120
   - aws_namespace: AWS/Kafka
-    aws_metric_name: CPUUser
+    aws_metric_name: CpuUser
     aws_dimensions: ["Cluster Name", "Broker ID"]
     aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
     aws_statistics: [Average, Maximum]
@@ -623,7 +623,7 @@ metrics:
     range_seconds: 900
     delay_seconds: 120
   - aws_namespace: AWS/Kafka
-    aws_metric_name: CPUSystem
+    aws_metric_name: CpuSystem
     aws_dimensions: ["Cluster Name", "Broker ID"]
     aws_dimension_select: {"Cluster Name": ["${cluster_name}"]}
     aws_statistics: [Average, Maximum]

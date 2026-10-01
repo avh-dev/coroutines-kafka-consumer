@@ -165,6 +165,7 @@
 | [DEMO-97](#demo-97) | Make the demo-stub server request timeout configurable so configured long-tail delays are not truncated. | DONE |
 | [DEMO-98](#demo-98) | Support arbitrary percentile latency distributions in demo-stub settings. | DONE |
 | [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
+| [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -407,6 +408,16 @@
 | [INFRA-243](#infra-243) | Render repeating chaos sequences as detailed multi-step report cards. | DONE |
 | [INFRA-244](#infra-244) | Compare SLA compliance by the relative rate of messages outside the limit. | DONE |
 | [INFRA-245](#infra-245) | Add AWS dependency observability for sizing MSK, Redis, load generation, stubs, and application capacity. | DONE |
+| [INFRA-246](#infra-246) | Add a fixed-replica AWS CKC sizing experiment at 50,000 messages per second. | DONE |
+| [INFRA-247](#infra-247) | Harden AWS runner bootstrap and preserve provisioning failures in session logs. | DONE |
+| [INFRA-248](#infra-248) | Stabilize AWS sizing execution, notifications, and cleanup reporting. | DONE |
+| [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | IN_PROGRESS |
+| [INFRA-250](#infra-250) | Correct Amazon MSK CPU collection and idle-ratio utilization reporting. | DONE |
+| [INFRA-251](#infra-251) | Make large evidence-bundle Loki imports tolerate restore-time ingestion bursts. | DONE |
+| [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
+| [INFRA-253](#infra-253) | Tune the AWS 50k sizing workload for production-like Kafka batching and fleet cardinality. | DONE |
+| [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
+| [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4730,3 +4741,120 @@ Add Redis, load-generator, stub, application, and EKS resource evidence so a siz
 Preserve the additional measurements in the portable evidence bundle and present a compact component-level capacity summary in the experiment report.
 Prepare observability for a later fixed-replica CKC sizing experiment without starting an AWS run.
 Verification: 167 internal-lab, 33 AWS session, and 26 dashboard/evidence tests pass; shell syntax, Terraform formatting, dashboard JSON, Python compilation, and whitespace validation pass without starting an experiment.
+
+<a id="infra-246"></a>
+### INFRA-246 - Add an AWS CKC sizing experiment
+
+_Date: 2026-09-29_
+
+Add a temporary twenty-minute AWS experiment that holds 50,000 messages per second after application readiness.
+Run twelve fixed CKC replicas against twelve topic partitions with one requested CPU per pod, no CPU limit, and no HPA.
+Exclude the first three minutes as JIT and runtime warm-up, then measure the remaining seventeen minutes.
+Use the dependency observability from INFRA-245 to identify MSK, Redis, generator, stub, application, or EKS saturation without launching the experiment automatically.
+Keep application auditing disabled so a 60-million-message sizing run measures the workload rather than audit transport and analysis overhead.
+Verification: the canonical AWS definition validates and materializes to the intended Terraform inputs and Kubernetes resources; 167 internal-lab, 47 shared orchestration, and 33 AWS session tests pass with Python and whitespace validation, without launching an experiment.
+
+<a id="infra-247"></a>
+### INFRA-247 - Harden AWS runner bootstrap
+
+_Date: 2026-09-29_
+
+Keep EC2 user data safely below the platform limit by transferring large runner assets after instance startup.
+Make ECR image checks non-interactive so `--skip-build-images` cannot wait for an AWS CLI pager.
+Preserve complete Terraform output in the session logs while continuing to stream progress to the terminal.
+Verification: 35 AWS session tests, Python compilation, shell syntax, Terraform formatting and validation, and whitespace validation pass; compressed runner user data is 1,932 bytes against the 16,384-byte EC2 limit, without launching an experiment.
+
+<a id="infra-248"></a>
+### INFRA-248 - Stabilize the AWS sizing run
+
+_Date: 2026-09-29_
+
+Give the temporary EKS fleet enough headroom to schedule the fixed application replicas, generator, stubs, and observability workloads together.
+Emit the actual AWS target start and preserve notification delivery outcomes for diagnosis.
+Do not report cleanup as incomplete when an optional pre-destroy optimization fails but final independent verification proves the session clean.
+Handle audit-disabled sizing runs without attempting to analyze an intentionally empty audit stream.
+Verification: 167 internal-lab, 3 shared notification, 47 shared orchestration, and 38 AWS session tests pass with Python and whitespace validation; no AWS experiment was launched.
+
+<a id="infra-249"></a>
+### INFRA-249 - Fit the AWS sizing run into current capacity
+
+_Date: 2026-09-29_
+
+Return the temporary EKS fleet to the five `m7i.xlarge` nodes already proven to launch in the account.
+Use scheduling requests rather than CPU limits to reserve enough capacity for twelve CKC replicas and the generator while retaining burst headroom.
+Run the corrected twenty-minute sizing experiment after local validation and preserve its evidence and cleanup result.
+
+<a id="demo-100"></a>
+### DEMO-100 - Bound brewing burst simulation state
+
+_Date: 2026-09-29_
+
+Apply each same-key brewing-step burst to one simulated batch without retaining intermediate copies in the brewing queue.
+Keep the simulated brewing population bounded by active cauldrons during sustained generation.
+Add regression coverage for repeated bursts and lifecycle completion.
+Verification: all `ckc-demo-load-test` tests pass; whitespace validation passes.
+
+<a id="infra-250"></a>
+### INFRA-250 - Correct MSK CloudWatch capacity metrics
+
+_Date: 2026-09-30_
+
+Collect Amazon MSK CPU metrics using their case-sensitive CloudWatch names.
+Convert network-processor and request-handler idle ratios into utilization percentages on the correct `0..100` scale.
+Add contract coverage for the exporter configuration and report queries.
+Verification: all 38 AWS and 167 internal-lab tests pass; shell syntax, Python compilation, and whitespace validation pass; the installed internal lab is updated without starting an experiment.
+
+<a id="infra-251"></a>
+### INFRA-251 - Harden evidence-bundle Loki restore
+
+_Date: 2026-09-30_
+
+Raise the local restore-only Loki ingestion allowance for large experiment log bundles.
+Retry rate-limited Loki pushes with bounded backoff so transient import bursts do not tear down Grafana restore.
+Add focused regression coverage for successful imports after HTTP 429 responses.
+Verification: 42 result-bundle, 38 AWS, and 167 internal-lab tests pass; Loki accepts the restore configuration; the current 78,311-record AWS evidence bundle restores successfully; the installed internal lab is updated without starting an experiment.
+
+<a id="infra-252"></a>
+### INFRA-252 - Stream AWS audit chunks during experiments
+
+_Date: 2026-09-30_
+
+Write immutable compressed AWS audit chunks to the session S3 bucket throughout each target instead of uploading one large file only after the workload ends.
+Prefetch completed chunks on the internal lab while the target is running, verify the final stream marker, and analyze the complete local set only after AWS cleanup.
+Retain the runner-local audit file as a recovery fallback and cover streaming, fallback, and audit-disabled execution without launching an experiment automatically.
+Prepare the 50k sizing rerun with one-second fleet telemetry, full audit, twelve fixed CKC replicas, and three non-burstable `kafka.m7g.large` brokers.
+Verification: 42 AWS, 47 shared orchestration, and 58 audit/result-bundle tests pass; Python compilation, Bash syntax, ShellCheck, whitespace validation, and the Fluent Bit 4.2.3 S3 plugin capability check pass. No AWS experiment was launched.
+
+<a id="infra-253"></a>
+### INFRA-253 - Tune AWS Kafka batching at 50k
+
+_Date: 2026-09-30_
+
+Match the AWS sizing workload to the proven production-like Kafka producer and consumer batching used by internal-lab comparisons.
+Use the intended ten-thousand-cauldron fleet and avoid fragmenting 50k/s across dozens of low-rate producer clients.
+Correct the Grafana conversion of MSK idle ratios so network-processor and request-handler utilization render on the proper percentage scale.
+Propagate producer-capacity settings into AWS jobs, repair ElastiCache CPU metric naming, and keep streamed audit S3 keys consistent with Fluent Bit's required leading slash.
+Verification: 47 shared orchestration, 42 result-bundle, 167 internal-lab, and 43 AWS tests pass; load-generator tests, Python compilation, Bash syntax, dashboard JSON, and whitespace validation pass. No experiment was launched.
+
+<a id="infra-254"></a>
+### INFRA-254 - Expand AWS lifecycle notifications
+
+_Date: 2026-09-30_
+
+Report workload completion independently from audit finalization so operators know when measured traffic has stopped.
+Announce artifact collection, paid-resource cleanup, local audit analysis, and evidence-bundle preparation with concise phase-specific Telegram messages.
+Keep terminal success or failure notifications after verified cleanup while exposing enough intermediate state to distinguish useful work from AWS teardown latency.
+Read streamed audit objects with the normalized S3 key returned by AWS so audit finalization does not falsely fail after a successful upload.
+Verification: 44 AWS, 15 notification, and 168 internal-lab tests pass; Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. No experiment was launched.
+
+<a id="infra-255"></a>
+### INFRA-255 - Compare AWS targets on one fixed lab
+
+_Date: 2026-10-01_
+
+Run CKC and Spring Kafka sequentially against one fixed non-burstable AWS lab so their application, dependency, and MSK measurements are directly comparable.
+Ramp traffic from zero for three minutes before the full 50k steady-state window to isolate startup and JIT cost from measured capacity.
+Reserve 32 EKS vCPU for both targets so shared cluster pressure does not cap Spring before its application demand can be measured.
+Render the actual flat producer settings preserved in run metadata, including per-topic overrides, instead of unrelated report defaults.
+Keep audit streaming, lifecycle notifications, cleanup verification, and offline evidence generation enabled for both targets.
+Verification: 47 shared orchestration, 44 AWS, and 169 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.

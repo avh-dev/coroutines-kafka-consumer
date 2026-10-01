@@ -24,6 +24,10 @@ schema_config:
 limits_config:
   allow_structured_metadata: true
   reject_old_samples: false
+  # Restoring a bundle is a bounded local bulk import, not a live multi-tenant
+  # workload. Leave enough headroom for large experiment log snapshots.
+  ingestion_rate_mb: 64
+  ingestion_burst_size_mb: 128
 ingester:
   max_chunk_age: 720h
 compactor:

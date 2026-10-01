@@ -230,7 +230,16 @@ materialized and applied before workload deployment.
 
 ## Audit Analysis
 
-AWS audit analysis is intentionally manual and location-independent. After a run has uploaded audit chunks to S3, run the shared analyzer wrapper from a local machine, the internal lab, or the AWS runner:
+Audit-enabled targets stream immutable gzip chunks from the runner's Fluent Bit
+collector to the session S3 bucket throughout the workload. The checkout-side
+controller prefetches completed chunks every fifteen seconds, validates the
+final stream inventory, and keeps the runner-local `audit.log` as a recovery
+fallback. AWS cleanup runs after the complete stream has been copied locally;
+the shared analyzer then runs on the controller host, outside the disposable
+AWS lab.
+
+Completed S3 audit streams remain location-independent and can also be
+reanalyzed manually from a local machine or the internal lab:
 
 ```sh
 ./demo/infra/aws/audit/analyze-s3-audit.sh s3://bucket/prefix/run-id

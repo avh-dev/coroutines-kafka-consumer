@@ -7956,19 +7956,19 @@
         },
         {
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "description": "Busy share of the MSK network processor and request handler, calculated as 100% minus their CloudWatch idle percentages.",
+          "description": "Busy share of the MSK network processor and request handler, converting their CloudWatch idle ratios from 0..1 to utilization percentages.",
           "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 72},
           "id": 144,
           "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {
-              "expr": "100 - aws_kafka_network_processor_avg_idle_percent_minimum",
+              "expr": "100 * (1 - aws_kafka_network_processor_avg_idle_percent_minimum)",
               "legendFormat": "network broker {{broker_id}}",
               "refId": "A"
             },
             {
-              "expr": "100 - aws_kafka_request_handler_avg_idle_percent_minimum",
+              "expr": "100 * (1 - aws_kafka_request_handler_avg_idle_percent_minimum)",
               "legendFormat": "request handler broker {{broker_id}}",
               "refId": "B"
             }
@@ -8027,7 +8027,7 @@
           "id": 148,
           "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
-            {"expr": "max(aws_elasticache_engine_cpu_utilization_maximum)", "legendFormat": "engine CPU", "refId": "A"},
+            {"expr": "max(aws_elasticache_engine_cpuutilization_maximum)", "legendFormat": "engine CPU", "refId": "A"},
             {"expr": "max(aws_elasticache_curr_connections_maximum)", "legendFormat": "connections", "refId": "B"},
             {"expr": "sum(aws_elasticache_network_bytes_in_sum) / 60", "legendFormat": "network in", "refId": "C"},
             {"expr": "sum(aws_elasticache_network_bytes_out_sum) / 60", "legendFormat": "network out", "refId": "D"},

@@ -1,0 +1,211 @@
+schema_version: 2
+name: aws-spring-ckc-msk-comparison-50k
+description: Compare twelve fixed CKC and Spring Kafka replicas on one non-burstable AWS lab at a constant 50k/s.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    flavour:
+      percentiles:
+        p90: 20
+        p95: 40
+        p99: 80
+        p100: 120
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 50000
+    producer_capacity_tps:
+      order: 10000
+      batch: 10000
+      telemetry: 10000
+    load_profile: 0 -> (3m, warmup) -> 100 -> (20m, steady) -> 100
+    cauldron_count: 10000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_kafka_producer_batch_size: 131072
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
+    cpu_request: 1500m
+    memory_request: 2Gi
+    cpu_limit: null
+    memory_limit: 4Gi
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 180
+    maximum_first_sample_delay_seconds: 90
+  measurement_window:
+    name: steady-state
+    start: 3m
+    duration: 20m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 47
+      max_e2e_latency_ms: 2000
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 33
+      max_e2e_latency_ms: 2000
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 20
+      max_e2e_latency_ms: 1000
+targets:
+- name: ckc.fixed-12
+  implementation: ckc
+  application:
+    replicas: 12
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 50
+      batch_ms: 50
+      telemetry_ms: 150
+    parallelism:
+    - partitions
+    - workers
+    - pollers
+    topics:
+      order:
+        partitions: 12
+        pollers: 1
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      batch:
+        partitions: 12
+        pollers: 1
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        partitions: 12
+        pollers: 1
+        workers: 500
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: spring-kafka.fixed-12
+  implementation: spring-kafka
+  application:
+    replicas: 12
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: -Xms512m -Xmx1536m -Xss256k
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 14
+      batch_ms: 9
+      telemetry_ms: 41
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+environments:
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.33'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones:
+        - eu-central-1a
+        - eu-central-1b
+        - eu-central-1c
+        private_subnets:
+        - 10.42.0.0/20
+        - 10.42.16.0/20
+        - 10.42.32.0/20
+        public_subnets:
+        - 10.42.128.0/20
+        - 10.42.144.0/20
+        - 10.42.160.0/20
+      nodes:
+        instance_types:
+        - m7i.xlarge
+        desired_size: 8
+        min_size: 8
+        max_size: 8
+        disk_size_gib: 100
+      kafka:
+        mode: msk
+        msk_version: 3.7.x
+        msk_brokers: 3
+        msk_instance_type: kafka.m7g.large
+        msk_volume_size_gib: 20
+      redis:
+        mode: elasticache
+        elasticache_node_type: cache.r7g.large
+        elasticache_engine_version: '7.1'
+        elasticache_nodes: 2
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170

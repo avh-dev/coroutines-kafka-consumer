@@ -158,15 +158,16 @@ class SimulationState(
     }
 
     @Synchronized
-    fun markBrewingStepCompleted(batch: SimulatedBatch): SimulatedBatch {
-        val updated = batch.copy(brewingStepsCompleted = batch.brewingStepsCompleted + 1)
-        if (updated.brewingStepsCompleted >= updated.brewingStepsTotal) {
-            brewingCompletedBatches.addLast(updated)
-        } else {
-            brewingBatches.addLast(updated)
+    fun retainBrewingProgress(batch: SimulatedBatch) {
+        require(batch.brewingStepsCompleted in 1..batch.brewingStepsTotal) {
+            "brewing progress must contain at least one completed step and cannot exceed the total"
         }
-        updateActiveBatch(updated)
-        return updated
+        if (batch.brewingStepsCompleted == batch.brewingStepsTotal) {
+            brewingCompletedBatches.addLast(batch)
+        } else {
+            brewingBatches.addLast(batch)
+        }
+        updateActiveBatch(batch)
     }
 
     @Synchronized

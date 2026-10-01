@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
@@ -26,17 +27,48 @@ def ready(url: str) -> None:
     raise TimeoutError(f"Loki is not ready at {url}")
 
 
-def push(url: str, streams: dict[tuple[tuple[str, str], ...], list[list[str]]]) -> None:
+def retry_delay(error: urllib.error.HTTPError, fallback: float) -> float:
+    retry_after = error.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    return fallback
+
+
+def push(
+    url: str,
+    streams: dict[tuple[tuple[str, str], ...], list[list[str]]],
+    *,
+    max_attempts: int = 6,
+    initial_retry_delay: float = 1.0,
+) -> None:
     body = json.dumps({
         "streams": [{"stream": dict(labels), "values": values} for labels, values in streams.items()]
     }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{url.rstrip('/')}/loki/api/v1/push", data=body,
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if response.status // 100 != 2:
-            raise RuntimeError(f"Loki push failed with HTTP {response.status}")
+    delay = initial_retry_delay
+    for attempt in range(1, max_attempts + 1):
+        request = urllib.request.Request(
+            f"{url.rstrip('/')}/loki/api/v1/push", data=body,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.status // 100 != 2:
+                    raise RuntimeError(f"Loki push failed with HTTP {response.status}")
+            return
+        except urllib.error.HTTPError as error:
+            if error.code != 429 or attempt == max_attempts:
+                raise
+            wait = retry_delay(error, delay)
+            print(
+                f"Loki rate-limited import batch; retrying in {wait:g}s "
+                f"({attempt}/{max_attempts - 1})",
+                flush=True,
+            )
+            time.sleep(wait)
+            delay = min(delay * 2, 8.0)
 
 
 def main() -> int:

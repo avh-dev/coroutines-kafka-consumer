@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,6 +81,8 @@ class AwsSessionTest(unittest.TestCase):
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
+        user_data = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
+        runner_terraform = (AWS_ROOT / "terraform/runner/main.tf").read_text(encoding="utf-8")
 
         self.assertIn("result_bundle/dashboard.py", create_script)
         self.assertIn("--environment aws", create_script)
@@ -89,14 +93,18 @@ class AwsSessionTest(unittest.TestCase):
             'cp "${REPO_TARGET}/demo/infra/shared/grafana/dashboards/ckc-overview.json"',
             sync_script,
         )
+        self.assertIn("systemctl restart ckc-runner-observability.service", sync_script)
+        self.assertNotIn("grafana_ckc_overview_dashboard", user_data)
+        self.assertNotIn("grafana_dashboard_provider_config", user_data)
+        self.assertIn("runner_user_data_bytes_upper_bound <= 16384", runner_terraform)
 
     def test_aws_cloudwatch_exporter_captures_dependency_capacity(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         outputs = (AWS_ROOT / "assets/terraform/load-lab/outputs.tf").read_text(encoding="utf-8")
 
         for metric in (
-            "CPUUser",
-            "CPUSystem",
+            "CpuUser",
+            "CpuSystem",
             "CPUCreditBalance",
             "NetworkProcessorAvgIdlePercent",
             "RequestHandlerAvgIdlePercent",
@@ -271,6 +279,163 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("warmup_completed", command)
         self.assertEqual("completed", controller.state["kafka_warmup"]["status"])
 
+    def test_aws_notifies_when_target_execution_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": False,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with patch.object(controller, "notify") as notify, patch.object(
+                controller, "ssm", return_value={"Status": "Success"}
+            ):
+                controller.execute_test()
+
+        self.assertEqual("target_started", notify.call_args_list[0].args[0])
+        self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
+        self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
+        self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
+        self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
+        self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
+
+    def test_aws_streams_and_prefetches_audit_while_target_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": True,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with (
+                patch.object(controller, "notify"),
+                patch.object(controller, "ssm", return_value={"Status": "Success"}) as ssm,
+                patch.object(
+                    controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}
+                ) as sync,
+            ):
+                controller.execute_test()
+
+        self.assertEqual(3, ssm.call_count)
+        configure = ssm.call_args_list[0].args[0]
+        execute = ssm.call_args_list[1].args[0]
+        finalize = ssm.call_args_list[2].args[0]
+        self.assertIn("configure-audit-stream.sh", configure)
+        self.assertIn("s3://", f"s3://{controller.state['artifact_bucket']}")
+        self.assertNotIn("finalize-audit-stream.sh", execute)
+        self.assertIn("finalize-audit-stream.sh", finalize)
+        self.assertGreaterEqual(sync.call_count, 1)
+        self.assertEqual(3, controller.state["audit_prefetch"]["ckc"]["chunks"])
+
+    def test_workload_completion_is_not_hidden_by_audit_finalization_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": True,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+            with (
+                patch.object(controller, "notify") as notify,
+                patch.object(controller, "ssm", side_effect=[
+                    {"Status": "Success"}, {"Status": "Success"}, {"Status": "Failed"},
+                ]),
+                patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}),
+            ):
+                with self.assertRaisesRegex(session_module.CommandError, "target 'ckc.fixed-12' failed"):
+                    controller.execute_test()
+
+        self.assertEqual(
+            ["target_started", "target_workload_finished"],
+            [call.args[0] for call in notify.call_args_list],
+        )
+        self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
+
+    def test_streamed_audit_marker_verifies_size_and_etag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
+            chunks = Path(directory) / "audit-prefetch/run-ckc"
+            chunks.mkdir(parents=True)
+            payload = b"compressed-audit"
+            name = "audit-20260930T100000-example.log.gz"
+            (chunks / name).write_bytes(payload)
+            (chunks / "STREAM_COMPLETE.json").write_text(json.dumps({
+                "schema_version": 1,
+                "s3_prefix": controller.audit_stream_prefix(target),
+                "chunks": [{
+                    "name": name,
+                    "size": len(payload),
+                    "etag": hashlib.md5(payload, usedforsecurity=False).hexdigest(),
+                }],
+            }), encoding="utf-8")
+            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": len(payload)}):
+                controller.materialize_target_audit_stream(target, Path(directory) / "result")
+            self.assertEqual(payload, (Path(directory) / "result/audit/chunks" / name).read_bytes())
+            (chunks / name).write_bytes(b"x" * len(payload))
+            with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+                with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": 7}):
+                    controller.materialize_target_audit_stream(target, Path(directory) / "result")
+
+    def test_runner_audit_stream_uses_immutable_gzip_chunks_and_fallback(self) -> None:
+        configure = (AWS_ROOT / "runner-assets/bin/configure-audit-stream.sh").read_text(encoding="utf-8")
+        finalize = (AWS_ROOT / "runner-assets/bin/finalize-audit-stream.sh").read_text(encoding="utf-8")
+        export = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        self.assertIn("upload_timeout: 1m", configure)
+        self.assertIn("use_put_object: on", configure)
+        self.assertIn("compression: gzip", configure)
+        self.assertIn("$UUID.log.gz", configure)
+        self.assertIn("s3_key_format: '/${PREFIX}/", configure)
+        self.assertIn("state_after", configure)
+        self.assertIn('--prefix "${PREFIX}/"', finalize)
+        self.assertIn('s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json', finalize)
+        self.assertIn("STREAM_COMPLETE.json", finalize)
+        self.assertIn("streamed-to-s3", export)
+        self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
+
+    def test_audit_prefetch_uses_the_object_key_returned_by_s3(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc"}
+            with patch.object(controller, "run") as run:
+                controller.sync_target_audit_stream(target)
+
+        command = run.call_args.args[0]
+        self.assertEqual(
+            "s3://audit-bucket/sessions/s-20260829-120000-abcdef/result/runs/run-ckc/audit/streaming/",
+            command[3],
+        )
+
+    def test_missing_stream_marker_uses_runner_archive_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
+            result = Path(directory) / "result"
+            fallback = result / "audit/chunks/audit-000001.log.gz"
+            fallback.parent.mkdir(parents=True)
+            fallback.write_bytes(b"fallback")
+            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
+                controller.materialize_target_audit_stream(target, result)
+
+        self.assertEqual(["ckc"], controller.state["audit_stream_fallback_targets"])
+
     def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
         self.assertIn("demo/infra/shared/kafka_warmup", sync_script)
@@ -352,6 +517,24 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(str(limits_path), command[command.index("--latency-limits-file") + 1])
         self.assertEqual("steady", windows[0]["name"])
         self.assertEqual(str(windows_path), command[command.index("--measurement-windows-file") + 1])
+
+    def test_local_audit_analysis_skips_audit_disabled_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            run_dir = session_dir / "result/runs/run-ckc"
+            run_dir.mkdir(parents=True)
+            (run_dir / "resolved-test.json").write_text(
+                json.dumps({"load_test": {"audit_log_enabled": False}}),
+                encoding="utf-8",
+            )
+            controller = self.controller(session_dir)
+            controller.state["local_result_dirs"] = {"ckc": str(run_dir)}
+            controller.state["local_result_dir"] = str(run_dir)
+            controller.analyze_local_audit()
+
+        self.assertEqual(["ckc"], controller.state["audit_analysis_skipped_targets"])
+        self.assertEqual({}, controller.state["audit_summaries"])
+        self.assertIsNone(controller.state["audit_summary"])
 
     def test_manifest_verification_checks_size_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -519,13 +702,7 @@ class AwsSessionTest(unittest.TestCase):
     def test_terraform_state_and_provider_data_stay_in_the_session_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
-            calls: list[tuple[list[str], dict[str, str]]] = []
-
-            def completed(command, **kwargs):
-                calls.append((command, kwargs["env"]))
-                return subprocess.CompletedProcess(command, 0, stdout="" if kwargs.get("stdout") else None, stderr="")
-
-            with patch.object(session_module.subprocess, "run", side_effect=completed):
+            with patch.object(controller, "run", return_value="") as run_command:
                 controller.terraform(
                     "lab",
                     REPO_ROOT / "demo/infra/aws/assets/terraform/load-lab",
@@ -533,11 +710,55 @@ class AwsSessionTest(unittest.TestCase):
                     {"environment": "test", "availability_zones": ["a", "b", "c"]},
                 )
 
-            self.assertEqual(2, len(calls))
-            apply_command, apply_env = calls[1]
+            self.assertEqual(2, run_command.call_count)
+            apply_call = run_command.call_args_list[1]
+            apply_command = apply_call.args[0]
+            apply_env = apply_call.kwargs["env"]
             self.assertIn(f"-state={Path(directory).resolve() / 'terraform/lab.tfstate'}", apply_command)
             self.assertIn('-var=availability_zones=["a","b","c"]', apply_command)
             self.assertEqual(str(Path(directory).resolve() / "terraform-data/lab"), apply_env["TF_DATA_DIR"])
+            self.assertTrue(apply_call.kwargs["tee"])
+
+    def test_tee_command_streams_and_preserves_combined_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            terminal = io.StringIO()
+            with redirect_stdout(terminal):
+                controller.run([
+                    sys.executable,
+                    "-c",
+                    "import sys; print('terraform stdout'); print('terraform stderr', file=sys.stderr)",
+                ], tee=True)
+
+            command_log = controller.command_log.read_text(encoding="utf-8")
+            self.assertIn("terraform stdout", terminal.getvalue())
+            self.assertIn("terraform stderr", terminal.getvalue())
+            self.assertIn("terraform stdout", command_log)
+            self.assertIn("terraform stderr", command_log)
+
+    def test_preflight_ecr_image_checks_are_non_interactive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.config["image_environment"] = "test"
+            with (
+                patch.object(session_module.shutil, "which", return_value="/usr/bin/tool"),
+                patch.object(controller, "aws_json", side_effect=[
+                    {"Account": "123456789012"},
+                    ["us-east-1a", "us-east-1b", "us-east-1c"],
+                ]),
+                patch.object(controller, "ensure_ecr"),
+                patch.object(controller, "run", return_value="sha256:digest") as run_command,
+            ):
+                controller.preflight(build_images=False)
+
+            image_checks = [
+                call for call in run_command.call_args_list
+                if call.args[0][:3] == ["aws", "ecr", "describe-images"]
+            ]
+            self.assertEqual(3, len(image_checks))
+            for call in image_checks:
+                self.assertIn("--no-cli-pager", call.args[0])
+                self.assertTrue(call.kwargs["capture"])
 
     def test_cleanup_attempts_every_stack_in_dependency_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -552,6 +773,24 @@ class AwsSessionTest(unittest.TestCase):
             failures = controller.cleanup()
         self.assertEqual([], failures)
         self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+
+    def test_cleanup_preparation_failure_is_warning_when_verification_is_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: (_ for _ in ()).throw(RuntimeError("temporary EKS outage"))
+            controller.destroy_stack = lambda _stack: None
+            controller.delete_cloudwatch_log_group = lambda: None
+            controller.verify_cleanup = lambda: None
+            controller.prune_terraform_cache = lambda: None
+            failures = controller.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertEqual("CLEAN", controller.state["cleanup_status"])
+        self.assertEqual(
+            ["EKS node-group pre-cleanup: temporary EKS outage"],
+            controller.state["cleanup_warnings"],
+        )
 
     def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

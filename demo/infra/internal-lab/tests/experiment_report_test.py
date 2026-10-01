@@ -19,6 +19,7 @@ sys.path.insert(0, str(HELPERS))
 
 from experiment_report.analyze import (  # noqa: E402
     analyze_experiment,
+    configuration,
     latency_profile_matches,
     normalize_chaos_scenarios,
     parse_load_profile,
@@ -36,6 +37,26 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_configuration_reads_flat_resolved_producer_settings(self) -> None:
+        result = configuration({
+            "application": {"profile": "ckc"},
+            "load_test": {
+                "kafka_producer_linger_ms": 300,
+                "kafka_producer_batch_size": 32768,
+                "kafka_producer_compression_type": "lz4",
+                "kafka_producer_buffer_memory": 67108864,
+                "order_kafka_producer_batch_size": 524288,
+            },
+            "run_plan": {"topics": [{"name": "order"}, {"name": "telemetry"}]},
+        })
+
+        order, telemetry = result["topics"]
+        self.assertEqual(300, order["producer"]["linger_ms"])
+        self.assertEqual(524288, order["producer"]["batch_size"])
+        self.assertEqual("lz4", order["producer"]["compression_type"])
+        self.assertEqual(67108864, order["producer"]["buffer_memory"])
+        self.assertEqual(32768, telemetry["producer"]["batch_size"])
+
     def test_sla_compliance_compares_the_complement_instead_of_near_hundred_percentages(self) -> None:
         values = [
             {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 45}},
@@ -106,8 +127,15 @@ class ExperimentReportTest(unittest.TestCase):
             "aws_kafka_network_processor_avg_idle_percent_minimum",
             STANDARD_MEASUREMENTS["msk_network_processor_utilization_max_percent"],
         )
+        for measurement in (
+            "msk_network_processor_utilization_max_percent",
+            "msk_request_handler_utilization_max_percent",
+        ):
+            query = STANDARD_MEASUREMENTS[measurement]
+            self.assertIn("clamp(100 * (1 - min(min_over_time(", query)
+            self.assertNotIn("100 - min", query)
         self.assertIn(
-            "aws_elasticache_engine_cpu_utilization_maximum",
+            "aws_elasticache_engine_cpuutilization_maximum",
             STANDARD_MEASUREMENTS["redis_engine_cpu_max_percent"],
         )
         self.assertIn(
