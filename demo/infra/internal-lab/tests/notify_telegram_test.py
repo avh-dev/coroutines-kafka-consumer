@@ -131,6 +131,8 @@ class NotifyTelegramTest(unittest.TestCase):
                 "kafka_warmup_started",
                 "target_started",
                 "target_workload_finished",
+                "target_drain_waiting",
+                "target_audit_waiting",
                 "measurements_finished",
                 "artifact_collection_started",
                 "cleanup_started",
@@ -205,6 +207,27 @@ class NotifyTelegramTest(unittest.TestCase):
             }),
         )
         self.assertEqual(
+            "⏳ Consumer drain still running: 1/1\nTarget: ckc.fixed-12"
+            "\nWaiting: 31s\nLag when drain began: 1875",
+            NOTIFY.message_for("target_drain_waiting", {
+                "index": 1,
+                "total": 1,
+                "name": "ckc.fixed-12",
+                "elapsed_seconds": 31,
+                "lag": 1875,
+            }),
+        )
+        self.assertEqual(
+            "📤 Audit finalization still running: 1/1\nTarget: ckc.fixed-12"
+            "\nWaiting: 35s\nStreaming audit chunks are being finalized in S3",
+            NOTIFY.message_for("target_audit_waiting", {
+                "index": 1,
+                "total": 1,
+                "name": "ckc.fixed-12",
+                "elapsed_seconds": 35,
+            }),
+        )
+        self.assertEqual(
             "🧹 AWS cleanup started: sizing\nMeasurements: failed"
             "\nDeleting EKS, MSK, Redis, runner, and temporary storage",
             NOTIFY.message_for("cleanup_started", {
@@ -220,6 +243,26 @@ class NotifyTelegramTest(unittest.TestCase):
                 "next_step": "local analysis",
             }),
         )
+
+    def test_aws_experiment_start_names_paid_resource_types(self) -> None:
+        message = NOTIFY.message_for("experiment_started", {
+            "experiment": "comparison",
+            "environment": {"name": "aws", "detail": "eu-central-1"},
+            "kafka": {
+                "implementation": "Amazon MSK", "topology": "cluster",
+                "instance_type": "kafka.m7g.large", "brokers": 3,
+            },
+            "redis": {
+                "implementation": "Amazon ElastiCache",
+                "node_type": "cache.r7g.large", "nodes": 2,
+            },
+            "eks": {"instance_types": ["m7i.xlarge"], "nodes": 8},
+            "targets": [],
+        })
+
+        self.assertIn("Kafka: Amazon MSK · kafka.m7g.large · cluster · 3 brokers", message)
+        self.assertIn("Redis: Amazon ElastiCache · cache.r7g.large · 2 nodes", message)
+        self.assertIn("EKS: m7i.xlarge · 8 workers", message)
 
     def test_failures_are_compact_and_keep_the_exit_code(self) -> None:
         self.assertEqual(

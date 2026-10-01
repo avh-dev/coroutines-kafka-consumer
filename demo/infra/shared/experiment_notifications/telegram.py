@@ -15,6 +15,8 @@ DEFAULT_EVENTS = {
     "kafka_warmup_started",
     "target_started",
     "target_workload_finished",
+    "target_drain_waiting",
+    "target_audit_waiting",
     "measurements_finished",
     "artifact_collection_started",
     "cleanup_started",
@@ -76,8 +78,39 @@ def kafka_text(payload: dict[str, Any]) -> str:
     implementation = str(kafka.get("implementation") or "Kafka")
     topology = str(kafka.get("topology") or "unknown")
     brokers = kafka.get("brokers")
-    suffix = "" if brokers in (None, "") else f" · {count_text(brokers, 'broker')}"
-    return f"{implementation} · {topology}{suffix}"
+    details = [implementation]
+    if kafka.get("instance_type"):
+        details.append(str(kafka["instance_type"]))
+    details.append(topology)
+    if brokers not in (None, ""):
+        details.append(count_text(brokers, "broker"))
+    return " · ".join(details)
+
+
+def redis_text(payload: dict[str, Any]) -> str | None:
+    redis = payload.get("redis") or {}
+    if not isinstance(redis, dict) or not redis:
+        return None
+    details = [str(redis.get("implementation") or "Redis")]
+    if redis.get("node_type"):
+        details.append(str(redis["node_type"]))
+    if redis.get("nodes") not in (None, ""):
+        details.append(count_text(redis["nodes"], "node"))
+    return " · ".join(details)
+
+
+def eks_text(payload: dict[str, Any]) -> str | None:
+    eks = payload.get("eks") or {}
+    if not isinstance(eks, dict) or not eks:
+        return None
+    instance_types = eks.get("instance_types") or []
+    if isinstance(instance_types, str):
+        instance_types = [instance_types]
+    details = [" / ".join(str(value) for value in instance_types if value)]
+    if eks.get("nodes") not in (None, ""):
+        details.append(count_text(eks["nodes"], "worker"))
+    rendered = [detail for detail in details if detail]
+    return " · ".join(rendered) if rendered else None
 
 
 def common_target_value(targets: list[Any], key: str) -> Any:
@@ -146,9 +179,15 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             f"🚀 CKC experiment started: {experiment}",
             f"Environment: {environment_text(payload)}",
             f"Kafka: {kafka_text(payload)}",
+        ]
+        if redis := redis_text(payload):
+            lines.append(f"Redis: {redis}")
+        if eks := eks_text(payload):
+            lines.append(f"EKS: {eks}")
+        lines.extend([
             f"Workload: {workload_text(payload, targets)}",
             f"Targets ({len(targets)}):",
-        ]
+        ])
         lines.extend(
             f"• {target_text(target, include_tps=common_tps is None, include_duration=common_duration is None)}"
             for target in targets
@@ -192,6 +231,28 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         if payload.get("next_step"):
             lines.append(f"Next: {payload['next_step']}")
         return "\n".join(lines)
+    if event == "target_drain_waiting":
+        index = payload.get("index")
+        total = payload.get("total")
+        position = f"{index}/{total}" if index not in (None, "") and total not in (None, "") else "?/?"
+        lines = [
+            f"⏳ Consumer drain still running: {position}",
+            f"Target: {payload.get('name') or 'unknown'}",
+            f"Waiting: {format_duration(payload.get('elapsed_seconds'))}",
+        ]
+        if payload.get("lag") not in (None, ""):
+            lines.append(f"Lag when drain began: {payload['lag']}")
+        return "\n".join(lines)
+    if event == "target_audit_waiting":
+        index = payload.get("index")
+        total = payload.get("total")
+        position = f"{index}/{total}" if index not in (None, "") and total not in (None, "") else "?/?"
+        return "\n".join([
+            f"📤 Audit finalization still running: {position}",
+            f"Target: {payload.get('name') or 'unknown'}",
+            f"Waiting: {format_duration(payload.get('elapsed_seconds'))}",
+            "Streaming audit chunks are being finalized in S3",
+        ])
     if event in {"measurements_finished", "experiment_runs_finished"}:
         return "✅ All target measurements and audit streams finalized"
     if event == "artifact_collection_started":

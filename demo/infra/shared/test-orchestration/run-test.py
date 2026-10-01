@@ -35,6 +35,21 @@ PROCESSING_TOTAL_QUERY = (
     "(sum(demo_ckc_record_failed_duration_seconds_count) or vector(0)) + "
     "(sum(demo_ckc_record_dropped_total) or vector(0))"
 )
+RUN_PHASE_PREFIX = "CKC_RUN_PHASE "
+
+
+def emit_run_phase(phase: str, **details: Any) -> None:
+    line = RUN_PHASE_PREFIX + json.dumps(
+        {"phase": phase, "timestamp": utc_now_text(), **details},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    print(line, flush=True)
+    phase_file = os.environ.get("CKC_RUN_PHASE_FILE", "").strip()
+    if phase_file:
+        with Path(phase_file).open("a", encoding="utf-8") as output:
+            output.write(line + "\n")
+            output.flush()
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
@@ -272,11 +287,15 @@ def wait_for_consumer_drain(
     deadline = time.monotonic() + timeout_seconds
     observations: list[dict[str, Any]] = []
     tracker = ConsumerDrainTracker(stable_seconds=poll_seconds, idle_seconds=idle_seconds)
+    drain_started = False
     while True:
         lag = prometheus_scalar(metrics_url, expression)
         processed = prometheus_scalar(metrics_url, PROCESSING_TOTAL_QUERY)
         now = time.monotonic()
         outcome = tracker.observe(lag, processed, now)
+        if not drain_started and lag is not None and lag > 0:
+            emit_run_phase("consumer_drain_started", lag=lag)
+            drain_started = True
         observations.append({
             "checked_at": utc_now_text(),
             "lag": lag,
@@ -285,6 +304,8 @@ def wait_for_consumer_drain(
         })
         if outcome == DRAINED:
             report_path.write_text(json_dump({"status": "DRAINED", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
+            if drain_started:
+                emit_run_phase("consumer_drain_finished", status="DRAINED", lag=lag)
             return True
         if outcome == IDLE:
             report_path.write_text(json_dump({
@@ -298,9 +319,13 @@ def wait_for_consumer_drain(
                 f"Consumer lag remains at {lag}, but processing made no progress for "
                 f"{idle_seconds}s after publishing finished; continuing to audit analysis."
             )
+            if drain_started:
+                emit_run_phase("consumer_drain_finished", status="IDLE", lag=lag)
             return False
         if now >= deadline:
             report_path.write_text(json_dump({"status": "TIMEOUT", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
+            if drain_started:
+                emit_run_phase("consumer_drain_finished", status="TIMEOUT", lag=lag)
             if required:
                 raise TimeoutError(f"Consumer lag did not drain within {timeout_seconds}s; see {report_path}")
             print(f"Consumer lag did not drain within {timeout_seconds}s; continuing because consumer_drain_required=false.")
@@ -1090,6 +1115,7 @@ def main() -> None:
                 text=True,
             )
         wait_for_job(job_name, wait_timeout_seconds)
+        emit_run_phase("workload_finished")
         wait_for_consumer_drain(
             metrics_url,
             run_dir / "consumer-drain.json",

@@ -419,6 +419,7 @@
 | [INFRA-253](#infra-253) | Tune the AWS 50k sizing workload for production-like Kafka batching and fleet cardinality. | DONE |
 | [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
 | [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
+| [INFRA-256](#infra-256) | Report long AWS target drain and audit phases and include concrete lab resource types in Telegram. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4869,3 +4870,14 @@ Reserve 32 EKS vCPU for both targets so shared cluster pressure does not cap Spr
 Render the actual flat producer settings preserved in run metadata, including per-topic overrides, instead of unrelated report defaults.
 Keep audit streaming, lifecycle notifications, cleanup verification, and offline evidence generation enabled for both targets.
 Verification: 47 shared orchestration, 44 AWS, and 169 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.
+
+<a id="infra-256"></a>
+### INFRA-256 - Report long AWS target phases
+
+_Date: 2026-10-01_
+
+Notify operators when a completed AWS workload has spent more than thirty seconds draining consumer lag.
+Report audit-stream finalization that lasts more than thirty seconds so post-workload silence has an explicit cause.
+Include concrete MSK broker, ElastiCache node, and EKS worker types and counts in the experiment-start message.
+Keep phase notifications tied to observed runner lifecycle markers rather than inferred workload duration.
+Verification: 48 AWS, 16 notification, and 170 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.
