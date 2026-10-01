@@ -640,6 +640,25 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(180, config["targets"][0]["telemetry_settle_seconds"])
         self.assertEqual(3600, config["targets"][0]["watchdog_seconds"])
 
+    def test_spring_sizing_state_uses_independent_larger_msk_lab(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-spring-msk-sizing-50k.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=3600,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("aws-spring-msk-sizing-50k", config["experiment_id"])
+        self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
+        self.assertEqual(["spring-kafka.fixed-12"], [target["name"] for target in config["targets"]])
+
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"

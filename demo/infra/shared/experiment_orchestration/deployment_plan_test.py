@@ -51,18 +51,15 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertNotIn("profile", variables)
         self.assertEqual("32.4.3", plan["third_party"][0]["version"])
 
-    def test_materializes_fixed_aws_spring_ckc_comparison_experiment(self) -> None:
+    def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")
         root = Path(self.temp.name) / "sizing"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
-        self.assertEqual(
-            ["ckc.fixed-12", "spring-kafka.fixed-12"],
-            [target.target.name for target in targets],
-        )
+        self.assertEqual(["ckc.fixed-12"], [target.target.name for target in targets])
         plans = [yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8")) for target in targets]
         definitions = [yaml.safe_load(target.definition_path.read_text(encoding="utf-8")) for target in targets]
-        plan, spring_plan = plans
+        plan = plans[0]
         definition = definitions[0]
         variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
 
@@ -81,12 +78,6 @@ class DeploymentPlanTest(unittest.TestCase):
             [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
         )
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
-        self.assertEqual(12, spring_plan["application"]["configuration"]["replicas"])
-        self.assertEqual(
-            [336, 156, 420],
-            [topic["partitions"] for topic in spring_plan["application"]["planner"]["topics"]],
-        )
-        self.assertFalse(spring_plan["application"]["configuration"]["hpa"]["enabled"])
         self.assertEqual("kafka.m7g.large", variables["msk_broker_instance_type"])
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
@@ -160,6 +151,63 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("300", load_environment["KAFKA_PRODUCER_LINGER_MS"])
         self.assertEqual("524288", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("131072", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_independent_aws_spring_sizing_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-spring-msk-sizing-50k.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+        ckc_resolved = resolve_experiment_definition(
+            REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml",
+            environment="aws",
+        )
+        root = Path(self.temp.name) / "spring-sizing"
+        ckc_root = Path(self.temp.name) / "ckc-sizing-comparison"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+        materialize_experiment(ckc_resolved, output_dir=ckc_root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(["spring-kafka.fixed-12"], [target.target.name for target in targets])
+        self.assertEqual(ckc_resolved.test.definition, resolved.test.definition)
+        plan = yaml.safe_load(targets[0].deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(targets[0].definition_path.read_text(encoding="utf-8"))
+        variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
+        ckc_variables = json.loads(
+            (ckc_root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual("aws-spring-msk-sizing-50k", plan["experiment"]["name"])
+        self.assertEqual("kafka.m7g.xlarge", variables["msk_broker_instance_type"])
+        self.assertEqual("kafka.m7g.large", ckc_variables["msk_broker_instance_type"])
+        expected_differences = {"experiment_id", "msk_broker_instance_type"}
+        self.assertEqual(
+            {key: value for key, value in ckc_variables.items() if key not in expected_differences},
+            {key: value for key, value in variables.items() if key not in expected_differences},
+        )
+        self.assertEqual(3, variables["msk_number_of_broker_nodes"])
+        self.assertEqual(50000, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(5, definition["load_test"]["shards"])
+        self.assertEqual(12, plan["application"]["configuration"]["replicas"])
+        self.assertEqual(
+            [336, 156, 420],
+            [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="spring-sizing-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="msk:9092",
+            redis_host="elasticache",
+            audit_host="audit",
+        ))
+        load_job = next(item for item in manifests if item["kind"] == "Job")
+        load_environment = {
+            item["name"]: item["value"]
+            for item in load_job["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual(5, load_job["spec"]["parallelism"])
+        self.assertEqual("5", load_environment["TOTAL_SHARDS"])
+        self.assertEqual("50000", load_environment["BASE_TPS"])
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")

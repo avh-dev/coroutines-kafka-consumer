@@ -424,6 +424,7 @@
 | [INFRA-257](#infra-257) | Harden AWS Spring observability readiness, telemetry capacity, live target progress, and drain completion handling. | DONE |
 | [INFRA-258](#infra-258) | Derive the AWS target watchdog from the complete target lifecycle instead of a fixed thirty-minute timeout. | DONE |
 | [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
+| [INFRA-260](#infra-260) | Split CKC and Spring 50k sizing into independent AWS experiments with implementation-specific MSK capacity. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4928,3 +4929,14 @@ Keep generator identities disjoint while distributing the telemetry fleet across
 Run the AWS 50k comparison with five generator pods capped at approximately 10k messages per second each.
 Add regression coverage for uneven TPS division, fleet sizing, deployment manifests, and capacity planning without launching an experiment automatically.
 Verification: load-test JVM tests, 49 shared orchestration, 53 AWS, and 170 internal-lab tests pass; Python compilation, exact 10k fleet materialization, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-260"></a>
+### INFRA-260 - Split AWS sizing experiments
+
+_Date: 2026-10-01_
+
+Preserve the successful CKC 50k workload as a standalone three-broker `kafka.m7g.large` baseline.
+Move Spring Kafka into an independent sizing experiment so its MSK capacity can grow without rerunning CKC.
+Start Spring sizing at three `kafka.m7g.xlarge` brokers while keeping workload, EKS, Redis, and observability settings comparable.
+Validate both definitions and their rendered AWS resources without launching either experiment automatically.
+Verification: 50 shared orchestration and 54 AWS tests pass; both experiments resolve and materialize with identical workload and infrastructure except for identity and MSK broker type. Python compilation and whitespace validation pass; no experiment was launched.
