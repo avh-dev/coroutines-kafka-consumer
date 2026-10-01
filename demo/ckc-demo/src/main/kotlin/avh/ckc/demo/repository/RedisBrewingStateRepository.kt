@@ -9,6 +9,7 @@ import avh.ckc.demo.config.DemoRedisCommands
 import io.lettuce.core.ExperimentalLettuceCoroutinesApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import java.time.Duration
 
 class RedisSyncBrewingStateRepository(
     private val store: RedisBrewingStateStore
@@ -192,7 +193,7 @@ class RedisBrewingStateStore(
     }
 
     private fun save(key: String, value: ByteArray) {
-        redisCommands.sync().set(key, value)
+        redisCommands.sync().setex(key, STATE_RETENTION.seconds, value)
     }
 
     private fun load(key: String): ByteArray? =
@@ -206,7 +207,7 @@ class RedisBrewingStateStore(
     }
 
     private suspend fun saveSuspending(key: String, value: ByteArray) {
-        redisCommands.coroutines().set(key, value)
+        redisCommands.coroutines().setex(key, STATE_RETENTION.seconds, value)
     }
 
     private suspend fun loadSuspending(key: String): ByteArray? =
@@ -224,5 +225,9 @@ class RedisBrewingStateStore(
 
     private fun brewingStepReceiptKey(batchId: String, stepNumber: Int): String =
         "brewing-step-receipt:$batchId:$stepNumber"
+
+    private companion object {
+        private val STATE_RETENTION: Duration = Duration.ofMinutes(10)
+    }
 
 }

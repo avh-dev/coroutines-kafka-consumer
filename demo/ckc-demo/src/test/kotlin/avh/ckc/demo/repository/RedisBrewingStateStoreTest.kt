@@ -20,49 +20,53 @@ import kotlin.test.Test
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
 class RedisBrewingStateStoreTest {
     @Test
-    fun `sync state writes do not expire`() {
+    fun `sync state writes expire after ten minutes`() {
         val redisCommands = mockRedisCommands()
         val syncCommands = mockSyncCommands()
         `when`(redisCommands.sync()).thenReturn(syncCommands)
 
         RedisBrewingStateStore(redisCommands).saveBatch(sampleBatch())
 
-        verify(syncCommands).set(
+        verify(syncCommands).setex(
             eq("batch-state:batch-1"),
+            eq(600L),
             any(ByteArray::class.java)
         )
         verifyNoMoreInteractions(syncCommands)
     }
 
     @Test
-    fun `suspend state writes do not expire`() = runBlocking {
+    fun `suspend state writes expire after ten minutes`() = runBlocking {
         val redisCommands = mockRedisCommands()
         val reactiveCommands = mockReactiveCommands()
         `when`(redisCommands.coroutines()).thenReturn(RedisCoroutinesCommandsImpl(reactiveCommands))
-        `when`(reactiveCommands.set(
+        `when`(reactiveCommands.setex(
             eq("batch-state:batch-1"),
+            eq(600L),
             any(ByteArray::class.java)
         )).thenReturn(Mono.just("OK"))
 
         RedisBrewingStateStore(redisCommands).saveBatchSuspending(sampleBatch())
 
-        verify(reactiveCommands).set(
+        verify(reactiveCommands).setex(
             eq("batch-state:batch-1"),
+            eq(600L),
             any(ByteArray::class.java)
         )
         verifyNoMoreInteractions(reactiveCommands)
     }
 
     @Test
-    fun `sync brewing step receipt writes do not expire`() {
+    fun `sync brewing step receipt writes expire after ten minutes`() {
         val redisCommands = mockRedisCommands()
         val syncCommands = mockSyncCommands()
         `when`(redisCommands.sync()).thenReturn(syncCommands)
 
         RedisBrewingStateStore(redisCommands).saveBrewingStepReceipt(sampleReceipt())
 
-        verify(syncCommands).set(
+        verify(syncCommands).setex(
             eq("brewing-step-receipt:batch-1:3"),
+            eq(600L),
             any(ByteArray::class.java)
         )
         verifyNoMoreInteractions(syncCommands)

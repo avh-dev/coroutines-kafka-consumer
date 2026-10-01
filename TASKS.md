@@ -166,6 +166,7 @@
 | [DEMO-98](#demo-98) | Support arbitrary percentile latency distributions in demo-stub settings. | DONE |
 | [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
 | [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
+| [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4793,6 +4794,16 @@ Apply each same-key brewing-step burst to one simulated batch without retaining 
 Keep the simulated brewing population bounded by active cauldrons during sustained generation.
 Add regression coverage for repeated bursts and lifecycle completion.
 Verification: all `ckc-demo-load-test` tests pass; whitespace validation passes.
+
+<a id="demo-101"></a>
+### DEMO-101 - Restore bounded Redis state retention
+
+_Date: 2026-10-01_
+
+Expire every demo business-state key ten minutes after its latest write so sustained high-rate experiments cannot exhaust Redis memory.
+Apply the same atomic Redis TTL operation to synchronous and coroutine repository paths, including brewing-step receipts.
+Retain explicit Redis flushing between targets while keeping active workflow state alive well beyond the experiment latency SLA.
+Verification: all `ckc-demo` tests pass; whitespace validation passes.
 
 <a id="infra-250"></a>
 ### INFRA-250 - Correct MSK CloudWatch capacity metrics
