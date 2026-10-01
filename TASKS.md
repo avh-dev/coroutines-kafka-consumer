@@ -417,6 +417,7 @@
 | [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
 | [INFRA-253](#infra-253) | Tune the AWS 50k sizing workload for production-like Kafka batching and fleet cardinality. | DONE |
 | [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
+| [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4845,3 +4846,15 @@ Announce artifact collection, paid-resource cleanup, local audit analysis, and e
 Keep terminal success or failure notifications after verified cleanup while exposing enough intermediate state to distinguish useful work from AWS teardown latency.
 Read streamed audit objects with the normalized S3 key returned by AWS so audit finalization does not falsely fail after a successful upload.
 Verification: 44 AWS, 15 notification, and 168 internal-lab tests pass; Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. No experiment was launched.
+
+<a id="infra-255"></a>
+### INFRA-255 - Compare AWS targets on one fixed lab
+
+_Date: 2026-10-01_
+
+Run CKC and Spring Kafka sequentially against one fixed non-burstable AWS lab so their application, dependency, and MSK measurements are directly comparable.
+Ramp traffic from zero for three minutes before the full 50k steady-state window to isolate startup and JIT cost from measured capacity.
+Reserve 32 EKS vCPU for both targets so shared cluster pressure does not cap Spring before its application demand can be measured.
+Render the actual flat producer settings preserved in run metadata, including per-topic overrides, instead of unrelated report defaults.
+Keep audit streaming, lifecycle notifications, cleanup verification, and offline evidence generation enabled for both targets.
+Verification: 47 shared orchestration, 44 AWS, and 169 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.

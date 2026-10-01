@@ -656,7 +656,13 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     load_test = metadata.get("load_test") if isinstance(metadata.get("load_test"), dict) else {}
     common_consumer = kafka.get("consumer") if isinstance(kafka.get("consumer"), dict) else {}
     topic_consumers = kafka.get("topic_consumers") if isinstance(kafka.get("topic_consumers"), dict) else {}
-    shared_producer = load_test.get("kafka_producer") if isinstance(load_test.get("kafka_producer"), dict) else {}
+    producer_keys = ("linger_ms", "batch_size", "compression_type", "buffer_memory")
+    shared_producer = {
+        key: load_test.get(f"kafka_producer_{key}")
+        for key in producer_keys
+    }
+    if isinstance(load_test.get("kafka_producer"), dict):
+        shared_producer.update(load_test["kafka_producer"])
     topic_producers = (
         load_test.get("topic_kafka_producers")
         if isinstance(load_test.get("topic_kafka_producers"), dict)
@@ -691,7 +697,12 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
             continue
         topic_name = str(item.get("name") or "")
         consumer = topic_consumers.get(topic_name) if isinstance(topic_consumers.get(topic_name), dict) else {}
-        producer = topic_producers.get(topic_name) if isinstance(topic_producers.get(topic_name), dict) else {}
+        producer = {
+            key: load_test.get(f"{topic_name}_kafka_producer_{key}")
+            for key in producer_defaults
+        }
+        if isinstance(topic_producers.get(topic_name), dict):
+            producer.update(topic_producers[topic_name])
         topics.append(
             {
                 "name": topic_name,

@@ -1,6 +1,6 @@
 schema_version: 2
-name: aws-ckc-msk-sizing-50k
-description: Size twelve fixed CKC replicas and a non-burstable three-broker MSK cluster at a constant 50k/s.
+name: aws-spring-ckc-msk-comparison-50k
+description: Compare twelve fixed CKC and Spring Kafka replicas on one non-burstable AWS lab at a constant 50k/s.
 workload:
   stubs:
     error_rate_percent: 0
@@ -30,7 +30,7 @@ workload:
       order: 10000
       batch: 10000
       telemetry: 10000
-    load_profile: 100 -> (3m, warmup) -> 100 -> (17m, steady) -> 100
+    load_profile: 0 -> (3m, warmup) -> 100 -> (20m, steady) -> 100
     cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -59,7 +59,7 @@ workload:
   measurement_window:
     name: steady-state
     start: 3m
-    duration: 17m
+    duration: 20m
   topics:
     order:
       kafka_topic: order.events.v1
@@ -125,6 +125,47 @@ targets:
         workers: 500
         queue_capacity: 4096
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+- name: spring-kafka.fixed-12
+  implementation: spring-kafka
+  application:
+    replicas: 12
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: false
+    java_options: -Xms512m -Xmx1536m -Xss256k
+  runtime:
+    env:
+      PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 14
+      batch_ms: 9
+      telemetry_ms: 41
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   aws:
     region: eu-central-1
@@ -147,9 +188,9 @@ environments:
       nodes:
         instance_types:
         - m7i.xlarge
-        desired_size: 5
-        min_size: 5
-        max_size: 5
+        desired_size: 8
+        min_size: 8
+        max_size: 8
         disk_size_gib: 100
       kafka:
         mode: msk
