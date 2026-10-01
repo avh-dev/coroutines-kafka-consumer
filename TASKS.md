@@ -425,6 +425,7 @@
 | [INFRA-258](#infra-258) | Derive the AWS target watchdog from the complete target lifecycle instead of a fixed thirty-minute timeout. | DONE |
 | [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
 | [INFRA-260](#infra-260) | Split CKC and Spring 50k sizing into independent AWS experiments with implementation-specific MSK capacity. | DONE |
+| [INFRA-261](#infra-261) | Remove redundant AWS business-topic provisioning and harden asynchronous MSK topic resets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4940,3 +4941,14 @@ Move Spring Kafka into an independent sizing experiment so its MSK capacity can 
 Start Spring sizing at three `kafka.m7g.xlarge` brokers while keeping workload, EKS, Redis, and observability settings comparable.
 Validate both definitions and their rendered AWS resources without launching either experiment automatically.
 Verification: 50 shared orchestration and 54 AWS tests pass; both experiments resolve and materialize with identical workload and infrastructure except for identity and MSK broker type. Python compilation and whitespace validation pass; no experiment was launched.
+
+<a id="infra-261"></a>
+### INFRA-261 - Fix AWS topic lifecycle
+
+_Date: 2026-10-01_
+
+Keep broker warm-up isolated on disposable `ckc.warmup.v1.*` topics and stop provisioning experiment topics during AWS lab creation.
+Create business topics only during target preparation and wait for MSK deletion by exact topic-list membership rather than `describe` exit status.
+Retry creation while MSK still reports a topic marked for deletion and detect a failed Kafka admin pod without waiting for the full timeout.
+Add regression coverage for the generated admin workflow and AWS lab bootstrap without launching an experiment automatically.
+Verification: 59 AWS, 50 shared orchestration, and 170 internal-lab tests pass; the generated Kafka admin script executes the asynchronous-deletion regression scenario successfully. Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
