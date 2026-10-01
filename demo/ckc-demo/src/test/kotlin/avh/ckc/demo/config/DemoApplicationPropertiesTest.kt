@@ -13,6 +13,8 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(true, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.MICROMETER, properties.consumers.metricsImplementation)
+        assertEquals(false, properties.consumers.kafkaClientMetricsEnabled)
+        assertEquals(false, properties.consumers.springKafkaListenerMetricsEnabled)
         assertEquals(DemoApplicationProperties.ProcessingDispatcherType.AUTO, properties.consumers.processingDispatcherType)
         assertEquals(8, properties.consumers.workerDispatcherThreads)
         assertEquals("demo-processing-virtual-", properties.consumers.virtualThreadNamePrefix)
@@ -57,6 +59,8 @@ class DemoApplicationPropertiesTest {
             mapOf(
                 "demo.consumers.processing-enabled" to "false",
                 "demo.consumers.metrics-implementation" to "noop",
+                "demo.consumers.kafka-client-metrics-enabled" to "true",
+                "demo.consumers.spring-kafka-listener-metrics-enabled" to "true",
                 "demo.consumers.processing-dispatcher-type" to "virtual",
                 "demo.consumers.worker-dispatcher-threads" to "6",
                 "demo.consumers.virtual-thread-name-prefix" to "demo-test-virtual-",
@@ -99,6 +103,8 @@ class DemoApplicationPropertiesTest {
 
         assertEquals(false, properties.consumers.processingEnabled)
         assertEquals(DemoApplicationProperties.MetricsImplementation.NOOP, properties.consumers.metricsImplementation)
+        assertEquals(true, properties.consumers.kafkaClientMetricsEnabled)
+        assertEquals(true, properties.consumers.springKafkaListenerMetricsEnabled)
         assertEquals(DemoApplicationProperties.ProcessingDispatcherType.VIRTUAL, properties.consumers.processingDispatcherType)
         assertEquals(6, properties.consumers.workerDispatcherThreads)
         assertEquals("demo-test-virtual-", properties.consumers.virtualThreadNamePrefix)

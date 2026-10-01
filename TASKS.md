@@ -167,6 +167,7 @@
 | [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
 | [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
+| [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -4804,6 +4805,16 @@ _Date: 2026-10-01_
 Expire every demo business-state key ten minutes after its latest write so sustained high-rate experiments cannot exhaust Redis memory.
 Apply the same atomic Redis TTL operation to synchronous and coroutine repository paths, including brewing-step receipts.
 Retain explicit Redis flushing between targets while keeping active workflow state alive well beyond the experiment latency SLA.
+Verification: all `ckc-demo` tests pass; whitespace validation passes.
+
+<a id="demo-102"></a>
+### DEMO-102 - Disable high-cardinality consumer metrics by default
+
+_Date: 2026-10-01_
+
+Disable per-KafkaConsumer client metrics by default while retaining an explicit opt-in switch.
+Add a separate opt-in for Spring Kafka listener timers so hundreds of listener containers do not multiply redundant timer series.
+Keep the shared demo processing, end-to-end latency, audit, and Thread Stats evidence unchanged across implementations.
 Verification: all `ckc-demo` tests pass; whitespace validation passes.
 
 <a id="infra-250"></a>

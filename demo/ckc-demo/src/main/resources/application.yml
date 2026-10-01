@@ -183,7 +183,8 @@ demo:
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
-    kafka-client-metrics-enabled: ${KAFKA_CLIENT_METRICS_ENABLED:true}
+    kafka-client-metrics-enabled: ${KAFKA_CLIENT_METRICS_ENABLED:false}
+    spring-kafka-listener-metrics-enabled: ${SPRING_KAFKA_LISTENER_METRICS_ENABLED:false}
     processing-dispatcher-type: ${PROCESSING_DISPATCHER_TYPE:AUTO}
     worker-dispatcher-threads: ${WORKER_DISPATCHER_THREADS:8}
     virtual-thread-name-prefix: ${PROCESSING_DISPATCHER_VIRTUAL_THREAD_NAME_PREFIX:demo-processing-virtual-}

@@ -32,10 +32,19 @@ class KafkaConsumerClientMetricsTest {
     @Test
     fun `noop metrics implementation disables kafka client metrics`() {
         val properties = DemoApplicationProperties()
+        properties.consumers.kafkaClientMetricsEnabled = true
         assertTrue(properties.kafkaClientMetricsEnabled)
 
         properties.consumers.metricsImplementation = DemoApplicationProperties.MetricsImplementation.NOOP
 
         assertFalse(properties.kafkaClientMetricsEnabled)
+    }
+
+    @Test
+    fun `high cardinality consumer metrics are disabled by default`() {
+        val properties = DemoApplicationProperties()
+
+        assertFalse(properties.kafkaClientMetricsEnabled)
+        assertFalse(properties.springKafkaListenerMetricsEnabled)
     }
 }

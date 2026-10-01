@@ -66,6 +66,7 @@ class SpringKafkaProfileContextTest(
     @Test
     fun `spring kafka lifecycle listeners use time based offset commits`() {
         val properties = DemoApplicationProperties().apply {
+            consumers.kafkaClientMetricsEnabled = true
             kafka.consumer.commitIntervalMs = 1_234
             kafka.consumer.fetchMinBytes = 8_192
             consumers.order.processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
@@ -100,6 +101,9 @@ class SpringKafkaProfileContextTest(
         assertKafkaClientMetrics(orderConsumerFactory, "order_events")
         assertKafkaClientMetrics(batchConsumerFactory, "batch_events")
         assertKafkaClientMetrics(telemetryConsumerFactory, "cauldron_events")
+        assertFalse(orderContainerFactory.containerProperties.isMicrometerEnabled)
+        assertFalse(batchContainerFactory.containerProperties.isMicrometerEnabled)
+        assertFalse(telemetryContainerFactory.containerProperties.isMicrometerEnabled)
         assertProcessingRecovery(orderContainerFactory)
         assertProcessingRecovery(batchContainerFactory)
         assertProcessingRecovery(telemetryContainerFactory)

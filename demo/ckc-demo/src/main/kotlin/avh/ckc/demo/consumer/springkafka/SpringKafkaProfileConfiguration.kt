@@ -4,6 +4,7 @@ import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.kafkaConsumerFactoryWithClientMetrics
 import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
+import avh.ckc.demo.consumer.springKafkaListenerMetricsEnabled
 import avh.ckc.demo.consumer.requireSupportedBySpringKafka
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logRetryAttempt
@@ -57,6 +58,7 @@ class SpringKafkaProfileConfiguration {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.order.pollLoopConcurrency)
             setCommonErrorHandler(demoProcessingErrorHandler(properties))
+            containerProperties.setMicrometerEnabled(properties.springKafkaListenerMetricsEnabled)
             configureTimeBasedCommits(properties)
         }
 
@@ -85,6 +87,7 @@ class SpringKafkaProfileConfiguration {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.batch.pollLoopConcurrency)
             setCommonErrorHandler(demoProcessingErrorHandler(properties))
+            containerProperties.setMicrometerEnabled(properties.springKafkaListenerMetricsEnabled)
             configureTimeBasedCommits(properties)
         }
 
@@ -113,6 +116,7 @@ class SpringKafkaProfileConfiguration {
             this.consumerFactory = consumerFactory
             setConcurrency(properties.consumers.telemetry.pollLoopConcurrency)
             setCommonErrorHandler(demoProcessingErrorHandler(properties))
+            containerProperties.setMicrometerEnabled(properties.springKafkaListenerMetricsEnabled)
         }
 
     private fun demoProcessingErrorHandler(properties: DemoApplicationProperties): DefaultErrorHandler {

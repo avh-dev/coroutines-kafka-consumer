@@ -88,6 +88,7 @@ class SpringKafkaCoroutinesNaiveProfileContextTest(
     @Test
     fun `naive listener factories use batch listener admission and container commits`() {
         val properties = DemoApplicationProperties().apply {
+            consumers.kafkaClientMetricsEnabled = true
             kafka.consumer.commitIntervalMs = 1_234
         }
         val configuration = SpringKafkaCoroutinesNaiveProfileConfiguration()
@@ -121,6 +122,9 @@ class SpringKafkaCoroutinesNaiveProfileContextTest(
         assertKafkaClientMetrics(orderConsumerFactory, "order_events")
         assertKafkaClientMetrics(batchConsumerFactory, "batch_events")
         assertKafkaClientMetrics(telemetryConsumerFactory, "cauldron_events")
+        assertEquals(false, orderContainerFactory.containerProperties.isMicrometerEnabled)
+        assertEquals(false, batchContainerFactory.containerProperties.isMicrometerEnabled)
+        assertEquals(false, telemetryContainerFactory.containerProperties.isMicrometerEnabled)
         assertNaiveBatchAdmissionRecovery(orderContainerFactory)
         assertNaiveBatchAdmissionRecovery(batchContainerFactory)
         assertNaiveBatchAdmissionRecovery(telemetryContainerFactory)

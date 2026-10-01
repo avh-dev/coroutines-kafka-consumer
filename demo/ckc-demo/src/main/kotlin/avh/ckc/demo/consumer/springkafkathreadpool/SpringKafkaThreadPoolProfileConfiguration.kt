@@ -6,6 +6,7 @@ import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.kafkaConsumerFactoryWithClientMetrics
 import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
+import avh.ckc.demo.consumer.springKafkaListenerMetricsEnabled
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -162,6 +163,7 @@ class SpringKafkaThreadPoolProfileConfiguration {
             setBatchListener(true)
             setConcurrency(runtime.pollLoopConcurrency)
             setCommonErrorHandler(threadPoolAdmissionErrorHandler(properties))
+            containerProperties.setMicrometerEnabled(properties.springKafkaListenerMetricsEnabled)
             containerProperties.isStopImmediate = true
             containerProperties.shutdownTimeout = 5_000L
             setAutoStartup(true)

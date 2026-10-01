@@ -8,6 +8,7 @@ import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
 import avh.ckc.demo.consumer.kafkaConsumerFactoryWithClientMetrics
 import avh.ckc.demo.consumer.kafkaClientMetricsEnabled
+import avh.ckc.demo.consumer.springKafkaListenerMetricsEnabled
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
@@ -170,6 +171,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
             setBatchListener(true)
             setConcurrency(runtime.pollLoopConcurrency)
             setCommonErrorHandler(naiveBatchAdmissionErrorHandler(properties))
+            containerProperties.setMicrometerEnabled(properties.springKafkaListenerMetricsEnabled)
             containerProperties.isStopImmediate = true
             containerProperties.shutdownTimeout = 5_000L
             setAutoStartup(true)
