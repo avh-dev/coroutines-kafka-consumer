@@ -21,7 +21,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 SHARED_INFRA = Path(__file__).resolve().parents[2] / "shared"
@@ -36,6 +36,7 @@ from result_bundle import finalize as finalize_artifacts
 
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
+RUN_PHASE_PREFIX = "CKC_RUN_PHASE "
 
 
 def utc_now() -> datetime:
@@ -77,6 +78,54 @@ def load_profile_seconds(profile: str) -> int:
 
 class CommandError(RuntimeError):
     pass
+
+
+class TargetRunProgress:
+    def __init__(self) -> None:
+        self.workload_finished = False
+        self.drain_started_at: float | None = None
+        self.drain_lag: float | None = None
+        self.drain_wait_notified = False
+
+    @staticmethod
+    def _timestamp(value: Any, fallback: float) -> float:
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            return fallback
+
+    def observe(self, output: str, *, now: float | None = None) -> list[dict[str, Any]]:
+        observed_at = time.time() if now is None else now
+        notifications: list[dict[str, Any]] = []
+        for line in output.splitlines():
+            marker = line.find(RUN_PHASE_PREFIX)
+            if marker < 0:
+                continue
+            try:
+                event = json.loads(line[marker + len(RUN_PHASE_PREFIX):])
+            except json.JSONDecodeError:
+                continue
+            phase = event.get("phase")
+            if phase == "workload_finished" and not self.workload_finished:
+                self.workload_finished = True
+                notifications.append({"event": "workload_finished"})
+            elif phase == "consumer_drain_started" and self.drain_started_at is None:
+                self.drain_started_at = self._timestamp(event.get("timestamp"), observed_at)
+                self.drain_lag = event.get("lag")
+            elif phase == "consumer_drain_finished":
+                self.drain_started_at = None
+        if (
+            self.drain_started_at is not None
+            and not self.drain_wait_notified
+            and observed_at - self.drain_started_at >= 30
+        ):
+            self.drain_wait_notified = True
+            notifications.append({
+                "event": "consumer_drain_waiting",
+                "elapsed_seconds": observed_at - self.drain_started_at,
+                "lag": self.drain_lag,
+            })
+        return notifications
 
 
 class SessionController:
@@ -307,7 +356,15 @@ class SessionController:
             time.sleep(10)
         raise TimeoutError(f"Runner did not become EC2/SSM-ready: {instance_id}")
 
-    def ssm(self, command: str, comment: str, timeout_seconds: int = 7200, *, check: bool = True) -> dict[str, Any]:
+    def ssm(
+        self,
+        command: str,
+        comment: str,
+        timeout_seconds: int = 7200,
+        *,
+        check: bool = True,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         instance_id = self.state["runner_instance_id"]
         region = self.config["region"]
         parameter_file = self.session_dir / "tmp" / f"ssm-{uuid.uuid4().hex}.json"
@@ -339,6 +396,8 @@ class SessionController:
                 if status and status != last_status:
                     print(f"    SSM {comment}: {status}", flush=True)
                     last_status = status
+                if progress is not None:
+                    progress(invocation)
                 if status in TERMINAL_SSM_STATUSES:
                     break
             time.sleep(10)
@@ -568,6 +627,7 @@ class SessionController:
         for index, target in enumerate(targets, start=1):
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
+            remote_phase_log = f"/opt/ckc-runner/reports/session-{run_id}.phases.jsonl"
             audit_enabled = target.get("audit_log_enabled", True) is not False
             audit_prefix = self.audit_stream_prefix(target)
             prefetch_stop = threading.Event()
@@ -604,11 +664,20 @@ class SessionController:
                 audit_finalize = None
             command = (
                 "set -uo pipefail; "
+                f"phase_log={shlex.quote(remote_phase_log)}; "
+                f"session_log={shlex.quote(remote_log)}; "
+                ': > "$phase_log"; '
+                'tail -n 0 -F "$phase_log" & phase_tail_pid=$!; '
+                "trap 'kill \"$phase_tail_pid\" >/dev/null 2>&1 || true' EXIT; "
                 + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
+                + 'CKC_RUN_PHASE_FILE="$phase_log" '
                 + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
-                f"2>&1 | tee {shlex.quote(remote_log)}; exit ${{PIPESTATUS[0]}}"
+                '> "$session_log" 2>&1; status=$?; '
+                'sleep 1; kill "$phase_tail_pid" >/dev/null 2>&1 || true; '
+                'wait "$phase_tail_pid" >/dev/null 2>&1 || true; trap - EXIT; '
+                'cat "$phase_log"; exit "$status"'
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
             self.notify("target_started", {
@@ -623,30 +692,81 @@ class SessionController:
                 "expected_duration_seconds": target.get("duration_seconds"),
             })
             workload_started = time.monotonic()
+            run_progress = TargetRunProgress()
+
+            def report_run_progress(invocation: dict[str, Any]) -> None:
+                output = str(invocation.get("StandardOutputContent", ""))
+                output += str(invocation.get("StandardErrorContent", ""))
+                for progress_event in run_progress.observe(output):
+                    if progress_event["event"] == "workload_finished":
+                        self.notify("target_workload_finished", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "elapsed_seconds": time.monotonic() - workload_started,
+                            "status": "completed",
+                            "next_step": "checking consumer lag and collecting target evidence",
+                        })
+                    elif progress_event["event"] == "consumer_drain_waiting":
+                        self.notify("target_drain_waiting", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "elapsed_seconds": progress_event["elapsed_seconds"],
+                            "lag": progress_event["lag"],
+                        })
+
             try:
                 workload_invocation = self.ssm(
                     command,
                     f"run AWS experiment workload {index}/{len(targets)}: {target['name']}",
                     config["test_timeout_seconds"],
                     check=False,
+                    progress=report_run_progress,
                 )
-                self.notify("target_workload_finished", {
-                    "experiment": config["experiment_name"],
-                    "environment": {"name": "aws", "detail": config["region"]},
-                    "index": index,
-                    "total": len(targets),
-                    "id": target["id"],
-                    "name": target["name"],
-                    "elapsed_seconds": time.monotonic() - workload_started,
-                    "status": workload_invocation.get("Status"),
-                    "next_step": "finalizing audit stream" if audit_finalize else "collecting artifacts",
-                })
+                if not run_progress.workload_finished:
+                    self.notify("target_workload_finished", {
+                        "experiment": config["experiment_name"],
+                        "environment": {"name": "aws", "detail": config["region"]},
+                        "index": index,
+                        "total": len(targets),
+                        "id": target["id"],
+                        "name": target["name"],
+                        "elapsed_seconds": time.monotonic() - workload_started,
+                        "status": workload_invocation.get("Status"),
+                        "next_step": "finalizing audit stream" if audit_finalize else "collecting artifacts",
+                    })
+                audit_started = time.monotonic()
+                audit_wait_notified = False
+
+                def report_audit_progress(_invocation: dict[str, Any]) -> None:
+                    nonlocal audit_wait_notified
+                    elapsed = time.monotonic() - audit_started
+                    if not audit_wait_notified and elapsed >= 30:
+                        audit_wait_notified = True
+                        self.notify("target_audit_waiting", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "elapsed_seconds": elapsed,
+                        })
+
                 audit_invocation = (
                     self.ssm(
                         audit_finalize,
                         f"finalize AWS audit stream {index}/{len(targets)}: {target['name']}",
                         900,
                         check=False,
+                        progress=report_audit_progress,
                     )
                     if audit_finalize
                     else {"Status": "Success"}
@@ -1489,14 +1609,30 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     lab = (resolved.environment_definition or {}).get("lab") or {}
     kafka_lab = lab.get("kafka") or {}
     kafka_brokers = kafka_lab.get("kubernetes_brokers") or kafka_lab.get("msk_brokers")
+    kafka_mode = kafka_lab.get("mode") or terraform_lab_inputs.get("kafka_mode")
+    kafka_instance_type = kafka_lab.get("msk_instance_type") or terraform_lab_inputs.get("msk_broker_instance_type")
     kafka = {
-        "implementation": "apache-kafka",
+        "implementation": "Amazon MSK" if kafka_mode == "msk" else "apache-kafka",
         "topology": "cluster" if kafka_brokers and int(kafka_brokers) > 1 else "single",
         "brokers": kafka_brokers,
         "replication_factor": int(
             kafka_lab.get("replication_factor") or min(3, int(kafka_brokers or 1))
         ),
-        "mode": kafka_lab.get("mode"),
+        "mode": kafka_mode,
+        **({"instance_type": kafka_instance_type} if kafka_instance_type else {}),
+    }
+    redis_lab = lab.get("redis") or {}
+    redis_mode = redis_lab.get("mode") or terraform_lab_inputs.get("elasticache_mode")
+    redis = {
+        "implementation": "Amazon ElastiCache" if redis_mode == "elasticache" else "Redis",
+        "mode": redis_mode,
+        "node_type": redis_lab.get("elasticache_node_type") or terraform_lab_inputs.get("elasticache_node_type"),
+        "nodes": redis_lab.get("elasticache_nodes") or terraform_lab_inputs.get("elasticache_num_cache_clusters"),
+    }
+    nodes_lab = lab.get("nodes") or {}
+    eks = {
+        "instance_types": nodes_lab.get("instance_types") or terraform_lab_inputs.get("node_instance_types"),
+        "nodes": nodes_lab.get("desired_size") or terraform_lab_inputs.get("node_desired_size"),
     }
     return {
         "schema_version": 1,
@@ -1525,6 +1661,8 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "test_definition": targets[0]["remote_definition"],
             "targets": targets,
             "kafka": kafka,
+            "redis": redis,
+            "eks": eks,
             "expected_duration_seconds": sum(int(target["duration_seconds"]) for target in targets),
             "test_timeout_seconds": args.test_timeout_seconds,
         },
@@ -1609,6 +1747,8 @@ def main() -> None:
         "experiment": controller.config["experiment_name"],
         "environment": {"name": "aws", "detail": controller.config["region"]},
         "kafka": controller.config["kafka"],
+        "redis": controller.config["redis"],
+        "eks": controller.config["eks"],
         "targets": controller.config["targets"],
         "expected_duration_seconds": controller.config["expected_duration_seconds"],
     })

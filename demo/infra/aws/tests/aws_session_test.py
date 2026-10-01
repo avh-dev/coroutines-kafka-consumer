@@ -303,6 +303,70 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
         self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
 
+    def test_target_progress_reports_only_a_long_active_consumer_drain(self) -> None:
+        progress = session_module.TargetRunProgress()
+        active_output = "\n".join([
+            'CKC_RUN_PHASE {"phase":"workload_finished","timestamp":"1970-01-01T00:01:40Z"}',
+            'CKC_RUN_PHASE {"lag":1875,"phase":"consumer_drain_started","timestamp":"1970-01-01T00:01:40Z"}',
+        ])
+
+        self.assertEqual(
+            [{"event": "workload_finished"}],
+            progress.observe(active_output, now=120),
+        )
+        self.assertEqual(
+            [{"event": "consumer_drain_waiting", "elapsed_seconds": 31.0, "lag": 1875}],
+            progress.observe(active_output, now=131),
+        )
+        finished_output = active_output + (
+            '\nCKC_RUN_PHASE {"lag":0,"phase":"consumer_drain_finished",'
+            '"status":"DRAINED","timestamp":"1970-01-01T00:02:15Z"}'
+        )
+        self.assertEqual([], progress.observe(finished_output, now=140))
+
+    def test_runner_phase_events_are_mirrored_to_the_dedicated_progress_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            progress_file = Path(directory) / "phases.jsonl"
+            with (
+                patch.dict(run_test_module.os.environ, {"CKC_RUN_PHASE_FILE": str(progress_file)}),
+                redirect_stdout(io.StringIO()),
+            ):
+                run_test_module.emit_run_phase("workload_finished", run_id="run-ckc")
+
+            line = progress_file.read_text(encoding="utf-8").strip()
+
+        self.assertTrue(line.startswith("CKC_RUN_PHASE "))
+        self.assertEqual("workload_finished", json.loads(line.split(" ", 1)[1])["phase"])
+
+    def test_aws_notifies_when_audit_finalization_exceeds_thirty_seconds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "audit-bucket"
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": True,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+
+            def ssm(_command: str, comment: str, *_args: object, **kwargs: object) -> dict[str, str]:
+                if "finalize AWS audit stream" in comment:
+                    kwargs["progress"]({"Status": "InProgress"})
+                return {"Status": "Success"}
+
+            with (
+                patch.object(controller, "notify") as notify,
+                patch.object(controller, "ssm", side_effect=ssm),
+                patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}),
+                patch.object(session_module.time, "monotonic", side_effect=[0.0, 1.0, 2.0, 33.0]),
+            ):
+                controller.execute_test()
+
+        self.assertIn("target_audit_waiting", [call.args[0] for call in notify.call_args_list])
+
     def test_aws_streams_and_prefetches_audit_while_target_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
@@ -473,6 +537,30 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("eu-central-1", config["region"])
         self.assertEqual(["m7i.large"], config["terraform_lab_inputs"]["node_instance_types"])
         self.assertEqual(2000, config["latency_limits"]["order.events.v1"])
+
+    def test_new_state_exposes_concrete_aws_resource_types_for_notifications(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=3600,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("kafka.m7g.large", config["kafka"]["instance_type"])
+        self.assertEqual({
+            "implementation": "Amazon ElastiCache",
+            "mode": "elasticache",
+            "node_type": "cache.r7g.large",
+            "nodes": 2,
+        }, config["redis"])
+        self.assertEqual({"instance_types": ["m7i.xlarge"], "nodes": 8}, config["eks"])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
