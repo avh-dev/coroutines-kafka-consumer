@@ -426,6 +426,7 @@
 | [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
 | [INFRA-260](#infra-260) | Split CKC and Spring 50k sizing into independent AWS experiments with implementation-specific MSK capacity. | DONE |
 | [INFRA-261](#infra-261) | Remove redundant AWS business-topic provisioning and harden asynchronous MSK topic resets. | DONE |
+| [INFRA-262](#infra-262) | Run the internal-lab load generator in Kubernetes with experiment-controlled workload placement and bounded execution threads. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4952,3 +4953,14 @@ Create business topics only during target preparation and wait for MSK deletion 
 Retry creation while MSK still reports a topic marked for deletion and detect a failed Kafka admin pod without waiting for the full timeout.
 Add regression coverage for the generated admin workflow and AWS lab bootstrap without launching an experiment automatically.
 Verification: 59 AWS, 50 shared orchestration, and 170 internal-lab tests pass; the generated Kafka admin script executes the asynchronous-deletion regression scenario successfully. Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-262"></a>
+### INFRA-262 - Run the internal-lab load generator in Kubernetes
+
+_Date: 2026-10-02_
+
+Move internal-lab load generation from a host process to the shared indexed Kubernetes Job used by AWS.
+Allow experiments to place application, stubs, and generator workloads on semantic controller or worker node roles.
+Keep independent generator state shards while executing them on separately bounded coroutine dispatcher threads.
+Add a local single-broker noop 50k qualification experiment and preserve aggregate TPS division inside each indexed generator pod.
+Validate the generator tests and both shared/internal orchestration suites, then install the updated runtime and image on both lab nodes without starting the experiment.

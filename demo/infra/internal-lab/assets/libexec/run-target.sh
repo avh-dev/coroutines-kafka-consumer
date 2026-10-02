@@ -107,10 +107,10 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--worker-dispatcher-threads positive-integer] [test-definition]
 
 Selects an internal-lab consumer profile and test definition, prepares the lab when
-needed, then runs the load-test generator on the lab host.
+needed, then runs the load-test generator as an indexed Kubernetes Job.
 
 Options:
-  --skip-prepare   Start only the lab-host load-test process.
+  --skip-prepare   Start only the Kubernetes load-test Job.
   --skip-drain-wait
                    Do not wait for Kafka consumer lag to reach zero before audit analysis.
   --skip-analysis  Finalize the raw audit log but leave analysis for a later step.
@@ -325,23 +325,35 @@ REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
 export LAB_HOST LAB_NODE_IP LAB_ROOT LAB_TOPOLOGY
 export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET
 export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR
-case "${EXPERIMENT_APPLICATION_PLACEMENT:-}" in
-  controller)
-    LAB_APPLICATION_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR}"
-    ;;
-  worker)
-    if [[ -z "${LAB_APPLICATION_TARGET:-}" || -z "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
-      echo "Target application placement 'worker' requires a split internal lab with an application worker." >&2
-      exit 1
-    fi
-    ;;
-  "")
-    ;;
-  *)
-    echo "Unsupported target application placement: ${EXPERIMENT_APPLICATION_PLACEMENT}" >&2
-    exit 1
-    ;;
-esac
+LAB_WORKER_NODE_SELECTOR="${LAB_APPLICATION_NODE_SELECTOR:-}"
+
+node_selector_for_placement() {
+  local component="$1"
+  local placement="$2"
+  case "${placement}" in
+    controller|"") printf '%s\n' "${LAB_CONTROLLER_NODE_SELECTOR}" ;;
+    worker)
+      if [[ -z "${LAB_APPLICATION_TARGET:-}" || -z "${LAB_WORKER_NODE_SELECTOR:-}" ]]; then
+        echo "Target ${component} placement 'worker' requires a split internal lab with an application worker." >&2
+        return 1
+      fi
+      printf '%s\n' "${LAB_WORKER_NODE_SELECTOR}"
+      ;;
+    *)
+      echo "Unsupported target ${component} placement: ${placement}" >&2
+      return 1
+      ;;
+  esac
+}
+
+if [[ -n "${EXPERIMENT_APPLICATION_PLACEMENT:-}" ]]; then
+  LAB_APPLICATION_NODE_SELECTOR="$(node_selector_for_placement application "${EXPERIMENT_APPLICATION_PLACEMENT}")"
+else
+  LAB_APPLICATION_NODE_SELECTOR="${LAB_WORKER_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR}}"
+fi
+LAB_STUBS_NODE_SELECTOR="$(node_selector_for_placement stubs "${EXPERIMENT_STUBS_PLACEMENT:-controller}")"
+LAB_LOAD_TEST_NODE_SELECTOR="$(node_selector_for_placement generator "${EXPERIMENT_GENERATOR_PLACEMENT:-controller}")"
+export LAB_APPLICATION_NODE_SELECTOR LAB_STUBS_NODE_SELECTOR LAB_LOAD_TEST_NODE_SELECTOR
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-}}"
 
@@ -738,9 +750,11 @@ if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" !
 fi
 if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
   KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
+  KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092,ckc-external-kafka.ckc-perf.svc.cluster.local:9093,ckc-external-kafka.ckc-perf.svc.cluster.local:9094"
   APACHE_KAFKA_ADMIN_CONTAINER="ckc-perf-kafka-1"
 else
   KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092"
+  KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092"
   APACHE_KAFKA_ADMIN_CONTAINER="ckc-perf-kafka"
 fi
 
@@ -1196,16 +1210,16 @@ reset_chaos_state() {
     python3 "${LAB_ROOT}/helpers/run-chaos-steps.py" --reset-all >/dev/null 2>&1 || true
 }
 
-PID_PATH="${PID_DIR}/load-test.pid"
+LOAD_TEST_JOB_PATH="${PID_DIR}/load-test.job"
 CHAOS_PID_PATH="${PID_DIR}/chaos.pid"
 DIAGNOSTICS_PID_PATH="${PID_DIR}/diagnostics.pid"
-if [ -f "${PID_PATH}" ]; then
-  existing_pid="$(cat "${PID_PATH}")"
-  if [ -n "${existing_pid}" ] && kill -0 "${existing_pid}" >/dev/null 2>&1; then
-    echo "Load test is already running with pid ${existing_pid}." >&2
+if [ -f "${LOAD_TEST_JOB_PATH}" ]; then
+  existing_job="$(cat "${LOAD_TEST_JOB_PATH}")"
+  if [ -n "${existing_job}" ] && kubectl -n ckc-perf get job "${existing_job}" >/dev/null 2>&1; then
+    echo "Load test Kubernetes Job already exists: ${existing_job}." >&2
     exit 1
   fi
-  rm -f "${PID_PATH}"
+  rm -f "${LOAD_TEST_JOB_PATH}"
 fi
 if [ -f "${CHAOS_PID_PATH}" ]; then
   existing_chaos_pid="$(cat "${CHAOS_PID_PATH}")"
@@ -1282,15 +1296,9 @@ else
   "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
-LOAD_TEST_BIN="${LAB_ROOT}/load-test-runtime/bin/ckc-demo-load-test"
-if [ ! -x "${LOAD_TEST_BIN}" ]; then
-  echo "Load-test runtime was not found or is not executable: ${LOAD_TEST_BIN}" >&2
-  echo "Run local demo/infra/internal-lab/scripts/update-lab.sh first." >&2
-  exit 1
-fi
-if ! command -v java >/dev/null 2>&1; then
-  echo "Java was not found on the lab host." >&2
-  echo "Run local demo/infra/internal-lab/scripts/update-lab.sh to install the lab runtime prerequisites." >&2
+if [ -z "${DEPLOYMENT_PLAN_PATH:-}" ] || [ ! -f "${DEPLOYMENT_PLAN_PATH}" ]; then
+  echo "A materialized deployment plan is required for the Kubernetes load-test Job." >&2
+  echo "Start the workload through 'lab experiment start' so the shared plan is available." >&2
   exit 1
 fi
 
@@ -1310,6 +1318,9 @@ RUN_THREAD_STATS_LOG_FILE="${RUN_THREAD_STATS_DIR}/collector.log"
 RUN_PACKET_CAPTURE_DIR="${RUN_DIAGNOSTICS_DIR}/tcpdump"
 RUN_EVENTS_FILE="${RUN_DIR}/experiment-events.jsonl"
 LOAD_TEST_LOG_FILE="${RUN_LOG_DIR}/load-test.log"
+LOAD_TEST_POD_LOG_DIR="${RUN_LOG_DIR}/load-test-pods"
+LOAD_TEST_MANIFEST="${RUN_DIR}/generated/load-test-job.yaml"
+LOAD_TEST_JOB_NAME="ckc-load-test-${RUN_ID,,}"
 THREAD_STATS_SNAPSHOT_PID_PATH="${PID_DIR}/thread-stats-${RUN_ID}.pid"
 mkdir -p "${RUN_AUDIT_DIR}" "${AUDIT_LIVE_DIR}" "${RUN_LOG_DIR}"
 : > "${RUN_EVENTS_FILE}"
@@ -1330,7 +1341,7 @@ write_run_metadata() {
   export APP_PROFILE TOPIC_SPECS STUB_SETTINGS_JSON LOAD_TEST_SHARDS BASE_TPS ORDER_EVENT_PERCENT BATCH_EVENT_PERCENT CAULDRON_TELEMETRY_PERCENT
   export ORDER_TPS_PER_PRODUCER BATCH_TPS_PER_PRODUCER CAULDRON_TELEMETRY_TPS_PER_PRODUCER LOAD_TEST_METRICS_PORT
   export LOAD_PROFILE CAULDRON_COUNT MIN_ORDERS_PER_BATCH MAX_ORDERS_PER_BATCH MIN_BREWING_STEPS MAX_BREWING_STEPS MAX_BURST
-  export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE TELEMETRY_PUBLISH_INTERVAL_SECONDS PUBLISH_ENABLED LOAD_TEST_WORKERS
+  export STATS_LOG_INTERVAL_SECONDS DIAGNOSTICS_BLOB_SIZE TELEMETRY_SOURCE_MODE TELEMETRY_PUBLISH_INTERVAL_SECONDS PUBLISH_ENABLED LOAD_TEST_WORKERS LOAD_TEST_DISPATCHER_THREADS
   export KAFKA_PRODUCER_LINGER_MS KAFKA_PRODUCER_BATCH_SIZE KAFKA_PRODUCER_COMPRESSION_TYPE KAFKA_PRODUCER_BUFFER_MEMORY
   export ORDER_KAFKA_PRODUCER_LINGER_MS ORDER_KAFKA_PRODUCER_BATCH_SIZE ORDER_KAFKA_PRODUCER_COMPRESSION_TYPE ORDER_KAFKA_PRODUCER_BUFFER_MEMORY
   export BATCH_KAFKA_PRODUCER_LINGER_MS BATCH_KAFKA_PRODUCER_BATCH_SIZE BATCH_KAFKA_PRODUCER_COMPRESSION_TYPE BATCH_KAFKA_PRODUCER_BUFFER_MEMORY
@@ -1340,7 +1351,7 @@ write_run_metadata() {
   export BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS BATCH_KAFKA_CONSUMER_MAX_POLL_RECORDS BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
   export TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_BYTES TELEMETRY_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES
   export CHAOS_STEPS_JSON DIAGNOSTIC_STEPS_JSON RUN_PACKET_CAPTURE_DIR RUN_EVENTS_FILE LOAD_TEST_LOG_FILE EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED EXPERIMENT_GRAFANA_RUN_ANNOTATIONS_ENABLED
-  export EXPERIMENT_NAME EXPERIMENT_TARGET_NAME EXPERIMENT_TARGET_INDEX EXPERIMENT_TARGET_TOTAL EXPERIMENT_RUN_ANNOTATION_LABEL EXPERIMENT_APPLICATION_PLACEMENT
+  export EXPERIMENT_NAME EXPERIMENT_TARGET_NAME EXPERIMENT_TARGET_INDEX EXPERIMENT_TARGET_TOTAL EXPERIMENT_RUN_ANNOTATION_LABEL EXPERIMENT_APPLICATION_PLACEMENT EXPERIMENT_STUBS_PLACEMENT EXPERIMENT_GENERATOR_PLACEMENT
   export CONSUMER_DRAIN_TIMEOUT_SECONDS CONSUMER_DRAIN_STABLE_SECONDS CONSUMER_DRAIN_POLL_SECONDS CONSUMER_DRAIN_IDLE_SECONDS
   export THREAD_STATS_SNAPSHOT_ENABLED THREAD_STATS_SNAPSHOT_INTERVAL_SECONDS RUN_THREAD_STATS_DIR RUN_THREAD_STATS_INDEX_FILE RUN_THREAD_STATS_SUMMARY_FILE RUN_THREAD_STATS_LOG_FILE
   python3 - <<'PY'
@@ -1463,6 +1474,7 @@ metadata = {
     "load_test": {
         "shards": env_int("LOAD_TEST_SHARDS"),
         "workers": env_int("LOAD_TEST_WORKERS"),
+        "dispatcher_threads": env_int("LOAD_TEST_DISPATCHER_THREADS"),
         "base_tps": env_int("BASE_TPS"),
         "load_profile": env("LOAD_PROFILE"),
         "publish_enabled": env_bool("PUBLISH_ENABLED"),
@@ -1508,6 +1520,11 @@ metadata = {
         },
     },
     "stubs": json.loads(env("STUB_SETTINGS_JSON", "{}")),
+    "placement": {
+        "application": env("EXPERIMENT_APPLICATION_PLACEMENT"),
+        "stubs": env("EXPERIMENT_STUBS_PLACEMENT"),
+        "generator": env("EXPERIMENT_GENERATOR_PLACEMENT"),
+    },
     "chaos_steps": json.loads(env("CHAOS_STEPS_JSON", "[]")),
     "diagnostic_steps": json.loads(env("DIAGNOSTIC_STEPS_JSON", "[]")),
     "experiment_events": {
@@ -1596,59 +1613,66 @@ fi
 
 progress_step "running_target" "running target workload" "mark-target-start"
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
-BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_HOST}" \
-TOTAL_SHARDS="${LOAD_TEST_SHARDS}" \
-JOB_COMPLETION_INDEX="${JOB_COMPLETION_INDEX:-0}" \
-TEST_RUN_ID="${RUN_ID}" \
-TEST_RUN_STARTED_AT="${RUN_STARTED_AT}" \
-ORDER_EVENTS_TOPIC="${ORDER_EVENTS_TOPIC:-order.events.v1}" \
-BATCH_EVENTS_TOPIC="${BATCH_EVENTS_TOPIC:-batch.events.v1}" \
-CAULDRON_EVENTS_TOPIC="${CAULDRON_EVENTS_TOPIC:-cauldron.events.v1}" \
-BASE_TPS="${BASE_TPS}" \
-ORDER_EVENT_PERCENT="${ORDER_EVENT_PERCENT}" \
-BATCH_EVENT_PERCENT="${BATCH_EVENT_PERCENT}" \
-CAULDRON_TELEMETRY_PERCENT="${CAULDRON_TELEMETRY_PERCENT}" \
-ORDER_TPS_PER_PRODUCER="${ORDER_TPS_PER_PRODUCER}" \
-BATCH_TPS_PER_PRODUCER="${BATCH_TPS_PER_PRODUCER}" \
-CAULDRON_TELEMETRY_TPS_PER_PRODUCER="${CAULDRON_TELEMETRY_TPS_PER_PRODUCER}" \
-LOAD_TEST_METRICS_PORT="${LOAD_TEST_METRICS_PORT}" \
-LOAD_PROFILE="${LOAD_PROFILE}" \
-CAULDRON_COUNT="${CAULDRON_COUNT}" \
-MIN_ORDERS_PER_BATCH="${MIN_ORDERS_PER_BATCH}" \
-MAX_ORDERS_PER_BATCH="${MAX_ORDERS_PER_BATCH}" \
-MIN_BREWING_STEPS="${MIN_BREWING_STEPS}" \
-MAX_BREWING_STEPS="${MAX_BREWING_STEPS}" \
-MAX_BURST="${MAX_BURST}" \
-STATS_LOG_INTERVAL_SECONDS="${STATS_LOG_INTERVAL_SECONDS}" \
-DIAGNOSTICS_BLOB_SIZE="${DIAGNOSTICS_BLOB_SIZE}" \
-TELEMETRY_SOURCE_MODE="${TELEMETRY_SOURCE_MODE}" \
-TELEMETRY_PUBLISH_INTERVAL_SECONDS="${TELEMETRY_PUBLISH_INTERVAL_SECONDS:-5}" \
-PUBLISH_ENABLED="${PUBLISH_ENABLED}" \
-AUDIT_LOG_ENABLED="${AUDIT_LOG_ENABLED}" \
-AUDIT_TCP_HOST="${AUDIT_TCP_HOST}" \
-AUDIT_TCP_PORT="${AUDIT_TCP_PORT}" \
-AUDIT_RUN_ID="${RUN_ID}" \
-LOAD_TEST_WORKERS="${LOAD_TEST_WORKERS:-}" \
-KAFKA_PRODUCER_LINGER_MS="${KAFKA_PRODUCER_LINGER_MS:-}" \
-KAFKA_PRODUCER_BATCH_SIZE="${KAFKA_PRODUCER_BATCH_SIZE:-}" \
-KAFKA_PRODUCER_COMPRESSION_TYPE="${KAFKA_PRODUCER_COMPRESSION_TYPE:-}" \
-KAFKA_PRODUCER_BUFFER_MEMORY="${KAFKA_PRODUCER_BUFFER_MEMORY:-}" \
-ORDER_KAFKA_PRODUCER_LINGER_MS="${ORDER_KAFKA_PRODUCER_LINGER_MS:-}" \
-ORDER_KAFKA_PRODUCER_BATCH_SIZE="${ORDER_KAFKA_PRODUCER_BATCH_SIZE:-}" \
-ORDER_KAFKA_PRODUCER_COMPRESSION_TYPE="${ORDER_KAFKA_PRODUCER_COMPRESSION_TYPE:-}" \
-ORDER_KAFKA_PRODUCER_BUFFER_MEMORY="${ORDER_KAFKA_PRODUCER_BUFFER_MEMORY:-}" \
-BATCH_KAFKA_PRODUCER_LINGER_MS="${BATCH_KAFKA_PRODUCER_LINGER_MS:-}" \
-BATCH_KAFKA_PRODUCER_BATCH_SIZE="${BATCH_KAFKA_PRODUCER_BATCH_SIZE:-}" \
-BATCH_KAFKA_PRODUCER_COMPRESSION_TYPE="${BATCH_KAFKA_PRODUCER_COMPRESSION_TYPE:-}" \
-BATCH_KAFKA_PRODUCER_BUFFER_MEMORY="${BATCH_KAFKA_PRODUCER_BUFFER_MEMORY:-}" \
-TELEMETRY_KAFKA_PRODUCER_LINGER_MS="${TELEMETRY_KAFKA_PRODUCER_LINGER_MS:-}" \
-TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE="${TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE:-}" \
-TELEMETRY_KAFKA_PRODUCER_COMPRESSION_TYPE="${TELEMETRY_KAFKA_PRODUCER_COMPRESSION_TYPE:-}" \
-TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY="${TELEMETRY_KAFKA_PRODUCER_BUFFER_MEMORY:-}" \
-nohup "${LOAD_TEST_BIN}" > "${LOAD_TEST_LOG_FILE}" 2>&1 &
+mkdir -p "$(dirname "${LOAD_TEST_MANIFEST}")" "${LOAD_TEST_POD_LOG_DIR}"
+LOAD_RENDER_ARGS=(
+  "${DEPLOYMENT_PLAN_PATH}"
+  --output "${LOAD_TEST_MANIFEST}"
+  --run-id "${RUN_ID}"
+  --application-image docker.io/ckc-perf/demo:latest
+  --stubs-image docker.io/ckc-perf/demo-stubs:latest
+  --load-test-image docker.io/ckc-perf/load-test:latest
+  --kafka-bootstrap "${KAFKA_BOOTSTRAP_K8S}"
+  --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
+  --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
+  --audit-port "${AUDIT_TCP_PORT}"
+  --namespace ckc-perf
+  --load-test-namespace ckc-perf
+  --pull-policy IfNotPresent
+  --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
+  --started-at "${RUN_STARTED_AT}"
+  --active-deadline-seconds 86400
+  --load-test-only
+  --load-env "AUDIT_LOG_ENABLED=${AUDIT_LOG_ENABLED}"
+)
+if [[ -n "${LOAD_TEST_WORKERS:-}" ]]; then
+  LOAD_RENDER_ARGS+=(--load-env "LOAD_TEST_WORKERS=${LOAD_TEST_WORKERS}")
+fi
+if [[ -n "${LOAD_TEST_DISPATCHER_THREADS:-}" ]]; then
+  LOAD_RENDER_ARGS+=(--load-env "LOAD_TEST_DISPATCHER_THREADS=${LOAD_TEST_DISPATCHER_THREADS}")
+fi
+if [[ -n "${LAB_LOAD_TEST_NODE_SELECTOR:-}" ]]; then
+  LOAD_RENDER_ARGS+=(--load-test-node-selector "${LAB_LOAD_TEST_NODE_SELECTOR}")
+fi
 
-PID="$!"
-echo "${PID}" > "${PID_PATH}"
+cancel_starting_load_test_job() {
+  kubectl -n ckc-perf delete job "${LOAD_TEST_JOB_NAME}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+  rm -f "${LOAD_TEST_JOB_PATH}"
+  exit 130
+}
+
+python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${LOAD_RENDER_ARGS[@]}"
+kubectl -n ckc-perf delete job "${LOAD_TEST_JOB_NAME}" --ignore-not-found=true >/dev/null
+kubectl apply -f "${LOAD_TEST_MANIFEST}"
+echo "${LOAD_TEST_JOB_NAME}" > "${LOAD_TEST_JOB_PATH}"
+trap cancel_starting_load_test_job INT TERM
+LOAD_TEST_PODS_READY=0
+for _ in $(seq 1 120); do
+  LOAD_TEST_POD_COUNT="$(kubectl -n ckc-perf get pods -l "job-name=${LOAD_TEST_JOB_NAME}" --no-headers 2>/dev/null | wc -l)"
+  if [ "${LOAD_TEST_POD_COUNT}" -ge "${LOAD_TEST_SHARDS}" ]; then
+    LOAD_TEST_PODS_READY=1
+    break
+  fi
+  sleep 1
+done
+if [ "${LOAD_TEST_PODS_READY}" -ne 1 ] || ! kubectl -n ckc-perf wait \
+  --for=condition=Ready pod -l "job-name=${LOAD_TEST_JOB_NAME}" --timeout=5m; then
+  echo "Load-test pods did not become ready." >&2
+  kubectl -n ckc-perf get pods -l "job-name=${LOAD_TEST_JOB_NAME}" -o wide >&2 || true
+  kubectl -n ckc-perf describe job "${LOAD_TEST_JOB_NAME}" >&2 || true
+  kubectl -n ckc-perf delete job "${LOAD_TEST_JOB_NAME}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+  rm -f "${LOAD_TEST_JOB_PATH}"
+  exit 1
+fi
 
 if ! TEST_RUN_ID="${RUN_ID}" \
   EXPERIMENT_EVENTS_FILE="${RUN_EVENTS_FILE}" \
@@ -1707,7 +1731,9 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     --steps-json "${DIAGNOSTIC_STEPS_JSON}" \
     --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
     --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
-    --load-test-backend host \
+    --load-test-backend kubernetes \
+    --load-test-namespace ckc-perf \
+    --load-test-selector "ckc.dev/test-run-id=${RUN_ID}" \
     --host-interface "${KAFKA_CAPTURE_INTERFACE}" \
     --host-address "${LAB_NODE_IP}" \
     --host-exclude-network 10.42.0.0/16 \
@@ -1744,14 +1770,14 @@ if [ "${THREAD_STATS_SNAPSHOT_ENABLED}" = "true" ]; then
   start_thread_stats_collector
 fi
 
-echo "Load test started on lab host."
-echo "  pid=${PID}"
+echo "Load test started as an indexed Kubernetes Job."
+echo "  job=${LOAD_TEST_JOB_NAME}"
 echo "  result=${RUN_DIR}"
 echo "  audit=${RUN_AUDIT_DIR}"
 if [ "${THREAD_STATS_SNAPSHOT_ENABLED}" = "true" ]; then
   echo "  thread_stats=${RUN_THREAD_STATS_DIR}"
 fi
-echo "  pid_file=${PID_PATH}"
+echo "  job_file=${LOAD_TEST_JOB_PATH}"
 echo "  bootstrap=${KAFKA_BOOTSTRAP_HOST}"
 echo "  kafka_implementation=${LAB_KAFKA_IMPLEMENTATION}"
 echo "  kafka_topology=${LAB_KAFKA_TOPOLOGY}"
@@ -1795,22 +1821,31 @@ stop_diagnostics() {
   rm -f "${DIAGNOSTICS_PID_PATH}"
 }
 
+collect_load_test_logs() {
+  local pod pod_name
+  : > "${LOAD_TEST_LOG_FILE}"
+  while IFS= read -r pod; do
+    [ -n "${pod}" ] || continue
+    pod_name="${pod#pod/}"
+    kubectl -n ckc-perf logs "${pod}" > "${LOAD_TEST_POD_LOG_DIR}/${pod_name}.log" 2>&1 || true
+    {
+      echo "===== ${pod_name} ====="
+      cat "${LOAD_TEST_POD_LOG_DIR}/${pod_name}.log"
+    } >> "${LOAD_TEST_LOG_FILE}"
+  done < <(kubectl -n ckc-perf get pods -l "job-name=${LOAD_TEST_JOB_NAME}" -o name 2>/dev/null | sort)
+}
+
+stop_load_test_job() {
+  kubectl -n ckc-perf delete job "${LOAD_TEST_JOB_NAME}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+  rm -f "${LOAD_TEST_JOB_PATH}"
+}
+
 stop_process() {
   stop_thread_stats_collector
   stop_diagnostics
   stop_chaos
-  if kill -0 "${PID}" >/dev/null 2>&1; then
-    kill "${PID}" >/dev/null 2>&1 || true
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      if ! kill -0 "${PID}" >/dev/null 2>&1; then
-        rm -f "${PID_PATH}"
-        return
-      fi
-      sleep 1
-    done
-    kill -9 "${PID}" >/dev/null 2>&1 || true
-  fi
-  rm -f "${PID_PATH}"
+  collect_load_test_logs
+  stop_load_test_job
 }
 
 request_stop() {
@@ -1836,14 +1871,30 @@ stop_requested() {
 trap request_stop INT TERM
 
 while true; do
-  if ! kill -0 "${PID}" >/dev/null 2>&1; then
-    rm -f "${PID_PATH}"
-    LOAD_TEST_EXIT_CODE=0
-    wait "${PID}" || LOAD_TEST_EXIT_CODE=$?
+  if ! kubectl -n ckc-perf get job "${LOAD_TEST_JOB_NAME}" >/dev/null 2>&1; then
+    echo "Load test Kubernetes Job disappeared before completion: ${LOAD_TEST_JOB_NAME}" >&2
+    LOAD_TEST_EXIT_CODE=1
+    collect_load_test_logs
     stop_thread_stats_collector
     stop_diagnostics
     stop_chaos
     reset_chaos_state
+    rm -f "${LOAD_TEST_JOB_PATH}"
+    break
+  fi
+  LOAD_TEST_COMPLETE="$(kubectl -n ckc-perf get job "${LOAD_TEST_JOB_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+  LOAD_TEST_FAILED="$(kubectl -n ckc-perf get job "${LOAD_TEST_JOB_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+  if [ "${LOAD_TEST_COMPLETE}" = "True" ] || [ "${LOAD_TEST_FAILED}" = "True" ]; then
+    LOAD_TEST_EXIT_CODE=0
+    if [ "${LOAD_TEST_FAILED}" = "True" ]; then
+      LOAD_TEST_EXIT_CODE=1
+    fi
+    collect_load_test_logs
+    stop_thread_stats_collector
+    stop_diagnostics
+    stop_chaos
+    reset_chaos_state
+    stop_load_test_job
     echo "Load test finished."
     break
   fi

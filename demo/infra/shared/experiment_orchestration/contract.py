@@ -391,7 +391,7 @@ def validate_target_workload(value: Any, context: str) -> dict[str, Any]:
 
 
 def validate_target_configuration(value: Mapping[str, Any], context: str, *, defaults: bool = False) -> None:
-    allowed = {"application", "runtime"}
+    allowed = {"application", "placement", "runtime"}
     if not defaults:
         allowed |= {"id", "name", "implementation", "annotation_label", "workload"}
     unknown = sorted(set(value) - allowed)
@@ -417,6 +417,19 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
             raise ValueError(f"{context}.application.java_options must be a string")
         if "placement" in application and application["placement"] not in {"controller", "worker"}:
             raise ValueError(f"{context}.application.placement must be controller or worker")
+    if "placement" in value:
+        placement = require_mapping(value["placement"], f"{context}.placement")
+        unknown_placement = sorted(set(placement) - {"application", "stubs", "generator"})
+        if unknown_placement:
+            raise ValueError(f"{context}.placement contains unknown fields: {', '.join(unknown_placement)}")
+        for component, role in placement.items():
+            if role not in {"controller", "worker"}:
+                raise ValueError(f"{context}.placement.{component} must be controller or worker")
+        legacy_application_placement = (value.get("application") or {}).get("placement")
+        if legacy_application_placement and placement.get("application") not in (None, legacy_application_placement):
+            raise ValueError(
+                f"{context}.placement.application conflicts with {context}.application.placement"
+            )
     if "runtime" in value:
         validate_runtime(value["runtime"], f"{context}.runtime")
     if "workload" in value:
@@ -426,7 +439,7 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
 def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
     result = {
         key: copy.deepcopy(target[key])
-        for key in ("id", "name", "annotation_label", "application")
+        for key in ("id", "name", "annotation_label", "application", "placement")
         if key in target
     }
     if "implementation" in target:
@@ -586,9 +599,10 @@ def validate_canonical_experiment(
         experiment, environment, capabilities, needed
     )
     if environment_name != "internal-lab" and any(
-        "placement" in (target.get("application") or {}) for target in resolved_targets
+        "placement" in (target.get("application") or {}) or target.get("placement")
+        for target in resolved_targets
     ):
-        raise ValueError("Experiment target application.placement is only supported by internal-lab")
+        raise ValueError("Experiment target placement is only supported by internal-lab")
     if environment_name == "internal-lab":
         lab = require_mapping(environment_definition.get("lab"), "Experiment environments.internal-lab.lab")
         unknown_lab = sorted(set(lab) - {"profile", "kafka_topology", "kafka"})

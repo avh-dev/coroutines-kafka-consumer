@@ -146,6 +146,7 @@ def build_entry(metadata: dict[str, Any], target_id: str | None, name: str | Non
     if dispatcher_type == "FIXED":
         add_env(env, "WORKER_DISPATCHER_THREADS", application.get("worker_dispatcher_threads"))
     add_env(env, "LOAD_TEST_WORKERS", load_test.get("workers"))
+    add_env(env, "LOAD_TEST_DISPATCHER_THREADS", load_test.get("dispatcher_threads"))
     if env:
         entry["env"] = env
 

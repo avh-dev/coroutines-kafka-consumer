@@ -7,6 +7,7 @@ import avh.ckc.loadtest.kafka.ProducerPoolSizes
 import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.runtime.effectiveGeneratorWorkers
+import avh.ckc.loadtest.runtime.effectiveGeneratorDispatcherThreads
 import avh.ckc.loadtest.runtime.shardBaseTps
 import avh.ckc.loadtest.runtime.workerBaseTps
 import avh.ckc.loadtest.scenario.LoadScenario
@@ -40,6 +41,10 @@ fun main() = runBlocking {
     val effectiveStart = shardContext.testRunStartedAt ?: now
     val phase = scenario.phaseAt(now, effectiveStart, ScenarioEvaluationContext(config.baseTps))
     val effectiveWorkers = effectiveGeneratorWorkers(config.baseTps, config.generatorWorkers)
+    val dispatcherThreads = effectiveGeneratorDispatcherThreads(
+        effectiveWorkers,
+        config.generatorDispatcherThreads
+    )
 
     println("load-test externalShard=${shardContext.shardIndex}/${shardContext.totalShards} runId=${shardContext.testRunId ?: "local"}")
     println("bootstrapServers=${config.bootstrapServers}")
@@ -49,7 +54,11 @@ fun main() = runBlocking {
             "shardBaseTps=${config.baseTps} currentTps=${phase?.currentRate() ?: 0.0} " +
             "mix(order=${config.orderEventPercent},batch=${config.batchEventPercent},cauldron=${config.cauldronTelemetryPercent})"
     )
-    println("workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} baseTpsPerJvm=${config.baseTps}")
+    println(
+        "workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} " +
+            "dispatcherThreads=$dispatcherThreads configuredDispatcherThreads=${config.generatorDispatcherThreads} " +
+            "baseTpsPerJvm=${config.baseTps}"
+    )
     println(
         "telemetrySource=${config.telemetrySourceMode} " +
             "publishIntervalSeconds=${config.telemetryPublishInterval.toSeconds()}"
@@ -69,7 +78,7 @@ fun main() = runBlocking {
 
     LoadTestMetrics(config.metricsPort, shardContext.shardIndex, producerPoolSizes).use { metrics ->
         LoadTestProducers(config, shardContext, producerPoolSizes, metrics).use { producers ->
-            runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers)
+            runTrafficGenerators(shardContext, config, scenario, producers, effectiveWorkers, dispatcherThreads)
         }
     }
 }
@@ -79,7 +88,8 @@ private suspend fun runTrafficGenerators(
     config: LoadTestConfig,
     scenario: LoadScenario,
     producers: LoadTestProducers,
-    workerCount: Int
+    workerCount: Int,
+    dispatcherThreads: Int
 ) {
     if (workerCount == 1) {
         TrafficGenerator(
@@ -91,7 +101,7 @@ private suspend fun runTrafficGenerators(
         return
     }
 
-    newLoadGeneratorDispatcher(workerCount).use { dispatcher ->
+    newLoadGeneratorDispatcher(dispatcherThreads).use { dispatcher ->
         coroutineScope {
             (0 until workerCount).map { workerIndex ->
                 launch(dispatcher) {
@@ -113,8 +123,8 @@ private suspend fun runTrafficGenerators(
     producers.flush()
 }
 
-private fun newLoadGeneratorDispatcher(workerCount: Int) =
-    Executors.newFixedThreadPool(workerCount) {
+private fun newLoadGeneratorDispatcher(dispatcherThreads: Int) =
+    Executors.newFixedThreadPool(dispatcherThreads) {
         val threadNumber = loadGeneratorThreadNumber.incrementAndGet()
         Thread(it, "load-generator-$threadNumber")
     }.asCoroutineDispatcher()

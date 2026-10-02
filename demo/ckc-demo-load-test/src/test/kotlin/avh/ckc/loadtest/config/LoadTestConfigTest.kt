@@ -50,6 +50,7 @@ class LoadTestConfigTest {
                 "AUDIT_TCP_PORT" to "5511",
                 "TEST_RUN_ID" to "run-12",
                 "LOAD_TEST_WORKERS" to "4",
+                "LOAD_TEST_DISPATCHER_THREADS" to "2",
                 "KAFKA_PRODUCER_LINGER_MS" to "75",
                 "KAFKA_PRODUCER_BATCH_SIZE" to "131072",
                 "KAFKA_PRODUCER_COMPRESSION_TYPE" to "zstd",
@@ -62,6 +63,8 @@ class LoadTestConfigTest {
         )
 
         assertEquals(250, config.baseTps)
+        assertEquals(4, config.generatorWorkers)
+        assertEquals(2, config.generatorDispatcherThreads)
         assertEquals(45, config.orderEventPercent)
         assertEquals(15, config.batchEventPercent)
         assertEquals(40, config.cauldronTelemetryPercent)

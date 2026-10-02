@@ -97,6 +97,9 @@ image_fingerprint() {
     demo-stubs)
       paths+=(demo/ckc-demo-stubs)
       ;;
+    load-test)
+      paths+=(demo/ckc-demo-contracts demo/ckc-demo-load-test)
+      ;;
     *)
       echo "Unknown image service: ${service}" >&2
       exit 1
@@ -293,6 +296,7 @@ if [[ -z "${LAB_NODE_IP}" ]]; then
 fi
 DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
+LOAD_TEST_FINGERPRINT="$(image_fingerprint load-test)"
 THREAD_STATS_AGENT_JAR_PATH="$(resolve_thread_stats_agent)"
 if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
   echo "Thread Stats agent jar was not resolved." >&2
@@ -314,13 +318,6 @@ THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT="$({
   fi
 } | sha256sum | awk '{ print $1 }')"
 DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
-LOAD_TEST_RUNTIME_FINGERPRINT="$(fingerprint_paths "load-test-runtime" \
-  settings.gradle.kts \
-  build.gradle.kts \
-  gradle.properties \
-  gradle/wrapper/gradle-wrapper.properties \
-  demo/ckc-demo-contracts \
-  demo/ckc-demo-load-test)"
 ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
@@ -342,7 +339,7 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
 UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${DEMO_FINGERPRINT}" "${DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
-  printf '%s\n' "${LOAD_TEST_RUNTIME_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LOAD_TEST_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
   printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}" "${LAB_APPLICATION_LINK}"
   printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
 } | sha256sum | awk '{ print $1 }')"
@@ -352,14 +349,8 @@ UPDATE_FINGERPRINT="$({
 # migrated to locale-independent fingerprints without rebuilding artifacts.
 LEGACY_DEMO_FINGERPRINT="$(image_fingerprint demo legacy_fingerprint_paths)"
 LEGACY_DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs legacy_fingerprint_paths)"
+LEGACY_LOAD_TEST_FINGERPRINT="$(image_fingerprint load-test legacy_fingerprint_paths)"
 LEGACY_DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
-LEGACY_LOAD_TEST_RUNTIME_FINGERPRINT="$(legacy_fingerprint_paths "load-test-runtime" \
-  settings.gradle.kts \
-  build.gradle.kts \
-  gradle.properties \
-  gradle/wrapper/gradle-wrapper.properties \
-  demo/ckc-demo-contracts \
-  demo/ckc-demo-load-test)"
 LEGACY_ASSETS_SYNC_FINGERPRINT="$(legacy_fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
 LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT="$(legacy_fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
@@ -381,7 +372,7 @@ LEGACY_BASE_DEPLOY_FINGERPRINT="$(legacy_fingerprint_paths "base-deploy" \
 LEGACY_UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${LEGACY_DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
-  printf '%s\n' "${LEGACY_LOAD_TEST_RUNTIME_FINGERPRINT}" "${LEGACY_ASSETS_SYNC_FINGERPRINT}" "${LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT}" "${LEGACY_BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LEGACY_LOAD_TEST_FINGERPRINT}" "${LEGACY_ASSETS_SYNC_FINGERPRINT}" "${LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT}" "${LEGACY_BASE_DEPLOY_FINGERPRINT}"
   printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}" "${LAB_APPLICATION_LINK}"
   printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
 } | sha256sum | awk '{ print $1 }')"
@@ -405,7 +396,7 @@ if [[ "${FORCE_REBUILD}" -eq 0 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FI
   record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
   record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
   record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
-  record_remote_fingerprint "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"
+  record_remote_image_fingerprint load-test "${LOAD_TEST_FINGERPRINT}"
   record_remote_fingerprint "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"
   record_remote_fingerprint "runtime-test-assets" "${RUNTIME_TEST_ASSETS_FINGERPRINT}"
   record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
@@ -459,7 +450,7 @@ ssh "${LAB_TARGET}" "
   fi
   rm -rf '${LEGACY_LAB_ROOT}'
   rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/workspace' '${LAB_ROOT}/shared' '${LAB_ROOT}/build-context' '${LAB_ROOT}/build' '${LAB_ROOT}/compose' '${LAB_ROOT}/runtime' '${LAB_ROOT}/images' '${LAB_ROOT}/fingerprints' '${LAB_ROOT}/generated' '${LAB_ROOT}/pids' '${LAB_ROOT}/audit' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/docker-compose.host-services.yml' '${LAB_ROOT}/process-exporter.yml' '${LAB_ROOT}/fluent-bit.yaml'
-  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/load-test-runtime' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
+  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/docker/build/load-test/build/install' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
 "
 ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
@@ -480,7 +471,7 @@ fi
 DEMO_IMAGE_CHANGED=0
 DEMO_STUBS_IMAGE_CHANGED=0
 THREAD_STATS_AGENT_CHANGED=0
-LOAD_TEST_RUNTIME_CHANGED=0
+LOAD_TEST_IMAGE_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
@@ -498,8 +489,8 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
   THREAD_STATS_AGENT_CHANGED=1
   BASE_DEPLOY_CHANGED=1
 fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"; then
-  LOAD_TEST_RUNTIME_CHANGED=1
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current load-test "${LOAD_TEST_FINGERPRINT}" || ! worker_image_is_current load-test "${LOAD_TEST_FINGERPRINT}"; then
+  LOAD_TEST_IMAGE_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"; then
   ASSETS_SYNC_CHANGED=1
@@ -521,7 +512,7 @@ fi
 
 cd "${REPO_ROOT}"
 GRADLE_TASKS=()
-if [[ "${LOAD_TEST_RUNTIME_CHANGED}" -eq 1 ]]; then
+if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
   GRADLE_TASKS+=(:ckc-demo-load-test:installDist)
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
@@ -554,10 +545,9 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   sync_file "${REPO_ROOT}/demo/ckc-demo-stubs/Dockerfile" "${LAB_ROOT}/docker/build/demo-stubs/Dockerfile"
   sync_path "${REPO_ROOT}/demo/ckc-demo-stubs/build/install/ckc-demo-stubs" "${LAB_ROOT}/docker/build/demo-stubs/build/install/ckc-demo-stubs"
 fi
-if [[ "${LOAD_TEST_RUNTIME_CHANGED}" -eq 1 ]]; then
-  sync_path "${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test" "${LAB_ROOT}/load-test-runtime"
-  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/load-test-runtime/bin/'*"
-  record_remote_fingerprint "load-test-runtime" "${LOAD_TEST_RUNTIME_FINGERPRINT}"
+if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_file "${REPO_ROOT}/demo/ckc-demo-load-test/Dockerfile" "${LAB_ROOT}/docker/build/load-test/Dockerfile"
+  sync_path "${REPO_ROOT}/demo/ckc-demo-load-test/build/install/ckc-demo-load-test" "${LAB_ROOT}/docker/build/load-test/build/install/ckc-demo-load-test"
 fi
 if [[ "${THREAD_STATS_AGENT_CHANGED}" -eq 1 ]]; then
   sync_file "${THREAD_STATS_AGENT_JAR_PATH}" "${LAB_ROOT}/thread-stats/thread-stats-agent.jar"
@@ -570,6 +560,9 @@ fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/demo-stubs/build/install/ckc-demo-stubs/bin/'*"
 fi
+if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
+  ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/load-test/build/install/ckc-demo-load-test/bin/'*"
+fi
 if [[ "${BASE_DEPLOY_CHANGED}" -eq 1 ]]; then
   ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
   record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
@@ -581,6 +574,9 @@ if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("demo-stubs=${DEMO_STUBS_FINGERPRINT}")
+fi
+if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
+  REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")
 fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
@@ -601,11 +597,11 @@ echo "Internal lab is updated."
 echo "  demo image changed=${DEMO_IMAGE_CHANGED}"
 echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  Thread Stats agent changed=${THREAD_STATS_AGENT_CHANGED}"
-echo "  load-test runtime changed=${LOAD_TEST_RUNTIME_CHANGED}"
+echo "  load-test image changed=${LOAD_TEST_IMAGE_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"
 echo "  demo redeployed=${DEMO_DEPLOY_RESTARTED}"
 echo "  demo-stubs restarted=${DEMO_STUBS_IMAGE_CHANGED}"
-echo "  load-test runtime=${LAB_ROOT}/load-test-runtime"
+echo "  load-test image=ckc-perf/load-test:latest"
 echo "  lab entrypoints=${LAB_ROOT}/bin"

@@ -39,14 +39,21 @@ class ExperimentRunnerTest(unittest.TestCase):
                 RUNNER.internal_lab_notification_environment(lab_root),
             )
 
-    def test_application_placement_is_passed_to_target_process(self) -> None:
+    def test_workload_placement_is_passed_to_target_process(self) -> None:
         self.assertEqual(
-            {"EXPERIMENT_APPLICATION_PLACEMENT": "controller"},
-            RUNNER.application_placement_environment({"placement": "controller"}),
+            {
+                "EXPERIMENT_APPLICATION_PLACEMENT": "controller",
+                "EXPERIMENT_STUBS_PLACEMENT": "controller",
+                "EXPERIMENT_GENERATOR_PLACEMENT": "worker",
+            },
+            RUNNER.workload_placement_environment({
+                "application": {"replicas": 1},
+                "placement": {"application": "controller", "stubs": "controller", "generator": "worker"},
+            }),
         )
-        self.assertEqual({}, RUNNER.application_placement_environment({"replicas": 1}))
+        self.assertEqual({}, RUNNER.workload_placement_environment({"application": {"replicas": 1}}))
         with self.assertRaisesRegex(ValueError, "controller or worker"):
-            RUNNER.application_placement_environment({"placement": "invalid"})
+            RUNNER.workload_placement_environment({"placement": {"generator": "invalid"}})
 
     def test_audit_analysis_workers_defaults_to_half_the_cpus_capped_at_three(self) -> None:
         with (

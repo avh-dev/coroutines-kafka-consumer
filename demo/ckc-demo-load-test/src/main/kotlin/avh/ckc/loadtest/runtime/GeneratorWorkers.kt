@@ -8,6 +8,12 @@ fun effectiveGeneratorWorkers(baseTps: Int, configuredWorkers: Int): Int {
     return configuredWorkers.coerceAtMost(baseTps)
 }
 
+fun effectiveGeneratorDispatcherThreads(workerCount: Int, configuredThreads: Int): Int {
+    require(workerCount > 0) { "workerCount must be positive" }
+    require(configuredThreads > 0) { "configuredThreads must be positive" }
+    return configuredThreads.coerceAtMost(workerCount)
+}
+
 fun workerBaseTps(baseTps: Int, workerIndex: Int, totalWorkers: Int): Int {
     return distributedBaseTps(baseTps, workerIndex, totalWorkers)
 }

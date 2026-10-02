@@ -34,12 +34,8 @@ class MetricsPortContractTest(unittest.TestCase):
         thread_stats_ports = {
             port["port"] for port in services["ckc-external-kafka-thread-stats"]["spec"]["ports"]
         }
-        load_test_ports = {
-            port["port"] for port in services["ckc-external-load-test"]["spec"]["ports"]
-        }
         self.assertEqual({9414, 9415, 9416}, thread_stats_ports)
-        self.assertEqual({9405}, load_test_ports)
-        self.assertTrue(thread_stats_ports.isdisjoint(load_test_ports))
+        self.assertNotIn("ckc-external-load-test", services)
 
         prometheus_documents = list(yaml.safe_load_all(PROMETHEUS.read_text(encoding="utf-8")))
         config_map = next(document for document in prometheus_documents if document.get("kind") == "ConfigMap")
@@ -47,7 +43,8 @@ class MetricsPortContractTest(unittest.TestCase):
         for broker_id, port in enumerate((9414, 9415, 9416), start=1):
             self.assertIn(f"ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:{port}", prometheus_config)
             self.assertIn(f'broker_id: "{broker_id}"', prometheus_config)
-        self.assertIn("ckc-external-load-test.ckc-perf.svc.cluster.local:9405", prometheus_config)
+        self.assertIn("regex: ckc-load-test", prometheus_config)
+        self.assertIn('regex: "9405"', prometheus_config)
 
     def test_prometheus_has_capacity_for_long_high_churn_runs(self) -> None:
         documents = list(yaml.safe_load_all(PROMETHEUS.read_text(encoding="utf-8")))

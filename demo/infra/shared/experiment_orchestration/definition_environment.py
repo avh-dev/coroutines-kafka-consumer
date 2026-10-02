@@ -478,6 +478,7 @@ def main() -> None:
         "CONSUMER_DRAIN_IDLE_SECONDS": str(load_test.get("consumer_drain_idle_seconds", 60)),
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),
+        "LOAD_TEST_DISPATCHER_THREADS": str(load_test.get("dispatcher_threads", "")),
         "KAFKA_PRODUCER_LINGER_MS": str(load_test.get("kafka_producer_linger_ms", "")),
         "KAFKA_PRODUCER_BATCH_SIZE": str(load_test.get("kafka_producer_batch_size", "")),
         "KAFKA_PRODUCER_COMPRESSION_TYPE": str(load_test.get("kafka_producer_compression_type", "")),

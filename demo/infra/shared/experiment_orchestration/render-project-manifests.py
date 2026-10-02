@@ -45,8 +45,12 @@ def main() -> int:
     parser.add_argument("--support-node-selector")
     parser.add_argument("--load-test-node-selector")
     parser.add_argument("--packet-capture", action="store_true")
-    parser.add_argument("--applications-only", action="store_true")
+    resource_filter = parser.add_mutually_exclusive_group()
+    resource_filter.add_argument("--applications-only", action="store_true")
+    resource_filter.add_argument("--load-test-only", action="store_true")
+    parser.add_argument("--active-deadline-seconds", type=int, default=3600)
     parser.add_argument("--env", action="append", default=[])
+    parser.add_argument("--load-env", action="append", default=[])
     args = parser.parse_args()
 
     plan = yaml.safe_load(args.plan.read_text(encoding="utf-8"))
@@ -56,6 +60,12 @@ def main() -> int:
         if not separator or not key:
             raise ValueError(f"--env must use KEY=VALUE: {value}")
         runtime_environment[key] = configured
+    load_environment = {}
+    for value in args.load_env:
+        key, separator, configured = value.partition("=")
+        if not separator or not key:
+            raise ValueError(f"--load-env must use KEY=VALUE: {value}")
+        load_environment[key] = configured
     manifests = render_project_manifests(plan, DeploymentBindings(
         run_id=args.run_id,
         application_image=args.application_image,
@@ -69,6 +79,7 @@ def main() -> int:
         application_namespace=args.namespace,
         load_test_namespace=args.load_test_namespace,
         packet_capture_enabled=args.packet_capture,
+        active_deadline_seconds=args.active_deadline_seconds,
         application_service_type="NodePort" if args.application_node_port else "ClusterIP",
         application_node_port=args.application_node_port,
         test_definition=args.test_definition,
@@ -76,9 +87,12 @@ def main() -> int:
         application_node_selector=node_selector(args.application_node_selector),
         support_node_selector=node_selector(args.support_node_selector),
         load_test_node_selector=node_selector(args.load_test_node_selector),
+        load_test_environment=load_environment,
     ))
     if args.applications_only:
         manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
+    if args.load_test_only:
+        manifests = [item for item in manifests if item["kind"] == "Job"]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(yaml.safe_dump_all(manifests, sort_keys=False), encoding="utf-8")
     return 0

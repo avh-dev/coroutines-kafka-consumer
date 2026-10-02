@@ -4,6 +4,7 @@ import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.scenario.LoadScenario
 import avh.ckc.loadtest.scenario.ScenarioEvaluationContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 import java.time.Duration
 import java.time.Instant
 import kotlin.math.ceil
@@ -42,6 +43,7 @@ class RateControlledGeneratorRunner(
                 }
                 permits -= consumedPermits
                 if (permits >= 1.0) {
+                    yield()
                     continue
                 }
             }

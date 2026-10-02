@@ -137,19 +137,23 @@ class CanonicalExperimentContractTest(unittest.TestCase):
 
     def test_internal_lab_accepts_target_application_placement(self) -> None:
         experiment = canonical_experiment()
-        experiment["targets"][0]["application"]["placement"] = "controller"
+        experiment["targets"][0]["placement"] = {
+            "application": "controller",
+            "stubs": "controller",
+            "generator": "worker",
+        }
 
         snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
-        self.assertEqual("controller", snapshot["targets"][0]["application"]["placement"])
+        self.assertEqual("worker", snapshot["targets"][0]["placement"]["generator"])
 
     def test_rejects_application_placement_for_aws_and_unknown_values(self) -> None:
         experiment = canonical_experiment()
-        experiment["targets"][0]["application"]["placement"] = "worker"
+        experiment["targets"][0]["placement"] = {"application": "worker"}
         with self.assertRaisesRegex(ValueError, "only supported by internal-lab"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
-        experiment["targets"][0]["application"]["placement"] = "somewhere"
+        experiment["targets"][0]["placement"] = {"generator": "somewhere"}
         with self.assertRaisesRegex(ValueError, "must be controller or worker"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 

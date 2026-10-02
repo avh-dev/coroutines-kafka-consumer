@@ -432,17 +432,28 @@ def application_override_args(application: dict[str, Any]) -> list[str]:
     return args
 
 
-def application_placement_environment(application: Any) -> dict[str, str]:
-    if application in (None, ""):
-        return {}
+def workload_placement_environment(target: Any) -> dict[str, str]:
+    if not isinstance(target, dict):
+        raise ValueError("target must be an object")
+    placement = target.get("placement") or {}
+    if not isinstance(placement, dict):
+        raise ValueError("target.placement must be an object")
+    application = target.get("application") or {}
     if not isinstance(application, dict):
         raise ValueError("target.application must be an object")
-    placement = str(application.get("placement") or "").strip()
-    if not placement:
-        return {}
-    if placement not in {"controller", "worker"}:
-        raise ValueError("target.application.placement must be controller or worker")
-    return {"EXPERIMENT_APPLICATION_PLACEMENT": placement}
+    roles = {
+        "application": placement.get("application") or application.get("placement"),
+        "stubs": placement.get("stubs"),
+        "generator": placement.get("generator"),
+    }
+    environment: dict[str, str] = {}
+    for component, role in roles.items():
+        if role in (None, ""):
+            continue
+        if role not in {"controller", "worker"}:
+            raise ValueError(f"target.placement.{component} must be controller or worker")
+        environment[f"EXPERIMENT_{component.upper()}_PLACEMENT"] = str(role)
+    return environment
 
 
 def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
@@ -841,7 +852,7 @@ def run_one(
     env.pop(KAFKA_CHAOS_RESTART_ENV, None)
     if global_env.get(KAFKA_CHAOS_RESTART_ENV) == "true":
         env[KAFKA_CHAOS_RESTART_ENV] = "true"
-    env.update(application_placement_environment(test.get("application")))
+    env.update(workload_placement_environment(test))
     for key in KAFKA_LAB_ENV_KEYS:
         if key in global_env:
             env[key] = global_env[key]
@@ -1148,13 +1159,17 @@ def run_experiment(
     for target, resolved_target in zip(targets, resolved_experiment.targets):
         target_load = resolved_target.test.definition.get("load_test") or {}
         application = target.get("application") or {}
+        placement = target.get("placement") or {}
+        placement_summary = ", ".join(
+            f"{component}={role}" for component, role in placement.items()
+        ) if isinstance(placement, dict) and placement else application.get("placement")
         profile = target.get("profile") or target.get("implementation") or target.get("deployment")
         notification_targets.append({
             "id": target.get("id"),
             "name": target.get("name"),
             "profile": profile,
             "replicas": application.get("replicas", target.get("replicas")),
-            "placement": application.get("placement"),
+            "placement": placement_summary,
             "base_tps": target_load.get("base_tps", base_tps),
             "duration_seconds": load_profile_seconds(str(target_load.get("load_profile") or "")),
         })

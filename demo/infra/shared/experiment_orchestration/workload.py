@@ -61,6 +61,10 @@ def validate_resolved_test(definition: dict[str, Any]) -> None:
         raise ValueError("load_test.shards must be a positive integer")
     if shards > base_tps:
         raise ValueError("load_test.shards must not exceed aggregate load_test.base_tps")
+    for field in ("workers", "dispatcher_threads"):
+        value = load_test.get(field)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+            raise ValueError(f"load_test.{field} must be a positive integer")
     for field in ("chaos_steps", "diagnostic_steps"):
         value = definition.get(field, [])
         if not isinstance(value, list):

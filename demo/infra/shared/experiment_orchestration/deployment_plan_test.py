@@ -226,6 +226,7 @@ class DeploymentPlanTest(unittest.TestCase):
             application_node_selector={"ckc.dev/role": "application"},
             support_node_selector={"ckc.dev/role": "controller"},
             load_test_node_selector={"ckc.dev/role": "controller"},
+            load_test_environment={"LOAD_TEST_DISPATCHER_THREADS": "2"},
         ))
 
         identities = {(item["kind"], item["metadata"]["name"]) for item in manifests}
@@ -254,6 +255,12 @@ class DeploymentPlanTest(unittest.TestCase):
         load_test = next(item for item in manifests if item["kind"] == "Job")
         self.assertEqual({"ckc.dev/role": "controller"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "controller"}, load_test["spec"]["template"]["spec"]["nodeSelector"])
+        load_environment = {
+            item["name"]: item["value"]
+            for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual("2", load_environment["LOAD_TEST_DISPATCHER_THREADS"])
+        self.assertEqual(plan["target"]["implementation"], load_test["spec"]["template"]["metadata"]["labels"]["ckc.dev/profile"])
 
 
 if __name__ == "__main__":
