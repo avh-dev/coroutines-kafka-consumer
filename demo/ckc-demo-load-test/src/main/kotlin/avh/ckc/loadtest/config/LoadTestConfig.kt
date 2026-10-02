@@ -31,6 +31,7 @@ data class LoadTestConfig(
     val auditPort: Int = 5170,
     val auditRunId: String = "local",
     val generatorWorkers: Int = defaultGeneratorWorkers(),
+    val generatorDispatcherThreads: Int = defaultGeneratorWorkers(),
     val kafkaProducer: KafkaProducerSettings = KafkaProducerSettings(),
     val topicKafkaProducers: TopicKafkaProducerSettings = TopicKafkaProducerSettings.shared(kafkaProducer),
     val producerCapacity: TopicProducerCapacity = TopicProducerCapacity(),
@@ -62,6 +63,7 @@ data class LoadTestConfig(
         require(auditPort > 0) { "auditPort must be positive" }
         require(auditRunId.isNotBlank()) { "auditRunId must not be blank" }
         require(generatorWorkers > 0) { "generatorWorkers must be positive" }
+        require(generatorDispatcherThreads > 0) { "generatorDispatcherThreads must be positive" }
         topicKafkaProducers.all().forEach { (topic, producer) ->
             require(producer.lingerMs >= 0) { "$topic kafkaProducer.lingerMs must be non-negative" }
             require(producer.batchSize > 0) { "$topic kafkaProducer.batchSize must be positive" }
@@ -111,6 +113,8 @@ data class LoadTestConfig(
                 auditPort = environment["AUDIT_TCP_PORT"]?.toIntOrNull() ?: 5170,
                 auditRunId = environment["AUDIT_RUN_ID"] ?: environment["TEST_RUN_ID"] ?: "local",
                 generatorWorkers = environment["LOAD_TEST_WORKERS"]?.toIntOrNull() ?: defaultGeneratorWorkers(),
+                generatorDispatcherThreads = environment["LOAD_TEST_DISPATCHER_THREADS"]?.toIntOrNull()
+                    ?: defaultGeneratorWorkers(),
                 kafkaProducer = sharedKafkaProducer,
                 topicKafkaProducers = TopicKafkaProducerSettings.fromEnvironment(environment, sharedKafkaProducer),
                 producerCapacity = TopicProducerCapacity.fromEnvironment(environment),

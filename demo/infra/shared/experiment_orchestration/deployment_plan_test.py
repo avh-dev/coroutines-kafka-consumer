@@ -69,13 +69,26 @@ class DeploymentPlanTest(unittest.TestCase):
             plan["workload"]["load"]["load_profile"],
         )
         self.assertEqual(
-            {"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200},
-            definition["load_test"]["measurement_window"],
+            [
+                {"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200},
+                {"name": "steady-early", "start_seconds": 180, "duration_seconds": 300},
+                {"name": "steady-middle", "start_seconds": 630, "duration_seconds": 300},
+                {"name": "steady-late", "start_seconds": 1080, "duration_seconds": 300},
+            ],
+            definition["load_test"]["measurement_windows"],
         )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
         self.assertEqual(
             [12, 12, 12],
             [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertEqual(
+            [100, 100, 100],
+            [topic["worker_concurrency"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertEqual(
+            [1, 1, 1],
+            [topic["poll_loop_concurrency"] for topic in plan["application"]["planner"]["topics"]],
         )
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
         self.assertEqual("kafka.m7g.large", variables["msk_broker_instance_type"])
@@ -83,7 +96,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
         self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
         self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
-        self.assertEqual(10000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(20000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
             {"order": 10000, "batch": 10000, "telemetry": 10000},
             definition["load_test"]["producer_capacity_tps"],
@@ -91,7 +104,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(300, definition["load_test"]["kafka_producer_linger_ms"])
         self.assertEqual("lz4", definition["load_test"]["kafka_producer_compression_type"])
         self.assertEqual(
-            {"order": 47, "batch": 33, "telemetry": 20},
+            {"order": 30, "batch": 30, "telemetry": 40},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -107,6 +120,7 @@ class DeploymentPlanTest(unittest.TestCase):
                 variables["node_max_size"],
             ),
         )
+        plan["application"]["runtime"]["env"]["KAFKA_BOOTSTRAP_SERVERS"] = "runtime-override:9092"
 
         manifests = render_project_manifests(plan, DeploymentBindings(
             run_id="sizing-1",
@@ -132,25 +146,59 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("65536", application_environment["KAFKA_CONSUMER_FETCH_MIN_BYTES"])
         self.assertEqual("350", application_environment["KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"])
         self.assertEqual("2000", application_environment["KAFKA_CONSUMER_MAX_POLL_RECORDS"])
+        self.assertEqual("runtime-override:9092", application_environment["KAFKA_BOOTSTRAP_SERVERS"])
         self.assertFalse(any(item["kind"] == "HorizontalPodAutoscaler" for item in manifests))
 
         load_job = next(item for item in manifests if item["kind"] == "Job")
         load_container = load_job["spec"]["template"]["spec"]["containers"][0]
         load_resources = load_container["resources"]
         load_environment = {item["name"]: item["value"] for item in load_container["env"]}
-        self.assertEqual("1500m", load_resources["requests"]["cpu"])
+        self.assertEqual("1", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
-        self.assertEqual(5, load_job["spec"]["completions"])
-        self.assertEqual(5, load_job["spec"]["parallelism"])
+        self.assertEqual(2, load_job["spec"]["completions"])
+        self.assertEqual(2, load_job["spec"]["parallelism"])
         self.assertEqual("Indexed", load_job["spec"]["completionMode"])
-        self.assertEqual("5", load_environment["TOTAL_SHARDS"])
+        self.assertEqual("2", load_environment["TOTAL_SHARDS"])
         self.assertEqual("50000", load_environment["BASE_TPS"])
         self.assertEqual("10000", load_environment["ORDER_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["BATCH_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["CAULDRON_TELEMETRY_TPS_PER_PRODUCER"])
         self.assertEqual("300", load_environment["KAFKA_PRODUCER_LINGER_MS"])
-        self.assertEqual("524288", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
-        self.assertEqual("131072", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_high_partition_internal_generator_heap(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/internal-generator-noop-50k.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "internal-generator"
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="internal-generator-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9092",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+        ))
+        load_container = next(item for item in manifests if item["kind"] == "Job")["spec"]["template"]["spec"]["containers"][0]
+        load_environment = {item["name"]: item["value"] for item in load_container["env"]}
+        application_container = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )["spec"]["template"]["spec"]["containers"][0]
+        application_environment = {item["name"]: item["value"] for item in application_container["env"]}
+
+        self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
+        self.assertEqual("1280Mi", load_container["resources"]["limits"]["memory"])
+        self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["BATCH_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("false", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
+        self.assertNotIn("PROCESSING_ENABLED", application_environment)
+        self.assertNotIn("PROCESSING_ENABLED", plan["application"]["runtime"]["env"])
 
     def test_materializes_independent_aws_spring_sizing_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-spring-msk-sizing-50k.yaml"
@@ -165,7 +213,6 @@ class DeploymentPlanTest(unittest.TestCase):
         materialize_experiment(ckc_resolved, output_dir=ckc_root, repo_dir=REPO_ROOT)
 
         self.assertEqual(["spring-kafka.fixed-12"], [target.target.name for target in targets])
-        self.assertEqual(ckc_resolved.test.definition, resolved.test.definition)
         plan = yaml.safe_load(targets[0].deployment_plan_path.read_text(encoding="utf-8"))
         definition = yaml.safe_load(targets[0].definition_path.read_text(encoding="utf-8"))
         variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
@@ -183,12 +230,32 @@ class DeploymentPlanTest(unittest.TestCase):
         )
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
         self.assertEqual(50000, plan["workload"]["load"]["base_tps"])
-        self.assertEqual(5, definition["load_test"]["shards"])
+        self.assertEqual(2, definition["load_test"]["shards"])
+        self.assertEqual(2, definition["load_test"]["dispatcher_threads"])
+        self.assertEqual(20_000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(
+            {"order": 30, "batch": 30, "telemetry": 40},
+            {
+                "order": definition["load_test"]["order_event_percent"],
+                "batch": definition["load_test"]["batch_event_percent"],
+                "telemetry": definition["load_test"]["cauldron_telemetry_percent"],
+            },
+        )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
         self.assertEqual(
-            [336, 156, 420],
-            [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
+            ["steady-state", "steady-early", "steady-middle", "steady-late"],
+            [window["name"] for window in definition["load_test"]["measurement_windows"]],
         )
+        topics = plan["application"]["planner"]["topics"]
+        self.assertEqual(
+            [156, 144, 552],
+            [topic["partitions"] for topic in topics],
+        )
+        self.assertEqual([13, 12, 46], [topic["poll_loop_concurrency"] for topic in topics])
+        self.assertEqual([120, 105, 420], [topic["required_parallelism_without_headroom"] for topic in topics])
+        self.assertEqual([156, 137, 546], [topic["required_parallelism"] for topic in topics])
+        self.assertEqual([30.0, 30.0, 30.0], [topic["planning_headroom_percent"] for topic in topics])
+        self.assertTrue(all(not topic["manual_overrides"] for topic in topics))
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
 
         manifests = render_project_manifests(plan, DeploymentBindings(
@@ -201,13 +268,52 @@ class DeploymentPlanTest(unittest.TestCase):
             audit_host="audit",
         ))
         load_job = next(item for item in manifests if item["kind"] == "Job")
+        load_container = load_job["spec"]["template"]["spec"]["containers"][0]
         load_environment = {
             item["name"]: item["value"]
-            for item in load_job["spec"]["template"]["spec"]["containers"][0]["env"]
+            for item in load_container["env"]
         }
-        self.assertEqual(5, load_job["spec"]["parallelism"])
-        self.assertEqual("5", load_environment["TOTAL_SHARDS"])
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        application_environment = {
+            item["name"]: item["value"]
+            for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        stubs = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs"
+        )
+        stubs_container = stubs["spec"]["template"]["spec"]["containers"][0]
+        stubs_environment = {item["name"]: item["value"] for item in stubs_container["env"]}
+        stubs_service = next(
+            item for item in manifests
+            if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo-stubs"
+        )
+        self.assertEqual(2, load_job["spec"]["parallelism"])
+        self.assertEqual("2", load_environment["TOTAL_SHARDS"])
         self.assertEqual("50000", load_environment["BASE_TPS"])
+        self.assertEqual("2", load_environment["LOAD_TEST_DISPATCHER_THREADS"])
+        self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["BATCH_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
+        self.assertEqual({"cpu": "1", "memory": "1Gi"}, load_container["resources"]["requests"])
+        self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
+        self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
+        self.assertEqual("true", application_environment["AUDIT_LOG_ENABLED"])
+        self.assertEqual("13", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("12", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("46", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual(4, stubs["spec"]["replicas"])
+        self.assertEqual("4", stubs_environment["STUB_WORKERS"])
+        self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
+        self.assertEqual({"memory": "1536Mi"}, stubs_container["resources"]["limits"])
+        self.assertEqual(
+            {"app.kubernetes.io/name": "ckc-demo-stubs"},
+            stubs_service["spec"]["selector"],
+        )
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")
@@ -226,6 +332,7 @@ class DeploymentPlanTest(unittest.TestCase):
             application_node_selector={"ckc.dev/role": "application"},
             support_node_selector={"ckc.dev/role": "controller"},
             load_test_node_selector={"ckc.dev/role": "controller"},
+            load_test_environment={"LOAD_TEST_DISPATCHER_THREADS": "2"},
         ))
 
         identities = {(item["kind"], item["metadata"]["name"]) for item in manifests}
@@ -254,6 +361,12 @@ class DeploymentPlanTest(unittest.TestCase):
         load_test = next(item for item in manifests if item["kind"] == "Job")
         self.assertEqual({"ckc.dev/role": "controller"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "controller"}, load_test["spec"]["template"]["spec"]["nodeSelector"])
+        load_environment = {
+            item["name"]: item["value"]
+            for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual("2", load_environment["LOAD_TEST_DISPATCHER_THREADS"])
+        self.assertEqual(plan["target"]["implementation"], load_test["spec"]["template"]["metadata"]["labels"]["ckc.dev/profile"])
 
 
 if __name__ == "__main__":

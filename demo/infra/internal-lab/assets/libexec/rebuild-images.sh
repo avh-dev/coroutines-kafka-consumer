@@ -16,15 +16,19 @@ mkdir -p "${LAB_ROOT}/state/images" "${LAB_ROOT}/state/fingerprints/images"
 for request in "$@"; do
   service="${request%%=*}"
   fingerprint="${request#*=}"
+  runtime_name="ckc-${service}"
 
   case "${service}" in
-    demo|demo-stubs)
+    demo|demo-stubs|load-test)
       ;;
     *)
       echo "Unknown image service: ${service}" >&2
       exit 1
       ;;
   esac
+  if [ "${service}" = "load-test" ]; then
+    runtime_name="ckc-demo-load-test"
+  fi
 
   if [ -z "${fingerprint}" ] || [ "${fingerprint}" = "${request}" ]; then
     echo "Fingerprint is missing for ${service}." >&2
@@ -34,7 +38,7 @@ for request in "$@"; do
     echo "Dockerfile is missing for ${service}." >&2
     exit 1
   fi
-  if [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/ckc-${service}" ]; then
+  if [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/${runtime_name}" ]; then
     echo "Runtime dist is missing for ${service}." >&2
     exit 1
   fi

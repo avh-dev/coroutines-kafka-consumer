@@ -76,7 +76,7 @@ targets:
       scale_down_stabilization_window_seconds: 600
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       WORKER_DISPATCHER_THREADS: 1

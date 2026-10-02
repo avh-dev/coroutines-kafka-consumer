@@ -113,21 +113,26 @@ the distributed boundary is intentional.
 flowchart LR
   operator[Repository checkout / operator] -->|SSH as ckc-lab| controller
   subgraph controller[Controller node]
-    lifecycle[Experiment lifecycle and load generation]
+    lifecycle[Experiment lifecycle]
     services[Docker: Kafka, Redis, Grafana, Loki]
-    controlplane[k3s server: Prometheus, stubs, log collector]
+    controlplane[k3s server: Prometheus, log collector]
+    controllerworkloads[k3s workloads selected by experiment]
   end
   subgraph worker[Application worker]
-    application[k3s agent: ckc-demo only]
+    workerworkloads[k3s workloads selected by experiment]
   end
-  controlplane <-->|configured IP network| application
-  application -->|Kafka / Redis / audit| services
+  controlplane <-->|configured IP network| workerworkloads
+  controllerworkloads -->|Kafka / Redis / audit| services
+  workerworkloads -->|Kafka / Redis / audit| services
 ```
 
 Generated experiment reports use the observed pod-to-node placement. A split
 lab is drawn as separate controller and application-worker hosts, including
 their k3s server/agent boundaries and the configured IP network between them;
 single-host installations retain the compact combined topology.
+Each target may assign `application`, `stubs`, and `generator` to the semantic
+`controller` or `worker` role. Load generation uses the same indexed Kubernetes
+Job and aggregate-TPS sharding model as AWS.
 
 After repository updates, run `lab.sh up` again (or add `--force-rebuild`). The
 installed root defaults to `/opt/ckc-lab`. Configuration is under `config`,
@@ -368,8 +373,9 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --experiment <experiment
 The default export location is
 `/opt/ckc-lab/results/exports/<experiment>-<UTC timestamp>`.
 
-To download only the latest experiment's Markdown report and its SVG assets,
-create a small ZIP without recollecting Prometheus, Loki, or audit data:
+To download only the newest completed Markdown report and its SVG assets across
+internal-lab and locally preserved AWS experiments, create a small ZIP without
+recollecting Prometheus, Loki, or audit data:
 
 ```bash
 /opt/ckc-lab/bin/package-latest-report.sh
@@ -377,8 +383,11 @@ create a small ZIP without recollecting Prometheus, Loki, or audit data:
 
 The command prints the resulting archive path,
 `/opt/ckc-lab/results/exports/latest-report.zip`.
-It exits with an error instead of returning an older report if the latest
-experiment is still finalizing its report.
+It ignores experiments that are still finalizing and reports the selected
+environment and result directory on stderr. Override `AWS_EXPERIMENTS_ROOT`
+when AWS results are stored outside the repository configured during lab
+installation, or `EXPORTS_ROOT` when packaging outside the installed lab's
+download directory.
 
 ## Offline restore
 

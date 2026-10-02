@@ -330,8 +330,8 @@ RENDER_ARGS=(
 if [[ -n "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
   RENDER_ARGS+=(--application-node-selector "${LAB_APPLICATION_NODE_SELECTOR}")
 fi
-if [[ -n "${LAB_CONTROLLER_NODE_SELECTOR:-}" ]]; then
-  RENDER_ARGS+=(--support-node-selector "${LAB_CONTROLLER_NODE_SELECTOR}")
+if [[ -n "${LAB_STUBS_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR:-}}" ]]; then
+  RENDER_ARGS+=(--support-node-selector "${LAB_STUBS_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR}}")
 fi
 if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
   RENDER_ARGS+=(--packet-capture)

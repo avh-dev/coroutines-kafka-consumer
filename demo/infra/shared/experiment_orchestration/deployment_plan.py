@@ -72,6 +72,8 @@ LOAD_ENV_NAMES = {
     "publish_enabled": "PUBLISH_ENABLED",
     "audit_log_enabled": "AUDIT_LOG_ENABLED",
     "workers": "LOAD_TEST_WORKERS",
+    "dispatcher_threads": "LOAD_TEST_DISPATCHER_THREADS",
+    "java_options": "JAVA_TOOL_OPTIONS",
     "kafka_producer_linger_ms": "KAFKA_PRODUCER_LINGER_MS",
     "kafka_producer_batch_size": "KAFKA_PRODUCER_BATCH_SIZE",
     "kafka_producer_compression_type": "KAFKA_PRODUCER_COMPRESSION_TYPE",
@@ -113,6 +115,7 @@ class DeploymentBindings:
     application_node_selector: Mapping[str, str] | None = None
     support_node_selector: Mapping[str, str] | None = None
     load_test_node_selector: Mapping[str, str] | None = None
+    load_test_environment: Mapping[str, Any] | None = None
 
 
 def build_deployment_plan(
@@ -165,6 +168,7 @@ def build_deployment_plan(
             "planner": stable_planner,
             "generated_values": stable_values,
         },
+        "placement": copy.deepcopy(target_snapshot.get("placement") or {}),
         "workload": copy.deepcopy(target_snapshot["workload"]),
         "project_resources": ["application", "stubs", "load-test"],
         "third_party": third_party,
@@ -388,8 +392,9 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         for key, value in (values.get("env") or {}).items()
         if key in GENERATED_ENV_NAMES and value not in (None, "")
     }
-    computed_env.update(copy.deepcopy(runtime.get("env") or {}))
     workload_load = (plan.get("workload") or {}).get("load") or {}
+    workload_stubs = (plan.get("workload") or {}).get("stubs") or {}
+    stub_deployment = workload_stubs.get("deployment") or {}
     computed_env.setdefault(
         "KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS",
         str(workload_load.get("kafka_consumer_max_poll_interval_ms", 1_800_000)),
@@ -413,6 +418,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "MODEL_HTTP_CLIENT": computed_env.get("MODEL_HTTP_CLIENT", "ARMERIA"),
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
+    computed_env.update(copy.deepcopy(runtime.get("env") or {}))
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))
     resources = values.get("resources") or configuration.get("resources") or {}
     manifests: list[dict[str, Any]] = [
@@ -422,10 +428,16 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             container_name="demo-stubs",
             image=bindings.stubs_image,
             pull_policy=bindings.image_pull_policy,
-            replicas=1,
+            replicas=int(stub_deployment.get("replicas", 1)),
             run_id=bindings.run_id,
             profile="stubs",
-            environment={"PORT": 8080, "REDIS_HOST": bindings.redis_host, "REDIS_PORT": 6379},
+            environment={
+                "PORT": 8080,
+                "REDIS_HOST": bindings.redis_host,
+                "REDIS_PORT": 6379,
+                "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
+            },
+            resources=stub_deployment.get("resources") or {},
             test_definition=bindings.test_definition,
             node_selector=bindings.support_node_selector,
         ),
@@ -527,6 +539,7 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         "BATCH_TPS_PER_PRODUCER": producer_capacity.get("batch", 1000),
         "CAULDRON_TELEMETRY_TPS_PER_PRODUCER": producer_capacity.get("telemetry", 1000),
     })
+    environment.update(copy.deepcopy(dict(bindings.load_test_environment or {})))
     if bindings.started_at:
         environment["TEST_RUN_STARTED_AT"] = bindings.started_at
     container: dict[str, Any] = {
@@ -566,7 +579,7 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         pod_spec["nodeSelector"] = dict(bindings.load_test_node_selector)
     if bindings.packet_capture_enabled:
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
-    name = f"ckc-load-test-{bindings.run_id}"
+    name = f"ckc-load-test-{bindings.run_id.lower()}"
     return {
         "apiVersion": "batch/v1", "kind": "Job",
         "metadata": _metadata(name, bindings.load_test_namespace),
@@ -577,7 +590,11 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             "completionMode": "Indexed",
             "backoffLimit": 0,
             "template": {
-                "metadata": {"labels": {"app.kubernetes.io/name": "ckc-load-test", "ckc.dev/test-run-id": bindings.run_id}},
+                "metadata": {"labels": {
+                    "app.kubernetes.io/name": "ckc-load-test",
+                    "ckc.dev/test-run-id": bindings.run_id,
+                    "ckc.dev/profile": str(plan["target"]["implementation"]),
+                }},
                 "spec": pod_spec,
             },
         },

@@ -169,25 +169,20 @@ def peak_telemetry_fleet_size(load_test: dict[str, Any], phases: list[dict[str, 
         return None
     try:
         base_tps = int(load_test.get("base_tps") or 0)
-        workers = int(load_test.get("workers") or 0)
-        shards = int(load_test.get("shards") or 1)
         interval = int(load_test.get("telemetry_publish_interval_seconds") or 5)
         telemetry_percent = load_test.get("cauldron_telemetry_percent") or 0
         peak = max(max(float(phase["start_percent"]), float(phase["end_percent"])) for phase in phases)
     except (TypeError, ValueError):
         return None
-    if base_tps <= 0 or workers <= 0 or interval <= 0:
+    if base_tps <= 0 or interval <= 0:
         return None
-    return shards * sum(
-        int((
-            Decimal(base_tps // workers + (1 if worker < base_tps % workers else 0))
-            * Decimal(str(telemetry_percent))
-            * Decimal(str(peak))
-            * Decimal(interval)
-            / Decimal(10_000)
-        ).to_integral_value(rounding=ROUND_CEILING))
-        for worker in range(workers)
-    )
+    return int((
+        Decimal(base_tps)
+        * Decimal(str(telemetry_percent))
+        * Decimal(str(peak))
+        * Decimal(interval)
+        / Decimal(10_000)
+    ).to_integral_value(rounding=ROUND_CEILING))
 
 
 def stubs_change_table(baseline: Any, degraded: Any) -> dict[str, Any] | None:
@@ -914,10 +909,7 @@ def window_audit(
 
 def configured_measurement_windows(load_test: dict[str, Any]) -> list[dict[str, Any]]:
     windows = load_test.get("measurement_windows")
-    if isinstance(windows, list):
-        return [window for window in windows if isinstance(window, dict)]
-    window = load_test.get("measurement_window")
-    return [window] if isinstance(window, dict) else []
+    return [window for window in windows if isinstance(window, dict)] if isinstance(windows, list) else []
 
 
 def analyze_experiment(
@@ -1170,7 +1162,6 @@ def analyze_experiment(
             "load_phases": phases,
             "load_topics": load_topics,
             "topic_contracts": topic_contracts,
-            "measurement_window": load_test.get("measurement_window"),
             "measurement_windows": configured_measurement_windows(load_test),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],

@@ -89,7 +89,7 @@ targets:
       -Djdk.virtualThreadScheduler.maxPoolSize=1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       LETTUCE_METRICS_ENABLED: true
@@ -123,7 +123,7 @@ targets:
       -Djdk.virtualThreadScheduler.maxPoolSize=1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       LETTUCE_METRICS_ENABLED: true
@@ -155,7 +155,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       LETTUCE_METRICS_ENABLED: true
@@ -188,7 +188,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       LETTUCE_METRICS_ENABLED: true

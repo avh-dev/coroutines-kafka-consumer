@@ -36,6 +36,7 @@ Rules:
 - `TOTAL_SHARDS` and the Kubernetes `JOB_COMPLETION_INDEX` split `BASE_TPS` deterministically between generator JVMs; the first shards receive any indivisible remainder
 - `LOAD_TEST_WORKERS` controls in-process generator workers; it defaults to available CPU cores
 - workers split `BASE_TPS` across themselves and keep separate simulation state
+- `LOAD_TEST_DISPATCHER_THREADS` independently bounds the platform threads that execute those state-owning worker coroutines; it defaults to available CPU cores and never exceeds the active worker count
 - active worker count is capped by `BASE_TPS` so each worker has at least one integer TPS permit
 - generated entity ids include both identity dimensions, for example `order-1-5-00021212`
 - `ORDER_EVENT_PERCENT`, `BATCH_EVENT_PERCENT`, and `CAULDRON_TELEMETRY_PERCENT` split that total event budget across topics

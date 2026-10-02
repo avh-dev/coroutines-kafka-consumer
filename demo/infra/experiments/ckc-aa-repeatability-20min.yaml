@@ -52,8 +52,8 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
-  measurement_window:
-    name: steady-state
+  measurement_windows:
+  - name: steady-state
     start: 4m
     duration: 15m
   topics:
@@ -108,7 +108,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -170,7 +170,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT

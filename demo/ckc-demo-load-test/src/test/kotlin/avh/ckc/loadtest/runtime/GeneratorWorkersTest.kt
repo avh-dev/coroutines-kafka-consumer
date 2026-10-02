@@ -19,6 +19,12 @@ class GeneratorWorkersTest {
     }
 
     @Test
+    fun `keeps state shard count independent from dispatcher thread count`() {
+        assertEquals(4, effectiveGeneratorDispatcherThreads(workerCount = 100, configuredThreads = 4))
+        assertEquals(3, effectiveGeneratorDispatcherThreads(workerCount = 3, configuredThreads = 8))
+    }
+
+    @Test
     fun `distributes aggregate tps across physical shards`() {
         val shardRates = (0 until 5).map { shardBaseTps(baseTps = 50_003, shardIndex = it, totalShards = 5) }
 

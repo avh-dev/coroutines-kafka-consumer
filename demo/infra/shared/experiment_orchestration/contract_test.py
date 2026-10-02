@@ -59,6 +59,7 @@ def canonical_experiment() -> dict:
             "runtime": {
                 "env": {"AUDIT_LOG_ENABLED": True, "PROCESSING_DISPATCHER_TYPE": "FIXED"},
                 "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
+                "planning_headroom_percent": 30,
                 "topics": {
                     "telemetry": {
                         "workers": 20,
@@ -104,6 +105,7 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual(2, resolved.targets[0].definition["application"]["replicas"])
         self.assertEqual(20, resolved.targets[0].definition["telemetry_workers"])
         self.assertEqual(4096, resolved.targets[0].definition["telemetry_queue_capacity"])
+        self.assertEqual(30, resolved.targets[0].definition["planning_headroom_percent"])
         self.assertEqual("per_key", resolved.snapshot["workload"]["topics"]["order"]["contract"]["ordering"])
         self.assertEqual(
             "freshness_first",
@@ -135,21 +137,57 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "shards must not exceed aggregate"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
+    def test_validates_stub_deployment_capacity(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["stubs"]["deployment"] = {
+            "replicas": 4,
+            "workers": 4,
+            "resources": {
+                "requests": {"cpu": "1", "memory": "1Gi"},
+                "limits": {"memory": "1536Mi"},
+            },
+        }
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="aws")
+        self.assertEqual(4, snapshot["workload"]["stubs"]["deployment"]["replicas"])
+
+        experiment["workload"]["stubs"]["deployment"]["replicas"] = 0
+        with self.assertRaisesRegex(ValueError, "deployment.replicas must be a positive integer"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
+    def test_rejects_planning_headroom_above_one_hundred_percent(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["runtime"]["planning_headroom_percent"] = 101
+
+        with self.assertRaisesRegex(ValueError, "planning_headroom_percent must be between 0 and 100"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
+    def test_rejects_obsolete_processing_enabled_environment_alias(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["runtime"]["env"]["PROCESSING_ENABLED"] = True
+
+        with self.assertRaisesRegex(ValueError, "use DEMO_CONSUMER_PROCESSING_ENABLED"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
     def test_internal_lab_accepts_target_application_placement(self) -> None:
         experiment = canonical_experiment()
-        experiment["targets"][0]["application"]["placement"] = "controller"
+        experiment["targets"][0]["placement"] = {
+            "application": "controller",
+            "stubs": "controller",
+            "generator": "worker",
+        }
 
         snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
-        self.assertEqual("controller", snapshot["targets"][0]["application"]["placement"])
+        self.assertEqual("worker", snapshot["targets"][0]["placement"]["generator"])
 
     def test_rejects_application_placement_for_aws_and_unknown_values(self) -> None:
         experiment = canonical_experiment()
-        experiment["targets"][0]["application"]["placement"] = "worker"
+        experiment["targets"][0]["placement"] = {"application": "worker"}
         with self.assertRaisesRegex(ValueError, "only supported by internal-lab"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
-        experiment["targets"][0]["application"]["placement"] = "somewhere"
+        experiment["targets"][0]["placement"] = {"generator": "somewhere"}
         with self.assertRaisesRegex(ValueError, "must be controller or worker"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
@@ -256,19 +294,18 @@ class CanonicalExperimentContractTest(unittest.TestCase):
             resolved.test.definition["load_test"]["measurement_windows"],
         )
 
-    def test_rejects_ambiguous_or_unnamed_measurement_windows(self) -> None:
+    def test_rejects_legacy_singular_or_unnamed_measurement_windows(self) -> None:
         experiment = canonical_experiment()
         experiment["workload"]["measurement_window"] = {
             "name": "baseline", "start": "2m", "duration": "2m",
         }
-        experiment["workload"]["measurement_windows"] = [
-            {"name": "degraded", "start": "5m", "duration": "5m"},
-        ]
-        with self.assertRaisesRegex(ValueError, "either measurement_window or measurement_windows"):
+        with self.assertRaisesRegex(ValueError, "unknown fields: measurement_window"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
         del experiment["workload"]["measurement_window"]
-        experiment["workload"]["measurement_windows"][0]["name"] = ""
+        experiment["workload"]["measurement_windows"] = [
+            {"name": "", "start": "5m", "duration": "5m"},
+        ]
         with self.assertRaisesRegex(ValueError, "name must not be empty"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 

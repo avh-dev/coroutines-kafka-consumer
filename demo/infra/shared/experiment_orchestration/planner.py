@@ -92,6 +92,13 @@ def positive_float(value: str) -> float:
     return parsed
 
 
+def percentage(value: str) -> float:
+    parsed = float(value)
+    if not 0 <= parsed <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
+    return parsed
+
+
 def positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
@@ -122,6 +129,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-sync-http-client", choices=["ARMERIA", "JDK", "armeria", "jdk"])
     parser.add_argument("--jdk-http-client-executor", choices=["DEFAULT", "VIRTUAL", "default", "virtual"])
     parser.add_argument("--parallelism", type=non_empty)
+    parser.add_argument("--planning-headroom-percent", type=percentage, default=0.0)
     parser.add_argument("--demo-java-tool-options", type=non_empty)
     parser.add_argument("--demo-cpu-request", type=non_empty)
     parser.add_argument("--demo-memory-request", type=non_empty)
@@ -207,13 +215,14 @@ def target_namespace(
         "current_deployment_env": str(current_deployment_env) if current_deployment_env else None,
         "base_tps": None,
         "replicas": application.get("replicas", merged.get("replicas")),
-        "processing_enabled": str(env.get("PROCESSING_ENABLED", "true")).lower(),
+        "processing_enabled": str(env.get("DEMO_CONSUMER_PROCESSING_ENABLED", "true")).lower(),
         "processing_dispatcher_type": env.get("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env.get("WORKER_DISPATCHER_THREADS"),
         "model_http_client": env.get("MODEL_HTTP_CLIENT"),
         "model_sync_http_client": env.get("MODEL_SYNC_HTTP_CLIENT"),
         "jdk_http_client_executor": env.get("JDK_HTTP_CLIENT_EXECUTOR"),
         "parallelism": merged.get("parallelism"),
+        "planning_headroom_percent": merged.get("planning_headroom_percent", 0.0),
         "demo_java_tool_options": application.get("java_tool_options", helm_env.get("javaToolOptions")),
         "demo_cpu_request": requests.get("cpu"),
         "demo_memory_request": requests.get("memory"),
@@ -594,6 +603,7 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
         topic: getattr(args, f"{topic}_planning_latency_ms")
         for topic in TOPIC_ORDER
     }
+    planning_headroom_percent = float(args.planning_headroom_percent or 0.0)
     topic_plans: list[dict[str, Any]] = []
     kafka_topics: list[dict[str, Any]] = []
     env: dict[str, Any] = {"springProfilesActive": profile["spring_profile"]}
@@ -630,7 +640,11 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
                 f"or set topics.{topic_name}.default_planning_latency_ms for profile {args.profile!r}"
             )
         average_ms = float(average_ms)
-        required = max(1, math.ceil(target_tps * average_ms / 1000.0))
+        required_without_headroom = max(1, math.ceil(target_tps * average_ms / 1000.0))
+        required = max(
+            1,
+            math.ceil(target_tps * average_ms / 1000.0 * (1.0 + planning_headroom_percent / 100.0)),
+        )
         overrides = manual_overrides[topic_name]
         for knob in PARALLELISM_KNOBS:
             value = overrides[knob]
@@ -677,6 +691,16 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
                     f"{topic_name} partitions must be at least pollers * replicas for {args.profile}: "
                     f"{partitions} < {overrides['pollers']} * {replica_count}"
                 )
+        if planning_headroom_percent > 0 and "partitions" in knobs and "pollers" in knobs:
+            aggregate_pollers = poll_loop_concurrency * replica_count
+            available_parallelism = min(partitions, aggregate_pollers)
+            if available_parallelism < required:
+                raise ValueError(
+                    f"{topic_name} planned capacity is insufficient for {args.profile} with "
+                    f"{planning_headroom_percent:g}% headroom: min({partitions} partitions, "
+                    f"{poll_loop_concurrency} pollers * {replica_count} replicas) = "
+                    f"{available_parallelism} < {required} required parallelism"
+                )
 
         env[env_key(topic_name, "ProcessingMode")] = runtime_processing_mode(mode)
         if topic_name == "telemetry" and not runtime_processing_mode(mode).startswith("FRESHNESS_FIRST_"):
@@ -697,6 +721,8 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
                 "traffic_percent": percent,
                 "target_tps": target_tps,
                 "average_processing_ms": average_ms,
+                "planning_headroom_percent": planning_headroom_percent,
+                "required_parallelism_without_headroom": required_without_headroom,
                 "required_parallelism": required,
                 "partitions": partitions,
                 "worker_concurrency": worker_concurrency,

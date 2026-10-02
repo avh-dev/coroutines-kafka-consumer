@@ -426,6 +426,15 @@
 | [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
 | [INFRA-260](#infra-260) | Split CKC and Spring 50k sizing into independent AWS experiments with implementation-specific MSK capacity. | DONE |
 | [INFRA-261](#infra-261) | Remove redundant AWS business-topic provisioning and harden asynchronous MSK topic resets. | DONE |
+| [INFRA-262](#infra-262) | Run the internal-lab load generator in Kubernetes with experiment-controlled workload placement and bounded execution threads. | DONE |
+| [INFRA-263](#infra-263) | Prepare a Spring Kafka 50k AWS qualification run using the locally proven high-partition generator configuration. | DONE |
+| [INFRA-264](#infra-264) | Improve AWS Telegram readability and report runner bootstrap and lab creation progress. | DONE |
+| [INFRA-265](#infra-265) | Correct and guard Spring Kafka qualification parallelism with explicit capacity headroom. | DONE |
+| [INFRA-266](#infra-266) | Unify experiment measurement-window configuration on the canonical list form. | DONE |
+| [INFRA-267](#infra-267) | Harden the Spring 50k qualification with conservative downstream latency and scalable stubs. | DONE |
+| [INFRA-268](#infra-268) | Use literal application environment names and make runtime env the final deployment override. | DONE |
+| [INFRA-269](#infra-269) | Align the CKC 50k qualification workload with Spring while retaining CKC-sized Kafka topology. | DONE |
+| [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4952,3 +4961,111 @@ Create business topics only during target preparation and wait for MSK deletion 
 Retry creation while MSK still reports a topic marked for deletion and detect a failed Kafka admin pod without waiting for the full timeout.
 Add regression coverage for the generated admin workflow and AWS lab bootstrap without launching an experiment automatically.
 Verification: 59 AWS, 50 shared orchestration, and 170 internal-lab tests pass; the generated Kafka admin script executes the asynchronous-deletion regression scenario successfully. Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-262"></a>
+### INFRA-262 - Run the internal-lab load generator in Kubernetes
+
+_Date: 2026-10-02_
+
+Move internal-lab load generation from a host process to the shared indexed Kubernetes Job used by AWS.
+Allow experiments to place application, stubs, and generator workloads on semantic controller or worker node roles.
+Keep independent generator state shards while executing them on separately bounded coroutine dispatcher threads.
+Add a local single-broker noop 50k qualification experiment and preserve aggregate TPS division inside each indexed generator pod.
+Validate the generator tests and both shared/internal orchestration suites, then install the updated runtime and image on both lab nodes without starting the experiment.
+Retune the qualification run to the cloud-sized 336/156/420 partition topology at a 30/30/40 traffic mix with 5,000 CKC workers per topic.
+Collect producer sent, acknowledged, and failed counters through Kubernetes pod discovery, use them in audit-free reports, and make Prometheus reconciliation restart-safe.
+Honor non-required consumer drain in internal-lab runs and report the aggregate telemetry fleet correctly across generator shards.
+Diagnose the first high-partition qualification failure as generator JVM heap exhaustion and give load jobs an explicit, validated Java options setting.
+Size each qualification shard with a 768 MiB heap inside a 1280 MiB container limit so Kafka batch allocation has headroom without overcommitting the worker node.
+Verification: 51 shared orchestration and 171 internal-lab tests pass; Python compilation and whitespace validation pass, and the installed experiment contains the explicit heap and container limit. No experiment was launched automatically.
+Normalize the experiment-level `PROCESSING_ENABLED` compatibility setting to the application's real `DEMO_CONSUMER_PROCESSING_ENABLED` environment variable so noop runs cannot silently execute downstream model calls.
+Verification: the rendered noop deployment contains `DEMO_CONSUMER_PROCESSING_ENABLED=false` and omits the ineffective alias; 51 shared orchestration and 171 internal-lab tests pass, and the installed runtime is updated without launching a workload.
+After the corrected noop run reached roughly 43.3k/s, attribute the remaining publisher ceiling to exhausted 64 MiB producer buffers caused by 512 KiB batches across hundreds of partitions.
+Reduce every qualification producer batch allocation to 32 KiB while retaining the 300 ms linger, 64 MiB buffer, and two dispatcher threads for an isolated follow-up measurement.
+Verification: the installed experiment renders 32 KiB topic batches; 51 shared orchestration and 171 internal-lab tests pass, with Python compilation and whitespace validation clean. No workload was launched automatically.
+
+<a id="infra-263"></a>
+### INFRA-263 - Prepare the Spring Kafka AWS qualification run
+
+_Date: 2026-10-02_
+
+Keep the next AWS run as a fixed-capacity requirement qualification rather than a final cost or autoscaling comparison.
+Transfer the locally proven two-shard generator heap, dispatcher, batching, compression, and buffer configuration to Spring Kafka.
+Exercise the cloud-sized 336/156/420 partition topology at 30/30/40 traffic with 20,000 telemetry keys while retaining real processing and incremental audit evidence.
+Leave the generous fixed EKS and `kafka.m7g.xlarge` MSK capacity unchanged so the run can reveal application and broker requirements without autoscaling effects.
+Verification: 51 shared orchestration and 59 AWS tests pass; the materialized Job has two shards, the proven producer settings and bounded heap, while the Spring deployment keeps processing and audit enabled. Python compilation and whitespace validation pass; no AWS experiment was launched.
+
+<a id="infra-264"></a>
+### INFRA-264 - Improve AWS provisioning notifications
+
+_Date: 2026-10-02_
+
+Separate the initial experiment summary with blank lines so infrastructure, workload, and target details remain readable on a phone.
+Notify when the disposable runner finishes bootstrap and when the controller begins Terraform creation of the paid EKS, MSK, and Redis lab.
+Keep these progress events enabled by default and include the concrete runner and lab resource shape in their messages.
+Verification: 59 AWS and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the shared formatter is installed locally. The active AWS session remains unchanged because it runs from its launch-time snapshot.
+
+<a id="infra-265"></a>
+### INFRA-265 - Guard Spring qualification parallelism
+
+_Date: 2026-10-02_
+
+Correct the Spring 50k qualification plan after CKC poller overrides accidentally serialized each topic to one consumer per pod.
+Apply explicit planning headroom for application, downstream, and JVM contention under the intended concurrent load.
+Reject qualification plans whose partitions or aggregate Spring pollers cannot provide their planned processing capacity.
+Add regression coverage for the rendered per-topic concurrency before another paid AWS run.
+Use a 30% qualification reserve, producing 276/180/1068 partitions and 23/15/89 Spring pollers per pod for order, batch, and telemetry respectively.
+Verification: 128 shared, 59 AWS, and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the updated shared runtime is installed on optilab. No experiment or smoke workload was launched.
+
+<a id="infra-266"></a>
+### INFRA-266 - Unify measurement-window configuration
+
+_Date: 2026-10-02_
+
+Remove the legacy singular `measurement_window` field from the canonical experiment schema and runtime readers.
+Represent one or many named measurement windows uniformly through the `measurement_windows` list.
+Migrate all maintained experiments, fixtures, reports, and audit paths to the canonical list form.
+Require every list item to have a unique explicit name and reject the removed singular field as an unknown contract property.
+Verification: all 36 experiment/environment combinations validate; 128 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.
+
+<a id="infra-267"></a>
+### INFRA-267 - Harden the Spring 50k qualification
+
+_Date: 2026-10-02_
+
+Use a deliberately fast downstream profile and one explicit planning reserve so the comparison cannot depend on inflated blocking latency.
+Scale the shared stub service behind its existing Kubernetes Service and give every stub pod explicit resources.
+Keep the resulting partition topology inside the recommended MSK `m7g.xlarge` partition envelope.
+Capture the complete steady interval together with early, middle, and late diagnostic windows.
+Verification: 129 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.
+
+<a id="infra-268"></a>
+### INFRA-268 - Use literal runtime environment names
+
+_Date: 2026-10-02_
+
+Remove the special `PROCESSING_ENABLED` alias and use the application's real environment variable name in experiment definitions.
+Apply `runtime.env` unchanged after generated deployment values so explicit experiment settings have final precedence.
+Migrate maintained experiments and fixtures to the literal environment name and protect the behavior with tests.
+Verification: all 36 experiment/environment combinations validate; 130 shared, 59 AWS, and 172 internal-lab tests pass. Whitespace validation passes, and the updated runtime and experiments are installed on optilab without launching a workload.
+
+<a id="infra-269"></a>
+### INFRA-269 - Align the CKC 50k qualification workload
+
+_Date: 2026-10-02_
+
+Match the CKC qualification traffic mix, fleet, generator, stub profile, and measurement windows to the completed Spring qualification.
+Retain three `kafka.m7g.large` brokers with twelve partitions per topic and one poller per application pod.
+Use workers as the only scalable concurrency dimension and keep 100 coroutine workers per topic and pod so downstream concurrency cannot constrain the CKC result.
+Verification: the CKC and Spring workload sections are identical; all 36 experiment/environment combinations validate; 130 shared, 59 AWS, and 172 internal-lab tests pass. Whitespace validation passes, and the updated experiment is installed on optilab without launching a workload.
+
+<a id="infra-270"></a>
+### INFRA-270 - Package the latest cross-environment report
+
+_Date: 2026-10-02_
+
+Extend the lightweight latest-report archive command to inspect completed internal-lab and AWS results.
+Select the newest available generated report by modification time and retain the existing Markdown-and-SVG ZIP contract.
+Install the repository result location with the lab runtime so the command works outside the checkout.
+Preserve the established `/opt/ckc-lab/results/exports/latest-report.zip` download path while allowing an explicit output override.
+Verification: 172 internal-lab tests pass; shell syntax and whitespace validation pass; the installed command selects the latest AWS result and produces a readable ZIP at the established download path.

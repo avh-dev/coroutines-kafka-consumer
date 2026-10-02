@@ -16,7 +16,6 @@ GENERATED_DIR="${LAB_ROOT}/state/generated"
 export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
 KAFKA_THREAD_STATS_JOB="ckc-kafka-thread-stats"
-LOAD_TEST_METRICS_JOB="ckc-load-test"
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
 LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-single}"
 
@@ -65,9 +64,7 @@ prometheus_target_exists() {
   curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
     | grep -F "\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"" >/dev/null 2>&1 \
     && curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
-    | grep -F "\"job\":\"${KAFKA_THREAD_STATS_JOB}\"" >/dev/null 2>&1 \
-    && curl -fsS "http://127.0.0.1:30090/api/v1/targets" 2>/dev/null \
-    | grep -F "\"job\":\"${LOAD_TEST_METRICS_JOB}\"" >/dev/null 2>&1
+    | grep -F "\"job\":\"${KAFKA_THREAD_STATS_JOB}\"" >/dev/null 2>&1
 }
 
 restart_prometheus() {
@@ -87,21 +84,14 @@ kubectl apply -f "${K8S_DIR}/namespace.yaml"
 kubectl apply -f "${K8S_DIR}/metrics-server.yaml"
 kubectl apply -f "${GENERATED_DIR}/external-services.yaml"
 kubectl -n ckc-perf delete service,endpoints ckc-external-demo-stubs --ignore-not-found=true
-PROMETHEUS_CONFIG_BEFORE="$(kubectl -n ckc-perf get configmap ckc-prometheus-config -o jsonpath='{.data.prometheus\.yml}' 2>/dev/null || true)"
+kubectl -n ckc-perf delete service,endpoints ckc-external-load-test --ignore-not-found=true
 kubectl apply -f "${K8S_DIR}/prometheus.yaml"
 
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
-kubectl -n ckc-perf rollout status deployment/ckc-prometheus --timeout=5m
-PROMETHEUS_CONFIG_AFTER="$(kubectl -n ckc-perf get configmap ckc-prometheus-config -o jsonpath='{.data.prometheus\.yml}' 2>/dev/null || true)"
-if [ -n "${PROMETHEUS_CONFIG_BEFORE}" ] && [ "${PROMETHEUS_CONFIG_BEFORE}" != "${PROMETHEUS_CONFIG_AFTER}" ]; then
-  if ! curl -fsS -X POST "http://127.0.0.1:30090/-/reload" >/dev/null 2>&1; then
-    echo "Prometheus config changed but reload failed; restarting deployment." >&2
-    restart_prometheus
-  elif ! timeout 30 sh -c "until targets=\$(curl -fsS 'http://127.0.0.1:30090/api/v1/targets' 2>/dev/null) && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${REDPANDA_PUBLIC_METRICS_JOB}\"' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${KAFKA_THREAD_STATS_JOB}\"' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9414/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9415/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F 'ckc-external-kafka-thread-stats.ckc-perf.svc.cluster.local:9416/prometheus' >/dev/null 2>&1 && printf '%s' \"\${targets}\" | grep -F '\"job\":\"${LOAD_TEST_METRICS_JOB}\"' >/dev/null 2>&1; do sleep 2; done"; then
-    echo "Prometheus reloaded without the expected host-service target addresses; restarting deployment." >&2
-    restart_prometheus
-  fi
-fi
+# Reconcile process state as well as the ConfigMap. A previous deploy may have updated the
+# mounted file without making Prometheus reread it, so equality of old/new ConfigMaps does
+# not prove that the active process uses the desired scrape configuration.
+restart_prometheus
 
 mkdir -p "${GRAFANA_DIR}/provisioning/datasources" "${GRAFANA_DIR}/provisioning/dashboards"
 mkdir -p "${LAB_ROOT}/results/live/audit"

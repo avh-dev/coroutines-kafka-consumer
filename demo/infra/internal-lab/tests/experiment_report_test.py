@@ -147,6 +147,18 @@ class ExperimentReportTest(unittest.TestCase):
             STANDARD_MEASUREMENTS["stubs_cpu_average_cores"],
         )
 
+    def test_generator_delivery_measurements_use_kubernetes_pod_counters(self) -> None:
+        for name in (
+            "producer_records_sent_total",
+            "producer_records_acked_total",
+            "producer_records_failed_total",
+        ):
+            query = STANDARD_MEASUREMENTS[name]
+            self.assertIn("ckc_load_test_producer_records_", query)
+            self.assertIn('job="ckc-load-test"', query)
+            self.assertIn('pod=~"ckc-load-test-.+"', query)
+            self.assertIn("increase(", query)
+
     def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
         query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
 
@@ -155,9 +167,9 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn('pod=~"ckc-demo-.+"', query)
         self.assertNotIn("namedprocess_", query)
 
-    def test_peak_telemetry_fleet_size_matches_worker_partitioning(self) -> None:
+    def test_peak_telemetry_fleet_size_is_aggregate_across_shards_and_workers(self) -> None:
         self.assertEqual(
-            404,
+            202,
             peak_telemetry_fleet_size(
                 {
                     "telemetry_source_mode": "FLEET",
@@ -276,7 +288,9 @@ class ExperimentReportTest(unittest.TestCase):
                 },
                 "load_test": {
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
-                    "measurement_window": {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
+                    "measurement_windows": [
+                        {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
+                    ],
                     "order_event_percent": 60,
                     "batch_event_percent": 40,
                     "cauldron_telemetry_percent": 0,
@@ -1614,11 +1628,11 @@ class ExperimentReportTest(unittest.TestCase):
             resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
             resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
             resolved_test["load_test"]["base_tps"] = 100
-            resolved_test["load_test"]["measurement_window"] = {
+            resolved_test["load_test"]["measurement_windows"] = [{
                 "name": "steady-state",
                 "start_seconds": 20,
                 "duration_seconds": 30,
-            }
+            }]
             self.write_yaml(resolved_test_path, resolved_test)
             analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
             run_dir = root / "results/runs/run-a"
@@ -1658,6 +1672,9 @@ class ExperimentReportTest(unittest.TestCase):
                 "cpu_average_cores": 1.0,
                 "broker_cpu_average_cores": 0.25,
                 "context_switches_average_per_second": 50.0,
+                "producer_records_sent_total": 3000.0,
+                "producer_records_acked_total": 2999.0,
+                "producer_records_failed_total": 1.0,
             }
             with patch("experiment_report.analyze.collect_standard_measurements", return_value=measurements):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
@@ -1684,14 +1701,16 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn("1 · 100.000% of published", markdown)
             self.assertIn(
-                'Published rate<span class="metric-source source-a" title="Audit records">A</span></th><td>0 msg/s</td>',
+                'Producer sent rate<span class="metric-source source-p" title="Prometheus time series">P</span></th><td>100 msg/s</td>',
                 markdown,
             )
 
             self.assertIn(
-                'Actual publish rate<span class="metric-source source-a" title="Audit records">A</span></th><td>0 msg/s</td>',
+                'Actual producer sent rate<span class="metric-source source-p" title="Prometheus time series">P</span></th><td>38 msg/s</td>',
                 markdown,
             )
+            self.assertIn("Producer acknowledged rate", markdown)
+            self.assertIn("Producer failures", markdown)
             self.assertIn(
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
                 markdown,
@@ -1728,8 +1747,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Application context switches average", markdown)
-            self.assertIn("### Steady-state highlights", markdown)
-            self.assertIn("Published rate", markdown)
+            self.assertIn("### Measurement-window highlights", markdown)
+            self.assertIn("Producer sent rate", markdown)
             self.assertNotIn("Audit published rate", markdown)
             self.assertNotIn("Audit E2E latency", markdown)
             self.assertNotIn("Prometheus processed throughput", markdown)
@@ -1768,7 +1787,6 @@ class ExperimentReportTest(unittest.TestCase):
             summary_path = self.fixture(root)
             resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
             resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
-            resolved_test["load_test"].pop("measurement_window", None)
             resolved_test["load_test"]["measurement_windows"] = [
                 {"name": "baseline", "start_seconds": 10, "duration_seconds": 10},
                 {"name": "degraded", "start_seconds": 30, "duration_seconds": 10},

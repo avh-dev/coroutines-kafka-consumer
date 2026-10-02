@@ -112,9 +112,26 @@ data:
 
       - job_name: ckc-load-test
         metrics_path: /metrics
-        static_configs:
-          - targets:
-              - ckc-external-load-test.ckc-perf.svc.cluster.local:9405
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - ckc-perf
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            regex: ckc-load-test
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            regex: "9405"
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_ckc_dev_test_run_id]
+            target_label: run_id
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
 ---
 apiVersion: apps/v1
 kind: Deployment

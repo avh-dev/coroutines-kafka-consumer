@@ -16,12 +16,13 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET", script)
         self.assertIn("export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR", script)
 
-    def test_target_runner_maps_per_target_application_placement_to_lab_roles(self) -> None:
+    def test_target_runner_maps_per_target_workload_placement_to_lab_roles(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
         prepare = PREPARE_TEST.read_text(encoding="utf-8")
 
-        self.assertIn('case "${EXPERIMENT_APPLICATION_PLACEMENT:-}" in', script)
-        self.assertIn('LAB_APPLICATION_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR}"', script)
+        self.assertIn("node_selector_for_placement", script)
+        self.assertIn('EXPERIMENT_STUBS_PLACEMENT:-controller', script)
+        self.assertIn('EXPERIMENT_GENERATOR_PLACEMENT:-controller', script)
         self.assertIn("placement 'worker' requires a split internal lab", script)
         self.assertIn(
             'REQUESTED_APPLICATION_NODE_SELECTOR="${LAB_APPLICATION_NODE_SELECTOR:-}"', prepare
@@ -103,6 +104,9 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("systemctl is-active --quiet k3s-agent", script)
         self.assertIn("LAB_APPLICATION_TARGET", rebuild)
         self.assertIn("import-k3s-images", rebuild)
+        self.assertIn('load-test)', script)
+        self.assertIn('demo|demo-stubs|load-test)', rebuild)
+        self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")

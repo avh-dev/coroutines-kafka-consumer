@@ -965,12 +965,7 @@ def render_markdown(report: ExperimentReport) -> str:
 
     measurement_windows = report.test_definition.get("measurement_windows")
     if not isinstance(measurement_windows, list):
-        legacy_window = report.test_definition.get("measurement_window")
-        measurement_windows = [legacy_window] if isinstance(legacy_window, dict) else []
-    legacy_single_window = (
-        isinstance(report.test_definition.get("measurement_window"), dict)
-        and len(measurement_windows) == 1
-    )
+        measurement_windows = []
 
     def target_window(target: TargetReport, index: int) -> dict[str, Any]:
         if index < len(target.measurement_windows):
@@ -993,8 +988,7 @@ def render_markdown(report: ExperimentReport) -> str:
         metric_source_legend,
         "",
         (
-            "### Steady-state highlights" if legacy_single_window
-            else "### Measurement-window highlights" if measurement_windows
+            "### Measurement-window highlights" if measurement_windows
             else "### Detailed results"
         ),
         "",
@@ -1019,17 +1013,35 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
         )
         row(
-            "Published rate",
+            "Producer sent rate",
             formatted(
                 [
-                    (delivery.get("published") or 0) / window_duration
-                    if window_duration else None
-                    for delivery in deliveries
+                    value.get("producer_records_sent_total") / window_duration
+                    if window_duration and value.get("producer_records_sent_total") is not None else None
+                    for value in measurements
                 ],
                 0,
                 " msg/s",
             ),
-            "audit",
+            "prometheus",
+        )
+        row(
+            "Producer acknowledged rate",
+            formatted(
+                [
+                    value.get("producer_records_acked_total") / window_duration
+                    if window_duration and value.get("producer_records_acked_total") is not None else None
+                    for value in measurements
+                ],
+                0,
+                " msg/s",
+            ),
+            "prometheus",
+        )
+        row(
+            "Producer failures",
+            counts([value.get("producer_records_failed_total") for value in measurements]),
+            "prometheus",
         )
         row("Application CPU", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Kafka broker CPU", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
@@ -1126,13 +1138,35 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection("Run summary")
         row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
         row(
-            "Actual publish rate",
+            "Actual producer sent rate",
             formatted(
-                [(delivery.get("published") or 0) / duration if duration else None for delivery in deliveries],
+                [
+                    value.get("producer_records_sent_total") / duration
+                    if duration and value.get("producer_records_sent_total") is not None else None
+                    for value in measurements
+                ],
                 0,
                 " msg/s",
             ),
-            "audit",
+            "prometheus",
+        )
+        row(
+            "Actual producer acknowledged rate",
+            formatted(
+                [
+                    value.get("producer_records_acked_total") / duration
+                    if duration and value.get("producer_records_acked_total") is not None else None
+                    for value in measurements
+                ],
+                0,
+                " msg/s",
+            ),
+            "prometheus",
+        )
+        row(
+            "Producer failures",
+            counts([value.get("producer_records_failed_total") for value in measurements]),
+            "prometheus",
         )
         row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
         subsection("Resource usage")

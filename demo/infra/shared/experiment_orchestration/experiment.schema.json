@@ -43,11 +43,10 @@
       "additionalProperties": false,
       "required": ["stubs", "load"],
       "properties": {
-        "stubs": {"type": "object", "minProperties": 1},
+        "stubs": {"$ref": "#/$defs/stubs"},
         "load": {"type": "object", "minProperties": 1},
         "chaos": {"type": "array", "items": {"type": "object"}},
         "diagnostics": {"type": "array", "items": {"type": "object"}},
-        "measurement_window": {"$ref": "#/$defs/measurementWindow"},
         "measurement_windows": {
           "type": "array",
           "minItems": 1,
@@ -63,7 +62,6 @@
         "load": {"type": "object"},
         "chaos": {"type": "array", "items": {"type": "object"}},
         "diagnostics": {"type": "array", "items": {"type": "object"}},
-        "measurement_window": {"$ref": "#/$defs/measurementWindow"},
         "measurement_windows": {
           "type": "array",
           "minItems": 1,
@@ -74,11 +72,26 @@
     "measurementWindow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["start", "duration"],
+      "required": ["name", "start", "duration"],
       "properties": {
         "name": {"type": "string", "minLength": 1},
         "start": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"},
         "duration": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"}
+      }
+    },
+    "stubs": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "deployment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "replicas": {"type": "integer", "minimum": 1},
+            "workers": {"type": "integer", "minimum": 1},
+            "resources": {"type": "object"}
+          }
+        }
       }
     },
     "acceptance": {
@@ -105,6 +118,15 @@
         "resources": {"type": "object"},
         "hpa": {"type": "object"},
         "java_options": {"type": "string"}
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "application": {"enum": ["controller", "worker"]},
+        "stubs": {"enum": ["controller", "worker"]},
+        "generator": {"enum": ["controller", "worker"]}
       }
     },
     "topicRuntime": {
@@ -156,6 +178,7 @@
       "type": "object",
       "properties": {
         "application": {"$ref": "#/$defs/application"},
+        "placement": {"$ref": "#/$defs/placement"},
         "runtime": {"$ref": "#/$defs/runtime"}
       }
     },
@@ -164,6 +187,7 @@
       "additionalProperties": false,
       "properties": {
         "application": {"$ref": "#/$defs/application"},
+        "placement": {"$ref": "#/$defs/placement"},
         "runtime": {"$ref": "#/$defs/runtime"}
       }
     },

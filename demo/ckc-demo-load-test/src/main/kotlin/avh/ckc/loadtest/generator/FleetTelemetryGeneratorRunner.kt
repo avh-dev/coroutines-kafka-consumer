@@ -4,6 +4,7 @@ import avh.ckc.loadtest.config.LoadTestConfig
 import avh.ckc.loadtest.scenario.LoadScenario
 import avh.ckc.loadtest.scenario.ScenarioEvaluationContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 import java.time.Duration
 import java.time.Instant
 import java.util.PriorityQueue
@@ -56,6 +57,9 @@ class FleetTelemetryGeneratorRunner(
                 val nextCandidate = completedAt?.plus(interval) ?: due.dueAt.plus(interval)
                 schedule += ScheduledKey(due.index, nextDue(nextCandidate, interval, rescheduledAt))
                 handled++
+            }
+            if (schedule.isNotEmpty() && !schedule.peek().dueAt.isAfter(clock())) {
+                yield()
             }
         }
     }

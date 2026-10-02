@@ -671,7 +671,9 @@ class AwsSessionTest(unittest.TestCase):
             )
             resolved_test = session_dir / "resolved-test.yaml"
             resolved_test.write_text(yaml.safe_dump({"load_test": {
-                "measurement_window": {"name": "steady", "start_seconds": 60, "duration_seconds": 120}
+                "measurement_windows": [
+                    {"name": "steady", "start_seconds": 60, "duration_seconds": 120},
+                ]
             }}), encoding="utf-8")
             state = {
                 "schema_version": 1,

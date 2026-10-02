@@ -33,12 +33,10 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
-def measurement_window(
+def normalize_measurement_window(
     value: Any,
-    context: str = "Experiment workload.measurement_window",
-) -> dict[str, Any] | None:
-    if value is None:
-        return None
+    context: str,
+) -> dict[str, Any]:
     window = require_mapping(value, context)
     unknown = sorted(set(window) - {"name", "start", "duration"})
     if unknown:
@@ -68,8 +66,43 @@ def measurement_windows(value: Any) -> list[dict[str, Any]]:
         if name in names:
             raise ValueError(f"Experiment workload.measurement_windows contains duplicate name: {name}")
         names.add(name)
-        normalized.append(measurement_window(item, context) or {})
+        normalized.append(normalize_measurement_window(item, context))
     return normalized
+
+
+def validate_stub_deployment(stubs: Mapping[str, Any], context: str) -> None:
+    if "deployment" not in stubs:
+        return
+    deployment = require_mapping(stubs["deployment"], f"{context}.deployment", non_empty=True)
+    unknown = sorted(set(deployment) - {"replicas", "workers", "resources"})
+    if unknown:
+        raise ValueError(f"{context}.deployment contains unknown fields: {', '.join(unknown)}")
+    for key in ("replicas", "workers"):
+        value = deployment.get(key)
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+        ):
+            raise ValueError(f"{context}.deployment.{key} must be a positive integer")
+    if "resources" in deployment:
+        resources = require_mapping(deployment["resources"], f"{context}.deployment.resources", non_empty=True)
+        unknown_resources = sorted(set(resources) - {"requests", "limits"})
+        if unknown_resources:
+            raise ValueError(
+                f"{context}.deployment.resources contains unknown fields: {', '.join(unknown_resources)}"
+            )
+        for resource_kind, values in resources.items():
+            settings = require_mapping(values, f"{context}.deployment.resources.{resource_kind}", non_empty=True)
+            unknown_settings = sorted(set(settings) - {"cpu", "memory"})
+            if unknown_settings:
+                raise ValueError(
+                    f"{context}.deployment.resources.{resource_kind} contains unknown fields: "
+                    f"{', '.join(unknown_settings)}"
+                )
+            for resource_name, value in settings.items():
+                if not isinstance(value, (str, int, float)) or isinstance(value, bool) or not str(value).strip():
+                    raise ValueError(
+                        f"{context}.deployment.resources.{resource_kind}.{resource_name} must be a scalar"
+                    )
 
 
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
@@ -167,7 +200,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
     allowed = {
         "stubs", "load", "topics", "chaos", "diagnostics",
-        "measurement_window", "measurement_windows",
+        "measurement_windows",
     }
     unknown = sorted(set(workload) - allowed)
     if unknown:
@@ -236,13 +269,6 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         "stubs": copy.deepcopy(workload.get("stubs")),
         "load_test": load,
     }
-    if "measurement_window" in workload and "measurement_windows" in workload:
-        raise ValueError(
-            "Experiment workload must define either measurement_window or measurement_windows, not both"
-        )
-    window = measurement_window(workload.get("measurement_window"))
-    if window:
-        definition["load_test"]["measurement_window"] = window
     if "measurement_windows" in workload:
         definition["load_test"]["measurement_windows"] = measurement_windows(
             workload["measurement_windows"]
@@ -253,6 +279,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         definition["diagnostic_steps"] = copy.deepcopy(workload["diagnostics"])
     validate_resolved_test(definition)
     stub_settings_from_definition(definition["stubs"], source)
+    validate_stub_deployment(definition["stubs"], "Experiment workload.stubs")
     if "chaos_steps" in definition:
         normalized_chaos_steps(definition, definition["stubs"], source)
     if "diagnostic_steps" in definition:
@@ -328,12 +355,17 @@ def validate_acceptance(value: Any) -> dict[str, Any]:
 
 def validate_runtime(value: Any, context: str) -> dict[str, Any]:
     runtime = require_mapping(value, context)
-    allowed = {"env", "planning_latency", "parallelism", "topics"}
+    allowed = {"env", "planning_latency", "planning_headroom_percent", "parallelism", "topics"}
     unknown = sorted(set(runtime) - allowed)
     if unknown:
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
     if "env" in runtime:
         environment = require_mapping(runtime["env"], f"{context}.env")
+        if "PROCESSING_ENABLED" in environment:
+            raise ValueError(
+                f"{context}.env.PROCESSING_ENABLED is not an application environment variable; "
+                "use DEMO_CONSUMER_PROCESSING_ENABLED"
+            )
         invalid = [key for key, item in environment.items() if not isinstance(key, str) or isinstance(item, (dict, list))]
         if invalid:
             raise ValueError(f"{context}.env values must be scalars: {', '.join(map(str, invalid))}")
@@ -345,6 +377,14 @@ def validate_runtime(value: Any, context: str) -> dict[str, Any]:
         for key, item in latency.items():
             if not isinstance(item, (int, float)) or isinstance(item, bool) or item < 0:
                 raise ValueError(f"{context}.planning_latency.{key} must be a non-negative number")
+    if "planning_headroom_percent" in runtime:
+        headroom = runtime["planning_headroom_percent"]
+        if (
+            not isinstance(headroom, (int, float))
+            or isinstance(headroom, bool)
+            or not 0 <= headroom <= 100
+        ):
+            raise ValueError(f"{context}.planning_headroom_percent must be between 0 and 100")
     if "parallelism" in runtime:
         parallelism = require_list(runtime["parallelism"], f"{context}.parallelism", non_empty=True)
         if len(parallelism) != len(set(map(str, parallelism))):
@@ -391,7 +431,7 @@ def validate_target_workload(value: Any, context: str) -> dict[str, Any]:
 
 
 def validate_target_configuration(value: Mapping[str, Any], context: str, *, defaults: bool = False) -> None:
-    allowed = {"application", "runtime"}
+    allowed = {"application", "placement", "runtime"}
     if not defaults:
         allowed |= {"id", "name", "implementation", "annotation_label", "workload"}
     unknown = sorted(set(value) - allowed)
@@ -417,6 +457,19 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
             raise ValueError(f"{context}.application.java_options must be a string")
         if "placement" in application and application["placement"] not in {"controller", "worker"}:
             raise ValueError(f"{context}.application.placement must be controller or worker")
+    if "placement" in value:
+        placement = require_mapping(value["placement"], f"{context}.placement")
+        unknown_placement = sorted(set(placement) - {"application", "stubs", "generator"})
+        if unknown_placement:
+            raise ValueError(f"{context}.placement contains unknown fields: {', '.join(unknown_placement)}")
+        for component, role in placement.items():
+            if role not in {"controller", "worker"}:
+                raise ValueError(f"{context}.placement.{component} must be controller or worker")
+        legacy_application_placement = (value.get("application") or {}).get("placement")
+        if legacy_application_placement and placement.get("application") not in (None, legacy_application_placement):
+            raise ValueError(
+                f"{context}.placement.application conflicts with {context}.application.placement"
+            )
     if "runtime" in value:
         validate_runtime(value["runtime"], f"{context}.runtime")
     if "workload" in value:
@@ -426,7 +479,7 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
 def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
     result = {
         key: copy.deepcopy(target[key])
-        for key in ("id", "name", "annotation_label", "application")
+        for key in ("id", "name", "annotation_label", "application", "placement")
         if key in target
     }
     if "implementation" in target:
@@ -439,6 +492,8 @@ def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
         result["env"] = copy.deepcopy(runtime["env"])
     if "planning_latency" in runtime:
         result["planning_latency"] = copy.deepcopy(runtime["planning_latency"])
+    if "planning_headroom_percent" in runtime:
+        result["planning_headroom_percent"] = runtime["planning_headroom_percent"]
     if "parallelism" in runtime:
         result["parallelism"] = copy.deepcopy(runtime["parallelism"])
     for topic, settings in (runtime.get("topics") or {}).items():
@@ -577,6 +632,7 @@ def validate_canonical_experiment(
         }
         validate_resolved_test(target_definition)
         stub_settings_from_definition(target_definition["stubs"], source)
+        validate_stub_deployment(target_definition["stubs"], f"Experiment targets[{index}].workload.stubs")
         if "chaos_steps" in target_definition:
             normalized_chaos_steps(target_definition, target_definition["stubs"], source)
         if "diagnostic_steps" in target_definition:
@@ -586,9 +642,10 @@ def validate_canonical_experiment(
         experiment, environment, capabilities, needed
     )
     if environment_name != "internal-lab" and any(
-        "placement" in (target.get("application") or {}) for target in resolved_targets
+        "placement" in (target.get("application") or {}) or target.get("placement")
+        for target in resolved_targets
     ):
-        raise ValueError("Experiment target application.placement is only supported by internal-lab")
+        raise ValueError("Experiment target placement is only supported by internal-lab")
     if environment_name == "internal-lab":
         lab = require_mapping(environment_definition.get("lab"), "Experiment environments.internal-lab.lab")
         unknown_lab = sorted(set(lab) - {"profile", "kafka_topology", "kafka"})

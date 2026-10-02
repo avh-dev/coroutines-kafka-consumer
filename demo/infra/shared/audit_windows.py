@@ -25,8 +25,7 @@ def measurement_windows(
         return []
     configured = load_test.get("measurement_windows")
     if not isinstance(configured, list):
-        single = load_test.get("measurement_window")
-        configured = [single] if isinstance(single, dict) else []
+        return []
     windows = []
     for window in configured:
         if not isinstance(window, dict):
