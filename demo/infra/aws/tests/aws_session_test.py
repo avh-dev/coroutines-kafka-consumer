@@ -98,6 +98,54 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("memory: 512Mi", script)
         self.assertIn("memory: 2Gi", script)
 
+    def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
+        commands: list[list[str]] = []
+
+        def kubectl_json(command: list[str]) -> dict[str, object]:
+            commands.append(command)
+            if command[1] == "version":
+                return {"serverVersion": {"gitVersion": "v1.33"}}
+            if command[1:4] == ["get", "nodes", "-o"]:
+                return {"items": []}
+            if any("app.kubernetes.io/instance=" in value for value in command):
+                return {"items": []}
+            return {"items": [{"spec": {"nodeName": "node-a"}}]}
+
+        with patch.object(run_test_module, "kubectl_json", side_effect=kubectl_json):
+            evidence = run_test_module.environment_evidence(
+                {
+                    "environment": "aws",
+                    "region": "eu-central-1",
+                    "cluster_name": "cluster-a",
+                    "kafka_mode": "msk",
+                    "redis_mode": "elasticache",
+                },
+                "load-job-a",
+            )
+
+        self.assertEqual(
+            {"application", "stubs", "alloy", "kafka_exporter", "producer"},
+            set(evidence["workloads"]),
+        )
+        rendered = [" ".join(command) for command in commands]
+        self.assertTrue(any("app.kubernetes.io/name=ckc-demo-stubs" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=ckc-alloy" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=ckc-kafka-exporter" in command for command in rendered))
+
+    def test_aws_lab_context_describes_runner_and_cluster_observability(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        for component in (
+            "Grafana Alloy",
+            "Kafka exporter",
+            "VictoriaMetrics",
+            "Loki",
+            "Grafana",
+            "Fluent Bit",
+            "CloudWatch exporter",
+            "vmagent",
+        ):
+            self.assertIn(f'{{"name": "{component}"', script)
+
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")

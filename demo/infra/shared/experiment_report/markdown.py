@@ -686,6 +686,7 @@ def render_markdown(report: ExperimentReport) -> str:
         workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
         controller_name = str(environment.get("cluster_name") or "")
         application_nodes = workloads.get("application", []) if isinstance(workloads, dict) else []
+        kafka = environment.get("kafka") if isinstance(environment.get("kafka"), dict) else {}
         split_internal_lab = bool(
             controller_name and any(str(node) != controller_name for node in application_nodes)
         )
@@ -696,7 +697,18 @@ def render_markdown(report: ExperimentReport) -> str:
                 "",
             ])
         environment_block.append(f"![Resolved environment topology]({filename})")
-        if split_internal_lab:
+        if kafka.get("mode") == "msk":
+            environment_block.append(
+                "EKS runs the measured application, load generator, HTTP stubs, and telemetry collectors; "
+                "Amazon MSK and ElastiCache provide managed dependencies, while the runner EC2 instance "
+                "stores metrics, logs, dashboards, and the audit stream."
+            )
+        elif str(environment.get("provider") or "").upper() == "AWS":
+            environment_block.append(
+                "EKS runs the measured application, load generator, HTTP stubs, data services, and telemetry "
+                "collectors, while the runner EC2 instance stores metrics, logs, dashboards, and the audit stream."
+            )
+        elif split_internal_lab:
             environment_block.append(
                 "The controller runs orchestration, load generation, dependencies, and observability; "
                 f"the application worker runs the measured application. {inter_host_link_description(environment)}"

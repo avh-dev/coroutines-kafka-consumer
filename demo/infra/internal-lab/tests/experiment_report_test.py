@@ -860,6 +860,136 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertTrue(str(data_uri).startswith("data:image/svg+xml;base64,"), target)
         self.assertEqual("kubernetes", svg_renderer.service_icon_data("ckc-demo")[2])
 
+    def test_aws_environment_topology_shows_workloads_managed_services_and_runner(self) -> None:
+        report = SimpleNamespace(
+            environment={
+                "provider": "AWS",
+                "region": "eu-central-1",
+                "cluster_name": "ckc-load-lab-test",
+                "kubernetes": {"platform": "Amazon EKS", "version": "v1.33"},
+                "nodes": [
+                    {
+                        "name": "node-a",
+                        "instance_type": "m7i.xlarge",
+                        "allocatable_cpu": "3920m",
+                        "allocatable_memory": "15064052Ki",
+                    },
+                    {
+                        "name": "node-b",
+                        "instance_type": "m7i.xlarge",
+                        "allocatable_cpu": "3920m",
+                        "allocatable_memory": "15064052Ki",
+                    },
+                ],
+                "worker_group": {"instance_types": ["m7i.xlarge"], "disk_gib": 100},
+                "kafka": {
+                    "mode": "msk",
+                    "brokers": 3,
+                    "instance_type": "kafka.m7g.xlarge",
+                    "disk_gib": 20,
+                    "kafka_version": "3.7.x",
+                },
+                "redis": {"mode": "elasticache", "member_clusters": ["redis-001", "redis-002"]},
+                "workloads": {
+                    "application": ["node-a", "node-b"],
+                    "producer": ["node-a", "node-b"],
+                    "stubs": ["node-a"],
+                    "alloy": ["node-a"],
+                    "kafka_exporter": ["node-b"],
+                },
+                "observability": {
+                    "kubernetes": [
+                        {"name": "Grafana Alloy", "version": "1.5.1"},
+                        {"name": "Kafka exporter", "version": "1.8.0"},
+                    ],
+                    "runner": [
+                        {"name": "VictoriaMetrics", "version": "1.102.1"},
+                        {"name": "Loki", "version": "3.3.2"},
+                        {"name": "Grafana", "version": "11.6.0"},
+                        {"name": "Fluent Bit", "version": "4.2.3"},
+                        {"name": "CloudWatch exporter", "version": "0.16.0"},
+                        {"name": "vmagent", "version": "1.102.1"},
+                    ],
+                },
+            },
+            targets=[
+                SimpleNamespace(
+                    name="spring.fixed-12",
+                    configuration={
+                        "replicas": 12,
+                        "resources": {
+                            "requests": {"cpu": "500m", "memory": "1Gi"},
+                            "limits": {"memory": "3Gi"},
+                        },
+                    },
+                )
+            ],
+            test_definition={
+                "base_tps": 50000,
+                "load_test": {"shards": 2, "base_tps": 50000},
+                "stubs": {"deployment": {"replicas": 4}},
+            },
+        )
+
+        svg = svg_renderer.environment_topology_svg(report)
+        root = ET.fromstring(svg)
+        namespace = "{http://www.w3.org/2000/svg}"
+
+        self.assertEqual("1280", root.attrib["width"])
+        self.assertEqual("820", root.attrib["height"])
+        for label in (
+            "Load generator",
+            "Measured application",
+            "HTTP downstream stubs",
+            "Amazon MSK",
+            "Amazon ElastiCache for Redis",
+            "Grafana Alloy 1.5.1",
+            "Kafka exporter 1.8.0",
+            "Runner EC2 · Docker observability",
+            "VictoriaMetrics 1.102.1",
+            "Loki 3.3.2",
+            "Grafana 11.6.0",
+            "Fluent Bit 4.2.3",
+            "CloudWatch exporter 0.16.0",
+        ):
+            self.assertIn(label, svg)
+        self.assertIn("7.84 allocatable CPU", svg)
+        self.assertIn("limits 3Gi memory", svg)
+        self.assertNotIn("None CPU", svg)
+        boundaries = {
+            element.attrib.get("data-boundary")
+            for element in root.iter(f"{namespace}rect")
+            if element.attrib.get("data-boundary")
+        }
+        self.assertEqual({"eks", "eks-observability", "managed-services", "runner"}, boundaries)
+        flows = {
+            element.attrib.get("data-flow"): element
+            for element in root.iter(f"{namespace}path")
+            if element.attrib.get("data-flow")
+        }
+        self.assertTrue({
+            "load-to-kafka",
+            "kafka-to-application",
+            "application-to-redis",
+            "application-to-stubs",
+            "workloads-to-alloy",
+            "kafka-exporter-to-msk",
+            "alloy-to-runner",
+            "audit-to-runner",
+            "cloudwatch-to-runner",
+            "redis-to-cloudwatch",
+        }.issubset(flows))
+        self.assertTrue(all(" L" not in element.attrib["d"] for element in flows.values()))
+        self.assertEqual([], list(root.iter(f"{namespace}line")))
+        self.assertGreaterEqual(
+            len([
+                element
+                for element in root.iter(f"{namespace}g")
+                if element.attrib.get("data-icon-role") == "service"
+            ]),
+            14,
+        )
+
     def test_analyze_and_render_passed_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

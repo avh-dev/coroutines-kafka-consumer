@@ -772,9 +772,11 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
     workloads: dict[str, list[str]] = {}
     role_selectors = {
         "application": ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
-        "stubs": ("ckc-app", "app.kubernetes.io/name=demo-stubs"),
+        "stubs": ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
         "kafka": ("ckc-app", "app.kubernetes.io/instance=ckc-kafka"),
         "redis": ("ckc-app", "app.kubernetes.io/instance=ckc-redis"),
+        "alloy": ("ckc-observability", "app.kubernetes.io/name=ckc-alloy"),
+        "kafka_exporter": ("ckc-observability", "app.kubernetes.io/name=ckc-kafka-exporter"),
     }
     if job_name:
         role_selectors["producer"] = ("ckc-loadtest", f"job-name={job_name}")

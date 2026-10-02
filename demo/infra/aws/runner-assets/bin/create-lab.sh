@@ -998,6 +998,20 @@ context = {
             "mode": "${REDIS_MODE}",
             "member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
         },
+        "observability": {
+            "kubernetes": [
+                {"name": "Grafana Alloy", "version": "1.5.1", "role": "metrics and pod logs"},
+                {"name": "Kafka exporter", "version": "1.8.0", "role": "consumer lag"},
+            ],
+            "runner": [
+                {"name": "VictoriaMetrics", "version": "1.102.1", "role": "metrics store"},
+                {"name": "Loki", "version": "3.3.2", "role": "log store"},
+                {"name": "Grafana", "version": "11.6.0", "role": "dashboards"},
+                {"name": "Fluent Bit", "version": "4.2.3", "role": "audit stream"},
+                {"name": "CloudWatch exporter", "version": "0.16.0", "role": "managed service metrics"},
+                {"name": "vmagent", "version": "1.102.1", "role": "CloudWatch metrics relay"},
+            ],
+        },
     },
 }
 Path("${LAB_CONTEXT_PATH}").write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")

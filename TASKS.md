@@ -435,6 +435,7 @@
 | [INFRA-268](#infra-268) | Use literal application environment names and make runtime env the final deployment override. | DONE |
 | [INFRA-269](#infra-269) | Align the CKC 50k qualification workload with Spring while retaining CKC-sized Kafka topology. | DONE |
 | [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
+| [INFRA-271](#infra-271) | Render a complete and legible AWS environment topology in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5069,3 +5070,15 @@ Select the newest available generated report by modification time and retain the
 Install the repository result location with the lab runtime so the command works outside the checkout.
 Preserve the established `/opt/ckc-lab/results/exports/latest-report.zip` download path while allowing an explicit output override.
 Verification: 172 internal-lab tests pass; shell syntax and whitespace validation pass; the installed command selects the latest AWS result and produces a readable ZIP at the established download path.
+
+<a id="infra-271"></a>
+### INFRA-271 - Complete the AWS environment topology
+
+_Date: 2026-10-02_
+
+Show EKS workloads, managed dependencies, and runner-hosted observability as explicit deployment boundaries.
+Render the load generator and every infrastructure service with its existing icon assets.
+Route business and telemetry flows orthogonally without crossing service cards.
+Capture stub, Alloy, and Kafka-exporter placement and persist the complete AWS observability inventory for future reports.
+Correct the AWS environment prose and resource summaries, including Kubernetes millicore totals and memory-only limits.
+Verification: 130 shared, 61 AWS, and 173 internal-lab tests pass; Python, Bash, and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.
