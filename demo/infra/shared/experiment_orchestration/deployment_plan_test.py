@@ -178,6 +178,9 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
         self.assertEqual("1280Mi", load_container["resources"]["limits"]["memory"])
+        self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["BATCH_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("false", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertNotIn("PROCESSING_ENABLED", application_environment)
 

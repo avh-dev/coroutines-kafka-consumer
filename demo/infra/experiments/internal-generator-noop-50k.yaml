@@ -41,9 +41,9 @@ workload:
     kafka_producer_batch_size: 32768
     kafka_producer_compression_type: lz4
     kafka_producer_buffer_memory: 67108864
-    order_kafka_producer_batch_size: 524288
-    batch_kafka_producer_batch_size: 524288
-    telemetry_kafka_producer_batch_size: 131072
+    order_kafka_producer_batch_size: 32768
+    batch_kafka_producer_batch_size: 32768
+    telemetry_kafka_producer_batch_size: 32768
     stats_log_interval_seconds: 15
     consumer_drain_timeout_seconds: 60
     consumer_drain_required: false
