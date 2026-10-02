@@ -428,6 +428,7 @@
 | [INFRA-261](#infra-261) | Remove redundant AWS business-topic provisioning and harden asynchronous MSK topic resets. | DONE |
 | [INFRA-262](#infra-262) | Run the internal-lab load generator in Kubernetes with experiment-controlled workload placement and bounded execution threads. | DONE |
 | [INFRA-263](#infra-263) | Prepare a Spring Kafka 50k AWS qualification run using the locally proven high-partition generator configuration. | DONE |
+| [INFRA-264](#infra-264) | Improve AWS Telegram readability and report runner bootstrap and lab creation progress. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4987,3 +4988,13 @@ Transfer the locally proven two-shard generator heap, dispatcher, batching, comp
 Exercise the cloud-sized 336/156/420 partition topology at 30/30/40 traffic with 20,000 telemetry keys while retaining real processing and incremental audit evidence.
 Leave the generous fixed EKS and `kafka.m7g.xlarge` MSK capacity unchanged so the run can reveal application and broker requirements without autoscaling effects.
 Verification: 51 shared orchestration and 59 AWS tests pass; the materialized Job has two shards, the proven producer settings and bounded heap, while the Spring deployment keeps processing and audit enabled. Python compilation and whitespace validation pass; no AWS experiment was launched.
+
+<a id="infra-264"></a>
+### INFRA-264 - Improve AWS provisioning notifications
+
+_Date: 2026-10-02_
+
+Separate the initial experiment summary with blank lines so infrastructure, workload, and target details remain readable on a phone.
+Notify when the disposable runner finishes bootstrap and when the controller begins Terraform creation of the paid EKS, MSK, and Redis lab.
+Keep these progress events enabled by default and include the concrete runner and lab resource shape in their messages.
+Verification: 59 AWS and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the shared formatter is installed locally. The active AWS session remains unchanged because it runs from its launch-time snapshot.

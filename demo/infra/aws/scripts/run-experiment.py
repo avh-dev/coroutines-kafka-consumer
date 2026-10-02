@@ -567,6 +567,11 @@ class SessionController:
             "wait for runner bootstrap",
             1800,
         )
+        self.notify("runner_bootstrap_finished", {
+            "experiment": config["experiment_name"],
+            "environment": {"name": "aws", "detail": region},
+            "runner_instance_id": runner_outputs["instance_id"],
+        })
 
         self.phase("SYNCING_RUNNER_ASSETS")
         self.run([
@@ -602,6 +607,13 @@ class SessionController:
         }
         self.phase("CREATING_LAB")
         self.record_stack("lab", lab_module, lab_variables, [])
+        self.notify("lab_creation_started", {
+            "experiment": config["experiment_name"],
+            "environment": {"name": "aws", "detail": region},
+            "kafka": config["kafka"],
+            "redis": config["redis"],
+            "eks": config["eks"],
+        })
         self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
         context_path = self.session_dir / "provisioned-lab.json"

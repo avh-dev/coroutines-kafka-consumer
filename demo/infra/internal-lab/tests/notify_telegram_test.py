@@ -86,7 +86,7 @@ class NotifyTelegramTest(unittest.TestCase):
 
     def test_experiment_start_is_detailed(self) -> None:
         self.assertEqual(
-            "\n".join([
+            "\n\n".join([
                 "🚀 CKC experiment started: comparison",
                 "Environment: internal-lab · optilab",
                 "Kafka: apache-kafka · cluster · 3 brokers",
@@ -128,6 +128,8 @@ class NotifyTelegramTest(unittest.TestCase):
         self.assertEqual(
             {
                 "experiment_started",
+                "runner_bootstrap_finished",
+                "lab_creation_started",
                 "kafka_warmup_started",
                 "target_started",
                 "target_workload_finished",
@@ -145,6 +147,36 @@ class NotifyTelegramTest(unittest.TestCase):
                 "experiment_failed",
             },
             NOTIFY.DEFAULT_EVENTS,
+        )
+
+    def test_aws_provisioning_progress_identifies_runner_and_lab_shape(self) -> None:
+        self.assertEqual(
+            "✅ AWS runner bootstrap finished: sizing\n"
+            "Runner: i-1234567890\n"
+            "Next: syncing experiment assets",
+            NOTIFY.message_for("runner_bootstrap_finished", {
+                "experiment": "sizing",
+                "runner_instance_id": "i-1234567890",
+            }),
+        )
+        self.assertEqual(
+            "🏗️ AWS lab creation started: sizing\n"
+            "Kafka: Amazon MSK · kafka.m7g.xlarge · cluster · 3 brokers\n"
+            "Redis: Amazon ElastiCache · cache.r7g.large · 2 nodes\n"
+            "EKS: m7i.xlarge · 8 workers\n"
+            "Terraform is creating the disposable lab",
+            NOTIFY.message_for("lab_creation_started", {
+                "experiment": "sizing",
+                "kafka": {
+                    "implementation": "Amazon MSK", "topology": "cluster",
+                    "instance_type": "kafka.m7g.xlarge", "brokers": 3,
+                },
+                "redis": {
+                    "implementation": "Amazon ElastiCache",
+                    "node_type": "cache.r7g.large", "nodes": 2,
+                },
+                "eks": {"instance_types": ["m7i.xlarge"], "nodes": 8},
+            }),
         )
 
     def test_target_start_follows_preparation_and_identifies_the_target(self) -> None:

@@ -12,6 +12,8 @@ from typing import Any
 
 DEFAULT_EVENTS = {
     "experiment_started",
+    "runner_bootstrap_finished",
+    "lab_creation_started",
     "kafka_warmup_started",
     "target_started",
     "target_workload_finished",
@@ -192,6 +194,23 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             f"• {target_text(target, include_tps=common_tps is None, include_duration=common_duration is None)}"
             for target in targets
         )
+        return "\n\n".join(lines)
+    if event == "runner_bootstrap_finished":
+        return "\n".join([
+            f"✅ AWS runner bootstrap finished: {experiment}",
+            f"Runner: {payload.get('runner_instance_id') or 'unknown'}",
+            "Next: syncing experiment assets",
+        ])
+    if event == "lab_creation_started":
+        lines = [
+            f"🏗️ AWS lab creation started: {experiment}",
+            f"Kafka: {kafka_text(payload)}",
+        ]
+        if redis := redis_text(payload):
+            lines.append(f"Redis: {redis}")
+        if eks := eks_text(payload):
+            lines.append(f"EKS: {eks}")
+        lines.append("Terraform is creating the disposable lab")
         return "\n".join(lines)
     if event == "kafka_warmup_started":
         return (
