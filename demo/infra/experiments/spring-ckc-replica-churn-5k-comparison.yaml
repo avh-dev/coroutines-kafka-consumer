@@ -52,8 +52,8 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
-  measurement_window:
-    name: replica-churn
+  measurement_windows:
+  - name: replica-churn
     start: 3m
     duration: 235m
   chaos:

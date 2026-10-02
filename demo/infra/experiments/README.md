@@ -61,8 +61,7 @@ measurement_windows:
 
 Names must be unique. Every window receives an independent audit cohort and
 Prometheus range in the report and appears on the load-profile timeline. The
-singular `measurement_window` form remains supported for existing experiments;
-the singular and plural forms cannot be used together.
+same list form is used for one window and for multiple windows.
 
 ## No-chaos E2E tuning candidate
 

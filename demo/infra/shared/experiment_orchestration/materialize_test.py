@@ -284,8 +284,8 @@ class MaterializeTest(unittest.TestCase):
             load["load_profile"],
         )
         self.assertEqual(
-            {"name": "replica-churn", "start": "3m", "duration": "235m"},
-            candidate["workload"]["measurement_window"],
+            [{"name": "replica-churn", "start": "3m", "duration": "235m"}],
+            candidate["workload"]["measurement_windows"],
         )
         self.assertEqual("235m", candidate["workload"]["chaos"][0]["duration"])
         self.assertEqual(

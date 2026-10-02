@@ -33,12 +33,10 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
-def measurement_window(
+def normalize_measurement_window(
     value: Any,
-    context: str = "Experiment workload.measurement_window",
-) -> dict[str, Any] | None:
-    if value is None:
-        return None
+    context: str,
+) -> dict[str, Any]:
     window = require_mapping(value, context)
     unknown = sorted(set(window) - {"name", "start", "duration"})
     if unknown:
@@ -68,7 +66,7 @@ def measurement_windows(value: Any) -> list[dict[str, Any]]:
         if name in names:
             raise ValueError(f"Experiment workload.measurement_windows contains duplicate name: {name}")
         names.add(name)
-        normalized.append(measurement_window(item, context) or {})
+        normalized.append(normalize_measurement_window(item, context))
     return normalized
 
 
@@ -167,7 +165,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
     allowed = {
         "stubs", "load", "topics", "chaos", "diagnostics",
-        "measurement_window", "measurement_windows",
+        "measurement_windows",
     }
     unknown = sorted(set(workload) - allowed)
     if unknown:
@@ -236,13 +234,6 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         "stubs": copy.deepcopy(workload.get("stubs")),
         "load_test": load,
     }
-    if "measurement_window" in workload and "measurement_windows" in workload:
-        raise ValueError(
-            "Experiment workload must define either measurement_window or measurement_windows, not both"
-        )
-    window = measurement_window(workload.get("measurement_window"))
-    if window:
-        definition["load_test"]["measurement_window"] = window
     if "measurement_windows" in workload:
         definition["load_test"]["measurement_windows"] = measurement_windows(
             workload["measurement_windows"]

@@ -58,8 +58,8 @@ workload:
     consumer_drain_required: false
     telemetry_settle_seconds: 180
     maximum_first_sample_delay_seconds: 90
-  measurement_window:
-    name: steady-state
+  measurement_windows:
+  - name: steady-state
     start: 3m
     duration: 20m
   topics:

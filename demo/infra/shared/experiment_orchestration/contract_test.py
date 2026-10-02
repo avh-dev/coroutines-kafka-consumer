@@ -269,19 +269,18 @@ class CanonicalExperimentContractTest(unittest.TestCase):
             resolved.test.definition["load_test"]["measurement_windows"],
         )
 
-    def test_rejects_ambiguous_or_unnamed_measurement_windows(self) -> None:
+    def test_rejects_legacy_singular_or_unnamed_measurement_windows(self) -> None:
         experiment = canonical_experiment()
         experiment["workload"]["measurement_window"] = {
             "name": "baseline", "start": "2m", "duration": "2m",
         }
-        experiment["workload"]["measurement_windows"] = [
-            {"name": "degraded", "start": "5m", "duration": "5m"},
-        ]
-        with self.assertRaisesRegex(ValueError, "either measurement_window or measurement_windows"):
+        with self.assertRaisesRegex(ValueError, "unknown fields: measurement_window"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
         del experiment["workload"]["measurement_window"]
-        experiment["workload"]["measurement_windows"][0]["name"] = ""
+        experiment["workload"]["measurement_windows"] = [
+            {"name": "", "start": "5m", "duration": "5m"},
+        ]
         with self.assertRaisesRegex(ValueError, "name must not be empty"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 

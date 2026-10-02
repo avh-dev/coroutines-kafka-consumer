@@ -24,8 +24,8 @@ class PlanRunTest(unittest.TestCase):
 
         self.assertEqual(5000, snapshot["workload"]["load"]["base_tps"])
         self.assertEqual(
-            {"name": "steady-state", "start_seconds": 240, "duration_seconds": 180},
-            snapshot["workload"]["load"]["measurement_window"],
+            [{"name": "steady-state", "start_seconds": 240, "duration_seconds": 180}],
+            snapshot["workload"]["load"]["measurement_windows"],
         )
         self.assertEqual(
             [

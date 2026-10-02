@@ -430,6 +430,7 @@
 | [INFRA-263](#infra-263) | Prepare a Spring Kafka 50k AWS qualification run using the locally proven high-partition generator configuration. | DONE |
 | [INFRA-264](#infra-264) | Improve AWS Telegram readability and report runner bootstrap and lab creation progress. | DONE |
 | [INFRA-265](#infra-265) | Correct and guard Spring Kafka qualification parallelism with explicit capacity headroom. | DONE |
+| [INFRA-266](#infra-266) | Unify experiment measurement-window configuration on the canonical list form. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5011,3 +5012,14 @@ Reject qualification plans whose partitions or aggregate Spring pollers cannot p
 Add regression coverage for the rendered per-topic concurrency before another paid AWS run.
 Use a 30% qualification reserve, producing 276/180/1068 partitions and 23/15/89 Spring pollers per pod for order, batch, and telemetry respectively.
 Verification: 128 shared, 59 AWS, and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the updated shared runtime is installed on optilab. No experiment or smoke workload was launched.
+
+<a id="infra-266"></a>
+### INFRA-266 - Unify measurement-window configuration
+
+_Date: 2026-10-02_
+
+Remove the legacy singular `measurement_window` field from the canonical experiment schema and runtime readers.
+Represent one or many named measurement windows uniformly through the `measurement_windows` list.
+Migrate all maintained experiments, fixtures, reports, and audit paths to the canonical list form.
+Require every list item to have a unique explicit name and reject the removed singular field as an unknown contract property.
+Verification: all 36 experiment/environment combinations validate; 128 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.

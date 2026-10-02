@@ -909,10 +909,7 @@ def window_audit(
 
 def configured_measurement_windows(load_test: dict[str, Any]) -> list[dict[str, Any]]:
     windows = load_test.get("measurement_windows")
-    if isinstance(windows, list):
-        return [window for window in windows if isinstance(window, dict)]
-    window = load_test.get("measurement_window")
-    return [window] if isinstance(window, dict) else []
+    return [window for window in windows if isinstance(window, dict)] if isinstance(windows, list) else []
 
 
 def analyze_experiment(
@@ -1165,7 +1162,6 @@ def analyze_experiment(
             "load_phases": phases,
             "load_topics": load_topics,
             "topic_contracts": topic_contracts,
-            "measurement_window": load_test.get("measurement_window"),
             "measurement_windows": configured_measurement_windows(load_test),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],

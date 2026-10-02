@@ -52,8 +52,8 @@ workload:
     consumer_drain_required: true
     telemetry_settle_seconds: 65
     maximum_first_sample_delay_seconds: 90
-  measurement_window:
-    name: broker-failover
+  measurement_windows:
+  - name: broker-failover
     start: 2m
     duration: 7m
   chaos:

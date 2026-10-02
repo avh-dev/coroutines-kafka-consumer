@@ -288,7 +288,9 @@ class ExperimentReportTest(unittest.TestCase):
                 },
                 "load_test": {
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
-                    "measurement_window": {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
+                    "measurement_windows": [
+                        {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
+                    ],
                     "order_event_percent": 60,
                     "batch_event_percent": 40,
                     "cauldron_telemetry_percent": 0,
@@ -1626,11 +1628,11 @@ class ExperimentReportTest(unittest.TestCase):
             resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
             resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
             resolved_test["load_test"]["base_tps"] = 100
-            resolved_test["load_test"]["measurement_window"] = {
+            resolved_test["load_test"]["measurement_windows"] = [{
                 "name": "steady-state",
                 "start_seconds": 20,
                 "duration_seconds": 30,
-            }
+            }]
             self.write_yaml(resolved_test_path, resolved_test)
             analyzer_source = Path(__file__).resolve().parents[2] / "shared" / "audit" / "analyze-audit.py"
             run_dir = root / "results/runs/run-a"
@@ -1745,7 +1747,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
             self.assertIn("Application context switches average", markdown)
-            self.assertIn("### Steady-state highlights", markdown)
+            self.assertIn("### Measurement-window highlights", markdown)
             self.assertIn("Producer sent rate", markdown)
             self.assertNotIn("Audit published rate", markdown)
             self.assertNotIn("Audit E2E latency", markdown)
@@ -1785,7 +1787,6 @@ class ExperimentReportTest(unittest.TestCase):
             summary_path = self.fixture(root)
             resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
             resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
-            resolved_test["load_test"].pop("measurement_window", None)
             resolved_test["load_test"]["measurement_windows"] = [
                 {"name": "baseline", "start_seconds": 10, "duration_seconds": 10},
                 {"name": "degraded", "start_seconds": 30, "duration_seconds": 10},

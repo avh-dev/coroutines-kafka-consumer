@@ -965,12 +965,7 @@ def render_markdown(report: ExperimentReport) -> str:
 
     measurement_windows = report.test_definition.get("measurement_windows")
     if not isinstance(measurement_windows, list):
-        legacy_window = report.test_definition.get("measurement_window")
-        measurement_windows = [legacy_window] if isinstance(legacy_window, dict) else []
-    legacy_single_window = (
-        isinstance(report.test_definition.get("measurement_window"), dict)
-        and len(measurement_windows) == 1
-    )
+        measurement_windows = []
 
     def target_window(target: TargetReport, index: int) -> dict[str, Any]:
         if index < len(target.measurement_windows):
@@ -993,8 +988,7 @@ def render_markdown(report: ExperimentReport) -> str:
         metric_source_legend,
         "",
         (
-            "### Steady-state highlights" if legacy_single_window
-            else "### Measurement-window highlights" if measurement_windows
+            "### Measurement-window highlights" if measurement_windows
             else "### Detailed results"
         ),
         "",

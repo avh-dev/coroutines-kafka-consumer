@@ -69,8 +69,8 @@ class DeploymentPlanTest(unittest.TestCase):
             plan["workload"]["load"]["load_profile"],
         )
         self.assertEqual(
-            {"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200},
-            definition["load_test"]["measurement_window"],
+            [{"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200}],
+            definition["load_test"]["measurement_windows"],
         )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
         self.assertEqual(
