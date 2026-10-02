@@ -36,10 +36,13 @@ workload:
     memory_request: 768Mi
     cpu_limit: null
     memory_limit: 1Gi
-    kafka_producer_linger_ms: 20
-    kafka_producer_batch_size: 65536
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
     kafka_producer_compression_type: lz4
     kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 524288
+    batch_kafka_producer_batch_size: 524288
+    telemetry_kafka_producer_batch_size: 131072
     stats_log_interval_seconds: 15
     consumer_drain_timeout_seconds: 60
     consumer_drain_required: false
@@ -52,11 +55,11 @@ workload:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 35
+      traffic_percent: 30
       max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 25
+      traffic_percent: 30
       max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
@@ -91,21 +94,28 @@ targets:
       order_ms: 1
       batch_ms: 1
       telemetry_ms: 1
+    parallelism:
+    - partitions
+    - pollers
+    - workers
     topics:
       order:
-        partitions: 12
-        workers: 1
-        queue_capacity: 4096
+        partitions: 336
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       batch:
-        partitions: 12
-        workers: 1
-        queue_capacity: 4096
+        partitions: 156
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       telemetry:
-        partitions: 12
-        workers: 1
-        queue_capacity: 4096
+        partitions: 420
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
 environments:
   internal-lab:

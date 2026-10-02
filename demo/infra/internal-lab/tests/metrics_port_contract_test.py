@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 COMPOSE = REPO_ROOT / "demo/infra/internal-lab/assets/compose/docker-compose.host-services.yml"
 EXTERNAL_SERVICES = REPO_ROOT / "demo/infra/internal-lab/assets/k8s/external-services.yaml.tpl"
 PROMETHEUS = REPO_ROOT / "demo/infra/internal-lab/assets/k8s/prometheus.yaml"
+DEPLOY_BASE = REPO_ROOT / "demo/infra/internal-lab/assets/libexec/deploy-base.sh"
 
 
 class MetricsPortContractTest(unittest.TestCase):
@@ -45,6 +46,10 @@ class MetricsPortContractTest(unittest.TestCase):
             self.assertIn(f'broker_id: "{broker_id}"', prometheus_config)
         self.assertIn("regex: ckc-load-test", prometheus_config)
         self.assertIn('regex: "9405"', prometheus_config)
+
+        deploy_base = DEPLOY_BASE.read_text(encoding="utf-8")
+        self.assertIn("restart_prometheus", deploy_base)
+        self.assertNotIn('curl -fsS -X POST "http://127.0.0.1:30090/-/reload"', deploy_base)
 
     def test_prometheus_has_capacity_for_long_high_churn_runs(self) -> None:
         documents = list(yaml.safe_load_all(PROMETHEUS.read_text(encoding="utf-8")))

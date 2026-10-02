@@ -475,6 +475,7 @@ def main() -> None:
         "TELEMETRY_PUBLISH_INTERVAL_SECONDS": str(load_test.get("telemetry_publish_interval_seconds", 5)),
         "PUBLISH_ENABLED": str(load_test.get("publish_enabled", True)).lower(),
         "CONSUMER_DRAIN_TIMEOUT_SECONDS": str(load_test.get("consumer_drain_timeout_seconds", 900)),
+        "CONSUMER_DRAIN_REQUIRED": str(load_test.get("consumer_drain_required", True)).lower(),
         "CONSUMER_DRAIN_IDLE_SECONDS": str(load_test.get("consumer_drain_idle_seconds", 60)),
         "AUDIT_LOG_ENABLED": args.audit_log_enabled,
         "LOAD_TEST_WORKERS": str(load_test.get("workers", "")),

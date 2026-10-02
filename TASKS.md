@@ -4964,3 +4964,6 @@ Allow experiments to place application, stubs, and generator workloads on semant
 Keep independent generator state shards while executing them on separately bounded coroutine dispatcher threads.
 Add a local single-broker noop 50k qualification experiment and preserve aggregate TPS division inside each indexed generator pod.
 Validate the generator tests and both shared/internal orchestration suites, then install the updated runtime and image on both lab nodes without starting the experiment.
+Retune the qualification run to the cloud-sized 336/156/420 partition topology at a 30/30/40 traffic mix with 5,000 CKC workers per topic.
+Collect producer sent, acknowledged, and failed counters through Kubernetes pod discovery, use them in audit-free reports, and make Prometheus reconciliation restart-safe.
+Honor non-required consumer drain in internal-lab runs and report the aggregate telemetry fleet correctly across generator shards.

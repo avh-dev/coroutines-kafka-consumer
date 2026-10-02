@@ -55,6 +55,18 @@ STANDARD_MEASUREMENTS = {
         "avg_over_time((sum(rate(container_network_transmit_bytes_total"
         '{{namespace=~"ckc-perf|ckc-loadtest", pod=~"ckc-load-test-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
     ),
+    "producer_records_sent_total": (
+        "sum(increase(ckc_load_test_producer_records_sent_total"
+        '{{job="ckc-load-test", pod=~"ckc-load-test-.+"}}[{window}]))'
+    ),
+    "producer_records_acked_total": (
+        "sum(increase(ckc_load_test_producer_records_acked_total"
+        '{{job="ckc-load-test", pod=~"ckc-load-test-.+"}}[{window}]))'
+    ),
+    "producer_records_failed_total": (
+        "sum(increase(ckc_load_test_producer_records_failed_total"
+        '{{job="ckc-load-test", pod=~"ckc-load-test-.+"}}[{window}]))'
+    ),
     "stubs_cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo-stubs", pod=~"ckc-demo-stubs-.+"}}[1m])))[{window}:15s])'

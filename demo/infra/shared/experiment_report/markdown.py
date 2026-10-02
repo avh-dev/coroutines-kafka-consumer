@@ -1019,17 +1019,35 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
         )
         row(
-            "Published rate",
+            "Producer sent rate",
             formatted(
                 [
-                    (delivery.get("published") or 0) / window_duration
-                    if window_duration else None
-                    for delivery in deliveries
+                    value.get("producer_records_sent_total") / window_duration
+                    if window_duration and value.get("producer_records_sent_total") is not None else None
+                    for value in measurements
                 ],
                 0,
                 " msg/s",
             ),
-            "audit",
+            "prometheus",
+        )
+        row(
+            "Producer acknowledged rate",
+            formatted(
+                [
+                    value.get("producer_records_acked_total") / window_duration
+                    if window_duration and value.get("producer_records_acked_total") is not None else None
+                    for value in measurements
+                ],
+                0,
+                " msg/s",
+            ),
+            "prometheus",
+        )
+        row(
+            "Producer failures",
+            counts([value.get("producer_records_failed_total") for value in measurements]),
+            "prometheus",
         )
         row("Application CPU", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Kafka broker CPU", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
@@ -1126,13 +1144,35 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection("Run summary")
         row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
         row(
-            "Actual publish rate",
+            "Actual producer sent rate",
             formatted(
-                [(delivery.get("published") or 0) / duration if duration else None for delivery in deliveries],
+                [
+                    value.get("producer_records_sent_total") / duration
+                    if duration and value.get("producer_records_sent_total") is not None else None
+                    for value in measurements
+                ],
                 0,
                 " msg/s",
             ),
-            "audit",
+            "prometheus",
+        )
+        row(
+            "Actual producer acknowledged rate",
+            formatted(
+                [
+                    value.get("producer_records_acked_total") / duration
+                    if duration and value.get("producer_records_acked_total") is not None else None
+                    for value in measurements
+                ],
+                0,
+                " msg/s",
+            ),
+            "prometheus",
+        )
+        row(
+            "Producer failures",
+            counts([value.get("producer_records_failed_total") for value in measurements]),
+            "prometheus",
         )
         row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
         subsection("Resource usage")
