@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["stubs", "load"],
       "properties": {
-        "stubs": {"type": "object", "minProperties": 1},
+        "stubs": {"$ref": "#/$defs/stubs"},
         "load": {"type": "object", "minProperties": 1},
         "chaos": {"type": "array", "items": {"type": "object"}},
         "diagnostics": {"type": "array", "items": {"type": "object"}},
@@ -77,6 +77,21 @@
         "name": {"type": "string", "minLength": 1},
         "start": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"},
         "duration": {"type": "string", "pattern": "^[0-9]+[hms](?:[0-9]+[hms])*$"}
+      }
+    },
+    "stubs": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "deployment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "replicas": {"type": "integer", "minimum": 1},
+            "workers": {"type": "integer", "minimum": 1},
+            "resources": {"type": "object"}
+          }
+        }
       }
     },
     "acceptance": {

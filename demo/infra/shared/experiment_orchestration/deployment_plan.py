@@ -397,6 +397,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
     if processing_enabled is not None:
         computed_env["DEMO_CONSUMER_PROCESSING_ENABLED"] = processing_enabled
     workload_load = (plan.get("workload") or {}).get("load") or {}
+    workload_stubs = (plan.get("workload") or {}).get("stubs") or {}
+    stub_deployment = workload_stubs.get("deployment") or {}
     computed_env.setdefault(
         "KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS",
         str(workload_load.get("kafka_consumer_max_poll_interval_ms", 1_800_000)),
@@ -429,10 +431,16 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             container_name="demo-stubs",
             image=bindings.stubs_image,
             pull_policy=bindings.image_pull_policy,
-            replicas=1,
+            replicas=int(stub_deployment.get("replicas", 1)),
             run_id=bindings.run_id,
             profile="stubs",
-            environment={"PORT": 8080, "REDIS_HOST": bindings.redis_host, "REDIS_PORT": 6379},
+            environment={
+                "PORT": 8080,
+                "REDIS_HOST": bindings.redis_host,
+                "REDIS_PORT": 6379,
+                "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
+            },
+            resources=stub_deployment.get("resources") or {},
             test_definition=bindings.test_definition,
             node_selector=bindings.support_node_selector,
         ),

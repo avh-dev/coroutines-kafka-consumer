@@ -431,6 +431,7 @@
 | [INFRA-264](#infra-264) | Improve AWS Telegram readability and report runner bootstrap and lab creation progress. | DONE |
 | [INFRA-265](#infra-265) | Correct and guard Spring Kafka qualification parallelism with explicit capacity headroom. | DONE |
 | [INFRA-266](#infra-266) | Unify experiment measurement-window configuration on the canonical list form. | DONE |
+| [INFRA-267](#infra-267) | Harden the Spring 50k qualification with conservative downstream latency and scalable stubs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5023,3 +5024,14 @@ Represent one or many named measurement windows uniformly through the `measureme
 Migrate all maintained experiments, fixtures, reports, and audit paths to the canonical list form.
 Require every list item to have a unique explicit name and reject the removed singular field as an unknown contract property.
 Verification: all 36 experiment/environment combinations validate; 128 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.
+
+<a id="infra-267"></a>
+### INFRA-267 - Harden the Spring 50k qualification
+
+_Date: 2026-10-02_
+
+Use a deliberately fast downstream profile and one explicit planning reserve so the comparison cannot depend on inflated blocking latency.
+Scale the shared stub service behind its existing Kubernetes Service and give every stub pod explicit resources.
+Keep the resulting partition topology inside the recommended MSK `m7g.xlarge` partition envelope.
+Capture the complete steady interval together with early, middle, and late diagnostic windows.
+Verification: 129 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.

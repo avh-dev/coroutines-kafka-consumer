@@ -137,6 +137,24 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "shards must not exceed aggregate"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
+    def test_validates_stub_deployment_capacity(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["stubs"]["deployment"] = {
+            "replicas": 4,
+            "workers": 4,
+            "resources": {
+                "requests": {"cpu": "1", "memory": "1Gi"},
+                "limits": {"memory": "1536Mi"},
+            },
+        }
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="aws")
+        self.assertEqual(4, snapshot["workload"]["stubs"]["deployment"]["replicas"])
+
+        experiment["workload"]["stubs"]["deployment"]["replicas"] = 0
+        with self.assertRaisesRegex(ValueError, "deployment.replicas must be a positive integer"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
     def test_rejects_planning_headroom_above_one_hundred_percent(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["runtime"]["planning_headroom_percent"] = 101

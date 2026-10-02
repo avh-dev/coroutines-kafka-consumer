@@ -70,6 +70,41 @@ def measurement_windows(value: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def validate_stub_deployment(stubs: Mapping[str, Any], context: str) -> None:
+    if "deployment" not in stubs:
+        return
+    deployment = require_mapping(stubs["deployment"], f"{context}.deployment", non_empty=True)
+    unknown = sorted(set(deployment) - {"replicas", "workers", "resources"})
+    if unknown:
+        raise ValueError(f"{context}.deployment contains unknown fields: {', '.join(unknown)}")
+    for key in ("replicas", "workers"):
+        value = deployment.get(key)
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+        ):
+            raise ValueError(f"{context}.deployment.{key} must be a positive integer")
+    if "resources" in deployment:
+        resources = require_mapping(deployment["resources"], f"{context}.deployment.resources", non_empty=True)
+        unknown_resources = sorted(set(resources) - {"requests", "limits"})
+        if unknown_resources:
+            raise ValueError(
+                f"{context}.deployment.resources contains unknown fields: {', '.join(unknown_resources)}"
+            )
+        for resource_kind, values in resources.items():
+            settings = require_mapping(values, f"{context}.deployment.resources.{resource_kind}", non_empty=True)
+            unknown_settings = sorted(set(settings) - {"cpu", "memory"})
+            if unknown_settings:
+                raise ValueError(
+                    f"{context}.deployment.resources.{resource_kind} contains unknown fields: "
+                    f"{', '.join(unknown_settings)}"
+                )
+            for resource_name, value in settings.items():
+                if not isinstance(value, (str, int, float)) or isinstance(value, bool) or not str(value).strip():
+                    raise ValueError(
+                        f"{context}.deployment.resources.{resource_kind}.{resource_name} must be a scalar"
+                    )
+
+
 def is_canonical_experiment(value: Mapping[str, Any]) -> bool:
     return any(key in value for key in ("schema_version", "workload", "environments"))
 
@@ -244,6 +279,7 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         definition["diagnostic_steps"] = copy.deepcopy(workload["diagnostics"])
     validate_resolved_test(definition)
     stub_settings_from_definition(definition["stubs"], source)
+    validate_stub_deployment(definition["stubs"], "Experiment workload.stubs")
     if "chaos_steps" in definition:
         normalized_chaos_steps(definition, definition["stubs"], source)
     if "diagnostic_steps" in definition:
@@ -591,6 +627,7 @@ def validate_canonical_experiment(
         }
         validate_resolved_test(target_definition)
         stub_settings_from_definition(target_definition["stubs"], source)
+        validate_stub_deployment(target_definition["stubs"], f"Experiment targets[{index}].workload.stubs")
         if "chaos_steps" in target_definition:
             normalized_chaos_steps(target_definition, target_definition["stubs"], source)
         if "diagnostic_steps" in target_definition:

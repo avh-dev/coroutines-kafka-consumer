@@ -226,14 +226,18 @@ class DeploymentPlanTest(unittest.TestCase):
             },
         )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
+        self.assertEqual(
+            ["steady-state", "steady-early", "steady-middle", "steady-late"],
+            [window["name"] for window in definition["load_test"]["measurement_windows"]],
+        )
         topics = plan["application"]["planner"]["topics"]
         self.assertEqual(
-            [276, 180, 1068],
+            [156, 144, 552],
             [topic["partitions"] for topic in topics],
         )
-        self.assertEqual([23, 15, 89], [topic["poll_loop_concurrency"] for topic in topics])
-        self.assertEqual([210, 135, 820], [topic["required_parallelism_without_headroom"] for topic in topics])
-        self.assertEqual([273, 176, 1066], [topic["required_parallelism"] for topic in topics])
+        self.assertEqual([13, 12, 46], [topic["poll_loop_concurrency"] for topic in topics])
+        self.assertEqual([120, 105, 420], [topic["required_parallelism_without_headroom"] for topic in topics])
+        self.assertEqual([156, 137, 546], [topic["required_parallelism"] for topic in topics])
         self.assertEqual([30.0, 30.0, 30.0], [topic["planning_headroom_percent"] for topic in topics])
         self.assertTrue(all(not topic["manual_overrides"] for topic in topics))
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
@@ -261,6 +265,16 @@ class DeploymentPlanTest(unittest.TestCase):
             item["name"]: item["value"]
             for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
         }
+        stubs = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs"
+        )
+        stubs_container = stubs["spec"]["template"]["spec"]["containers"][0]
+        stubs_environment = {item["name"]: item["value"] for item in stubs_container["env"]}
+        stubs_service = next(
+            item for item in manifests
+            if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo-stubs"
+        )
         self.assertEqual(2, load_job["spec"]["parallelism"])
         self.assertEqual("2", load_environment["TOTAL_SHARDS"])
         self.assertEqual("50000", load_environment["BASE_TPS"])
@@ -273,9 +287,17 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
         self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertEqual("true", application_environment["AUDIT_LOG_ENABLED"])
-        self.assertEqual("23", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("15", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("89", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("13", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("12", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("46", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual(4, stubs["spec"]["replicas"])
+        self.assertEqual("4", stubs_environment["STUB_WORKERS"])
+        self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
+        self.assertEqual({"memory": "1536Mi"}, stubs_container["resources"]["limits"])
+        self.assertEqual(
+            {"app.kubernetes.io/name": "ckc-demo-stubs"},
+            stubs_service["spec"]["selector"],
+        )
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")

@@ -6,22 +6,31 @@ workload:
     error_rate_percent: 0
     eta:
       percentiles:
-        p90: 20
-        p95: 40
-        p99: 80
-        p100: 120
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
     flavour:
       percentiles:
-        p90: 20
-        p95: 40
-        p99: 80
-        p100: 120
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
     registry:
       percentiles:
         p90: 2
         p95: 3
         p99: 4
         p100: 5
+    deployment:
+      replicas: 4
+      workers: 4
+      resources:
+        requests:
+          cpu: '1'
+          memory: 1Gi
+        limits:
+          memory: 1536Mi
   load:
     shards: 2
     workers: 100
@@ -62,6 +71,15 @@ workload:
   - name: steady-state
     start: 3m
     duration: 20m
+  - name: steady-early
+    start: 3m
+    duration: 5m
+  - name: steady-middle
+    start: 10m30s
+    duration: 5m
+  - name: steady-late
+    start: 18m
+    duration: 5m
   topics:
     order:
       kafka_topic: order.events.v1
@@ -106,9 +124,9 @@ targets:
       TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
     planning_latency:
-      order_ms: 14
-      batch_ms: 9
-      telemetry_ms: 41
+      order_ms: 8
+      batch_ms: 7
+      telemetry_ms: 21
     planning_headroom_percent: 30
     parallelism:
     - partitions
