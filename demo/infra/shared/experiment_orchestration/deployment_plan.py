@@ -393,6 +393,9 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         if key in GENERATED_ENV_NAMES and value not in (None, "")
     }
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
+    processing_enabled = computed_env.pop("PROCESSING_ENABLED", None)
+    if processing_enabled is not None:
+        computed_env["DEMO_CONSUMER_PROCESSING_ENABLED"] = processing_enabled
     workload_load = (plan.get("workload") or {}).get("load") or {}
     computed_env.setdefault(
         "KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS",

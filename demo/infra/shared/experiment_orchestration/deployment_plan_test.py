@@ -170,9 +170,16 @@ class DeploymentPlanTest(unittest.TestCase):
         ))
         load_container = next(item for item in manifests if item["kind"] == "Job")["spec"]["template"]["spec"]["containers"][0]
         load_environment = {item["name"]: item["value"] for item in load_container["env"]}
+        application_container = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )["spec"]["template"]["spec"]["containers"][0]
+        application_environment = {item["name"]: item["value"] for item in application_container["env"]}
 
         self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
         self.assertEqual("1280Mi", load_container["resources"]["limits"]["memory"])
+        self.assertEqual("false", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
+        self.assertNotIn("PROCESSING_ENABLED", application_environment)
 
     def test_materializes_independent_aws_spring_sizing_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-spring-msk-sizing-50k.yaml"

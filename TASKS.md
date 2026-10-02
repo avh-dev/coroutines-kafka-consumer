@@ -4970,3 +4970,5 @@ Honor non-required consumer drain in internal-lab runs and report the aggregate 
 Diagnose the first high-partition qualification failure as generator JVM heap exhaustion and give load jobs an explicit, validated Java options setting.
 Size each qualification shard with a 768 MiB heap inside a 1280 MiB container limit so Kafka batch allocation has headroom without overcommitting the worker node.
 Verification: 51 shared orchestration and 171 internal-lab tests pass; Python compilation and whitespace validation pass, and the installed experiment contains the explicit heap and container limit. No experiment was launched automatically.
+Normalize the experiment-level `PROCESSING_ENABLED` compatibility setting to the application's real `DEMO_CONSUMER_PROCESSING_ENABLED` environment variable so noop runs cannot silently execute downstream model calls.
+Verification: the rendered noop deployment contains `DEMO_CONSUMER_PROCESSING_ENABLED=false` and omits the ineffective alias; 51 shared orchestration and 171 internal-lab tests pass, and the installed runtime is updated without launching a workload.
