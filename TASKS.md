@@ -5081,4 +5081,5 @@ Render the load generator and every infrastructure service with its existing ico
 Route business and telemetry flows orthogonally without crossing service cards.
 Capture stub, Alloy, and Kafka-exporter placement and persist the complete AWS observability inventory for future reports.
 Correct the AWS environment prose and resource summaries, including Kubernetes millicore totals and memory-only limits.
-Verification: 130 shared, 61 AWS, and 173 internal-lab tests pass; Python, Bash, and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.
+Match the quieter internal-lab presentation with one branded AWS boundary and no decorative telemetry arrows over the component layout.
+Verification: focused AWS topology rendering, 61 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.

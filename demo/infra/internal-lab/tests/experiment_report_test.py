@@ -936,7 +936,8 @@ class ExperimentReportTest(unittest.TestCase):
         namespace = "{http://www.w3.org/2000/svg}"
 
         self.assertEqual("1280", root.attrib["width"])
-        self.assertEqual("820", root.attrib["height"])
+        self.assertEqual("900", root.attrib["height"])
+        self.assertIn("AWS environment · eu-central-1", svg)
         for label in (
             "Load generator",
             "Measured application",
@@ -961,25 +962,28 @@ class ExperimentReportTest(unittest.TestCase):
             for element in root.iter(f"{namespace}rect")
             if element.attrib.get("data-boundary")
         }
-        self.assertEqual({"eks", "eks-observability", "managed-services", "runner"}, boundaries)
+        self.assertEqual({"aws", "eks", "eks-observability", "managed-services", "runner"}, boundaries)
+        aws_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "environment-aws"
+        )
+        self.assertEqual("aws", aws_icon.attrib["data-asset"])
         flows = {
             element.attrib.get("data-flow"): element
             for element in root.iter(f"{namespace}path")
             if element.attrib.get("data-flow")
         }
-        self.assertTrue({
+        self.assertEqual({
             "load-to-kafka",
             "kafka-to-application",
             "application-to-redis",
             "application-to-stubs",
-            "workloads-to-alloy",
-            "kafka-exporter-to-msk",
-            "alloy-to-runner",
-            "audit-to-runner",
-            "cloudwatch-to-runner",
-            "redis-to-cloudwatch",
-        }.issubset(flows))
+        }, set(flows))
         self.assertTrue(all(" L" not in element.attrib["d"] for element in flows.values()))
+        self.assertTrue(all(element.attrib.get("stroke") == "#475569" for element in flows.values()))
+        self.assertNotIn("#f97316", svg)
+        self.assertNotIn("telemetry-arrow", svg)
         self.assertEqual([], list(root.iter(f"{namespace}line")))
         self.assertGreaterEqual(
             len([

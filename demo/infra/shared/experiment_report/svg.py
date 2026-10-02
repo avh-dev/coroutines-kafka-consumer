@@ -35,6 +35,7 @@ SERVICE_BADGES = {
     "audit": ("audit", "AUD", "#0f766e"),
     "environment-kubernetes": ("kubernetes-brand", "K8S", "#326ce5"),
     "environment-docker": ("docker", "D", "#2496ed"),
+    "environment-aws": ("aws", "AWS", "#232f3e"),
     "application": ("ckc-demo-app", "APP", "#7c3aed"),
     "load-generator": ("load-generator", "TPS", "#2563eb"),
     "apache-kafka": ("apache-kafka", "K", "#231f20"),
@@ -298,7 +299,7 @@ def environment_topology_svg(
     if kafka_mode != "docker":
         # AWS keeps measured workloads in EKS, stateful dependencies in managed
         # services, and durable experiment telemetry on the runner instance.
-        width, height = 1280, 820
+        width, height = 1280, 900
         target_replicas = [
             int(target.configuration.get("replicas") or 0)
             for target in selected_targets
@@ -316,7 +317,10 @@ def environment_topology_svg(
         managed_services_title = "AWS managed dependencies" if kafka_mode == "msk" else "Cluster data services"
         redis_service_title = "Amazon ElastiCache for Redis" if redis.get("mode") == "elasticache" else "Redis in Kubernetes"
         body = [
-            f'<text class="title" x="30" y="32">Environment topology · {esc(provider)}{(" · " + esc(region)) if region else ""}</text>',
+            '<rect data-boundary="aws" x="8" y="45" width="1264" height="842" rx="14" fill="#ffffff" stroke="#232f3e" stroke-width="2"/>',
+            service_icon("environment-aws", 28, 61, 34),
+            f'<text class="title" x="76" y="82">AWS environment · {esc(region or "region unavailable")}</text>',
+            '<g data-aws-content="true" transform="translate(0 55)">',
             '<rect data-boundary="eks" x="20" y="55" width="775" height="735" rx="12" fill="#f8fafc" stroke="#326ce5" stroke-width="2"/>',
             service_icon("environment-kubernetes", 42, 72, 32),
             f'<text class="card-title" x="85" y="91">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
@@ -352,8 +356,7 @@ def environment_topology_svg(
             service_icon("kafka-exporter", 437, 574, 28),
             f'<text class="card-title" x="477" y="592">{esc(component_title("Kafka exporter"))}</text>',
             f'<text class="muted" x="437" y="618">consumer lag · {esc(placement_count("kafka_exporter"))}</text>',
-            '<text class="muted" x="70" y="704">Dashed orange arrows: metrics, logs and audit telemetry</text>',
-            '<text class="muted" x="70" y="727">Solid slate arrows: experiment message and request flow</text>',
+            '<text class="muted" x="70" y="727">Telemetry is collected by the adjacent EKS and runner services</text>',
 
             '<rect data-boundary="managed-services" x="825" y="55" width="430" height="425" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>',
             f'<text class="card-title" x="850" y="88">{esc(managed_services_title)}</text>',
@@ -388,12 +391,8 @@ def environment_topology_svg(
             '<path data-flow="kafka-to-application" d="M855 220 H810 V347 H760" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-redis" d="M760 375 H810 V372 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-stubs" d="M445 350 H350" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path data-flow="workloads-to-alloy" d="M603 410 V455 H225 V555" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#telemetry-arrow)"/>',
-            '<path data-flow="kafka-exporter-to-msk" d="M730 595 H810 V270 H1040 V250" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#telemetry-arrow)"/>',
-            '<path data-flow="alloy-to-runner" d="M225 635 V655 H780 V595 H825" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#telemetry-arrow)"/>',
-            '<path data-flow="audit-to-runner" d="M700 410 V465 H790 V645 H1045" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#telemetry-arrow)"/>',
-            '<path data-flow="cloudwatch-to-runner" d="M1225 210 H1240 V712 H1225" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#telemetry-arrow)"/>',
-            '<path data-flow="redis-to-cloudwatch" d="M1225 372 H1240" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6 5"/>',
+            '</g>',
+            '<text class="muted" x="30" y="875">Solid arrows: experiment data flow</text>',
         ]
     elif split_internal_lab:
         width, height = 1200, 900
@@ -545,7 +544,7 @@ def environment_topology_svg(
             '<text class="muted" x="45" y="855">All shown components share this physical host</text>',
             '<text class="muted" x="955" y="855" text-anchor="end">Solid arrows: experiment data flow</text>',
         ]
-    body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker><marker id="telemetry-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#f97316"/></marker></defs>')
+    body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     return svg_document(width, height, body, "Resolved environment topology")
 
 
