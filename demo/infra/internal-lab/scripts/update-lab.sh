@@ -197,6 +197,10 @@ record_remote_image_fingerprint() {
 }
 
 sync_internal_lab_assets() {
+  local repository_env="${STATE_DIR}/repository.env"
+
+  mkdir -p "$(dirname -- "${repository_env}")"
+  printf 'CKC_REPOSITORY_ROOT=%q\n' "${REPO_ROOT}" > "${repository_env}"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/helpers'"
@@ -210,6 +214,7 @@ sync_internal_lab_assets() {
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/README.md" "${LAB_ROOT}/notify/README.md"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify-telegram.py" "${LAB_ROOT}/notify/notify-telegram.py"
   sync_file "${REPO_ROOT}/demo/infra/internal-lab/assets/notify/notify.sh" "${LAB_ROOT}/notify/notify.sh"
+  sync_file "${repository_env}" "${LAB_ROOT}/config/repository.env"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/grafana" "${LAB_ROOT}/grafana/templates"
   ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/bin/'*.sh '${LAB_ROOT}/libexec/'*.sh '${LAB_ROOT}/libexec/'*.py '${LAB_ROOT}/helpers/result_bundle/restore/'*.sh '${LAB_ROOT}/helpers/result_bundle/restore/'*.py '${LAB_ROOT}/notify/'*.sh '${LAB_ROOT}/notify/'*.py 2>/dev/null || true"
 }

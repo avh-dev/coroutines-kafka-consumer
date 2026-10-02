@@ -434,6 +434,7 @@
 | [INFRA-267](#infra-267) | Harden the Spring 50k qualification with conservative downstream latency and scalable stubs. | DONE |
 | [INFRA-268](#infra-268) | Use literal application environment names and make runtime env the final deployment override. | DONE |
 | [INFRA-269](#infra-269) | Align the CKC 50k qualification workload with Spring while retaining CKC-sized Kafka topology. | DONE |
+| [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5057,3 +5058,14 @@ Match the CKC qualification traffic mix, fleet, generator, stub profile, and mea
 Retain three `kafka.m7g.large` brokers with twelve partitions per topic and one poller per application pod.
 Use workers as the only scalable concurrency dimension and keep 100 coroutine workers per topic and pod so downstream concurrency cannot constrain the CKC result.
 Verification: the CKC and Spring workload sections are identical; all 36 experiment/environment combinations validate; 130 shared, 59 AWS, and 172 internal-lab tests pass. Whitespace validation passes, and the updated experiment is installed on optilab without launching a workload.
+
+<a id="infra-270"></a>
+### INFRA-270 - Package the latest cross-environment report
+
+_Date: 2026-10-02_
+
+Extend the lightweight latest-report archive command to inspect completed internal-lab and AWS results.
+Select the newest available generated report by modification time and retain the existing Markdown-and-SVG ZIP contract.
+Install the repository result location with the lab runtime so the command works outside the checkout.
+Preserve the established `/opt/ckc-lab/results/exports/latest-report.zip` download path while allowing an explicit output override.
+Verification: 172 internal-lab tests pass; shell syntax and whitespace validation pass; the installed command selects the latest AWS result and produces a readable ZIP at the established download path.

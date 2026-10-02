@@ -373,8 +373,9 @@ LAB_ROOT=/opt/ckc-lab /opt/ckc-lab/bin/export-result.sh --experiment <experiment
 The default export location is
 `/opt/ckc-lab/results/exports/<experiment>-<UTC timestamp>`.
 
-To download only the latest experiment's Markdown report and its SVG assets,
-create a small ZIP without recollecting Prometheus, Loki, or audit data:
+To download only the newest completed Markdown report and its SVG assets across
+internal-lab and locally preserved AWS experiments, create a small ZIP without
+recollecting Prometheus, Loki, or audit data:
 
 ```bash
 /opt/ckc-lab/bin/package-latest-report.sh
@@ -382,8 +383,11 @@ create a small ZIP without recollecting Prometheus, Loki, or audit data:
 
 The command prints the resulting archive path,
 `/opt/ckc-lab/results/exports/latest-report.zip`.
-It exits with an error instead of returning an older report if the latest
-experiment is still finalizing its report.
+It ignores experiments that are still finalizing and reports the selected
+environment and result directory on stderr. Override `AWS_EXPERIMENTS_ROOT`
+when AWS results are stored outside the repository configured during lab
+installation, or `EXPORTS_ROOT` when packaging outside the installed lab's
+download directory.
 
 ## Offline restore
 
