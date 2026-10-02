@@ -1,37 +1,47 @@
 schema_version: 2
 name: aws-ckc-msk-sizing-50k
-description: Preserve the successful twelve-replica CKC baseline at a constant 50k/s on three kafka.m7g.large brokers.
+description: Qualify a twelve-replica CKC target at the Spring-matched 50k/s workload on three kafka.m7g.large brokers and twelve partitions per topic.
 workload:
   stubs:
     error_rate_percent: 0
     eta:
       percentiles:
-        p90: 20
-        p95: 40
-        p99: 80
-        p100: 120
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
     flavour:
       percentiles:
-        p90: 20
-        p95: 40
-        p99: 80
-        p100: 120
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
     registry:
       percentiles:
         p90: 2
         p95: 3
         p99: 4
         p100: 5
+    deployment:
+      replicas: 4
+      workers: 4
+      resources:
+        requests:
+          cpu: '1'
+          memory: 1Gi
+        limits:
+          memory: 1536Mi
   load:
-    shards: 5
+    shards: 2
     workers: 100
+    dispatcher_threads: 2
     base_tps: 50000
     producer_capacity_tps:
       order: 10000
       batch: 10000
       telemetry: 10000
     load_profile: 0 -> (3m, warmup) -> 100 -> (20m, steady) -> 100
-    cauldron_count: 10000
+    cauldron_count: 20000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
     min_brewing_steps: 5
@@ -42,16 +52,17 @@ workload:
     kafka_producer_batch_size: 32768
     kafka_producer_compression_type: lz4
     kafka_producer_buffer_memory: 67108864
-    order_kafka_producer_batch_size: 524288
-    batch_kafka_producer_batch_size: 524288
-    telemetry_kafka_producer_batch_size: 131072
+    order_kafka_producer_batch_size: 32768
+    batch_kafka_producer_batch_size: 32768
+    telemetry_kafka_producer_batch_size: 32768
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 1
     audit_log_enabled: true
-    cpu_request: 1500m
-    memory_request: 2Gi
+    cpu_request: '1'
+    memory_request: 1Gi
     cpu_limit: null
-    memory_limit: 4Gi
+    memory_limit: 1280Mi
+    java_options: -Xms256m -Xmx768m -XX:+UseG1GC
     consumer_drain_timeout_seconds: 60
     consumer_drain_required: false
     telemetry_settle_seconds: 180
@@ -60,19 +71,28 @@ workload:
   - name: steady-state
     start: 3m
     duration: 20m
+  - name: steady-early
+    start: 3m
+    duration: 5m
+  - name: steady-middle
+    start: 10m30s
+    duration: 5m
+  - name: steady-late
+    start: 18m
+    duration: 5m
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 47
+      traffic_percent: 30
       max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 33
+      traffic_percent: 30
       max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent: 20
-      max_e2e_latency_ms: 1000
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
 targets:
 - name: ckc.fixed-12
   implementation: ckc
@@ -101,30 +121,25 @@ targets:
       KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
       KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
     planning_latency:
-      order_ms: 50
-      batch_ms: 50
-      telemetry_ms: 150
+      order_ms: 8
+      batch_ms: 7
+      telemetry_ms: 21
     parallelism:
-    - partitions
     - workers
-    - pollers
     topics:
       order:
         partitions: 12
-        pollers: 1
         workers: 100
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
         partitions: 12
-        pollers: 1
         workers: 100
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
         partitions: 12
-        pollers: 1
-        workers: 500
+        workers: 100
         queue_capacity: 4096
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
 environments:

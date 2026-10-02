@@ -69,7 +69,12 @@ class DeploymentPlanTest(unittest.TestCase):
             plan["workload"]["load"]["load_profile"],
         )
         self.assertEqual(
-            [{"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200}],
+            [
+                {"name": "steady-state", "start_seconds": 180, "duration_seconds": 1200},
+                {"name": "steady-early", "start_seconds": 180, "duration_seconds": 300},
+                {"name": "steady-middle", "start_seconds": 630, "duration_seconds": 300},
+                {"name": "steady-late", "start_seconds": 1080, "duration_seconds": 300},
+            ],
             definition["load_test"]["measurement_windows"],
         )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
@@ -77,13 +82,21 @@ class DeploymentPlanTest(unittest.TestCase):
             [12, 12, 12],
             [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
         )
+        self.assertEqual(
+            [100, 100, 100],
+            [topic["worker_concurrency"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertEqual(
+            [1, 1, 1],
+            [topic["poll_loop_concurrency"] for topic in plan["application"]["planner"]["topics"]],
+        )
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
         self.assertEqual("kafka.m7g.large", variables["msk_broker_instance_type"])
         self.assertEqual(3, variables["msk_number_of_broker_nodes"])
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
         self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
         self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
-        self.assertEqual(10000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(20000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
             {"order": 10000, "batch": 10000, "telemetry": 10000},
             definition["load_test"]["producer_capacity_tps"],
@@ -91,7 +104,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(300, definition["load_test"]["kafka_producer_linger_ms"])
         self.assertEqual("lz4", definition["load_test"]["kafka_producer_compression_type"])
         self.assertEqual(
-            {"order": 47, "batch": 33, "telemetry": 20},
+            {"order": 30, "batch": 30, "telemetry": 40},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -140,19 +153,19 @@ class DeploymentPlanTest(unittest.TestCase):
         load_container = load_job["spec"]["template"]["spec"]["containers"][0]
         load_resources = load_container["resources"]
         load_environment = {item["name"]: item["value"] for item in load_container["env"]}
-        self.assertEqual("1500m", load_resources["requests"]["cpu"])
+        self.assertEqual("1", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
-        self.assertEqual(5, load_job["spec"]["completions"])
-        self.assertEqual(5, load_job["spec"]["parallelism"])
+        self.assertEqual(2, load_job["spec"]["completions"])
+        self.assertEqual(2, load_job["spec"]["parallelism"])
         self.assertEqual("Indexed", load_job["spec"]["completionMode"])
-        self.assertEqual("5", load_environment["TOTAL_SHARDS"])
+        self.assertEqual("2", load_environment["TOTAL_SHARDS"])
         self.assertEqual("50000", load_environment["BASE_TPS"])
         self.assertEqual("10000", load_environment["ORDER_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["BATCH_TPS_PER_PRODUCER"])
         self.assertEqual("10000", load_environment["CAULDRON_TELEMETRY_TPS_PER_PRODUCER"])
         self.assertEqual("300", load_environment["KAFKA_PRODUCER_LINGER_MS"])
-        self.assertEqual("524288", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
-        self.assertEqual("131072", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
+        self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
 
     def test_materializes_high_partition_internal_generator_heap(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/internal-generator-noop-50k.yaml"
