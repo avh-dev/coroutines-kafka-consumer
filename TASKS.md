@@ -429,6 +429,7 @@
 | [INFRA-262](#infra-262) | Run the internal-lab load generator in Kubernetes with experiment-controlled workload placement and bounded execution threads. | DONE |
 | [INFRA-263](#infra-263) | Prepare a Spring Kafka 50k AWS qualification run using the locally proven high-partition generator configuration. | DONE |
 | [INFRA-264](#infra-264) | Improve AWS Telegram readability and report runner bootstrap and lab creation progress. | DONE |
+| [INFRA-265](#infra-265) | Correct and guard Spring Kafka qualification parallelism with explicit capacity headroom. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4998,3 +4999,15 @@ Separate the initial experiment summary with blank lines so infrastructure, work
 Notify when the disposable runner finishes bootstrap and when the controller begins Terraform creation of the paid EKS, MSK, and Redis lab.
 Keep these progress events enabled by default and include the concrete runner and lab resource shape in their messages.
 Verification: 59 AWS and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the shared formatter is installed locally. The active AWS session remains unchanged because it runs from its launch-time snapshot.
+
+<a id="infra-265"></a>
+### INFRA-265 - Guard Spring qualification parallelism
+
+_Date: 2026-10-02_
+
+Correct the Spring 50k qualification plan after CKC poller overrides accidentally serialized each topic to one consumer per pod.
+Apply explicit planning headroom for application, downstream, and JVM contention under the intended concurrent load.
+Reject qualification plans whose partitions or aggregate Spring pollers cannot provide their planned processing capacity.
+Add regression coverage for the rendered per-topic concurrency before another paid AWS run.
+Use a 30% qualification reserve, producing 276/180/1068 partitions and 23/15/89 Spring pollers per pod for order, batch, and telemetry respectively.
+Verification: 128 shared, 59 AWS, and 172 internal-lab tests pass; Python compilation and whitespace validation pass, and the updated shared runtime is installed on optilab. No experiment or smoke workload was launched.

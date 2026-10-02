@@ -226,10 +226,16 @@ class DeploymentPlanTest(unittest.TestCase):
             },
         )
         self.assertEqual(12, plan["application"]["configuration"]["replicas"])
+        topics = plan["application"]["planner"]["topics"]
         self.assertEqual(
-            [336, 156, 420],
-            [topic["partitions"] for topic in plan["application"]["planner"]["topics"]],
+            [276, 180, 1068],
+            [topic["partitions"] for topic in topics],
         )
+        self.assertEqual([23, 15, 89], [topic["poll_loop_concurrency"] for topic in topics])
+        self.assertEqual([210, 135, 820], [topic["required_parallelism_without_headroom"] for topic in topics])
+        self.assertEqual([273, 176, 1066], [topic["required_parallelism"] for topic in topics])
+        self.assertEqual([30.0, 30.0, 30.0], [topic["planning_headroom_percent"] for topic in topics])
+        self.assertTrue(all(not topic["manual_overrides"] for topic in topics))
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
 
         manifests = render_project_manifests(plan, DeploymentBindings(
@@ -267,6 +273,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
         self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertEqual("true", application_environment["AUDIT_LOG_ENABLED"])
+        self.assertEqual("23", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("15", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("89", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
 
     def test_renders_project_owned_resources_from_plan_and_runtime_bindings(self) -> None:
         _, plan, _ = self.materialize("internal-lab")

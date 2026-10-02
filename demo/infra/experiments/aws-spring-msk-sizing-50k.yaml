@@ -109,21 +109,16 @@ targets:
       order_ms: 14
       batch_ms: 9
       telemetry_ms: 41
+    planning_headroom_percent: 30
     parallelism:
     - partitions
     - pollers
     topics:
       order:
-        partitions: 336
-        pollers: 1
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 156
-        pollers: 1
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 420
-        pollers: 1
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   aws:

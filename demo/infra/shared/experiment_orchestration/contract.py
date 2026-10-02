@@ -328,7 +328,7 @@ def validate_acceptance(value: Any) -> dict[str, Any]:
 
 def validate_runtime(value: Any, context: str) -> dict[str, Any]:
     runtime = require_mapping(value, context)
-    allowed = {"env", "planning_latency", "parallelism", "topics"}
+    allowed = {"env", "planning_latency", "planning_headroom_percent", "parallelism", "topics"}
     unknown = sorted(set(runtime) - allowed)
     if unknown:
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
@@ -345,6 +345,14 @@ def validate_runtime(value: Any, context: str) -> dict[str, Any]:
         for key, item in latency.items():
             if not isinstance(item, (int, float)) or isinstance(item, bool) or item < 0:
                 raise ValueError(f"{context}.planning_latency.{key} must be a non-negative number")
+    if "planning_headroom_percent" in runtime:
+        headroom = runtime["planning_headroom_percent"]
+        if (
+            not isinstance(headroom, (int, float))
+            or isinstance(headroom, bool)
+            or not 0 <= headroom <= 100
+        ):
+            raise ValueError(f"{context}.planning_headroom_percent must be between 0 and 100")
     if "parallelism" in runtime:
         parallelism = require_list(runtime["parallelism"], f"{context}.parallelism", non_empty=True)
         if len(parallelism) != len(set(map(str, parallelism))):
@@ -452,6 +460,8 @@ def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
         result["env"] = copy.deepcopy(runtime["env"])
     if "planning_latency" in runtime:
         result["planning_latency"] = copy.deepcopy(runtime["planning_latency"])
+    if "planning_headroom_percent" in runtime:
+        result["planning_headroom_percent"] = runtime["planning_headroom_percent"]
     if "parallelism" in runtime:
         result["parallelism"] = copy.deepcopy(runtime["parallelism"])
     for topic, settings in (runtime.get("topics") or {}).items():

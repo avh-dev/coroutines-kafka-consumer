@@ -114,6 +114,28 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual("JDK", values["env"]["modelSyncHttpClient"])
         self.assertEqual("DEFAULT", values["env"]["jdkHttpClientExecutor"])
 
+    def test_rejects_spring_pollers_below_headroom_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            definition_path, profiles_path = canonical_inputs(Path(directory))
+            with self.assertRaisesRegex(
+                ValueError,
+                r"order planned capacity is insufficient.*1 pollers \* 2 replicas",
+            ):
+                plan_target(
+                    definition_path=definition_path,
+                    consumer_profiles_path=profiles_path,
+                    profile_name="spring-kafka",
+                    output_dir=Path(directory),
+                    repo_dir=REPO_ROOT,
+                    target={
+                        "application": {"replicas": 2},
+                        "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
+                        "planning_headroom_percent": 30,
+                        "order_partitions": 100,
+                        "order_pollers": 1,
+                    },
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

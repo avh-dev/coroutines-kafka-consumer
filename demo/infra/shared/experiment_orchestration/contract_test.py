@@ -59,6 +59,7 @@ def canonical_experiment() -> dict:
             "runtime": {
                 "env": {"AUDIT_LOG_ENABLED": True, "PROCESSING_DISPATCHER_TYPE": "FIXED"},
                 "planning_latency": {"order_ms": 50, "batch_ms": 50, "telemetry_ms": 150},
+                "planning_headroom_percent": 30,
                 "topics": {
                     "telemetry": {
                         "workers": 20,
@@ -104,6 +105,7 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual(2, resolved.targets[0].definition["application"]["replicas"])
         self.assertEqual(20, resolved.targets[0].definition["telemetry_workers"])
         self.assertEqual(4096, resolved.targets[0].definition["telemetry_queue_capacity"])
+        self.assertEqual(30, resolved.targets[0].definition["planning_headroom_percent"])
         self.assertEqual("per_key", resolved.snapshot["workload"]["topics"]["order"]["contract"]["ordering"])
         self.assertEqual(
             "freshness_first",
@@ -133,6 +135,13 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         experiment["workload"]["load"]["shards"] = 101
 
         with self.assertRaisesRegex(ValueError, "shards must not exceed aggregate"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
+    def test_rejects_planning_headroom_above_one_hundred_percent(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["runtime"]["planning_headroom_percent"] = 101
+
+        with self.assertRaisesRegex(ValueError, "planning_headroom_percent must be between 0 and 100"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
     def test_internal_lab_accepts_target_application_placement(self) -> None:
