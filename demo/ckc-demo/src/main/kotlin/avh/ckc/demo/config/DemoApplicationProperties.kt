@@ -70,7 +70,8 @@ data class DemoApplicationProperties(
     data class Consumers(
         var processingEnabled: Boolean = true,
         var metricsImplementation: MetricsImplementation = MetricsImplementation.MICROMETER,
-        var kafkaClientMetricsEnabled: Boolean = true,
+        var kafkaClientMetricsEnabled: Boolean = false,
+        var springKafkaListenerMetricsEnabled: Boolean = false,
         var processingDispatcherType: ProcessingDispatcherType = ProcessingDispatcherType.AUTO,
         var workerDispatcherThreads: Int = 8,
         var virtualThreadNamePrefix: String = "demo-processing-virtual-",

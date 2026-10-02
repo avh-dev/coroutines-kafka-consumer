@@ -481,10 +481,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 512Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 2Gi
       volumes:
         - name: config
           configMap:
@@ -901,12 +901,6 @@ else
     KAFKA_TOPIC_REPLICATION_FACTOR=3
   fi
 fi
-
-python3 "${REPO_DIR}/demo/infra/shared/test-orchestration/prepare-kafka-topics.py" \
-  --bootstrap-server "${KAFKA_BOOTSTRAP}" \
-  --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
-  --test-definition-path "${TEST_DEFINITION_PATH}" \
-  --repo-dir "${REPO_DIR}"
 
 REDIS_MODE="$(infra_output elasticache_mode)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then

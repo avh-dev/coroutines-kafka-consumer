@@ -50,6 +50,11 @@ def emit_run_phase(phase: str, **details: Any) -> None:
         with Path(phase_file).open("a", encoding="utf-8") as output:
             output.write(line + "\n")
             output.flush()
+    phase_hook = os.environ.get("CKC_RUN_PHASE_HOOK", "").strip()
+    if phase_hook:
+        result = subprocess.run([phase_hook], text=True, check=False)
+        if result.returncode != 0:
+            print(f"Run phase hook failed with exit code {result.returncode}: {phase_hook}", file=sys.stderr, flush=True)
 
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
@@ -177,7 +182,7 @@ def prometheus_scalar(metrics_url: str, expression: str) -> float | None:
 def wait_for_telemetry_ready(metrics_url: str, report_path: Path, timeout_seconds: int = 300) -> str:
     checks = {
         "application": 'min(up{job="ckc-demo"})',
-        "application_metrics": 'count(demo_ckc_workers{job="ckc-demo"})',
+        "application_metrics": 'count(ckc_demo_consumer_profile_info{job="ckc-demo"})',
         "thread_stats": 'count(thread_stats_threads{job="ckc-demo"})',
         "application_context_switches": 'count(thread_stats_context_switches_total{job="ckc-demo"})',
         "kafka_exporter": 'min(up{job="ckc-kafka-exporter"})',
@@ -302,7 +307,7 @@ def wait_for_consumer_drain(
             "processed": processed,
             "idle_seconds": round(tracker.idle_for(now), 3),
         })
-        if outcome == DRAINED:
+        if outcome == DRAINED or (now >= deadline and lag is not None and lag <= 0):
             report_path.write_text(json_dump({"status": "DRAINED", "query": expression, "observations": observations}) + "\n", encoding="utf-8")
             if drain_started:
                 emit_run_phase("consumer_drain_finished", status="DRAINED", lag=lag)

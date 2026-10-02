@@ -74,6 +74,7 @@ class SpringKafkaThreadPoolProfileContextTest(
     @Test
     fun `thread pool listener factories use batch listener admission and container commits`() {
         val properties = DemoApplicationProperties().apply {
+            consumers.kafkaClientMetricsEnabled = true
             kafka.consumer.commitIntervalMs = 1_234
             consumers.order.processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
             consumers.batch.processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
@@ -114,6 +115,9 @@ class SpringKafkaThreadPoolProfileContextTest(
         assertKafkaClientMetrics(orderConsumerFactory, "order_events")
         assertKafkaClientMetrics(batchConsumerFactory, "batch_events")
         assertKafkaClientMetrics(telemetryConsumerFactory, "cauldron_events")
+        assertEquals(false, orderContainerFactory.containerProperties.isMicrometerEnabled)
+        assertEquals(false, batchContainerFactory.containerProperties.isMicrometerEnabled)
+        assertEquals(false, telemetryContainerFactory.containerProperties.isMicrometerEnabled)
         assertThreadPoolAdmissionRecovery(orderContainerFactory)
         assertThreadPoolAdmissionRecovery(batchContainerFactory)
         assertThreadPoolAdmissionRecovery(telemetryContainerFactory)

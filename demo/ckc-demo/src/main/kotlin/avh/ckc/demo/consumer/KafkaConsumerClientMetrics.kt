@@ -50,6 +50,9 @@ internal fun bindKafkaClientMetrics(
 internal val DemoApplicationProperties.kafkaClientMetricsEnabled: Boolean
     get() = micrometerMetricsEnabled && consumers.kafkaClientMetricsEnabled
 
+internal val DemoApplicationProperties.springKafkaListenerMetricsEnabled: Boolean
+    get() = micrometerMetricsEnabled && consumers.springKafkaListenerMetricsEnabled
+
 internal val DemoApplicationProperties.micrometerMetricsEnabled: Boolean
     get() = consumers.metricsImplementation == DemoApplicationProperties.MetricsImplementation.MICROMETER
 

@@ -58,6 +58,7 @@ class AwsSessionTest(unittest.TestCase):
                 "region": "us-east-1",
             },
             "terraform": {},
+            "artifact_bucket": "artifact-bucket",
         }
         return session_module.SessionController(directory, state)
 
@@ -65,6 +66,23 @@ class AwsSessionTest(unittest.TestCase):
         value = session_module.generated_session_id()
         self.assertRegex(value, r"^s-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
         self.assertLessEqual(len(value), 35)
+
+    def test_target_watchdog_covers_full_lifecycle_with_one_hour_minimum(self) -> None:
+        self.assertEqual(3600, session_module.target_watchdog_seconds({
+            "duration_seconds": 1380,
+            "consumer_drain_timeout_seconds": 60,
+            "telemetry_settle_seconds": 180,
+        }))
+        self.assertEqual(10080, session_module.target_watchdog_seconds({
+            "duration_seconds": 7200,
+            "consumer_drain_timeout_seconds": 900,
+            "telemetry_settle_seconds": 180,
+        }))
+        self.assertEqual(12000, session_module.target_watchdog_seconds({
+            "duration_seconds": 7200,
+            "consumer_drain_timeout_seconds": 900,
+            "telemetry_settle_seconds": 180,
+        }, configured_floor_seconds=12000))
 
     def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
@@ -77,6 +95,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "profile"', script)
         for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
             self.assertIn(f"--require-application {application}", export_script)
+        self.assertIn("memory: 512Mi", script)
+        self.assertIn("memory: 2Gi", script)
 
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
@@ -293,7 +313,7 @@ class AwsSessionTest(unittest.TestCase):
             })
             with patch.object(controller, "notify") as notify, patch.object(
                 controller, "ssm", return_value={"Status": "Success"}
-            ):
+            ) as ssm:
                 controller.execute_test()
 
         self.assertEqual("target_started", notify.call_args_list[0].args[0])
@@ -302,6 +322,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
         self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
+        self.assertEqual(3600, ssm.call_args.args[2])
 
     def test_target_progress_reports_only_a_long_active_consumer_drain(self) -> None:
         progress = session_module.TargetRunProgress()
@@ -337,6 +358,59 @@ class AwsSessionTest(unittest.TestCase):
 
         self.assertTrue(line.startswith("CKC_RUN_PHASE "))
         self.assertEqual("workload_finished", json.loads(line.split(" ", 1)[1])["phase"])
+
+    def test_runner_phase_hook_publishes_each_updated_progress_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            progress_file = Path(directory) / "phases.jsonl"
+            with (
+                patch.dict(run_test_module.os.environ, {
+                    "CKC_RUN_PHASE_FILE": str(progress_file),
+                    "CKC_RUN_PHASE_HOOK": "/opt/bin/publish-phases",
+                }),
+                patch.object(
+                    run_test_module.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=0),
+                ) as run_hook,
+                redirect_stdout(io.StringIO()),
+            ):
+                run_test_module.emit_run_phase("workload_finished", run_id="run-ckc")
+
+        run_hook.assert_called_once_with(["/opt/bin/publish-phases"], text=True, check=False)
+
+    def test_aws_reads_live_target_progress_from_s3_while_ssm_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"].update({
+                "experiment_name": "sizing",
+                "targets": [{
+                    "id": "ckc", "name": "ckc.fixed-12", "profile": "ckc",
+                    "run_id": "run-ckc", "remote_definition": "/tmp/test.yaml",
+                    "replicas": 12, "duration_seconds": 1200, "audit_log_enabled": False,
+                }],
+                "test_timeout_seconds": 1800,
+            })
+
+            def ssm(command: str, comment: str, *_args: object, **kwargs: object) -> dict[str, str]:
+                if "run AWS experiment workload" in comment:
+                    self.assertIn("publish-run-phases.sh", command)
+                    self.assertIn("s3://artifact-bucket/sessions/s-20260829-120000-abcdef/progress/run-ckc.jsonl", command)
+                    kwargs["progress"]({"Status": "InProgress"})
+                return {"Status": "Success"}
+
+            with (
+                patch.object(controller, "notify") as notify,
+                patch.object(controller, "ssm", side_effect=ssm),
+                patch.object(
+                    controller,
+                    "read_target_phase_events",
+                    return_value='CKC_RUN_PHASE {"phase":"workload_finished","timestamp":"2026-10-01T08:57:00Z"}',
+                ),
+            ):
+                controller.execute_test()
+
+        events = [call.args[0] for call in notify.call_args_list]
+        self.assertEqual(1, events.count("target_workload_finished"))
 
     def test_aws_notifies_when_audit_finalization_exceeds_thirty_seconds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -561,6 +635,29 @@ class AwsSessionTest(unittest.TestCase):
             "nodes": 2,
         }, config["redis"])
         self.assertEqual({"instance_types": ["m7i.xlarge"], "nodes": 8}, config["eks"])
+        self.assertEqual(3600, config["target_watchdog_floor_seconds"])
+        self.assertEqual(60, config["targets"][0]["consumer_drain_timeout_seconds"])
+        self.assertEqual(180, config["targets"][0]["telemetry_settle_seconds"])
+        self.assertEqual(3600, config["targets"][0]["watchdog_seconds"])
+
+    def test_spring_sizing_state_uses_independent_larger_msk_lab(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-spring-msk-sizing-50k.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=3600,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("aws-spring-msk-sizing-50k", config["experiment_id"])
+        self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
+        self.assertEqual(["spring-kafka.fixed-12"], [target["name"] for target in config["targets"]])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1068,6 +1165,19 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("PASS", document["status"])
         self.assertEqual(30.0, document["coverage"]["pod_cpu"]["first_sample_delay_seconds"])
 
+    def test_telemetry_readiness_uses_profile_neutral_application_metric(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "readiness.json"
+            with patch.object(run_test_module, "prometheus_scalar", return_value=1.0):
+                run_test_module.wait_for_telemetry_ready("http://metrics", report, timeout_seconds=0)
+            document = json.loads(report.read_text(encoding="utf-8"))
+
+        self.assertEqual("READY", document["status"])
+        self.assertEqual(
+            'count(ckc_demo_consumer_profile_info{job="ckc-demo"})',
+            document["checks"]["application_metrics"],
+        )
+
     def test_optional_consumer_drain_records_timeout_without_failing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "drain.json"
@@ -1081,6 +1191,21 @@ class AwsSessionTest(unittest.TestCase):
             document = json.loads(report.read_text(encoding="utf-8"))
         self.assertFalse(drained)
         self.assertEqual("TIMEOUT", document["status"])
+
+    def test_consumer_drain_accepts_zero_lag_observed_at_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "drain.json"
+            with (
+                patch.object(run_test_module, "prometheus_scalar", side_effect=[0.0, 100.0]),
+                patch.object(run_test_module.time, "monotonic", side_effect=[0.0, 1.0]),
+            ):
+                drained = run_test_module.wait_for_consumer_drain(
+                    "http://metrics", report, timeout_seconds=0, required=True,
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+
+        self.assertTrue(drained)
+        self.assertEqual("DRAINED", document["status"])
 
     def test_consumer_drain_stops_after_processing_is_idle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

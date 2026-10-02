@@ -167,6 +167,7 @@
 | [DEMO-99](#demo-99) | Make the Kafka consumer maximum poll interval configurable across demo implementations. | DONE |
 | [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
+| [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -420,6 +421,11 @@
 | [INFRA-254](#infra-254) | Report AWS experiment lifecycle progress through actionable Telegram notifications. | DONE |
 | [INFRA-255](#infra-255) | Compare CKC and Spring Kafka at 50k on one fixed production-like AWS lab. | DONE |
 | [INFRA-256](#infra-256) | Report long AWS target drain and audit phases and include concrete lab resource types in Telegram. | DONE |
+| [INFRA-257](#infra-257) | Harden AWS Spring observability readiness, telemetry capacity, live target progress, and drain completion handling. | DONE |
+| [INFRA-258](#infra-258) | Derive the AWS target watchdog from the complete target lifecycle instead of a fixed thirty-minute timeout. | DONE |
+| [INFRA-259](#infra-259) | Distribute aggregate load-test TPS and telemetry fleet capacity across physical generator shards. | DONE |
+| [INFRA-260](#infra-260) | Split CKC and Spring 50k sizing into independent AWS experiments with implementation-specific MSK capacity. | DONE |
+| [INFRA-261](#infra-261) | Remove redundant AWS business-topic provisioning and harden asynchronous MSK topic resets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -4806,6 +4812,16 @@ Apply the same atomic Redis TTL operation to synchronous and coroutine repositor
 Retain explicit Redis flushing between targets while keeping active workflow state alive well beyond the experiment latency SLA.
 Verification: all `ckc-demo` tests pass; whitespace validation passes.
 
+<a id="demo-102"></a>
+### DEMO-102 - Disable high-cardinality consumer metrics by default
+
+_Date: 2026-10-01_
+
+Disable per-KafkaConsumer client metrics by default while retaining an explicit opt-in switch.
+Add a separate opt-in for Spring Kafka listener timers so hundreds of listener containers do not multiply redundant timer series.
+Keep the shared demo processing, end-to-end latency, audit, and Thread Stats evidence unchanged across implementations.
+Verification: all `ckc-demo` tests pass; whitespace validation passes.
+
 <a id="infra-250"></a>
 ### INFRA-250 - Correct MSK CloudWatch capacity metrics
 
@@ -4881,3 +4897,58 @@ Report audit-stream finalization that lasts more than thirty seconds so post-wor
 Include concrete MSK broker, ElastiCache node, and EKS worker types and counts in the experiment-start message.
 Keep phase notifications tied to observed runner lifecycle markers rather than inferred workload duration.
 Verification: 48 AWS, 16 notification, and 170 internal-lab tests pass; Python compilation and whitespace validation pass. No experiment was launched.
+
+<a id="infra-257"></a>
+### INFRA-257 - Harden AWS Spring observability
+
+_Date: 2026-10-01_
+
+Make telemetry readiness depend on an application metric shared by CKC and Spring Kafka profiles.
+Give Alloy enough memory headroom and publish runner phase events through S3 while the SSM command is still active.
+Treat zero lag observed at the drain deadline as drained and pin the comparison experiment's redundant high-cardinality metrics off.
+Add regression coverage for the readiness, live progress, and drain boundary behavior without launching an experiment automatically.
+Verification: 52 AWS, 47 shared orchestration, and 170 internal-lab tests pass; Python compilation, Bash syntax, YAML assertions, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-258"></a>
+### INFRA-258 - Derive the AWS target watchdog
+
+_Date: 2026-10-01_
+
+Replace the original smoke-runner's fixed thirty-minute SSM execution timeout with a per-target emergency watchdog.
+Account for workload duration, consumer drain, telemetry settling, and a large setup and evidence-collection safety allowance.
+Keep a one-hour minimum and preserve an operator-supplied timeout only as a lower bound, never as a normal-phase deadline.
+Cover short and long target calculations and persist the resolved watchdog in session evidence without launching an experiment automatically.
+Verification: all 53 AWS tests pass; Python compilation and whitespace validation pass. The failed session cleanup is independently confirmed CLEAN; no new experiment was launched.
+
+<a id="infra-259"></a>
+### INFRA-259 - Distribute load across generator shards
+
+_Date: 2026-10-01_
+
+Treat `base_tps` as the aggregate experiment rate and distribute it deterministically across physical load-generator pods.
+Keep generator identities disjoint while distributing the telemetry fleet across shards without multiplying its global cardinality.
+Run the AWS 50k comparison with five generator pods capped at approximately 10k messages per second each.
+Add regression coverage for uneven TPS division, fleet sizing, deployment manifests, and capacity planning without launching an experiment automatically.
+Verification: load-test JVM tests, 49 shared orchestration, 53 AWS, and 170 internal-lab tests pass; Python compilation, exact 10k fleet materialization, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.
+
+<a id="infra-260"></a>
+### INFRA-260 - Split AWS sizing experiments
+
+_Date: 2026-10-01_
+
+Preserve the successful CKC 50k workload as a standalone three-broker `kafka.m7g.large` baseline.
+Move Spring Kafka into an independent sizing experiment so its MSK capacity can grow without rerunning CKC.
+Start Spring sizing at three `kafka.m7g.xlarge` brokers while keeping workload, EKS, Redis, and observability settings comparable.
+Validate both definitions and their rendered AWS resources without launching either experiment automatically.
+Verification: 50 shared orchestration and 54 AWS tests pass; both experiments resolve and materialize with identical workload and infrastructure except for identity and MSK broker type. Python compilation and whitespace validation pass; no experiment was launched.
+
+<a id="infra-261"></a>
+### INFRA-261 - Fix AWS topic lifecycle
+
+_Date: 2026-10-01_
+
+Keep broker warm-up isolated on disposable `ckc.warmup.v1.*` topics and stop provisioning experiment topics during AWS lab creation.
+Create business topics only during target preparation and wait for MSK deletion by exact topic-list membership rather than `describe` exit status.
+Retry creation while MSK still reports a topic marked for deletion and detect a failed Kafka admin pod without waiting for the full timeout.
+Add regression coverage for the generated admin workflow and AWS lab bootstrap without launching an experiment automatically.
+Verification: 59 AWS, 50 shared orchestration, and 170 internal-lab tests pass; the generated Kafka admin script executes the asynchronous-deletion regression scenario successfully. Python compilation, Bash syntax, ShellCheck, and whitespace validation pass. The installed internal lab is updated; no experiment was launched.

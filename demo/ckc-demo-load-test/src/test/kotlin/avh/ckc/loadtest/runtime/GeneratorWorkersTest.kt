@@ -2,6 +2,7 @@ package avh.ckc.loadtest.runtime
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class GeneratorWorkersTest {
     @Test
@@ -15,5 +16,20 @@ class GeneratorWorkersTest {
     @Test
     fun `does not start more active workers than integer process tps`() {
         assertEquals(3, effectiveGeneratorWorkers(baseTps = 3, configuredWorkers = 8))
+    }
+
+    @Test
+    fun `distributes aggregate tps across physical shards`() {
+        val shardRates = (0 until 5).map { shardBaseTps(baseTps = 50_003, shardIndex = it, totalShards = 5) }
+
+        assertEquals(listOf(10_001, 10_001, 10_001, 10_000, 10_000), shardRates)
+        assertEquals(50_003, shardRates.sum())
+    }
+
+    @Test
+    fun `rejects more physical shards than aggregate tps`() {
+        assertFailsWith<IllegalArgumentException> {
+            shardBaseTps(baseTps = 2, shardIndex = 0, totalShards = 3)
+        }
     }
 }

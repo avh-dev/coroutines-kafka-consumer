@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -128,15 +129,51 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         "set -euo pipefail",
         f"BOOTSTRAP={shell_quote(bootstrap_server)}",
         f"TOPICS_BIN={shell_quote(topics_bin)}",
+        "topic_exists() {",
+        "  topic=\"$1\"",
+        "  if listing=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --list); then",
+        "    if printf '%s\\n' \"${listing}\" | grep -Fxq \"${topic}\"; then",
+        "      return 0",
+        "    fi",
+        "    return 1",
+        "  fi",
+        "  echo \"Could not list Kafka topics while waiting for ${topic}.\" >&2",
+        "  return 2",
+        "}",
         "wait_topic_deleted() {",
         "  topic=\"$1\"",
         "  for attempt in $(seq 1 60); do",
-        "    if ! \"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --describe --topic \"${topic}\" >/dev/null 2>&1; then",
+        "    if topic_exists \"${topic}\"; then",
+        "      sleep 2",
+        "    else",
+        "      status=$?",
+        "      if [ \"${status}\" -eq 1 ]; then",
+        "        return 0",
+        "      fi",
+        "      sleep 2",
+        "    fi",
+        "  done",
+        "  echo \"Topic ${topic} was not deleted in time.\" >&2",
+        "  return 1",
+        "}",
+        "create_topic() {",
+        "  topic=\"$1\"",
+        "  partitions=\"$2\"",
+        "  replication_factor=\"$3\"",
+        "  for attempt in $(seq 1 60); do",
+        "    if output=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --create --topic \"${topic}\" --partitions \"${partitions}\" --replication-factor \"${replication_factor}\" 2>&1); then",
+        "      printf '%s\\n' \"${output}\"",
         "      return 0",
+        "    else",
+        "      status=$?",
+        "    fi",
+        "    printf '%s\\n' \"${output}\" >&2",
+        "    if ! printf '%s\\n' \"${output}\" | grep -Fqi 'marked for deletion'; then",
+        "      return \"${status}\"",
         "    fi",
         "    sleep 2",
         "  done",
-        "  echo \"Topic ${topic} was not deleted in time.\" >&2",
+        "  echo \"Topic ${topic} remained marked for deletion for too long.\" >&2",
         "  return 1",
         "}",
         "verify_partition_count() {",
@@ -168,10 +205,7 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
                 f'"${{TOPICS_BIN}}" --bootstrap-server "${{BOOTSTRAP}}" --delete --if-exists --topic {quoted_name} || true',
                 f"wait_topic_deleted {quoted_name}",
                 f'echo "Creating topic {name} with {partitions} partitions."',
-                (
-                    f'"${{TOPICS_BIN}}" --bootstrap-server "${{BOOTSTRAP}}" --create --topic {quoted_name} '
-                    f"--partitions {partitions} --replication-factor {replication_factor}"
-                ),
+                f"create_topic {quoted_name} {partitions} {replication_factor}",
                 f"verify_partition_count {quoted_name} {partitions}",
             ]
         )
@@ -204,6 +238,24 @@ def topic_metadata(logs: str, topics: list[dict[str, int | str]]) -> list[dict[s
     return result
 
 
+def wait_for_pod_terminal(namespace: str, pod: str, timeout_seconds: float = 600, poll_seconds: float = 2) -> str:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        raw = run(
+            ["kubectl", "-n", namespace, "get", "pod", pod, "-o", "json"],
+            capture_output=True,
+            check=False,
+        )
+        try:
+            phase = json.loads(raw).get("status", {}).get("phase")
+        except json.JSONDecodeError:
+            phase = None
+        if phase in {"Succeeded", "Failed"}:
+            return phase
+        time.sleep(poll_seconds)
+    raise TimeoutError(f"Kafka admin pod {namespace}/{pod} did not finish within {timeout_seconds:g}s.")
+
+
 def recreate_topics(args: argparse.Namespace, topics: list[dict[str, int | str]]) -> list[dict[str, int | str | None]]:
     script = admin_script(args.bootstrap_server, args.replication_factor, args.topics_bin, topics)
     manifest = f"""apiVersion: v1
@@ -226,9 +278,11 @@ spec:
 """
     run(["kubectl", "-n", args.namespace, "delete", "pod", "ckc-kafka-admin", "--ignore-not-found=true"], check=False)
     run(["kubectl", "apply", "-f", "-"], input_text=manifest)
-    run(["kubectl", "-n", args.namespace, "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/ckc-kafka-admin", "--timeout=10m"])
+    phase = wait_for_pod_terminal(args.namespace, "ckc-kafka-admin")
     logs = run(["kubectl", "-n", args.namespace, "logs", "pod/ckc-kafka-admin"], capture_output=True)
     sys.stdout.write(logs)
+    if phase == "Failed":
+        raise RuntimeError(f"Kafka admin pod failed.\n{logs}")
     run(["kubectl", "-n", args.namespace, "delete", "pod", "ckc-kafka-admin", "--ignore-not-found=true"], check=False)
     return topic_metadata(logs, topics)
 

@@ -37,6 +37,8 @@ from result_bundle import finalize as finalize_artifacts
 
 TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undeliverable", "Terminated"}
 RUN_PHASE_PREFIX = "CKC_RUN_PHASE "
+MIN_TARGET_WATCHDOG_SECONDS = 3600
+TARGET_WATCHDOG_SAFETY_SECONDS = 1800
 
 
 def utc_now() -> datetime:
@@ -74,6 +76,20 @@ def load_profile_seconds(profile: str) -> int:
         for phase in re.findall(r"\(([^)]*)\)", profile)
         for number, unit in re.findall(r"(\d+)\s*([hms])", phase)
     )
+
+
+def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: int = 0) -> int:
+    def phase_seconds(name: str, default: int) -> int:
+        value = target.get(name)
+        return max(0, int(default if value is None else value))
+
+    expected_lifecycle_seconds = (
+        phase_seconds("duration_seconds", 0)
+        + phase_seconds("consumer_drain_timeout_seconds", 300)
+        + phase_seconds("telemetry_settle_seconds", 65)
+        + TARGET_WATCHDOG_SAFETY_SECONDS
+    )
+    return max(MIN_TARGET_WATCHDOG_SECONDS, configured_floor_seconds, expected_lifecycle_seconds)
 
 
 class CommandError(RuntimeError):
@@ -628,6 +644,7 @@ class SessionController:
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
             remote_phase_log = f"/opt/ckc-runner/reports/session-{run_id}.phases.jsonl"
+            phase_uri = self.target_phase_uri(target)
             audit_enabled = target.get("audit_log_enabled", True) is not False
             audit_prefix = self.audit_stream_prefix(target)
             prefetch_stop = threading.Event()
@@ -667,16 +684,15 @@ class SessionController:
                 f"phase_log={shlex.quote(remote_phase_log)}; "
                 f"session_log={shlex.quote(remote_log)}; "
                 ': > "$phase_log"; '
-                'tail -n 0 -F "$phase_log" & phase_tail_pid=$!; '
-                "trap 'kill \"$phase_tail_pid\" >/dev/null 2>&1 || true' EXIT; "
                 + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
                 + 'CKC_RUN_PHASE_FILE="$phase_log" '
+                + "CKC_RUN_PHASE_HOOK=/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/publish-run-phases.sh "
+                + f"CKC_RUN_PHASE_S3_URI={shlex.quote(phase_uri)} "
+                + f"CKC_RUN_PHASE_REGION={shlex.quote(config['region'])} "
                 + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
                 '> "$session_log" 2>&1; status=$?; '
-                'sleep 1; kill "$phase_tail_pid" >/dev/null 2>&1 || true; '
-                'wait "$phase_tail_pid" >/dev/null 2>&1 || true; trap - EXIT; '
                 'cat "$phase_log"; exit "$status"'
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
@@ -693,10 +709,19 @@ class SessionController:
             })
             workload_started = time.monotonic()
             run_progress = TargetRunProgress()
+            watchdog_seconds = int(
+                target.get("watchdog_seconds")
+                or target_watchdog_seconds(
+                    target,
+                    int(config.get("target_watchdog_floor_seconds") or config.get("test_timeout_seconds") or 0),
+                )
+            )
 
             def report_run_progress(invocation: dict[str, Any]) -> None:
-                output = str(invocation.get("StandardOutputContent", ""))
-                output += str(invocation.get("StandardErrorContent", ""))
+                output = self.read_target_phase_events(target)
+                if not output:
+                    output = str(invocation.get("StandardOutputContent", ""))
+                    output += str(invocation.get("StandardErrorContent", ""))
                 for progress_event in run_progress.observe(output):
                     if progress_event["event"] == "workload_finished":
                         self.notify("target_workload_finished", {
@@ -726,7 +751,7 @@ class SessionController:
                 workload_invocation = self.ssm(
                     command,
                     f"run AWS experiment workload {index}/{len(targets)}: {target['name']}",
-                    config["test_timeout_seconds"],
+                    watchdog_seconds,
                     check=False,
                     progress=report_run_progress,
                 )
@@ -810,6 +835,22 @@ class SessionController:
         return (
             f"sessions/{self.config['session_id']}/result/runs/{target['run_id']}"
             "/audit/streaming"
+        )
+
+    def target_phase_uri(self, target: dict[str, Any]) -> str:
+        return (
+            f"s3://{self.state['artifact_bucket']}/sessions/{self.config['session_id']}"
+            f"/progress/{target['run_id']}.jsonl"
+        )
+
+    def read_target_phase_events(self, target: dict[str, Any]) -> str:
+        return self.run(
+            [
+                "aws", "s3", "cp", self.target_phase_uri(target), "-",
+                "--region", self.config["region"], "--only-show-errors",
+            ],
+            capture=True,
+            check=False,
         )
 
     def sync_target_audit_stream(self, target: dict[str, Any]) -> dict[str, int]:
@@ -1572,6 +1613,9 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         output_dir=session_dir / "materialized",
         repo_dir=repo_root(),
     )
+    watchdog_floor_seconds = int(
+        getattr(args, "target_watchdog_floor_seconds", getattr(args, "test_timeout_seconds", 3600))
+    )
     terraform_inputs_path = session_dir / "materialized/environment/terraform-lab-inputs.json"
     terraform_lab_inputs = (
         json.loads(terraform_inputs_path.read_text(encoding="utf-8"))
@@ -1594,7 +1638,15 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "audit_log_enabled": load.get("audit_log_enabled", True) is not False,
             "base_tps": load.get("base_tps"),
             "duration_seconds": load_profile_seconds(str(load.get("load_profile") or "")),
+            "consumer_drain_timeout_seconds": int(
+                300 if load.get("consumer_drain_timeout_seconds") is None else load["consumer_drain_timeout_seconds"]
+            ),
+            "telemetry_settle_seconds": int(
+                65 if load.get("telemetry_settle_seconds") is None else load["telemetry_settle_seconds"]
+            ),
         })
+    for target in targets:
+        target["watchdog_seconds"] = target_watchdog_seconds(target, watchdog_floor_seconds)
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
@@ -1664,7 +1716,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "redis": redis,
             "eks": eks,
             "expected_duration_seconds": sum(int(target["duration_seconds"]) for target in targets),
-            "test_timeout_seconds": args.test_timeout_seconds,
+            "target_watchdog_floor_seconds": watchdog_floor_seconds,
         },
         "session_dir": str(session_dir),
         "terraform": {},
@@ -1683,7 +1735,14 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--owner", default=os.environ.get("USER", "local-user"))
     run_parser.add_argument("--image-environment", default="dev")
     run_parser.add_argument("--experiment")
-    run_parser.add_argument("--test-timeout-seconds", type=int, default=1800)
+    run_parser.add_argument(
+        "--target-watchdog-floor-seconds",
+        "--test-timeout-seconds",
+        dest="target_watchdog_floor_seconds",
+        type=int,
+        default=3600,
+        help="Emergency per-target SSM watchdog floor; normal lifecycle phases are added automatically.",
+    )
     run_parser.add_argument("--max-session-hours", type=int, default=12)
     run_parser.add_argument("--notify-hook", default=os.environ.get("CKC_NOTIFY_HOOK", ""))
     run_parser.add_argument(

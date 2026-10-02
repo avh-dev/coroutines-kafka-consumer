@@ -1,6 +1,6 @@
 schema_version: 2
-name: aws-ckc-msk-sizing-50k
-description: Preserve the successful twelve-replica CKC baseline at a constant 50k/s on three kafka.m7g.large brokers.
+name: aws-spring-msk-sizing-50k
+description: Size a twelve-replica Spring Kafka target at a constant 50k/s on three kafka.m7g.xlarge brokers.
 workload:
   stubs:
     error_rate_percent: 0
@@ -74,8 +74,8 @@ workload:
       traffic_percent: 20
       max_e2e_latency_ms: 1000
 targets:
-- name: ckc.fixed-12
-  implementation: ckc
+- name: spring-kafka.fixed-12
+  implementation: spring-kafka
   application:
     replicas: 12
     resources:
@@ -86,6 +86,7 @@ targets:
         memory: 3Gi
     hpa:
       enabled: false
+    java_options: -Xms512m -Xmx1536m -Xss256k
   runtime:
     env:
       PROCESSING_ENABLED: true
@@ -93,40 +94,29 @@ targets:
       METRICS_IMPLEMENTATION: MICROMETER
       KAFKA_CLIENT_METRICS_ENABLED: false
       SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
-      PROCESSING_DISPATCHER_TYPE: FIXED
-      WORKER_DISPATCHER_THREADS: 1
-      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
-      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
-      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
       KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
       KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
     planning_latency:
-      order_ms: 50
-      batch_ms: 50
-      telemetry_ms: 150
+      order_ms: 14
+      batch_ms: 9
+      telemetry_ms: 41
     parallelism:
     - partitions
-    - workers
     - pollers
     topics:
       order:
-        partitions: 12
-        pollers: 1
-        workers: 100
-        queue_capacity: 4096
-        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 12
-        pollers: 1
-        workers: 100
-        queue_capacity: 4096
-        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 12
-        pollers: 1
-        workers: 500
-        queue_capacity: 4096
-        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   aws:
     region: eu-central-1
@@ -157,7 +147,7 @@ environments:
         mode: msk
         msk_version: 3.7.x
         msk_brokers: 3
-        msk_instance_type: kafka.m7g.large
+        msk_instance_type: kafka.m7g.xlarge
         msk_volume_size_gib: 20
       redis:
         mode: elasticache

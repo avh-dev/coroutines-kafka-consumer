@@ -7,6 +7,7 @@ import avh.ckc.loadtest.kafka.ProducerPoolSizes
 import avh.ckc.loadtest.metrics.LoadTestMetrics
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.runtime.effectiveGeneratorWorkers
+import avh.ckc.loadtest.runtime.shardBaseTps
 import avh.ckc.loadtest.runtime.workerBaseTps
 import avh.ckc.loadtest.scenario.LoadScenario
 import avh.ckc.loadtest.scenario.ScenarioEvaluationContext
@@ -21,7 +22,14 @@ import java.util.concurrent.atomic.AtomicInteger
 
 fun main() = runBlocking {
     val shardContext = ShardContext.fromEnvironment()
-    val config = LoadTestConfig.fromEnvironment()
+    val aggregateConfig = LoadTestConfig.fromEnvironment()
+    val config = aggregateConfig.copy(
+        baseTps = shardBaseTps(
+            aggregateConfig.baseTps,
+            shardContext.shardIndex,
+            shardContext.totalShards
+        )
+    )
     System.setProperty("AUDIT_LOG_ENABLED", config.auditLogEnabled.toString())
     System.setProperty("AUDIT_TCP_HOST", config.auditHost)
     System.setProperty("AUDIT_TCP_PORT", config.auditPort.toString())
@@ -37,7 +45,8 @@ fun main() = runBlocking {
     println("bootstrapServers=${config.bootstrapServers}")
     println("topics order=${config.orderEventsTopic} batch=${config.batchEventsTopic} cauldron=${config.cauldronEventsTopic}")
     println(
-        "phase=${phase?.name ?: "completed"} baseTps=${config.baseTps} currentTps=${phase?.currentRate() ?: 0.0} " +
+        "phase=${phase?.name ?: "completed"} aggregateBaseTps=${aggregateConfig.baseTps} " +
+            "shardBaseTps=${config.baseTps} currentTps=${phase?.currentRate() ?: 0.0} " +
             "mix(order=${config.orderEventPercent},batch=${config.batchEventPercent},cauldron=${config.cauldronTelemetryPercent})"
     )
     println("workers=$effectiveWorkers configuredWorkers=${config.generatorWorkers} baseTpsPerJvm=${config.baseTps}")
