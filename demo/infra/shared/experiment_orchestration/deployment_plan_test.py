@@ -107,6 +107,7 @@ class DeploymentPlanTest(unittest.TestCase):
                 variables["node_max_size"],
             ),
         )
+        plan["application"]["runtime"]["env"]["KAFKA_BOOTSTRAP_SERVERS"] = "runtime-override:9092"
 
         manifests = render_project_manifests(plan, DeploymentBindings(
             run_id="sizing-1",
@@ -132,6 +133,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("65536", application_environment["KAFKA_CONSUMER_FETCH_MIN_BYTES"])
         self.assertEqual("350", application_environment["KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"])
         self.assertEqual("2000", application_environment["KAFKA_CONSUMER_MAX_POLL_RECORDS"])
+        self.assertEqual("runtime-override:9092", application_environment["KAFKA_BOOTSTRAP_SERVERS"])
         self.assertFalse(any(item["kind"] == "HorizontalPodAutoscaler" for item in manifests))
 
         load_job = next(item for item in manifests if item["kind"] == "Job")
@@ -183,6 +185,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("false", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertNotIn("PROCESSING_ENABLED", application_environment)
+        self.assertNotIn("PROCESSING_ENABLED", plan["application"]["runtime"]["env"])
 
     def test_materializes_independent_aws_spring_sizing_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-spring-msk-sizing-50k.yaml"

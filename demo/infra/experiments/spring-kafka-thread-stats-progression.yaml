@@ -61,7 +61,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -92,7 +92,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -127,7 +127,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -161,7 +161,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -192,7 +192,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -223,7 +223,7 @@ targets:
     replicas: 1
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT

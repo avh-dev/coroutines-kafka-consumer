@@ -432,6 +432,7 @@
 | [INFRA-265](#infra-265) | Correct and guard Spring Kafka qualification parallelism with explicit capacity headroom. | DONE |
 | [INFRA-266](#infra-266) | Unify experiment measurement-window configuration on the canonical list form. | DONE |
 | [INFRA-267](#infra-267) | Harden the Spring 50k qualification with conservative downstream latency and scalable stubs. | DONE |
+| [INFRA-268](#infra-268) | Use literal application environment names and make runtime env the final deployment override. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5035,3 +5036,13 @@ Scale the shared stub service behind its existing Kubernetes Service and give ev
 Keep the resulting partition topology inside the recommended MSK `m7g.xlarge` partition envelope.
 Capture the complete steady interval together with early, middle, and late diagnostic windows.
 Verification: 129 shared, 59 AWS, and 172 internal-lab tests pass. Python compilation and whitespace validation pass, and the updated runtime and experiments are installed on optilab without launching a workload.
+
+<a id="infra-268"></a>
+### INFRA-268 - Use literal runtime environment names
+
+_Date: 2026-10-02_
+
+Remove the special `PROCESSING_ENABLED` alias and use the application's real environment variable name in experiment definitions.
+Apply `runtime.env` unchanged after generated deployment values so explicit experiment settings have final precedence.
+Migrate maintained experiments and fixtures to the literal environment name and protect the behavior with tests.
+Verification: all 36 experiment/environment combinations validate; 130 shared, 59 AWS, and 172 internal-lab tests pass. Whitespace validation passes, and the updated runtime and experiments are installed on optilab without launching a workload.

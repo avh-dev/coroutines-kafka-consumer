@@ -60,7 +60,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
@@ -82,7 +82,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
@@ -104,7 +104,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
@@ -126,7 +126,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: IO
@@ -147,7 +147,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: VIRTUAL
@@ -168,7 +168,7 @@ targets:
     replicas: 2
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
     planning_latency:
@@ -194,7 +194,7 @@ targets:
     java_options: -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
     planning_latency:

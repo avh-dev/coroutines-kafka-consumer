@@ -361,6 +361,11 @@ def validate_runtime(value: Any, context: str) -> dict[str, Any]:
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
     if "env" in runtime:
         environment = require_mapping(runtime["env"], f"{context}.env")
+        if "PROCESSING_ENABLED" in environment:
+            raise ValueError(
+                f"{context}.env.PROCESSING_ENABLED is not an application environment variable; "
+                "use DEMO_CONSUMER_PROCESSING_ENABLED"
+            )
         invalid = [key for key, item in environment.items() if not isinstance(key, str) or isinstance(item, (dict, list))]
         if invalid:
             raise ValueError(f"{context}.env values must be scalars: {', '.join(map(str, invalid))}")

@@ -85,7 +85,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: false
+      DEMO_CONSUMER_PROCESSING_ENABLED: false
       AUDIT_LOG_ENABLED: false
       METRICS_IMPLEMENTATION: MICROMETER
       KAFKA_CLIENT_METRICS_ENABLED: false

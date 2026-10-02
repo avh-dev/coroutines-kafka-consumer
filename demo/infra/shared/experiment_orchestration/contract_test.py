@@ -162,6 +162,13 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "planning_headroom_percent must be between 0 and 100"):
             validate_canonical_experiment(experiment, self.source, environment="aws")
 
+    def test_rejects_obsolete_processing_enabled_environment_alias(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["runtime"]["env"]["PROCESSING_ENABLED"] = True
+
+        with self.assertRaisesRegex(ValueError, "use DEMO_CONSUMER_PROCESSING_ENABLED"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
     def test_internal_lab_accepts_target_application_placement(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["placement"] = {

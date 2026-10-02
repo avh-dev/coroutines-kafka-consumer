@@ -392,10 +392,6 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         for key, value in (values.get("env") or {}).items()
         if key in GENERATED_ENV_NAMES and value not in (None, "")
     }
-    computed_env.update(copy.deepcopy(runtime.get("env") or {}))
-    processing_enabled = computed_env.pop("PROCESSING_ENABLED", None)
-    if processing_enabled is not None:
-        computed_env["DEMO_CONSUMER_PROCESSING_ENABLED"] = processing_enabled
     workload_load = (plan.get("workload") or {}).get("load") or {}
     workload_stubs = (plan.get("workload") or {}).get("stubs") or {}
     stub_deployment = workload_stubs.get("deployment") or {}
@@ -422,6 +418,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "MODEL_HTTP_CLIENT": computed_env.get("MODEL_HTTP_CLIENT", "ARMERIA"),
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
+    computed_env.update(copy.deepcopy(runtime.get("env") or {}))
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))
     resources = values.get("resources") or configuration.get("resources") or {}
     manifests: list[dict[str, Any]] = [

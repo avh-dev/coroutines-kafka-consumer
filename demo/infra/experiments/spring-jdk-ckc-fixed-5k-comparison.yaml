@@ -102,7 +102,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -142,7 +142,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -182,7 +182,7 @@ targets:
       enabled: false
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT

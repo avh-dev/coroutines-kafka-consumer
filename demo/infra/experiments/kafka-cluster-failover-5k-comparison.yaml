@@ -110,7 +110,7 @@ targets:
     java_options: -Xms512m -Xmx1536m -Xss256k -XX:+UseSerialGC
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
@@ -161,7 +161,7 @@ targets:
       -Dcom.linecorp.armeria.defaultResponseTimeoutMillis=75000
   runtime:
     env:
-      PROCESSING_ENABLED: true
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       JDK_HTTP_CLIENT_EXECUTOR: DEFAULT

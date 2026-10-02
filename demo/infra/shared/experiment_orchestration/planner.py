@@ -215,7 +215,7 @@ def target_namespace(
         "current_deployment_env": str(current_deployment_env) if current_deployment_env else None,
         "base_tps": None,
         "replicas": application.get("replicas", merged.get("replicas")),
-        "processing_enabled": str(env.get("PROCESSING_ENABLED", "true")).lower(),
+        "processing_enabled": str(env.get("DEMO_CONSUMER_PROCESSING_ENABLED", "true")).lower(),
         "processing_dispatcher_type": env.get("PROCESSING_DISPATCHER_TYPE"),
         "worker_dispatcher_threads": env.get("WORKER_DISPATCHER_THREADS"),
         "model_http_client": env.get("MODEL_HTTP_CLIENT"),
