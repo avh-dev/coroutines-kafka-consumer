@@ -387,10 +387,10 @@ def environment_topology_svg(
             f'<text class="card-title" x="910" y="710">{esc(component_title("CloudWatch exporter"))}</text>',
             f'<text class="muted" x="910" y="732">MSK + ElastiCache metrics · {esc(component_title("vmagent"))}</text>',
 
-            '<path data-flow="load-to-kafka" d="M350 190 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path data-flow="kafka-to-application" d="M855 220 H810 V347 H760" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path data-flow="application-to-redis" d="M760 375 H810 V372 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path data-flow="application-to-stubs" d="M445 350 H350" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="load-to-kafka" d="M350 190 H602.5 V166.67 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="kafka-to-application" d="M855 208.33 H807.5 V326.67 H760" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-redis" d="M760 368.33 H807.5 V372.5 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-stubs" d="M445 347.5 H397.5 V350 H350" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '</g>',
             '<text class="muted" x="30" y="875">Solid arrows: experiment data flow</text>',
         ]

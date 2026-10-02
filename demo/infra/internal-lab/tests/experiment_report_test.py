@@ -980,6 +980,15 @@ class ExperimentReportTest(unittest.TestCase):
             "application-to-redis",
             "application-to-stubs",
         }, set(flows))
+        self.assertEqual(
+            {
+                "load-to-kafka": "M350 190 H602.5 V166.67 H855",
+                "kafka-to-application": "M855 208.33 H807.5 V326.67 H760",
+                "application-to-redis": "M760 368.33 H807.5 V372.5 H855",
+                "application-to-stubs": "M445 347.5 H397.5 V350 H350",
+            },
+            {name: element.attrib["d"] for name, element in flows.items()},
+        )
         self.assertTrue(all(" L" not in element.attrib["d"] for element in flows.values()))
         self.assertTrue(all(element.attrib.get("stroke") == "#475569" for element in flows.values()))
         self.assertNotIn("#f97316", svg)
