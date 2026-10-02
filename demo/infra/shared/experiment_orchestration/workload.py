@@ -65,6 +65,9 @@ def validate_resolved_test(definition: dict[str, Any]) -> None:
         value = load_test.get(field)
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
             raise ValueError(f"load_test.{field} must be a positive integer")
+    java_options = load_test.get("java_options")
+    if java_options is not None and (not isinstance(java_options, str) or not java_options.strip()):
+        raise ValueError("load_test.java_options must be a non-empty string")
     for field in ("chaos_steps", "diagnostic_steps"):
         value = definition.get(field, [])
         if not isinstance(value, list):

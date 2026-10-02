@@ -35,7 +35,8 @@ workload:
     cpu_request: '1'
     memory_request: 768Mi
     cpu_limit: null
-    memory_limit: 1Gi
+    memory_limit: 1280Mi
+    java_options: -Xms256m -Xmx768m -XX:+UseG1GC
     kafka_producer_linger_ms: 300
     kafka_producer_batch_size: 32768
     kafka_producer_compression_type: lz4

@@ -4967,3 +4967,6 @@ Validate the generator tests and both shared/internal orchestration suites, then
 Retune the qualification run to the cloud-sized 336/156/420 partition topology at a 30/30/40 traffic mix with 5,000 CKC workers per topic.
 Collect producer sent, acknowledged, and failed counters through Kubernetes pod discovery, use them in audit-free reports, and make Prometheus reconciliation restart-safe.
 Honor non-required consumer drain in internal-lab runs and report the aggregate telemetry fleet correctly across generator shards.
+Diagnose the first high-partition qualification failure as generator JVM heap exhaustion and give load jobs an explicit, validated Java options setting.
+Size each qualification shard with a 768 MiB heap inside a 1280 MiB container limit so Kafka batch allocation has headroom without overcommitting the worker node.
+Verification: 51 shared orchestration and 171 internal-lab tests pass; Python compilation and whitespace validation pass, and the installed experiment contains the explicit heap and container limit. No experiment was launched automatically.

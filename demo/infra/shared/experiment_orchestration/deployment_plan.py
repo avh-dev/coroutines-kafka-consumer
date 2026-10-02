@@ -73,6 +73,7 @@ LOAD_ENV_NAMES = {
     "audit_log_enabled": "AUDIT_LOG_ENABLED",
     "workers": "LOAD_TEST_WORKERS",
     "dispatcher_threads": "LOAD_TEST_DISPATCHER_THREADS",
+    "java_options": "JAVA_TOOL_OPTIONS",
     "kafka_producer_linger_ms": "KAFKA_PRODUCER_LINGER_MS",
     "kafka_producer_batch_size": "KAFKA_PRODUCER_BATCH_SIZE",
     "kafka_producer_compression_type": "KAFKA_PRODUCER_COMPRESSION_TYPE",
