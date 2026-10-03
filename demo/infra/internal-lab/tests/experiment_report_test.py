@@ -1004,6 +1004,8 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("2 nodes · cache.r7g.large", svg)
         self.assertIn("Redis 7.1", svg)
         self.assertIn("1 container per service · Docker Compose", svg)
+        self.assertNotIn('data-boundary="managed-services"', svg)
+        self.assertNotIn('data-service-card="cloudwatch"', svg)
         self.assertIn("req 500m/1Gi · lim —/3Gi CPU/RAM", svg)
         self.assertNotIn("None CPU", svg)
         self.assertNotIn("worker node", svg)
@@ -1015,7 +1017,7 @@ class ExperimentReportTest(unittest.TestCase):
             for element in root.iter(f"{namespace}rect")
             if element.attrib.get("data-boundary")
         }
-        self.assertEqual({"aws", "eks", "eks-observability", "managed-services", "runner"}, boundaries)
+        self.assertEqual({"aws", "eks", "eks-observability", "runner"}, boundaries)
         service_cards = {
             element.attrib.get("data-service-card"): element
             for element in root.iter(f"{namespace}rect")
@@ -1034,6 +1036,12 @@ class ExperimentReportTest(unittest.TestCase):
             if element.attrib.get("data-service") == "environment-aws"
         )
         self.assertEqual("aws", aws_icon.attrib["data-asset"])
+        vmagent_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "vmagent"
+        )
+        self.assertEqual("prometheus", vmagent_icon.attrib["data-asset"])
         flows = {
             element.attrib.get("data-flow"): element
             for element in root.iter(f"{namespace}path")

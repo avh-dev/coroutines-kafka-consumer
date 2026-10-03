@@ -49,6 +49,7 @@ SERVICE_BADGES = {
     "process-exporter": ("process-exporter", "PE", "#e6522c"),
     "victoriametrics": ("prometheus", "VM", "#e6522c"),
     "cloudwatch": ("prometheus", "CW", "#e6522c"),
+    "vmagent": ("prometheus", "VMA", "#e6522c"),
 }
 def esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
@@ -337,7 +338,6 @@ def environment_topology_svg(
         stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
         stub_replicas = int(stub_deployment.get("replicas") or 1)
         stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
-        managed_services_title = "AWS managed dependencies" if kafka_mode == "msk" else "Cluster data services"
         redis_service_title = "Amazon ElastiCache for Redis" if redis.get("mode") == "elasticache" else "Redis in Kubernetes"
         redis_nodes = len(redis.get("member_clusters", [])) or int(redis.get("nodes") or 0)
         redis_deployment = " · ".join(part for part in [
@@ -390,8 +390,6 @@ def environment_topology_svg(
             f'<text class="muted" x="437" y="638">{esc(component_deployment("Kafka exporter"))}</text>',
             '<text class="muted" x="70" y="727">Telemetry is collected by the adjacent EKS and runner services</text>',
 
-            '<rect data-boundary="managed-services" x="825" y="55" width="430" height="425" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>',
-            f'<text class="card-title" x="850" y="88">{esc(managed_services_title)}</text>',
             '<rect data-service-card="msk" x="855" y="125" width="370" height="130" rx="8" fill="#fef3c7" stroke="#d97706"/>',
             service_icon("apache-kafka", 875, 145, 34),
             f'<text class="card-title" x="921" y="166">{esc(kafka_title)}</text>',
@@ -414,11 +412,11 @@ def environment_topology_svg(
             f'<text class="muted" x="889" y="627">{esc(component_title("Grafana"))}</text>',
             service_icon("fluent-bit", 1045, 610, 26),
             f'<text class="muted" x="1079" y="627">{esc(component_title("Fluent Bit"))}</text>',
-            '<text class="muted" x="855" y="657">1 container per service · Docker Compose</text>',
-            '<rect data-service-card="cloudwatch" x="855" y="675" width="370" height="75" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
-            service_icon("cloudwatch", 872, 693, 26),
-            f'<text class="card-title" x="910" y="710">{esc(component_title("CloudWatch exporter"))}</text>',
-            f'<text class="muted" x="910" y="732">MSK + ElastiCache metrics · {esc(component_title("vmagent"))}</text>',
+            service_icon("cloudwatch", 855, 660, 26),
+            f'<text class="muted" x="889" y="677">{esc(component_title("CloudWatch exporter"))}</text>',
+            service_icon("vmagent", 1045, 660, 26),
+            f'<text class="muted" x="1079" y="677">{esc(component_title("vmagent"))}</text>',
+            '<text class="muted" x="855" y="715">1 container per service · Docker Compose</text>',
 
             '<path data-flow="load-to-kafka" d="M350 190 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="kafka-to-application" d="M1040 255 V277.5 H602.5 V300" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
