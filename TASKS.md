@@ -437,6 +437,7 @@
 | [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
 | [INFRA-271](#infra-271) | Render a complete and legible AWS environment topology in experiment reports. | DONE |
 | [INFRA-272](#infra-272) | Select and download a completed report by its offset from the newest result. | DONE |
+| [INFRA-273](#infra-273) | Place the internal-lab load generator inside its actual Kubernetes runtime boundary. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5102,3 +5103,13 @@ Allow the report packager to select the newest, previous, or older completed res
 Pass the optional offset through the Termux download helper while preserving its no-argument behavior.
 Reject invalid offsets and report when the requested history depth is unavailable.
 Verification: 174 internal-lab tests pass; Bash syntax and whitespace validation pass; the installed command selects historical reports and restores the newest archive afterward without launching a workload.
+
+<a id="infra-273"></a>
+### INFRA-273 - Place the load generator inside Kubernetes
+
+_Date: 2026-10-03_
+
+Render the internal-lab load generator as the indexed Kubernetes Job it has become rather than as a host process.
+Move it inside the controller Kubernetes boundary in both one-host and split-host topologies and reroute its Kafka flow.
+Show the configured pod count, Java runtime, and pod resources without reviving node-placement labels.
+Verification: 174 internal-lab tests pass; Python compilation and whitespace validation pass; current single-host evidence renders the generator inside Kubernetes with its five pods and configured resources. The updated renderer is installed without rewriting or reordering completed reports and without launching a workload.
