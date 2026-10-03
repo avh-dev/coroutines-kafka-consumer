@@ -963,6 +963,18 @@ class ExperimentReportTest(unittest.TestCase):
             if element.attrib.get("data-boundary")
         }
         self.assertEqual({"aws", "eks", "eks-observability", "managed-services", "runner"}, boundaries)
+        service_cards = {
+            element.attrib.get("data-service-card"): element
+            for element in root.iter(f"{namespace}rect")
+            if element.attrib.get("data-service-card")
+        }
+        self.assertEqual(
+            {"130"},
+            {
+                service_cards[name].attrib["height"]
+                for name in ("load-generator", "msk", "stubs", "application", "redis")
+            },
+        )
         aws_icon = next(
             element
             for element in root.iter(f"{namespace}g")
@@ -982,10 +994,10 @@ class ExperimentReportTest(unittest.TestCase):
         }, set(flows))
         self.assertEqual(
             {
-                "load-to-kafka": "M350 190 H602.5 V166.67 H855",
-                "kafka-to-application": "M855 208.33 H807.5 V326.67 H760",
-                "application-to-redis": "M760 368.33 H807.5 V372.5 H855",
-                "application-to-stubs": "M445 347.5 H397.5 V350 H350",
+                "load-to-kafka": "M350 190 H855",
+                "kafka-to-application": "M1040 255 V277.5 H602.5 V300",
+                "application-to-redis": "M760 365 H855",
+                "application-to-stubs": "M445 365 H350",
             },
             {name: element.attrib["d"] for name, element in flows.items()},
         )
