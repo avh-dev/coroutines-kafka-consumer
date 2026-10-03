@@ -436,6 +436,7 @@
 | [INFRA-269](#infra-269) | Align the CKC 50k qualification workload with Spring while retaining CKC-sized Kafka topology. | DONE |
 | [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
 | [INFRA-271](#infra-271) | Render a complete and legible AWS environment topology in experiment reports. | DONE |
+| [INFRA-272](#infra-272) | Select and download a completed report by its offset from the newest result. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5091,3 +5092,13 @@ Use the outer AWS boundary as the sole cloud grouping and present every runner o
 Separate the runner EC2 host from its nested Docker runtime and persist the runner instance and root-volume configuration in experiment evidence.
 Restore the compact EKS worker configuration, use the official EC2 service icon, separate runner configuration from purpose, and remove the redundant data-flow legend.
 Verification: focused AWS topology rendering, 62 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.
+
+<a id="infra-272"></a>
+### INFRA-272 - Select a historical completed report
+
+_Date: 2026-10-03_
+
+Allow the report packager to select the newest, previous, or older completed result using a non-negative numeric offset.
+Pass the optional offset through the Termux download helper while preserving its no-argument behavior.
+Reject invalid offsets and report when the requested history depth is unavailable.
+Verification: 174 internal-lab tests pass; Bash syntax and whitespace validation pass; the installed command selects historical reports and restores the newest archive afterward without launching a workload.

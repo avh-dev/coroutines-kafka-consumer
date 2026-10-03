@@ -2,6 +2,16 @@
 
 set -euo pipefail
 
+if (( $# > 1 )); then
+  echo "Usage: $0 [REPORT_OFFSET]" >&2
+  exit 2
+fi
+REPORT_OFFSET="${1:-0}"
+if [[ ! "${REPORT_OFFSET}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "REPORT_OFFSET must be a non-negative integer: ${REPORT_OFFSET}" >&2
+  exit 2
+fi
+
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 INTERNAL_EXPERIMENTS_ROOT="${INTERNAL_EXPERIMENTS_ROOT:-${LAB_ROOT}/results/experiments}"
 REPOSITORY_ENV="${LAB_ROOT}/config/repository.env"
@@ -13,9 +23,7 @@ AWS_EXPERIMENTS_ROOT="${AWS_EXPERIMENTS_ROOT:-${CKC_REPOSITORY_ROOT:+${CKC_REPOS
 EXPORTS_ROOT="${EXPORTS_ROOT:-${LAB_ROOT}/results/exports}"
 ARCHIVE="${EXPORTS_ROOT}/latest-report.zip"
 
-latest_report_root=""
-latest_report_timestamp=-1
-latest_report_source=""
+report_candidates=()
 
 consider_report_root() {
   local summary_file="$1"
@@ -37,11 +45,7 @@ consider_report_root() {
       timestamp="${candidate_timestamp}"
     fi
   done
-  if (( timestamp > latest_report_timestamp )); then
-    latest_report_timestamp="${timestamp}"
-    latest_report_root="${candidate_report_root}"
-    latest_report_source="${source}"
-  fi
+  report_candidates+=("${timestamp}"$'\t'"${candidate_report_root}"$'\t'"${source}")
 }
 
 if [[ -d "${INTERNAL_EXPERIMENTS_ROOT}" ]]; then
@@ -56,12 +60,22 @@ if [[ -n "${AWS_EXPERIMENTS_ROOT}" && -d "${AWS_EXPERIMENTS_ROOT}" ]]; then
   done < <(find "${AWS_EXPERIMENTS_ROOT}" -mindepth 1 -maxdepth 1 -type d -print0)
 fi
 
-if [[ -z "${latest_report_root}" ]]; then
+if (( ${#report_candidates[@]} == 0 )); then
   echo "No completed report was found under internal-lab or AWS experiment results." >&2
   exit 1
 fi
 
-report_root="${latest_report_root}"
+mapfile -t sorted_report_candidates < <(
+  printf '%s\n' "${report_candidates[@]}" | sort -t $'\t' -k1,1nr -k2,2
+)
+if (( REPORT_OFFSET >= ${#sorted_report_candidates[@]} )); then
+  printf 'Report offset %s is unavailable; %s completed report(s) found.\n' \
+    "${REPORT_OFFSET}" "${#sorted_report_candidates[@]}" >&2
+  exit 1
+fi
+
+IFS=$'\t' read -r selected_timestamp report_root report_source \
+  <<< "${sorted_report_candidates[REPORT_OFFSET]}"
 mapfile -d '' report_files < <(find "${report_root}" -mindepth 2 -type f -name report.md -print0 | sort -z)
 
 mkdir -p "${EXPORTS_ROOT}"
@@ -97,5 +111,5 @@ chmod 0644 "${temporary_archive}"
 mv -f -- "${temporary_archive}" "${ARCHIVE}"
 rmdir -- "${temporary_dir}"
 trap - EXIT
-printf 'source=%s\n' "${latest_report_source}" >&2
+printf 'source=%s\noffset=%s\n' "${report_source}" "${REPORT_OFFSET}" >&2
 printf '%s\n' "${ARCHIVE}"

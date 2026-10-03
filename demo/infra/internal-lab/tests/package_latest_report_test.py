@@ -54,6 +54,22 @@ class PackageLatestReportTest(unittest.TestCase):
                 self.assertEqual(["load-profile.svg", "report.md"], sorted(package.namelist()))
                 self.assertEqual("aws", package.read("report.md").decode())
 
+            previous = subprocess.run(
+                ["bash", str(SCRIPT), "1"],
+                env={
+                    **os.environ,
+                    "LAB_ROOT": str(lab_root),
+                    "AWS_EXPERIMENTS_ROOT": str(aws_root),
+                },
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("source=internal-lab:", previous.stderr)
+            self.assertIn("offset=1", previous.stderr)
+            with zipfile.ZipFile(archive) as package:
+                self.assertEqual("internal", package.read("report.md").decode())
+
             os.utime(internal_report / "report.md", (300, 300))
             result = subprocess.run(
                 ["bash", str(SCRIPT)],
@@ -69,6 +85,28 @@ class PackageLatestReportTest(unittest.TestCase):
             self.assertIn("source=internal-lab:", result.stderr)
             with zipfile.ZipFile(archive) as package:
                 self.assertEqual("internal", package.read("report.md").decode())
+
+            unavailable = subprocess.run(
+                ["bash", str(SCRIPT), "2"],
+                env={
+                    **os.environ,
+                    "LAB_ROOT": str(lab_root),
+                    "AWS_EXPERIMENTS_ROOT": str(aws_root),
+                },
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(1, unavailable.returncode)
+            self.assertIn("Report offset 2 is unavailable; 2 completed report(s) found.", unavailable.stderr)
+
+    def test_rejects_invalid_report_offset(self) -> None:
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "previous"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("REPORT_OFFSET must be a non-negative integer", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()
