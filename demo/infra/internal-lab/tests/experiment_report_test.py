@@ -336,8 +336,14 @@ class ExperimentReportTest(unittest.TestCase):
                     "profile": "ckc",
                     "run_profile": "ckc",
                     "replica_count": 2,
+                    "stub_replica_count": 1,
                     "processing_dispatcher_type": "FIXED",
                     "worker_dispatcher_threads": 2,
+                },
+                "load_test": {
+                    "shards": 2,
+                    "workers": 1,
+                    "base_tps": 100,
                 },
                 "run_plan": {
                     "topics": [
@@ -1202,8 +1208,11 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Fluent Bit 4.2.3", environment_svg)
             self.assertIn("CKC demo app", environment_svg)
             self.assertIn("CKC demo stubs", environment_svg)
-            self.assertIn("2 pods · indexed Kubernetes Job", environment_svg)
+            self.assertIn("2 pods · indexed Job · 100 aggregate TPS", environment_svg)
+            self.assertIn("1 worker/pod · Java 21.0.12", environment_svg)
             self.assertIn("req 500m/512Mi · lim —/1Gi CPU/RAM", environment_svg)
+            self.assertIn("1 pod · Java 21.0.12", environment_svg)
+            self.assertIn("no CPU/RAM requests or limits", environment_svg)
             self.assertNotIn("host process", environment_svg)
             namespace = "{http://www.w3.org/2000/svg}"
             kubernetes_boundary = next(
@@ -1638,7 +1647,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("Configured IP network", svg)
             self.assertIn('data-boundary="controller-kubernetes" x="45" y="145" width="300" height="675"', svg)
             self.assertIn('data-service-card="load-generator" x="70" y="245"', svg)
-            self.assertIn("2 pods · indexed Kubernetes Job", svg)
+            self.assertIn("2 pods · indexed Job · 100 aggregate TPS", svg)
+            self.assertIn("1 worker/pod · Java 21.0.12", svg)
+            self.assertIn("1 pod · Java 21.0.12", svg)
             self.assertNotIn("host process", svg)
             namespace = "{http://www.w3.org/2000/svg}"
             controller_kubernetes = next(

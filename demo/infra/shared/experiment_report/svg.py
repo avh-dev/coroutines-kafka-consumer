@@ -222,6 +222,8 @@ def environment_topology_svg(
     def compact_resources(value: dict[str, Any]) -> str:
         resource_requests = value.get("requests") if isinstance(value.get("requests"), dict) else {}
         resource_limits = value.get("limits") if isinstance(value.get("limits"), dict) else {}
+        if not any(resource_requests.get(key) or resource_limits.get(key) for key in ("cpu", "memory")):
+            return "no CPU/RAM requests or limits"
         request_pair = f"{resource_requests.get('cpu') or '—'}/{resource_requests.get('memory') or '—'}"
         limit_pair = f"{resource_limits.get('cpu') or '—'}/{resource_limits.get('memory') or '—'}"
         return f"req {request_pair} · lim {limit_pair} CPU/RAM"
@@ -233,11 +235,45 @@ def environment_topology_svg(
     app_requests = f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "resources vary by target"
     app_limits = f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else ""
     load_test = report.test_definition.get("load_test") if isinstance(report.test_definition.get("load_test"), dict) else {}
-    generator_pods = int(load_test.get("shards") or 1)
+    target_load_tests = [
+        target.configuration.get("load_test", {})
+        for target in selected_targets
+        if isinstance(target.configuration, dict)
+        and isinstance(target.configuration.get("load_test"), dict)
+    ]
+
+    def common_load_value(key: str) -> Any:
+        values = [value.get(key) for value in target_load_tests if value.get(key) is not None]
+        return values[0] if values and all(value == values[0] for value in values) else load_test.get(key)
+
+    generator_pods = int(common_load_value("shards") or 1)
+    generator_workers = common_load_value("workers")
+    generator_tps = common_load_value("base_tps") or report.test_definition.get("base_tps")
+    generator_pod_label = "pod" if generator_pods == 1 else "pods"
+    generator_worker_label = "worker" if generator_workers == 1 else "workers"
+    generator_deployment = " · ".join(part for part in [
+        f"{generator_pods} {generator_pod_label}",
+        "indexed Job",
+        f"{generator_tps} aggregate TPS" if generator_tps is not None else "",
+    ] if part)
     load_resources = {
         "requests": {"cpu": load_test.get("cpu_request"), "memory": load_test.get("memory_request")},
         "limits": {"cpu": load_test.get("cpu_limit"), "memory": load_test.get("memory_limit")},
     }
+    stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
+    stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
+    configured_stub_replicas = [
+        target.configuration.get("stub_replicas")
+        for target in selected_targets
+        if isinstance(target.configuration, dict) and target.configuration.get("stub_replicas") is not None
+    ]
+    stub_replicas = int(
+        configured_stub_replicas[0]
+        if configured_stub_replicas and all(value == configured_stub_replicas[0] for value in configured_stub_replicas)
+        else stub_deployment.get("replicas") or 1
+    )
+    stub_pod_label = "pod" if stub_replicas == 1 else "pods"
+    stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
     redis_title = f"Redis {redis.get('version')} · host container" if redis.get("version") else "Redis host container"
     redis_line = " · ".join(str(value) for value in [
         redis.get("mode"),
@@ -251,6 +287,12 @@ def environment_topology_svg(
     def java_label(role: str) -> str:
         version_value = java.get(role)
         return f"Java {version_value}" if version_value else "Java version unavailable"
+
+    generator_runtime = " · ".join(part for part in [
+        f"{generator_workers} {generator_worker_label}/pod" if generator_workers is not None else "worker count unavailable",
+        java_label("load_generator"),
+    ] if part)
+    stub_runtime = f"{stub_replicas} {stub_pod_label} · {java_label('stubs')}"
     observability_components = [
         value
         for components in observability.values()
@@ -336,10 +378,6 @@ def environment_topology_svg(
             if application_scale_labels and all(value == application_scale_labels[0] for value in application_scale_labels)
             else "pod scaling varies by target"
         )
-        stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
-        stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
-        stub_replicas = int(stub_deployment.get("replicas") or 1)
-        stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
         redis_service_title = "Amazon ElastiCache for Redis" if redis.get("mode") == "elasticache" else "Redis in Kubernetes"
         redis_nodes = len(redis.get("member_clusters", [])) or int(redis.get("nodes") or 0)
         redis_deployment = " · ".join(part for part in [
@@ -371,9 +409,9 @@ def environment_topology_svg(
             '<rect data-service-card="load-generator" x="50" y="145" width="300" height="130" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
             service_icon("load-generator", 68, 163, 32),
             '<text class="card-title" x="112" y="183">Load generator</text>',
-            f'<text class="muted" x="68" y="217">{generator_pods} pods · {esc(str(load_test.get("base_tps") or report.test_definition.get("base_tps") or "—"))} aggregate TPS</text>',
+            f'<text class="muted" x="68" y="217">{esc(generator_deployment.replace("indexed Job · ", ""))}</text>',
             f'<text class="muted" x="68" y="236">{esc(compact_resources(load_resources))}</text>',
-            f'<text class="muted" x="68" y="255">{esc(java_label("load_generator"))}</text>',
+            f'<text class="muted" x="68" y="255">{esc(generator_runtime)}</text>',
 
             '<rect data-service-card="application" x="445" y="320" width="315" height="130" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 463, 338, 32),
@@ -385,9 +423,9 @@ def environment_topology_svg(
             '<rect data-service-card="stubs" x="50" y="320" width="300" height="130" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 68, 338, 32),
             '<text class="card-title" x="112" y="358">HTTP downstream stubs</text>',
-            f'<text class="muted" x="68" y="392">{stub_replicas} pods</text>',
-            f'<text class="muted" x="68" y="411">{esc(compact_resources(stub_resources)) if stub_resources else "resources not captured"}</text>',
-            f'<text class="muted" x="68" y="432">{esc(java_label("stubs"))}</text>',
+            f'<text class="muted" x="68" y="392">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="68" y="411">{esc(compact_resources(stub_resources))}</text>',
+            '<text class="muted" x="68" y="432">HTTP downstream behavior defined by the test</text>',
 
             '<rect data-boundary="eks-observability" x="50" y="485" width="710" height="265" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="70" y="515">Telemetry collection inside EKS</text>',
@@ -464,13 +502,14 @@ def environment_topology_svg(
             '<rect data-service-card="load-generator" x="70" y="245" width="250" height="115" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
             service_icon("load-generator", 86, 262, 30),
             '<text class="card-title" x="128" y="281">Load generator</text>',
-            f'<text class="muted" x="86" y="310">{generator_pods} pods · indexed Kubernetes Job</text>',
-            f'<text class="muted" x="86" y="330">{esc(java_label("load_generator"))}</text>',
+            f'<text class="muted" x="86" y="310">{esc(generator_deployment)}</text>',
+            f'<text class="muted" x="86" y="330">{esc(generator_runtime)}</text>',
             f'<text class="muted" x="86" y="349">{esc(compact_resources(load_resources))}</text>',
-            '<rect x="70" y="390" width="250" height="100" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            '<rect data-service-card="stubs" x="70" y="390" width="250" height="110" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 86, 407, 30),
             '<text class="card-title" x="128" y="426">CKC demo stubs</text>',
-            f'<text class="muted" x="86" y="456">{esc(java_label("stubs"))}</text>',
+            f'<text class="muted" x="86" y="456">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="86" y="477">{esc(compact_resources(stub_resources))}</text>',
             '<rect x="70" y="520" width="250" height="275" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="88" y="547">Observability inside Kubernetes</text>',
             service_icon("prometheus", 88, 575, 26),
@@ -536,8 +575,9 @@ def environment_topology_svg(
             '<rect data-service-card="load-generator" x="70" y="265" width="485" height="115" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
             service_icon("load-generator", 86, 282, 30),
             '<text class="card-title" x="128" y="301">Load generator</text>',
-            f'<text class="muted" x="86" y="330">{generator_pods} pods · indexed Kubernetes Job · {esc(java_label("load_generator"))}</text>',
-            f'<text class="muted" x="86" y="351">{esc(compact_resources(load_resources))}</text>',
+            f'<text class="muted" x="86" y="329">{esc(generator_deployment)}</text>',
+            f'<text class="muted" x="86" y="349">{esc(generator_runtime)}</text>',
+            f'<text class="muted" x="86" y="369">{esc(compact_resources(load_resources))}</text>',
             '<rect data-service-card="application" x="70" y="405" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 86, 421, 30),
             '<text class="card-title" x="128" y="440">CKC demo app</text>',
@@ -547,8 +587,8 @@ def environment_topology_svg(
             '<rect data-service-card="stubs" x="330" y="405" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 346, 421, 30),
             '<text class="card-title" x="388" y="440">CKC demo stubs</text>',
-            f'<text class="muted" x="346" y="471">1 pod · {esc(java_label("stubs"))}</text>',
-            '<text class="muted" x="346" y="491">Planned HTTP downstream behavior below</text>',
+            f'<text class="muted" x="346" y="471">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="346" y="491">{esc(compact_resources(stub_resources))}</text>',
             '<rect x="70" y="550" width="485" height="230" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="88" y="577">Observability inside Kubernetes</text>',
             '<rect x="90" y="600" width="205" height="120" rx="7" fill="#fff7ed" stroke="#e6522c"/>',

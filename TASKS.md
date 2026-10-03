@@ -5112,4 +5112,5 @@ _Date: 2026-10-03_
 Render the internal-lab load generator as the indexed Kubernetes Job it has become rather than as a host process.
 Move it inside the controller Kubernetes boundary in both one-host and split-host topologies and reroute its Kafka flow.
 Show the configured pod count, Java runtime, and pod resources without reviving node-placement labels.
-Verification: 174 internal-lab tests pass; Python compilation and whitespace validation pass; current single-host evidence renders the generator inside Kubernetes with its five pods and configured resources. The updated renderer is installed without rewriting or reordering completed reports and without launching a workload.
+Complete the generator and stub cards with actual run-time scale, workload, Java, and resource details, including explicit uncapped-resource wording.
+Verification: 174 internal-lab tests pass; Python compilation and whitespace validation pass; topology tests cover actual generator workload settings and complete generator/stub runtime descriptions. The updated renderer is installed without rewriting or reordering completed reports and without launching a workload.
