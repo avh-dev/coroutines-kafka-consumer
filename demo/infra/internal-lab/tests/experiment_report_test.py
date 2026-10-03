@@ -29,6 +29,7 @@ from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
     e2e_compliance_cells,
     is_freshness_zero_tail,
+    render_markdown,
     shared_freshness_cutoff,
 )
 from experiment_report.model import LatencySlaResult  # noqa: E402
@@ -1160,6 +1161,13 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Planned time from workload start", svg)
             self.assertIn("Kafka network packet capture • Max load", svg)
 
+            report.environment["kafka"]["mode"] = "msk"
+            report.environment["redis"]["mode"] = "elasticache"
+            aws_markdown = render_markdown(report)
+            self.assertIn("MSK CPU average", aws_markdown)
+            self.assertIn("ElastiCache engine CPU maximum", aws_markdown)
+            self.assertNotIn("Host Kafka CPU average", aws_markdown)
+
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2034,6 +2042,8 @@ class ExperimentReportTest(unittest.TestCase):
                 'Host Kafka CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
+            self.assertNotIn("MSK CPU average", markdown)
+            self.assertNotIn("ElastiCache engine CPU maximum", markdown)
             self.assertIn(
                 'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,

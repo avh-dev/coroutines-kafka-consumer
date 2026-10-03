@@ -1649,6 +1649,9 @@ fi
 if [[ -n "${LAB_LOAD_TEST_NODE_SELECTOR:-}" ]]; then
   LOAD_RENDER_ARGS+=(--load-test-node-selector "${LAB_LOAD_TEST_NODE_SELECTOR}")
 fi
+if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
+  LOAD_RENDER_ARGS+=(--packet-capture)
+fi
 
 cancel_starting_load_test_job() {
   kubectl -n ckc-perf delete job "${LOAD_TEST_JOB_NAME}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
@@ -1739,7 +1742,7 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
     --load-test-backend kubernetes \
     --load-test-namespace ckc-perf \
-    --load-test-selector "ckc.dev/test-run-id=${RUN_ID}" \
+    --load-test-selector "app.kubernetes.io/name=ckc-load-test,ckc.dev/test-run-id=${RUN_ID}" \
     --host-interface "${KAFKA_CAPTURE_INTERFACE}" \
     --host-address "${LAB_NODE_IP}" \
     --host-exclude-network 10.42.0.0/16 \

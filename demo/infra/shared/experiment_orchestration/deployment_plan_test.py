@@ -367,6 +367,17 @@ class DeploymentPlanTest(unittest.TestCase):
         }
         self.assertEqual("2", load_environment["LOAD_TEST_DISPATCHER_THREADS"])
         self.assertEqual(plan["target"]["implementation"], load_test["spec"]["template"]["metadata"]["labels"]["ckc.dev/profile"])
+        load_pod_spec = load_test["spec"]["template"]["spec"]
+        load_container = load_pod_spec["containers"][0]
+        self.assertEqual(["NET_RAW"], load_container["securityContext"]["capabilities"]["add"])
+        self.assertEqual(
+            [{"name": "packet-captures", "mountPath": "/captures"}],
+            load_container["volumeMounts"],
+        )
+        self.assertEqual(
+            [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}],
+            load_pod_spec["volumes"],
+        )
 
 
 if __name__ == "__main__":

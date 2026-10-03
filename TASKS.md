@@ -438,6 +438,7 @@
 | [INFRA-271](#infra-271) | Render a complete and legible AWS environment topology in experiment reports. | DONE |
 | [INFRA-272](#infra-272) | Select and download a completed report by its offset from the newest result. | DONE |
 | [INFRA-273](#infra-273) | Place the internal-lab load generator inside its actual Kubernetes runtime boundary. | DONE |
+| [INFRA-274](#infra-274) | Filter environment-specific report metrics and repair Kubernetes load-generator packet capture. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5115,3 +5116,13 @@ Show the configured pod count, Java runtime, and pod resources without reviving 
 Complete the generator and stub cards with actual run-time scale, workload, Java, and resource details, including explicit uncapped-resource wording.
 Give canonical load generators and stubs explicit CPU/RAM requests and memory limits while deliberately leaving CPU limits unset to avoid benchmark throttling.
 Verification: 56 shared orchestration and 174 internal-lab tests pass; materialized smoke manifests contain the expected resource contracts. The updated runtime is installed without rewriting reports or launching a workload.
+
+<a id="infra-274"></a>
+### INFRA-274 - Filter environment metrics and repair generator diagnostics
+
+_Date: 2026-10-03_
+
+Keep host Kafka/Redis and managed AWS capacity rows specific to the environment that produced the report.
+Select only the indexed load-generator Job pods for packet capture and render those Jobs with the required capture volume and capability.
+Prevent a required generator diagnostic from falsely failing and aborting an otherwise healthy experiment.
+Verification: 56 shared orchestration and 175 internal-lab tests pass; Bash/Python syntax and whitespace validation pass. The corrected runtime is installed on optilab without launching a workload or rewriting completed reports.
