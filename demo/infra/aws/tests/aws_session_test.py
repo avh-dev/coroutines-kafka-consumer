@@ -172,7 +172,11 @@ class AwsSessionTest(unittest.TestCase):
             "CloudWatch exporter",
             "vmagent",
         ):
-            self.assertIn(f'{{"name": "{component}"', script)
+            self.assertIn(f'"name": "{component}"', script)
+        self.assertIn('"node_type": "${ELASTICACHE_NODE_TYPE}"', script)
+        self.assertIn('"engine_version": "${ELASTICACHE_ENGINE_VERSION}"', script)
+        self.assertIn('"replicas": 1', script)
+        self.assertIn('"cpu": "100m", "memory": "128Mi"', script)
 
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
@@ -227,6 +231,8 @@ class AwsSessionTest(unittest.TestCase):
             self.assertIn(f"aws_metric_name: {metric}", script)
         self.assertIn('"CacheClusterId": ${elasticache_member_clusters}', script)
         self.assertIn('output "elasticache_member_clusters"', outputs)
+        self.assertIn('output "elasticache_node_type"', outputs)
+        self.assertIn('output "elasticache_engine_version"', outputs)
         self.assertIn("ckc-aws-cloudwatch-exporter", script)
         self.assertIn('enhanced_monitoring    = "PER_BROKER"', (
             AWS_ROOT / "assets/terraform/load-lab/main.tf"

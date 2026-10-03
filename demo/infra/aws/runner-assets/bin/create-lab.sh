@@ -903,6 +903,8 @@ else
 fi
 
 REDIS_MODE="$(infra_output elasticache_mode)"
+ELASTICACHE_NODE_TYPE="$(infra_output elasticache_node_type)"
+ELASTICACHE_ENGINE_VERSION="$(infra_output elasticache_engine_version)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
   REDIS_ARCHITECTURE="$(infra_output kubernetes_redis_architecture)"
   REDIS_REPLICA_COUNT="$(infra_output kubernetes_redis_replica_count)"
@@ -996,12 +998,32 @@ context = {
         },
         "redis": {
             "mode": "${REDIS_MODE}",
+            "node_type": "${ELASTICACHE_NODE_TYPE}",
+            "engine_version": "${ELASTICACHE_ENGINE_VERSION}",
             "member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
         },
         "observability": {
             "kubernetes": [
-                {"name": "Grafana Alloy", "version": "1.5.1", "role": "metrics and pod logs"},
-                {"name": "Kafka exporter", "version": "1.8.0", "role": "consumer lag"},
+                {
+                    "name": "Grafana Alloy",
+                    "version": "1.5.1",
+                    "role": "metrics and pod logs",
+                    "replicas": 1,
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "512Mi"},
+                        "limits": {"cpu": "500m", "memory": "2Gi"},
+                    },
+                },
+                {
+                    "name": "Kafka exporter",
+                    "version": "1.8.0",
+                    "role": "Kafka offsets and consumer lag",
+                    "replicas": 1,
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "128Mi"},
+                        "limits": {"cpu": "500m", "memory": "256Mi"},
+                    },
+                },
             ],
             "runner": [
                 {"name": "VictoriaMetrics", "version": "1.102.1", "role": "metrics store"},

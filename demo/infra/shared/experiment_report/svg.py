@@ -217,6 +217,13 @@ def environment_topology_svg(
         details = " · ".join(part for part in parts if part)
         return f"{prefix} {details}" if details else ""
 
+    def compact_resources(value: dict[str, Any]) -> str:
+        resource_requests = value.get("requests") if isinstance(value.get("requests"), dict) else {}
+        resource_limits = value.get("limits") if isinstance(value.get("limits"), dict) else {}
+        request_pair = f"{resource_requests.get('cpu') or '—'}/{resource_requests.get('memory') or '—'}"
+        limit_pair = f"{resource_limits.get('cpu') or '—'}/{resource_limits.get('memory') or '—'}"
+        return f"req {request_pair} · lim {limit_pair} CPU/RAM"
+
     app_resources = " · ".join(part for part in [
         resource_summary("requests", requests),
         resource_summary("limits", limits),
@@ -244,10 +251,21 @@ def environment_topology_svg(
         if isinstance(value, dict)
     ]
 
+    def component(name: str) -> dict[str, Any]:
+        return next((value for value in observability_components if value.get("name") == name), {})
+
     def component_title(name: str) -> str:
-        component = next((value for value in observability_components if value.get("name") == name), {})
-        version_value = component.get("version")
+        component_value = component(name)
+        version_value = component_value.get("version")
         return f"{name} {version_value}" if version_value else name
+
+    def component_deployment(name: str) -> str:
+        component_value = component(name)
+        replicas = int(component_value.get("replicas") or 1)
+        resources_value = component_value.get("resources") if isinstance(component_value.get("resources"), dict) else {}
+        pod_label = "pod" if replicas == 1 else "pods"
+        details = compact_resources(resources_value) if resources_value else "resources not captured"
+        return f"{replicas} {pod_label} · {details}"
 
     def placement(role: str) -> str:
         names = workloads.get(role)
@@ -311,11 +329,22 @@ def environment_topology_svg(
             else "pod scaling varies by target"
         )
         generator_pods = int(load_test.get("shards") or 1)
+        load_resources = {
+            "requests": {"cpu": load_test.get("cpu_request"), "memory": load_test.get("memory_request")},
+            "limits": {"cpu": load_test.get("cpu_limit"), "memory": load_test.get("memory_limit")},
+        }
         stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
         stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
         stub_replicas = int(stub_deployment.get("replicas") or 1)
+        stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
         managed_services_title = "AWS managed dependencies" if kafka_mode == "msk" else "Cluster data services"
         redis_service_title = "Amazon ElastiCache for Redis" if redis.get("mode") == "elasticache" else "Redis in Kubernetes"
+        redis_nodes = len(redis.get("member_clusters", [])) or int(redis.get("nodes") or 0)
+        redis_deployment = " · ".join(part for part in [
+            f"{redis_nodes} nodes" if redis_nodes else "node count unavailable",
+            redis.get("node_type"),
+        ] if part)
+        redis_version = redis.get("engine_version") or redis.get("version")
         body = [
             '<rect data-boundary="aws" x="8" y="45" width="1264" height="842" rx="14" fill="#ffffff" stroke="#232f3e" stroke-width="2"/>',
             service_icon("environment-aws", 28, 61, 34),
@@ -329,32 +358,36 @@ def environment_topology_svg(
             service_icon("load-generator", 68, 143, 32),
             '<text class="card-title" x="112" y="163">Load generator</text>',
             f'<text class="muted" x="68" y="197">{generator_pods} pods · {esc(str(load_test.get("base_tps") or report.test_definition.get("base_tps") or "—"))} aggregate TPS</text>',
-            f'<text class="muted" x="68" y="216">{esc(java_label("load_generator"))}</text>',
+            f'<text class="muted" x="68" y="216">{esc(compact_resources(load_resources))}</text>',
+            f'<text class="muted" x="68" y="235">{esc(java_label("load_generator"))}</text>',
 
             '<rect data-service-card="application" x="445" y="300" width="315" height="130" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 463, 318, 32),
             '<text class="card-title" x="507" y="338">Measured application</text>',
             f'<text class="muted" x="463" y="372">{esc(app_replica_label)}</text>',
-            f'<text class="muted" x="463" y="393">{esc(app_resources)}</text>',
+            f'<text class="muted" x="463" y="393">{esc(compact_resources(shared_resources)) if shared_resources else "resources vary by target"}</text>',
             f'<text class="muted" x="463" y="412">{esc(java_label("application"))}</text>',
 
             '<rect data-service-card="stubs" x="50" y="300" width="300" height="130" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 68, 318, 32),
             '<text class="card-title" x="112" y="338">HTTP downstream stubs</text>',
             f'<text class="muted" x="68" y="372">{stub_replicas} pods</text>',
-            f'<text class="muted" x="68" y="391">{esc(java_label("stubs"))}</text>',
+            f'<text class="muted" x="68" y="391">{esc(compact_resources(stub_resources)) if stub_resources else "resources not captured"}</text>',
+            f'<text class="muted" x="68" y="412">{esc(java_label("stubs"))}</text>',
 
             '<rect data-boundary="eks-observability" x="50" y="485" width="710" height="265" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="70" y="515">Telemetry collection inside EKS</text>',
             '<text class="muted" x="70" y="535">Application, generator, stub, Kubernetes and Kafka signals</text>',
-            '<rect data-service-card="alloy" x="75" y="555" width="300" height="80" rx="7" fill="#fff7ed" stroke="#f46800"/>',
+            '<rect data-service-card="alloy" x="75" y="555" width="300" height="100" rx="7" fill="#fff7ed" stroke="#f46800"/>',
             service_icon("alloy", 92, 574, 28),
             f'<text class="card-title" x="132" y="592">{esc(component_title("Grafana Alloy"))}</text>',
             '<text class="muted" x="92" y="618">metrics + pod logs</text>',
-            '<rect data-service-card="kafka-exporter" x="420" y="555" width="310" height="80" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
+            f'<text class="muted" x="92" y="638">{esc(component_deployment("Grafana Alloy"))}</text>',
+            '<rect data-service-card="kafka-exporter" x="420" y="555" width="310" height="100" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
             service_icon("kafka-exporter", 437, 574, 28),
-            f'<text class="card-title" x="477" y="592">{esc(component_title("Kafka exporter"))}</text>',
-            '<text class="muted" x="437" y="618">consumer lag</text>',
+            '<text class="card-title" x="477" y="592">Kafka offsets &amp; consumer lag</text>',
+            f'<text class="muted" x="437" y="618">{esc(component_title("Kafka exporter"))}</text>',
+            f'<text class="muted" x="437" y="638">{esc(component_deployment("Kafka exporter"))}</text>',
             '<text class="muted" x="70" y="727">Telemetry is collected by the adjacent EKS and runner services</text>',
 
             '<rect data-boundary="managed-services" x="825" y="55" width="430" height="425" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>',
@@ -367,8 +400,8 @@ def environment_topology_svg(
             '<rect data-service-card="redis" x="855" y="300" width="370" height="130" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
             service_icon("redis-service", 875, 318, 34),
             f'<text class="card-title" x="921" y="339">{esc(redis_service_title)}</text>',
-            f'<text class="muted" x="875" y="374">{esc(redis_line)}</text>',
-            f'<text class="muted" x="875" y="395">{len(redis.get("member_clusters", [])) or "—"} cache nodes</text>',
+            f'<text class="muted" x="875" y="374">{esc(redis_deployment)}</text>',
+            f'<text class="muted" x="875" y="395">{esc("Redis " + str(redis_version)) if redis_version else esc(redis_line)}</text>',
 
             '<rect data-boundary="runner" x="825" y="500" width="430" height="290" rx="12" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
             service_icon("environment-docker", 847, 517, 30),
@@ -381,6 +414,7 @@ def environment_topology_svg(
             f'<text class="muted" x="889" y="627">{esc(component_title("Grafana"))}</text>',
             service_icon("fluent-bit", 1045, 610, 26),
             f'<text class="muted" x="1079" y="627">{esc(component_title("Fluent Bit"))}</text>',
+            '<text class="muted" x="855" y="657">1 container per service · Docker Compose</text>',
             '<rect data-service-card="cloudwatch" x="855" y="675" width="370" height="75" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
             service_icon("cloudwatch", 872, 693, 26),
             f'<text class="card-title" x="910" y="710">{esc(component_title("CloudWatch exporter"))}</text>',

@@ -889,7 +889,12 @@ class ExperimentReportTest(unittest.TestCase):
                     "disk_gib": 20,
                     "kafka_version": "3.7.x",
                 },
-                "redis": {"mode": "elasticache", "member_clusters": ["redis-001", "redis-002"]},
+                "redis": {
+                    "mode": "elasticache",
+                    "node_type": "cache.r7g.large",
+                    "engine_version": "7.1",
+                    "member_clusters": ["redis-001", "redis-002"],
+                },
                 "java": {
                     "application": "21.0.12.1",
                     "stubs": "21.0.12.1",
@@ -904,8 +909,24 @@ class ExperimentReportTest(unittest.TestCase):
                 },
                 "observability": {
                     "kubernetes": [
-                        {"name": "Grafana Alloy", "version": "1.5.1"},
-                        {"name": "Kafka exporter", "version": "1.8.0"},
+                        {
+                            "name": "Grafana Alloy",
+                            "version": "1.5.1",
+                            "replicas": 1,
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "512Mi"},
+                                "limits": {"cpu": "500m", "memory": "2Gi"},
+                            },
+                        },
+                        {
+                            "name": "Kafka exporter",
+                            "version": "1.8.0",
+                            "replicas": 1,
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "128Mi"},
+                                "limits": {"cpu": "500m", "memory": "256Mi"},
+                            },
+                        },
                     ],
                     "runner": [
                         {"name": "VictoriaMetrics", "version": "1.102.1"},
@@ -931,8 +952,22 @@ class ExperimentReportTest(unittest.TestCase):
             ],
             test_definition={
                 "base_tps": 50000,
-                "load_test": {"shards": 2, "base_tps": 50000},
-                "stubs": {"deployment": {"replicas": 4}},
+                "load_test": {
+                    "shards": 2,
+                    "base_tps": 50000,
+                    "cpu_request": "1",
+                    "memory_request": "1Gi",
+                    "memory_limit": "1280Mi",
+                },
+                "stubs": {
+                    "deployment": {
+                        "replicas": 4,
+                        "resources": {
+                            "requests": {"cpu": "1", "memory": "1Gi"},
+                            "limits": {"memory": "1536Mi"},
+                        },
+                    }
+                },
             },
         )
 
@@ -963,7 +998,13 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("12 pods", svg)
         self.assertIn("4 pods", svg)
         self.assertEqual(3, svg.count("Java 21.0.12.1"))
-        self.assertIn("limits 3Gi memory", svg)
+        self.assertIn("Kafka offsets &amp; consumer lag", svg)
+        self.assertIn("req 100m/128Mi · lim 500m/256Mi CPU/RAM", svg)
+        self.assertIn("req 100m/512Mi · lim 500m/2Gi CPU/RAM", svg)
+        self.assertIn("2 nodes · cache.r7g.large", svg)
+        self.assertIn("Redis 7.1", svg)
+        self.assertIn("1 container per service · Docker Compose", svg)
+        self.assertIn("req 500m/1Gi · lim —/3Gi CPU/RAM", svg)
         self.assertNotIn("None CPU", svg)
         self.assertNotIn("worker node", svg)
         self.assertNotIn("placement", svg)
