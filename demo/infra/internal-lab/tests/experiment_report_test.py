@@ -890,6 +890,11 @@ class ExperimentReportTest(unittest.TestCase):
                     "kafka_version": "3.7.x",
                 },
                 "redis": {"mode": "elasticache", "member_clusters": ["redis-001", "redis-002"]},
+                "java": {
+                    "application": "21.0.12.1",
+                    "stubs": "21.0.12.1",
+                    "load_generator": "21.0.12.1",
+                },
                 "workloads": {
                     "application": ["node-a", "node-b"],
                     "producer": ["node-a", "node-b"],
@@ -954,9 +959,16 @@ class ExperimentReportTest(unittest.TestCase):
             "CloudWatch exporter 0.16.0",
         ):
             self.assertIn(label, svg)
-        self.assertIn("7.84 allocatable CPU", svg)
+        self.assertIn("2 pods · 50000 aggregate TPS", svg)
+        self.assertIn("12 pods", svg)
+        self.assertIn("4 pods", svg)
+        self.assertEqual(3, svg.count("Java 21.0.12.1"))
         self.assertIn("limits 3Gi memory", svg)
         self.assertNotIn("None CPU", svg)
+        self.assertNotIn("worker node", svg)
+        self.assertNotIn("placement", svg)
+        self.assertNotIn("shard", svg)
+        self.assertNotIn("allocatable CPU", svg)
         boundaries = {
             element.attrib.get("data-boundary")
             for element in root.iter(f"{namespace}rect")
@@ -1014,6 +1026,12 @@ class ExperimentReportTest(unittest.TestCase):
             ]),
             14,
         )
+        report.targets[0].configuration["hpa"] = {
+            "enabled": True,
+            "min_replicas": 2,
+            "max_replicas": 6,
+        }
+        self.assertIn("HPA 2–6 pods", svg_renderer.environment_topology_svg(report))
 
     def test_analyze_and_render_passed_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

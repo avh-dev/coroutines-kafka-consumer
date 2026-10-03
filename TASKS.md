@@ -5085,4 +5085,5 @@ Match the quieter internal-lab presentation with one branded AWS boundary and no
 Preserve the topology routing convention: center single edge connections, distribute paired connections at edge thirds, and center transit segments in inter-card gaps.
 Give all data-flow cards one height, align them to two rows, and eliminate bends where connected cards share a row.
 Capture the actual Java runtime version from representative application, stub, and load-generator pods for AWS evidence.
+Keep scheduling detail out of the topology: show pod counts or HPA ranges consistently and reserve node placement and shard mechanics for supporting tables and documentation.
 Verification: focused AWS topology rendering, 62 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.

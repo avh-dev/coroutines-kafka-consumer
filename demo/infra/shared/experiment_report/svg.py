@@ -253,13 +253,6 @@ def environment_topology_svg(
         names = workloads.get(role)
         return f"nodes: {', '.join(names)}" if isinstance(names, list) and names else "placement captured with run"
 
-    def placement_count(role: str) -> str:
-        names = workloads.get(role)
-        count = len(set(str(name) for name in names)) if isinstance(names, list) else 0
-        if not count:
-            return "placement unavailable"
-        return f"{count} worker node" if count == 1 else f"{count} worker nodes"
-
     controller_name = str(environment.get("cluster_name") or (nodes[0].get("name") if nodes else "controller"))
     application_nodes = [str(value) for value in workloads.get("application", []) if value]
     worker_names = [name for name in application_nodes if name != controller_name]
@@ -300,17 +293,24 @@ def environment_topology_svg(
         # AWS keeps measured workloads in EKS, stateful dependencies in managed
         # services, and durable experiment telemetry on the runner instance.
         width, height = 1280, 900
-        target_replicas = [
-            int(target.configuration.get("replicas") or 0)
-            for target in selected_targets
-            if isinstance(target.configuration, dict)
-        ]
+        def application_scale_label(target: Any) -> str:
+            configuration = target.configuration if isinstance(target.configuration, dict) else {}
+            hpa = configuration.get("hpa") if isinstance(configuration.get("hpa"), dict) else {}
+            if hpa.get("enabled"):
+                minimum = hpa.get("min_replicas")
+                maximum = hpa.get("max_replicas")
+                if minimum is not None and maximum is not None:
+                    return f"HPA {minimum}–{maximum} pods"
+                return "HPA-managed pods"
+            return f"{int(configuration.get('replicas') or 0)} pods"
+
+        application_scale_labels = [application_scale_label(target) for target in selected_targets]
         app_replica_label = (
-            f"{target_replicas[0]} pods"
-            if target_replicas and all(value == target_replicas[0] for value in target_replicas)
-            else "replicas vary by target"
+            application_scale_labels[0]
+            if application_scale_labels and all(value == application_scale_labels[0] for value in application_scale_labels)
+            else "pod scaling varies by target"
         )
-        generator_shards = int(load_test.get("shards") or 1)
+        generator_pods = int(load_test.get("shards") or 1)
         stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
         stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
         stub_replicas = int(stub_deployment.get("replicas") or 1)
@@ -324,25 +324,24 @@ def environment_topology_svg(
             '<rect data-boundary="eks" x="20" y="55" width="775" height="735" rx="12" fill="#f8fafc" stroke="#326ce5" stroke-width="2"/>',
             service_icon("environment-kubernetes", 42, 72, 32),
             f'<text class="card-title" x="85" y="91">{esc(platform)}{(" " + esc(version)) if version else ""}</text>',
-            f'<text class="muted" x="85" y="110">{esc(node_line)}</text>',
 
             '<rect data-service-card="load-generator" x="50" y="125" width="300" height="130" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
             service_icon("load-generator", 68, 143, 32),
             '<text class="card-title" x="112" y="163">Load generator</text>',
-            f'<text class="muted" x="68" y="197">{generator_shards} pod shards · {esc(str(load_test.get("base_tps") or report.test_definition.get("base_tps") or "—"))} aggregate TPS</text>',
-            f'<text class="muted" x="68" y="216">{esc(placement_count("producer"))}</text>',
+            f'<text class="muted" x="68" y="197">{generator_pods} pods · {esc(str(load_test.get("base_tps") or report.test_definition.get("base_tps") or "—"))} aggregate TPS</text>',
+            f'<text class="muted" x="68" y="216">{esc(java_label("load_generator"))}</text>',
 
             '<rect data-service-card="application" x="445" y="300" width="315" height="130" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 463, 318, 32),
             '<text class="card-title" x="507" y="338">Measured application</text>',
-            f'<text class="muted" x="463" y="372">{esc(app_replica_label)} · {esc(placement_count("application"))}</text>',
+            f'<text class="muted" x="463" y="372">{esc(app_replica_label)}</text>',
             f'<text class="muted" x="463" y="393">{esc(app_resources)}</text>',
             f'<text class="muted" x="463" y="412">{esc(java_label("application"))}</text>',
 
             '<rect data-service-card="stubs" x="50" y="300" width="300" height="130" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 68, 318, 32),
             '<text class="card-title" x="112" y="338">HTTP downstream stubs</text>',
-            f'<text class="muted" x="68" y="372">{stub_replicas} pods · {esc(placement_count("stubs"))}</text>',
+            f'<text class="muted" x="68" y="372">{stub_replicas} pods</text>',
             f'<text class="muted" x="68" y="391">{esc(java_label("stubs"))}</text>',
 
             '<rect data-boundary="eks-observability" x="50" y="485" width="710" height="265" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
@@ -351,11 +350,11 @@ def environment_topology_svg(
             '<rect data-service-card="alloy" x="75" y="555" width="300" height="80" rx="7" fill="#fff7ed" stroke="#f46800"/>',
             service_icon("alloy", 92, 574, 28),
             f'<text class="card-title" x="132" y="592">{esc(component_title("Grafana Alloy"))}</text>',
-            f'<text class="muted" x="92" y="618">metrics + pod logs · {esc(placement_count("alloy"))}</text>',
+            '<text class="muted" x="92" y="618">metrics + pod logs</text>',
             '<rect data-service-card="kafka-exporter" x="420" y="555" width="310" height="80" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
             service_icon("kafka-exporter", 437, 574, 28),
             f'<text class="card-title" x="477" y="592">{esc(component_title("Kafka exporter"))}</text>',
-            f'<text class="muted" x="437" y="618">consumer lag · {esc(placement_count("kafka_exporter"))}</text>',
+            '<text class="muted" x="437" y="618">consumer lag</text>',
             '<text class="muted" x="70" y="727">Telemetry is collected by the adjacent EKS and runner services</text>',
 
             '<rect data-boundary="managed-services" x="825" y="55" width="430" height="425" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>',
