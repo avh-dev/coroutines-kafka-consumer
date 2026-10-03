@@ -842,6 +842,10 @@ KUBERNETES_VERSION="$(infra_output kubernetes_version)"
 NODE_INSTANCE_TYPES="$(infra_output node_instance_types)"
 NODE_DESIRED_SIZE="$(infra_output node_desired_size)"
 NODE_DISK_SIZE="$(infra_output node_disk_size)"
+RUNNER_INSTANCE_TYPE="$(infra_output runner_instance_type 2>/dev/null || true)"
+RUNNER_INSTANCE_TYPE="${RUNNER_INSTANCE_TYPE:-unknown}"
+RUNNER_ROOT_VOLUME_SIZE="$(infra_output runner_root_volume_size 2>/dev/null || true)"
+RUNNER_ROOT_VOLUME_SIZE="${RUNNER_ROOT_VOLUME_SIZE:-0}"
 if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   KAFKA_BROKERS="$(infra_output kubernetes_kafka_brokers)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${KAFKA_BROKERS}"
@@ -903,6 +907,8 @@ else
 fi
 
 REDIS_MODE="$(infra_output elasticache_mode)"
+ELASTICACHE_NODE_TYPE="$(infra_output elasticache_node_type)"
+ELASTICACHE_ENGINE_VERSION="$(infra_output elasticache_engine_version)"
 if [ "${REDIS_MODE}" = "kubernetes" ]; then
   REDIS_ARCHITECTURE="$(infra_output kubernetes_redis_architecture)"
   REDIS_REPLICA_COUNT="$(infra_output kubernetes_redis_replica_count)"
@@ -987,6 +993,12 @@ context = {
             "instance_types": json.loads('''${NODE_INSTANCE_TYPES}'''),
             "disk_gib": ${NODE_DISK_SIZE},
         },
+        "runner": {
+            "instance_type": "${RUNNER_INSTANCE_TYPE}",
+            "root_volume_gib": ${RUNNER_ROOT_VOLUME_SIZE},
+            "host_roles": ["SSM agent", "orchestration", "artifact staging"],
+            "container_runtime": "Docker",
+        },
         "kafka": {
             "mode": "${KAFKA_MODE}",
             "brokers": ${KAFKA_BROKERS:-${MSK_BROKER_NODES:-0}},
@@ -996,7 +1008,41 @@ context = {
         },
         "redis": {
             "mode": "${REDIS_MODE}",
+            "node_type": "${ELASTICACHE_NODE_TYPE}",
+            "engine_version": "${ELASTICACHE_ENGINE_VERSION}",
             "member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
+        },
+        "observability": {
+            "kubernetes": [
+                {
+                    "name": "Grafana Alloy",
+                    "version": "1.5.1",
+                    "role": "metrics and pod logs",
+                    "replicas": 1,
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "512Mi"},
+                        "limits": {"cpu": "500m", "memory": "2Gi"},
+                    },
+                },
+                {
+                    "name": "Kafka exporter",
+                    "version": "1.8.0",
+                    "role": "Kafka offsets and consumer lag",
+                    "replicas": 1,
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "128Mi"},
+                        "limits": {"cpu": "500m", "memory": "256Mi"},
+                    },
+                },
+            ],
+            "runner": [
+                {"name": "VictoriaMetrics", "version": "1.102.1", "role": "metrics store"},
+                {"name": "Loki", "version": "3.3.2", "role": "log store"},
+                {"name": "Grafana", "version": "11.6.0", "role": "dashboards"},
+                {"name": "Fluent Bit", "version": "4.2.3", "role": "audit stream"},
+                {"name": "CloudWatch exporter", "version": "0.16.0", "role": "managed service metrics"},
+                {"name": "vmagent", "version": "1.102.1", "role": "CloudWatch metrics relay"},
+            ],
         },
     },
 }

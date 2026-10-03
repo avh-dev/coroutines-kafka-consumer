@@ -83,6 +83,16 @@ output "elasticache_mode" {
   value       = var.elasticache_mode
 }
 
+output "elasticache_node_type" {
+  description = "ElastiCache node type used by the load lab."
+  value       = var.elasticache_node_type
+}
+
+output "elasticache_engine_version" {
+  description = "Redis engine version used by ElastiCache."
+  value       = var.elasticache_engine_version
+}
+
 output "kubernetes_redis_architecture" {
   description = "Redis architecture for the in-cluster Redis deployment."
   value       = var.kubernetes_redis_architecture

@@ -860,6 +860,245 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertTrue(str(data_uri).startswith("data:image/svg+xml;base64,"), target)
         self.assertEqual("kubernetes", svg_renderer.service_icon_data("ckc-demo")[2])
 
+    def test_aws_environment_topology_shows_workloads_managed_services_and_runner(self) -> None:
+        report = SimpleNamespace(
+            environment={
+                "provider": "AWS",
+                "region": "eu-central-1",
+                "cluster_name": "ckc-load-lab-test",
+                "kubernetes": {"platform": "Amazon EKS", "version": "v1.33"},
+                "nodes": [
+                    {
+                        "name": "node-a",
+                        "instance_type": "m7i.xlarge",
+                        "allocatable_cpu": "3920m",
+                        "allocatable_memory": "15064052Ki",
+                    },
+                    {
+                        "name": "node-b",
+                        "instance_type": "m7i.xlarge",
+                        "allocatable_cpu": "3920m",
+                        "allocatable_memory": "15064052Ki",
+                    },
+                ],
+                "worker_group": {"instance_types": ["m7i.xlarge"], "disk_gib": 100},
+                "kafka": {
+                    "mode": "msk",
+                    "brokers": 3,
+                    "instance_type": "kafka.m7g.xlarge",
+                    "disk_gib": 20,
+                    "kafka_version": "3.7.x",
+                },
+                "redis": {
+                    "mode": "elasticache",
+                    "node_type": "cache.r7g.large",
+                    "engine_version": "7.1",
+                    "member_clusters": ["redis-001", "redis-002"],
+                },
+                "runner": {
+                    "instance_type": "t3.small",
+                    "root_volume_gib": 20,
+                    "host_roles": ["SSM agent", "orchestration", "artifact staging"],
+                    "container_runtime": "Docker",
+                },
+                "java": {
+                    "application": "21.0.12.1",
+                    "stubs": "21.0.12.1",
+                    "load_generator": "21.0.12.1",
+                },
+                "workloads": {
+                    "application": ["node-a", "node-b"],
+                    "producer": ["node-a", "node-b"],
+                    "stubs": ["node-a"],
+                    "alloy": ["node-a"],
+                    "kafka_exporter": ["node-b"],
+                },
+                "observability": {
+                    "kubernetes": [
+                        {
+                            "name": "Grafana Alloy",
+                            "version": "1.5.1",
+                            "replicas": 1,
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "512Mi"},
+                                "limits": {"cpu": "500m", "memory": "2Gi"},
+                            },
+                        },
+                        {
+                            "name": "Kafka exporter",
+                            "version": "1.8.0",
+                            "replicas": 1,
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "128Mi"},
+                                "limits": {"cpu": "500m", "memory": "256Mi"},
+                            },
+                        },
+                    ],
+                    "runner": [
+                        {"name": "VictoriaMetrics", "version": "1.102.1"},
+                        {"name": "Loki", "version": "3.3.2"},
+                        {"name": "Grafana", "version": "11.6.0"},
+                        {"name": "Fluent Bit", "version": "4.2.3"},
+                        {"name": "CloudWatch exporter", "version": "0.16.0"},
+                        {"name": "vmagent", "version": "1.102.1"},
+                    ],
+                },
+            },
+            targets=[
+                SimpleNamespace(
+                    name="spring.fixed-12",
+                    configuration={
+                        "replicas": 12,
+                        "resources": {
+                            "requests": {"cpu": "500m", "memory": "1Gi"},
+                            "limits": {"memory": "3Gi"},
+                        },
+                    },
+                )
+            ],
+            test_definition={
+                "base_tps": 50000,
+                "load_test": {
+                    "shards": 2,
+                    "base_tps": 50000,
+                    "cpu_request": "1",
+                    "memory_request": "1Gi",
+                    "memory_limit": "1280Mi",
+                },
+                "stubs": {
+                    "deployment": {
+                        "replicas": 4,
+                        "resources": {
+                            "requests": {"cpu": "1", "memory": "1Gi"},
+                            "limits": {"memory": "1536Mi"},
+                        },
+                    }
+                },
+            },
+        )
+
+        svg = svg_renderer.environment_topology_svg(report)
+        root = ET.fromstring(svg)
+        namespace = "{http://www.w3.org/2000/svg}"
+
+        self.assertEqual("1280", root.attrib["width"])
+        self.assertEqual("900", root.attrib["height"])
+        self.assertIn("AWS environment · eu-central-1", svg)
+        for label in (
+            "Load generator",
+            "Measured application",
+            "HTTP downstream stubs",
+            "Amazon MSK",
+            "Amazon ElastiCache for Redis",
+            "Grafana Alloy 1.5.1",
+            "Kafka exporter 1.8.0",
+            "EC2 · Runner",
+            "VictoriaMetrics 1.102.1",
+            "Loki 3.3.2",
+            "Grafana 11.6.0",
+            "Fluent Bit 4.2.3",
+            "CloudWatch exporter 0.16.0",
+        ):
+            self.assertIn(label, svg)
+        self.assertIn("2 pods · 50000 aggregate TPS", svg)
+        self.assertIn("12 pods", svg)
+        self.assertIn("4 pods", svg)
+        self.assertEqual(3, svg.count("Java 21.0.12.1"))
+        self.assertIn("Kafka offsets &amp; consumer lag", svg)
+        self.assertIn("req 100m/128Mi · lim 500m/256Mi CPU/RAM", svg)
+        self.assertIn("req 100m/512Mi · lim 500m/2Gi CPU/RAM", svg)
+        self.assertIn("2 nodes · cache.r7g.large", svg)
+        self.assertIn("Redis 7.1", svg)
+        self.assertIn("2 × m7i.xlarge workers · 100 GiB EBS/node", svg)
+        self.assertIn("EC2 · Runner", svg)
+        self.assertIn("t3.small · 20 GiB root EBS", svg)
+        self.assertIn("SSM agent · orchestration · artifact staging", svg)
+        self.assertIn("Docker · 6 containers", svg)
+        self.assertNotIn('data-boundary="managed-services"', svg)
+        self.assertNotIn('data-service-card="cloudwatch"', svg)
+        self.assertIn("req 500m/1Gi · lim —/3Gi CPU/RAM", svg)
+        self.assertNotIn("None CPU", svg)
+        self.assertNotIn("worker node", svg)
+        self.assertNotIn("placement", svg)
+        self.assertNotIn("shard", svg)
+        self.assertNotIn("allocatable CPU", svg)
+        boundaries = {
+            element.attrib.get("data-boundary")
+            for element in root.iter(f"{namespace}rect")
+            if element.attrib.get("data-boundary")
+        }
+        self.assertEqual({"aws", "eks", "eks-observability", "runner", "runner-docker"}, boundaries)
+        service_cards = {
+            element.attrib.get("data-service-card"): element
+            for element in root.iter(f"{namespace}rect")
+            if element.attrib.get("data-service-card")
+        }
+        self.assertEqual(
+            {"130"},
+            {
+                service_cards[name].attrib["height"]
+                for name in ("load-generator", "msk", "stubs", "application", "redis")
+            },
+        )
+        aws_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "environment-aws"
+        )
+        self.assertEqual("aws", aws_icon.attrib["data-asset"])
+        ec2_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "environment-ec2"
+        )
+        self.assertEqual("aws-ec2", ec2_icon.attrib["data-asset"])
+        vmagent_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "vmagent"
+        )
+        self.assertEqual("prometheus", vmagent_icon.attrib["data-asset"])
+        flows = {
+            element.attrib.get("data-flow"): element
+            for element in root.iter(f"{namespace}path")
+            if element.attrib.get("data-flow")
+        }
+        self.assertEqual({
+            "load-to-kafka",
+            "kafka-to-application",
+            "application-to-redis",
+            "application-to-stubs",
+        }, set(flows))
+        self.assertEqual(
+            {
+                "load-to-kafka": "M350 210 H855",
+                "kafka-to-application": "M1040 275 V297.5 H602.5 V320",
+                "application-to-redis": "M760 385 H855",
+                "application-to-stubs": "M445 385 H350",
+            },
+            {name: element.attrib["d"] for name, element in flows.items()},
+        )
+        self.assertTrue(all(" L" not in element.attrib["d"] for element in flows.values()))
+        self.assertTrue(all(element.attrib.get("stroke") == "#475569" for element in flows.values()))
+        self.assertNotIn("#f97316", svg)
+        self.assertNotIn("telemetry-arrow", svg)
+        self.assertNotIn("Solid arrows", svg)
+        self.assertEqual([], list(root.iter(f"{namespace}line")))
+        self.assertGreaterEqual(
+            len([
+                element
+                for element in root.iter(f"{namespace}g")
+                if element.attrib.get("data-icon-role") == "service"
+            ]),
+            14,
+        )
+        report.targets[0].configuration["hpa"] = {
+            "enabled": True,
+            "min_replicas": 2,
+            "max_replicas": 6,
+        }
+        self.assertIn("HPA 2–6 pods", svg_renderer.environment_topology_svg(report))
+
     def test_analyze_and_render_passed_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -435,6 +435,7 @@
 | [INFRA-268](#infra-268) | Use literal application environment names and make runtime env the final deployment override. | DONE |
 | [INFRA-269](#infra-269) | Align the CKC 50k qualification workload with Spring while retaining CKC-sized Kafka topology. | DONE |
 | [INFRA-270](#infra-270) | Package the latest completed report across internal-lab and AWS results. | DONE |
+| [INFRA-271](#infra-271) | Render a complete and legible AWS environment topology in experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5069,3 +5070,24 @@ Select the newest available generated report by modification time and retain the
 Install the repository result location with the lab runtime so the command works outside the checkout.
 Preserve the established `/opt/ckc-lab/results/exports/latest-report.zip` download path while allowing an explicit output override.
 Verification: 172 internal-lab tests pass; shell syntax and whitespace validation pass; the installed command selects the latest AWS result and produces a readable ZIP at the established download path.
+
+<a id="infra-271"></a>
+### INFRA-271 - Complete the AWS environment topology
+
+_Date: 2026-10-02_
+
+Show EKS workloads, managed dependencies, and runner-hosted observability as explicit deployment boundaries.
+Render the load generator and every infrastructure service with its existing icon assets.
+Route business and telemetry flows orthogonally without crossing service cards.
+Capture stub, Alloy, and Kafka-exporter placement and persist the complete AWS observability inventory for future reports.
+Correct the AWS environment prose and resource summaries, including Kubernetes millicore totals and memory-only limits.
+Match the quieter internal-lab presentation with one branded AWS boundary and no decorative telemetry arrows over the component layout.
+Preserve the topology routing convention: center single edge connections, distribute paired connections at edge thirds, and center transit segments in inter-card gaps.
+Give all data-flow cards one height, align them to two rows, and eliminate bends where connected cards share a row.
+Capture the actual Java runtime version from representative application, stub, and load-generator pods for AWS evidence.
+Keep scheduling detail out of the topology: show pod counts or HPA ranges consistently and reserve node placement and shard mechanics for supporting tables and documentation.
+Label Kafka exporter by its offsets-and-lag responsibility and show concise deployment sizing for workloads, observability pods, runner containers, and managed Redis nodes.
+Use the outer AWS boundary as the sole cloud grouping and present every runner observability service with the same icon-and-name treatment.
+Separate the runner EC2 host from its nested Docker runtime and persist the runner instance and root-volume configuration in experiment evidence.
+Restore the compact EKS worker configuration, use the official EC2 service icon, separate runner configuration from purpose, and remove the redundant data-flow legend.
+Verification: focused AWS topology rendering, 62 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.

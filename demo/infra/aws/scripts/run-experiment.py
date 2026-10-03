@@ -616,6 +616,8 @@ class SessionController:
         })
         self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
+        lab_outputs["runner_instance_type"] = runner_outputs.get("instance_type")
+        lab_outputs["runner_root_volume_size"] = runner_outputs.get("root_volume_size")
         context_path = self.session_dir / "provisioned-lab.json"
         json_write(context_path, lab_outputs)
         context_key = f"sessions/{session_id}/provisioned-lab.json"

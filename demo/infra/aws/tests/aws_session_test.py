@@ -98,6 +98,95 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("memory: 512Mi", script)
         self.assertIn("memory: 2Gi", script)
 
+    def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
+        commands: list[list[str]] = []
+        java_commands: list[list[str]] = []
+
+        def kubectl_json(command: list[str]) -> dict[str, object]:
+            commands.append(command)
+            if command[1] == "version":
+                return {"serverVersion": {"gitVersion": "v1.33"}}
+            if command[1:4] == ["get", "nodes", "-o"]:
+                return {"items": []}
+            if any("app.kubernetes.io/instance=" in value for value in command):
+                return {"items": []}
+            selector = command[command.index("-l") + 1]
+            role = re.sub(r"[^a-z]+", "-", selector.lower()).strip("-")
+            return {"items": [{"metadata": {"name": f"{role}-pod"}, "spec": {"nodeName": "node-a"}}]}
+
+        def java_version(command: list[str]) -> str:
+            java_commands.append(command)
+            return "21.0.8"
+
+        with (
+            patch.object(run_test_module, "kubectl_json", side_effect=kubectl_json),
+            patch.object(run_test_module, "java_version", side_effect=java_version),
+        ):
+            evidence = run_test_module.environment_evidence(
+                {
+                    "environment": "aws",
+                    "region": "eu-central-1",
+                    "cluster_name": "cluster-a",
+                    "kafka_mode": "msk",
+                    "redis_mode": "elasticache",
+                },
+                "load-job-a",
+            )
+
+        self.assertEqual(
+            {"application", "stubs", "alloy", "kafka_exporter", "producer"},
+            set(evidence["workloads"]),
+        )
+        self.assertEqual(
+            {"application": "21.0.8", "stubs": "21.0.8", "load_generator": "21.0.8"},
+            evidence["java"],
+        )
+        self.assertEqual(3, len(java_commands))
+        self.assertTrue(all(command[-2:] == ["java", "-version"] for command in java_commands))
+        rendered = [" ".join(command) for command in commands]
+        self.assertTrue(any("app.kubernetes.io/name=ckc-demo-stubs" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=ckc-alloy" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=ckc-kafka-exporter" in command for command in rendered))
+
+    def test_java_version_parses_modern_and_legacy_output(self) -> None:
+        for output, expected in (
+            ("openjdk 21.0.8 2025-07-15 LTS\n", "21.0.8"),
+            ('openjdk version "21.0.7" 2025-04-15 LTS\n', "21.0.7"),
+        ):
+            with patch.object(
+                run_test_module.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(["java", "-version"], 0, "", output),
+            ):
+                self.assertEqual(expected, run_test_module.java_version(["java", "-version"]))
+
+    def test_aws_lab_context_describes_runner_and_cluster_observability(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        runner_outputs = (AWS_ROOT / "terraform/runner/outputs.tf").read_text(encoding="utf-8")
+        controller = (AWS_ROOT / "scripts/run-experiment.py").read_text(encoding="utf-8")
+        for component in (
+            "Grafana Alloy",
+            "Kafka exporter",
+            "VictoriaMetrics",
+            "Loki",
+            "Grafana",
+            "Fluent Bit",
+            "CloudWatch exporter",
+            "vmagent",
+        ):
+            self.assertIn(f'"name": "{component}"', script)
+        self.assertIn('"node_type": "${ELASTICACHE_NODE_TYPE}"', script)
+        self.assertIn('"engine_version": "${ELASTICACHE_ENGINE_VERSION}"', script)
+        self.assertIn('"replicas": 1', script)
+        self.assertIn('"cpu": "100m", "memory": "128Mi"', script)
+        self.assertIn('"instance_type": "${RUNNER_INSTANCE_TYPE}"', script)
+        self.assertIn('"root_volume_gib": ${RUNNER_ROOT_VOLUME_SIZE}', script)
+        self.assertIn('"host_roles": ["SSM agent", "orchestration", "artifact staging"]', script)
+        self.assertIn('output "instance_type"', runner_outputs)
+        self.assertIn('output "root_volume_size"', runner_outputs)
+        self.assertIn('lab_outputs["runner_instance_type"]', controller)
+        self.assertIn('lab_outputs["runner_root_volume_size"]', controller)
+
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
@@ -151,6 +240,8 @@ class AwsSessionTest(unittest.TestCase):
             self.assertIn(f"aws_metric_name: {metric}", script)
         self.assertIn('"CacheClusterId": ${elasticache_member_clusters}', script)
         self.assertIn('output "elasticache_member_clusters"', outputs)
+        self.assertIn('output "elasticache_node_type"', outputs)
+        self.assertIn('output "elasticache_engine_version"', outputs)
         self.assertIn("ckc-aws-cloudwatch-exporter", script)
         self.assertIn('enhanced_monitoring    = "PER_BROKER"', (
             AWS_ROOT / "assets/terraform/load-lab/main.tf"
