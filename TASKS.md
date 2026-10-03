@@ -439,7 +439,7 @@
 | [INFRA-272](#infra-272) | Select and download a completed report by its offset from the newest result. | DONE |
 | [INFRA-273](#infra-273) | Place the internal-lab load generator inside its actual Kubernetes runtime boundary. | DONE |
 | [INFRA-274](#infra-274) | Filter environment-specific report metrics and repair Kubernetes load-generator packet capture. | DONE |
-| [INFRA-275](#infra-275) | Compare Spring Kafka latency while scaling consumer parallelism at a fixed 5k workload. | DONE |
+| [INFRA-275](#infra-275) | Compare Spring Kafka latency while scaling consumer parallelism at a fixed 8k workload. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5129,11 +5129,11 @@ Prevent a required generator diagnostic from falsely failing and aborting an oth
 Verification: 56 shared orchestration and 175 internal-lab tests pass; Bash/Python syntax and whitespace validation pass. The corrected runtime is installed on optilab without launching a workload or rewriting completed reports.
 
 <a id="infra-275"></a>
-### INFRA-275 - Compare Spring Kafka consumer scaling at 5k
+### INFRA-275 - Compare Spring Kafka consumer scaling at 8k
 
 _Date: 2026-10-03_
 
-Add a local three-target Spring Kafka experiment that holds traffic, placement, application replicas, and downstream latency constant.
+Add a local three-target Spring Kafka experiment that holds 8k traffic, placement, application replicas, and downstream latency constant.
 Size the baseline from the latest AWS Spring planning latencies with 30% headroom, then compare one, two, and four times that partition and consumer count.
 Give every target a three-minute ramp and seven-minute full-load measurement window so the resulting latency and resource costs remain directly comparable.
-Verification: 57 shared orchestration and 175 internal-lab tests pass; all targets materialize with broker-balanced 18/15/57, 36/30/114, and 72/60/228 partition/poller counts. The experiment is installed incrementally without rebuilding images, redeploying the lab, or launching a workload.
+Verification: 57 shared orchestration and 175 internal-lab tests pass; all targets materialize with broker-balanced 27/24/90, 54/48/180, and 108/96/360 partition/poller counts. The renamed 8k experiment is installed incrementally, the obsolete 5k definition is removed, and no workload was launched.

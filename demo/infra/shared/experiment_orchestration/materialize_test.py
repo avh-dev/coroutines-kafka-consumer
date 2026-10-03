@@ -198,8 +198,8 @@ class MaterializeTest(unittest.TestCase):
             self.assertEqual([1, 1, 1], [topic["poll_loop_concurrency"] for topic in plan["topics"]])
             self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plan["topics"]])
 
-    def test_materializes_spring_consumer_scaling_comparison_at_5k(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/spring-consumer-scaling-5k-comparison.yaml"
+    def test_materializes_spring_consumer_scaling_comparison_at_8k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-consumer-scaling-8k-comparison.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
         workload = candidate["workload"]
 
@@ -216,11 +216,16 @@ class MaterializeTest(unittest.TestCase):
             workload["stubs"]["eta"]["percentiles"],
         )
         self.assertEqual(workload["stubs"]["eta"], workload["stubs"]["flavour"])
+        self.assertEqual(8000, workload["load"]["base_tps"])
+        self.assertEqual(
+            {"order": 8000, "batch": 8000, "telemetry": 8000},
+            workload["load"]["producer_capacity_tps"],
+        )
 
         expected_parallelism = {
-            "spring-kafka.consumers-1x": [18, 15, 57],
-            "spring-kafka.consumers-2x": [36, 30, 114],
-            "spring-kafka.consumers-4x": [72, 60, 228],
+            "spring-kafka.consumers-1x": [27, 24, 90],
+            "spring-kafka.consumers-2x": [54, 48, 180],
+            "spring-kafka.consumers-4x": [108, 96, 360],
         }
         with tempfile.TemporaryDirectory() as directory:
             experiment = resolve_experiment_definition(source, environment="internal-lab")

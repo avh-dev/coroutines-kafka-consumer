@@ -1,6 +1,6 @@
 schema_version: 2
-name: spring-consumer-scaling-5k-comparison
-description: Compare Spring Kafka latency at a fixed 5k/s on the isolated application worker while increasing per-topic partitions and consumers from the latency-sized baseline to two and four times that parallelism.
+name: spring-consumer-scaling-8k-comparison
+description: Compare Spring Kafka latency at a fixed 8k/s on the isolated application worker while increasing per-topic partitions and consumers from the latency-sized baseline to two and four times that parallelism.
 workload:
   stubs:
     error_rate_percent: 0
@@ -25,11 +25,11 @@ workload:
   load:
     shards: 1
     workers: 100
-    base_tps: 5000
+    base_tps: 8000
     producer_capacity_tps:
-      order: 5000
-      batch: 5000
-      telemetry: 5000
+      order: 8000
+      batch: 8000
+      telemetry: 8000
     load_profile: 0 -> (3m, warmup) -> 100 -> (7m, steady) -> 100
     cauldron_count: 32
     min_orders_per_batch: 3
@@ -80,7 +80,7 @@ workload:
         ordering: not_guaranteed
 targets:
 - name: spring-kafka.consumers-1x
-  annotation_label: Spring Kafka · 90 consumers (1×) · split host
+  annotation_label: Spring Kafka · 141 consumers (1×) · split host
   implementation: spring-kafka
   application: &spring_application
     placement: worker
@@ -120,54 +120,54 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 18
-        pollers: 18
+        partitions: 27
+        pollers: 27
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 15
-        pollers: 15
+        partitions: 24
+        pollers: 24
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 57
-        pollers: 57
+        partitions: 90
+        pollers: 90
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 - name: spring-kafka.consumers-2x
-  annotation_label: Spring Kafka · 180 consumers (2×) · split host
+  annotation_label: Spring Kafka · 282 consumers (2×) · split host
   implementation: spring-kafka
   application: *spring_application
   runtime:
     <<: *spring_runtime_1x
     topics:
       order:
-        partitions: 36
-        pollers: 36
+        partitions: 54
+        pollers: 54
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 30
-        pollers: 30
+        partitions: 48
+        pollers: 48
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 114
-        pollers: 114
+        partitions: 180
+        pollers: 180
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 - name: spring-kafka.consumers-4x
-  annotation_label: Spring Kafka · 360 consumers (4×) · split host
+  annotation_label: Spring Kafka · 564 consumers (4×) · split host
   implementation: spring-kafka
   application: *spring_application
   runtime:
     <<: *spring_runtime_1x
     topics:
       order:
-        partitions: 72
-        pollers: 72
+        partitions: 108
+        pollers: 108
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
-        partitions: 60
-        pollers: 60
+        partitions: 96
+        pollers: 96
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 228
-        pollers: 228
+        partitions: 360
+        pollers: 360
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   internal-lab:
