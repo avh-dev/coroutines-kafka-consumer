@@ -198,6 +198,59 @@ class MaterializeTest(unittest.TestCase):
             self.assertEqual([1, 1, 1], [topic["poll_loop_concurrency"] for topic in plan["topics"]])
             self.assertEqual([500, 500, 900], [topic["worker_concurrency"] for topic in plan["topics"]])
 
+    def test_materializes_spring_consumer_scaling_comparison_at_5k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-consumer-scaling-5k-comparison.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        workload = candidate["workload"]
+
+        self.assertEqual(
+            "0 -> (3m, warmup) -> 100 -> (7m, steady) -> 100",
+            workload["load"]["load_profile"],
+        )
+        self.assertEqual(
+            [{"name": "steady-state", "start": "3m", "duration": "7m"}],
+            workload["measurement_windows"],
+        )
+        self.assertEqual(
+            {"p90": 10, "p95": 20, "p99": 40, "p100": 60},
+            workload["stubs"]["eta"]["percentiles"],
+        )
+        self.assertEqual(workload["stubs"]["eta"], workload["stubs"]["flavour"])
+
+        expected_parallelism = {
+            "spring-kafka.consumers-1x": [18, 15, 57],
+            "spring-kafka.consumers-2x": [36, 30, 114],
+            "spring-kafka.consumers-4x": [72, 60, 228],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        self.assertEqual(list(expected_parallelism), list(definitions))
+        candidate_targets = {target["name"]: target for target in candidate["targets"]}
+        for name, expected in expected_parallelism.items():
+            deployment = definitions[name]["deployment"]
+            topics = deployment["run_plan"]["topics"]
+            self.assertEqual("worker", candidate_targets[name]["application"]["placement"])
+            self.assertEqual(1, deployment["run_plan"]["replica_count"])
+            self.assertNotIn("cpu", deployment["run_plan"]["application"]["resources"]["limits"])
+            self.assertEqual(expected, [topic["partitions"] for topic in topics])
+            self.assertEqual(expected, [topic["poll_loop_concurrency"] for topic in topics])
+            self.assertTrue(all(partitions % 3 == 0 for partitions in expected))
+
+        kafka = candidate["environments"]["internal-lab"]["lab"]["kafka"]
+        self.assertEqual(3, kafka["brokers"])
+        self.assertEqual(3, kafka["replication_factor"])
+        self.assertEqual(2, kafka["min_insync_replicas"])
+
     def test_materializes_broker_aligned_split_host_failover_comparison_at_5k(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/kafka-cluster-failover-5k-comparison.yaml"
         with tempfile.TemporaryDirectory() as directory:
