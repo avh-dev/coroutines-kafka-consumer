@@ -5084,4 +5084,5 @@ Correct the AWS environment prose and resource summaries, including Kubernetes m
 Match the quieter internal-lab presentation with one branded AWS boundary and no decorative telemetry arrows over the component layout.
 Preserve the topology routing convention: center single edge connections, distribute paired connections at edge thirds, and center transit segments in inter-card gaps.
 Give all data-flow cards one height, align them to two rows, and eliminate bends where connected cards share a row.
-Verification: focused AWS topology rendering, 61 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.
+Capture the actual Java runtime version from representative application, stub, and load-generator pods for AWS evidence.
+Verification: focused AWS topology rendering, 62 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.

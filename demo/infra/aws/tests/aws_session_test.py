@@ -100,6 +100,7 @@ class AwsSessionTest(unittest.TestCase):
 
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
+        java_commands: list[list[str]] = []
 
         def kubectl_json(command: list[str]) -> dict[str, object]:
             commands.append(command)
@@ -109,9 +110,18 @@ class AwsSessionTest(unittest.TestCase):
                 return {"items": []}
             if any("app.kubernetes.io/instance=" in value for value in command):
                 return {"items": []}
-            return {"items": [{"spec": {"nodeName": "node-a"}}]}
+            selector = command[command.index("-l") + 1]
+            role = re.sub(r"[^a-z]+", "-", selector.lower()).strip("-")
+            return {"items": [{"metadata": {"name": f"{role}-pod"}, "spec": {"nodeName": "node-a"}}]}
 
-        with patch.object(run_test_module, "kubectl_json", side_effect=kubectl_json):
+        def java_version(command: list[str]) -> str:
+            java_commands.append(command)
+            return "21.0.8"
+
+        with (
+            patch.object(run_test_module, "kubectl_json", side_effect=kubectl_json),
+            patch.object(run_test_module, "java_version", side_effect=java_version),
+        ):
             evidence = run_test_module.environment_evidence(
                 {
                     "environment": "aws",
@@ -127,10 +137,28 @@ class AwsSessionTest(unittest.TestCase):
             {"application", "stubs", "alloy", "kafka_exporter", "producer"},
             set(evidence["workloads"]),
         )
+        self.assertEqual(
+            {"application": "21.0.8", "stubs": "21.0.8", "load_generator": "21.0.8"},
+            evidence["java"],
+        )
+        self.assertEqual(3, len(java_commands))
+        self.assertTrue(all(command[-2:] == ["java", "-version"] for command in java_commands))
         rendered = [" ".join(command) for command in commands]
         self.assertTrue(any("app.kubernetes.io/name=ckc-demo-stubs" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-alloy" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-kafka-exporter" in command for command in rendered))
+
+    def test_java_version_parses_modern_and_legacy_output(self) -> None:
+        for output, expected in (
+            ("openjdk 21.0.8 2025-07-15 LTS\n", "21.0.8"),
+            ('openjdk version "21.0.7" 2025-04-15 LTS\n', "21.0.7"),
+        ):
+            with patch.object(
+                run_test_module.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(["java", "-version"], 0, "", output),
+            ):
+                self.assertEqual(expected, run_test_module.java_version(["java", "-version"]))
 
     def test_aws_lab_context_describes_runner_and_cluster_observability(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")

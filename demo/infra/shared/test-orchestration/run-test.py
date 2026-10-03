@@ -729,6 +729,25 @@ def kubectl_json(command: list[str]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def java_version(arguments: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            arguments,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = "\n".join((result.stdout, result.stderr))
+    quoted = re.search(r'(?:openjdk|java) version "([^"]+)"', output)
+    if quoted:
+        return quoted.group(1)
+    unquoted = re.search(r'^(?:openjdk|java)\s+([^\s]+)', output, re.MULTILINE | re.IGNORECASE)
+    return unquoted.group(1) if unquoted else None
+
+
 def environment_evidence(lab_context: dict[str, Any], job_name: str | None = None) -> dict[str, Any]:
     """Capture the resolved Kubernetes layout without retaining credentials or endpoints."""
     configured = lab_context.get("environment_evidence")
@@ -770,6 +789,7 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
     evidence["nodes"] = nodes
 
     workloads: dict[str, list[str]] = {}
+    representative_pods: dict[str, tuple[str, str]] = {}
     role_selectors = {
         "application": ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
         "stubs": ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
@@ -785,13 +805,34 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
         locations = []
         for item in pods.get("items", []):
             if isinstance(item, dict):
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
                 spec = item.get("spec") if isinstance(item.get("spec"), dict) else {}
                 node = spec.get("nodeName")
                 if node:
                     locations.append(str(node))
+                pod_name = metadata.get("name")
+                if pod_name and role not in representative_pods:
+                    representative_pods[role] = (namespace, str(pod_name))
         if locations:
             workloads[role] = sorted(set(locations))
     evidence["workloads"] = workloads
+    java = dict(evidence.get("java")) if isinstance(evidence.get("java"), dict) else {}
+    for workload_role, evidence_role in (
+        ("application", "application"),
+        ("stubs", "stubs"),
+        ("producer", "load_generator"),
+    ):
+        pod = representative_pods.get(workload_role)
+        if not pod:
+            continue
+        namespace, pod_name = pod
+        version_value = java_version([
+            "kubectl", "-n", namespace, "exec", f"pod/{pod_name}", "--", "java", "-version",
+        ])
+        if version_value:
+            java[evidence_role] = version_value
+    if java:
+        evidence["java"] = java
     if str(lab_context.get("environment")) == "internal-lab":
         cpu_rows: dict[str, Any] = {}
         try:
