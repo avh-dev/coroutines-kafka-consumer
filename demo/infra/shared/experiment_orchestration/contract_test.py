@@ -101,6 +101,21 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual("smoke", resolved.lab_profile)
         self.assertIsNone(resolved.acceptance)
         self.assertEqual(100, resolved.test.definition["load_test"]["base_tps"])
+        self.assertEqual("500m", resolved.test.definition["load_test"]["cpu_request"])
+        self.assertEqual("512Mi", resolved.test.definition["load_test"]["memory_request"])
+        self.assertNotIn("cpu_limit", resolved.test.definition["load_test"])
+        self.assertEqual("1Gi", resolved.test.definition["load_test"]["memory_limit"])
+        self.assertEqual(
+            {
+                "replicas": 1,
+                "workers": 4,
+                "resources": {
+                    "requests": {"cpu": "250m", "memory": "256Mi"},
+                    "limits": {"memory": "512Mi"},
+                },
+            },
+            resolved.test.definition["stubs"]["deployment"],
+        )
         self.assertEqual("ckc", resolved.targets[0].profile)
         self.assertEqual(2, resolved.targets[0].definition["application"]["replicas"])
         self.assertEqual(20, resolved.targets[0].definition["telemetry_workers"])
@@ -125,6 +140,32 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual(100, snapshot["workload"]["load"]["base_tps"])
         self.assertEqual(2, snapshot["targets"][0]["application"]["replicas"])
         self.assertNotIn("extends", output.read_text(encoding="utf-8"))
+
+    def test_support_workload_resource_defaults_can_be_overridden(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["load"].update({
+            "cpu_request": "2",
+            "memory_limit": "2Gi",
+        })
+        experiment["workload"]["stubs"]["deployment"] = {
+            "replicas": 2,
+            "resources": {
+                "requests": {"cpu": "1"},
+                "limits": {"memory": "1536Mi"},
+            },
+        }
+
+        resolved = resolve_experiment_definition(self.write(experiment), environment="aws")
+
+        load = resolved.test.definition["load_test"]
+        self.assertEqual("2", load["cpu_request"])
+        self.assertEqual("512Mi", load["memory_request"])
+        self.assertEqual("2Gi", load["memory_limit"])
+        deployment = resolved.test.definition["stubs"]["deployment"]
+        self.assertEqual(2, deployment["replicas"])
+        self.assertEqual(4, deployment["workers"])
+        self.assertEqual({"cpu": "1", "memory": "256Mi"}, deployment["resources"]["requests"])
+        self.assertEqual({"memory": "1536Mi"}, deployment["resources"]["limits"])
 
     def test_requires_explicit_selection_for_multiple_environments(self) -> None:
         with self.assertRaisesRegex(ValueError, "select one explicitly"):

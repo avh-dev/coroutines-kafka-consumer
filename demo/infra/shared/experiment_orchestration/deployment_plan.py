@@ -553,12 +553,12 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
     if any(load.get(key) is not None for key in ("cpu_request", "memory_request", "cpu_limit", "memory_limit")):
         resource_values = {
             "requests": {
-                "cpu": load.get("cpu_request", "500m"),
-                "memory": load.get("memory_request", "512Mi"),
+                "cpu": load.get("cpu_request"),
+                "memory": load.get("memory_request"),
             },
             "limits": {
-                "cpu": load.get("cpu_limit", "2"),
-                "memory": load.get("memory_limit", "1Gi"),
+                "cpu": load.get("cpu_limit"),
+                "memory": load.get("memory_limit"),
             },
         }
     resources = {

@@ -16,6 +16,19 @@ from .workload import deep_merge, load_yaml, validate_resolved_test
 
 SCHEMA_VERSION = 2
 ENVIRONMENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+DEFAULT_LOAD_TEST_RESOURCES = {
+    "cpu_request": "500m",
+    "memory_request": "512Mi",
+    "memory_limit": "1Gi",
+}
+DEFAULT_STUB_DEPLOYMENT = {
+    "replicas": 1,
+    "workers": 4,
+    "resources": {
+        "requests": {"cpu": "250m", "memory": "256Mi"},
+        "limits": {"memory": "512Mi"},
+    },
+}
 KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "internal-lab": frozenset({
         "diagnostics.tcpdump",
@@ -259,14 +272,20 @@ def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str,
         normalized_topics[topic] = normalized_topic
     if sum(float(item["traffic_percent"]) for item in normalized_topics.values()) != 100:
         raise ValueError("Experiment workload topic traffic_percent values must total 100")
-    load = copy.deepcopy(load)
+    load = deep_merge(DEFAULT_LOAD_TEST_RESOURCES, copy.deepcopy(load))
     load.update({
         "order_event_percent": normalized_topics["order"]["traffic_percent"],
         "batch_event_percent": normalized_topics["batch"]["traffic_percent"],
         "cauldron_telemetry_percent": normalized_topics["telemetry"]["traffic_percent"],
     })
+    stubs = copy.deepcopy(workload.get("stubs"))
+    if isinstance(stubs, dict):
+        stubs["deployment"] = deep_merge(
+            DEFAULT_STUB_DEPLOYMENT,
+            stubs.get("deployment") or {},
+        )
     definition: dict[str, Any] = {
-        "stubs": copy.deepcopy(workload.get("stubs")),
+        "stubs": stubs,
         "load_test": load,
     }
     if "measurement_windows" in workload:
