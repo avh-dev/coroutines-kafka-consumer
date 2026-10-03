@@ -5089,4 +5089,5 @@ Keep scheduling detail out of the topology: show pod counts or HPA ranges consis
 Label Kafka exporter by its offsets-and-lag responsibility and show concise deployment sizing for workloads, observability pods, runner containers, and managed Redis nodes.
 Use the outer AWS boundary as the sole cloud grouping and present every runner observability service with the same icon-and-name treatment.
 Separate the runner EC2 host from its nested Docker runtime and persist the runner instance and root-volume configuration in experiment evidence.
+Restore the compact EKS worker configuration, use the official EC2 service icon, separate runner configuration from purpose, and remove the redundant data-flow legend.
 Verification: focused AWS topology rendering, 62 AWS, and 173 internal-lab tests pass; Python and whitespace validation pass. The updated renderer is installed on optilab, and the completed Spring AWS report and latest-report ZIP were regenerated without launching a workload.

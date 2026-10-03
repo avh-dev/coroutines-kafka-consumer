@@ -992,7 +992,7 @@ class ExperimentReportTest(unittest.TestCase):
             "Amazon ElastiCache for Redis",
             "Grafana Alloy 1.5.1",
             "Kafka exporter 1.8.0",
-            "Runner EC2 · t3.small",
+            "EC2 · Runner",
             "VictoriaMetrics 1.102.1",
             "Loki 3.3.2",
             "Grafana 11.6.0",
@@ -1009,8 +1009,10 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("req 100m/512Mi · lim 500m/2Gi CPU/RAM", svg)
         self.assertIn("2 nodes · cache.r7g.large", svg)
         self.assertIn("Redis 7.1", svg)
-        self.assertIn("Runner EC2 · t3.small", svg)
-        self.assertIn("SSM agent · orchestration · artifact staging · 20 GiB root EBS", svg)
+        self.assertIn("2 × m7i.xlarge workers · 100 GiB EBS/node", svg)
+        self.assertIn("EC2 · Runner", svg)
+        self.assertIn("t3.small · 20 GiB root EBS", svg)
+        self.assertIn("SSM agent · orchestration · artifact staging", svg)
         self.assertIn("Docker · 6 containers", svg)
         self.assertNotIn('data-boundary="managed-services"', svg)
         self.assertNotIn('data-service-card="cloudwatch"', svg)
@@ -1044,6 +1046,12 @@ class ExperimentReportTest(unittest.TestCase):
             if element.attrib.get("data-service") == "environment-aws"
         )
         self.assertEqual("aws", aws_icon.attrib["data-asset"])
+        ec2_icon = next(
+            element
+            for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-service") == "environment-ec2"
+        )
+        self.assertEqual("aws-ec2", ec2_icon.attrib["data-asset"])
         vmagent_icon = next(
             element
             for element in root.iter(f"{namespace}g")
@@ -1063,10 +1071,10 @@ class ExperimentReportTest(unittest.TestCase):
         }, set(flows))
         self.assertEqual(
             {
-                "load-to-kafka": "M350 190 H855",
-                "kafka-to-application": "M1040 255 V277.5 H602.5 V300",
-                "application-to-redis": "M760 365 H855",
-                "application-to-stubs": "M445 365 H350",
+                "load-to-kafka": "M350 210 H855",
+                "kafka-to-application": "M1040 275 V297.5 H602.5 V320",
+                "application-to-redis": "M760 385 H855",
+                "application-to-stubs": "M445 385 H350",
             },
             {name: element.attrib["d"] for name, element in flows.items()},
         )
@@ -1074,6 +1082,7 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertTrue(all(element.attrib.get("stroke") == "#475569" for element in flows.values()))
         self.assertNotIn("#f97316", svg)
         self.assertNotIn("telemetry-arrow", svg)
+        self.assertNotIn("Solid arrows", svg)
         self.assertEqual([], list(root.iter(f"{namespace}line")))
         self.assertGreaterEqual(
             len([
