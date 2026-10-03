@@ -842,6 +842,10 @@ KUBERNETES_VERSION="$(infra_output kubernetes_version)"
 NODE_INSTANCE_TYPES="$(infra_output node_instance_types)"
 NODE_DESIRED_SIZE="$(infra_output node_desired_size)"
 NODE_DISK_SIZE="$(infra_output node_disk_size)"
+RUNNER_INSTANCE_TYPE="$(infra_output runner_instance_type 2>/dev/null || true)"
+RUNNER_INSTANCE_TYPE="${RUNNER_INSTANCE_TYPE:-unknown}"
+RUNNER_ROOT_VOLUME_SIZE="$(infra_output runner_root_volume_size 2>/dev/null || true)"
+RUNNER_ROOT_VOLUME_SIZE="${RUNNER_ROOT_VOLUME_SIZE:-0}"
 if [ "${KAFKA_MODE}" = "kubernetes" ]; then
   KAFKA_BROKERS="$(infra_output kubernetes_kafka_brokers)"
   KAFKA_TOPIC_REPLICATION_FACTOR="${KAFKA_BROKERS}"
@@ -988,6 +992,12 @@ context = {
             "desired_nodes": ${NODE_DESIRED_SIZE},
             "instance_types": json.loads('''${NODE_INSTANCE_TYPES}'''),
             "disk_gib": ${NODE_DISK_SIZE},
+        },
+        "runner": {
+            "instance_type": "${RUNNER_INSTANCE_TYPE}",
+            "root_volume_gib": ${RUNNER_ROOT_VOLUME_SIZE},
+            "host_roles": ["SSM agent", "orchestration", "artifact staging"],
+            "container_runtime": "Docker",
         },
         "kafka": {
             "mode": "${KAFKA_MODE}",

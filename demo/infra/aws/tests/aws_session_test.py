@@ -162,6 +162,8 @@ class AwsSessionTest(unittest.TestCase):
 
     def test_aws_lab_context_describes_runner_and_cluster_observability(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        runner_outputs = (AWS_ROOT / "terraform/runner/outputs.tf").read_text(encoding="utf-8")
+        controller = (AWS_ROOT / "scripts/run-experiment.py").read_text(encoding="utf-8")
         for component in (
             "Grafana Alloy",
             "Kafka exporter",
@@ -177,6 +179,13 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('"engine_version": "${ELASTICACHE_ENGINE_VERSION}"', script)
         self.assertIn('"replicas": 1', script)
         self.assertIn('"cpu": "100m", "memory": "128Mi"', script)
+        self.assertIn('"instance_type": "${RUNNER_INSTANCE_TYPE}"', script)
+        self.assertIn('"root_volume_gib": ${RUNNER_ROOT_VOLUME_SIZE}', script)
+        self.assertIn('"host_roles": ["SSM agent", "orchestration", "artifact staging"]', script)
+        self.assertIn('output "instance_type"', runner_outputs)
+        self.assertIn('output "root_volume_size"', runner_outputs)
+        self.assertIn('lab_outputs["runner_instance_type"]', controller)
+        self.assertIn('lab_outputs["runner_root_volume_size"]', controller)
 
     def test_live_dashboard_is_materialized_for_the_aws_kafka_mode(self) -> None:
         create_script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")

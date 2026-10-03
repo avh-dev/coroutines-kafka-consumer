@@ -3,6 +3,16 @@ output "instance_id" {
   value       = aws_instance.runner.id
 }
 
+output "instance_type" {
+  description = "EC2 instance type used by the runner."
+  value       = var.instance_type
+}
+
+output "root_volume_size" {
+  description = "Runner root EBS volume size in GiB."
+  value       = var.root_volume_size
+}
+
 output "private_ip" {
   description = "Runner private IP address."
   value       = aws_instance.runner.private_ip

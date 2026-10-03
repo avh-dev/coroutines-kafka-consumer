@@ -895,6 +895,12 @@ class ExperimentReportTest(unittest.TestCase):
                     "engine_version": "7.1",
                     "member_clusters": ["redis-001", "redis-002"],
                 },
+                "runner": {
+                    "instance_type": "t3.small",
+                    "root_volume_gib": 20,
+                    "host_roles": ["SSM agent", "orchestration", "artifact staging"],
+                    "container_runtime": "Docker",
+                },
                 "java": {
                     "application": "21.0.12.1",
                     "stubs": "21.0.12.1",
@@ -986,7 +992,7 @@ class ExperimentReportTest(unittest.TestCase):
             "Amazon ElastiCache for Redis",
             "Grafana Alloy 1.5.1",
             "Kafka exporter 1.8.0",
-            "Runner EC2 · Docker observability",
+            "Runner EC2 · t3.small",
             "VictoriaMetrics 1.102.1",
             "Loki 3.3.2",
             "Grafana 11.6.0",
@@ -1003,7 +1009,9 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("req 100m/512Mi · lim 500m/2Gi CPU/RAM", svg)
         self.assertIn("2 nodes · cache.r7g.large", svg)
         self.assertIn("Redis 7.1", svg)
-        self.assertIn("1 container per service · Docker Compose", svg)
+        self.assertIn("Runner EC2 · t3.small", svg)
+        self.assertIn("SSM agent · orchestration · artifact staging · 20 GiB root EBS", svg)
+        self.assertIn("Docker · 6 containers", svg)
         self.assertNotIn('data-boundary="managed-services"', svg)
         self.assertNotIn('data-service-card="cloudwatch"', svg)
         self.assertIn("req 500m/1Gi · lim —/3Gi CPU/RAM", svg)
@@ -1017,7 +1025,7 @@ class ExperimentReportTest(unittest.TestCase):
             for element in root.iter(f"{namespace}rect")
             if element.attrib.get("data-boundary")
         }
-        self.assertEqual({"aws", "eks", "eks-observability", "runner"}, boundaries)
+        self.assertEqual({"aws", "eks", "eks-observability", "runner", "runner-docker"}, boundaries)
         service_cards = {
             element.attrib.get("data-service-card"): element
             for element in root.iter(f"{namespace}rect")

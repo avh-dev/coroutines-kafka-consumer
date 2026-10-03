@@ -239,6 +239,7 @@ def environment_topology_svg(
         f"{redis.get('memory_limit_gib')} GiB limit" if redis.get("memory_limit_gib") else "",
     ] if value)
     observability = environment.get("observability") if isinstance(environment.get("observability"), dict) else {}
+    runner = environment.get("runner") if isinstance(environment.get("runner"), dict) else {}
     java = environment.get("java") if isinstance(environment.get("java"), dict) else {}
 
     def java_label(role: str) -> str:
@@ -345,6 +346,12 @@ def environment_topology_svg(
             redis.get("node_type"),
         ] if part)
         redis_version = redis.get("engine_version") or redis.get("version")
+        runner_roles = runner.get("host_roles") if isinstance(runner.get("host_roles"), list) else []
+        runner_line = " · ".join(part for part in [
+            " · ".join(str(value) for value in runner_roles),
+            f"{runner.get('root_volume_gib')} GiB root EBS" if runner.get("root_volume_gib") else "",
+        ] if part)
+        runner_components = observability.get("runner") if isinstance(observability.get("runner"), list) else []
         body = [
             '<rect data-boundary="aws" x="8" y="45" width="1264" height="842" rx="14" fill="#ffffff" stroke="#232f3e" stroke-width="2"/>',
             service_icon("environment-aws", 28, 61, 34),
@@ -402,21 +409,24 @@ def environment_topology_svg(
             f'<text class="muted" x="875" y="395">{esc("Redis " + str(redis_version)) if redis_version else esc(redis_line)}</text>',
 
             '<rect data-boundary="runner" x="825" y="500" width="430" height="290" rx="12" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
-            service_icon("environment-docker", 847, 517, 30),
-            '<text class="card-title" x="889" y="536">Runner EC2 · Docker observability</text>',
-            service_icon("victoriametrics", 855, 560, 26),
-            f'<text class="muted" x="889" y="577">{esc(component_title("VictoriaMetrics"))}</text>',
-            service_icon("loki", 1045, 560, 26),
-            f'<text class="muted" x="1079" y="577">{esc(component_title("Loki"))}</text>',
-            service_icon("grafana", 855, 610, 26),
-            f'<text class="muted" x="889" y="627">{esc(component_title("Grafana"))}</text>',
-            service_icon("fluent-bit", 1045, 610, 26),
-            f'<text class="muted" x="1079" y="627">{esc(component_title("Fluent Bit"))}</text>',
-            service_icon("cloudwatch", 855, 660, 26),
-            f'<text class="muted" x="889" y="677">{esc(component_title("CloudWatch exporter"))}</text>',
-            service_icon("vmagent", 1045, 660, 26),
-            f'<text class="muted" x="1079" y="677">{esc(component_title("vmagent"))}</text>',
-            '<text class="muted" x="855" y="715">1 container per service · Docker Compose</text>',
+            service_icon("environment-aws", 847, 517, 30),
+            f'<text class="card-title" x="889" y="536">Runner EC2 · {esc(runner.get("instance_type") or "instance type unavailable")}</text>',
+            f'<text class="muted" x="847" y="558">{esc(runner_line or "SSM agent · orchestration · artifact staging")}</text>',
+            '<rect data-boundary="runner-docker" x="845" y="575" width="390" height="190" rx="10" fill="#ffffff" stroke="#2496ed" stroke-dasharray="5 4"/>',
+            service_icon("environment-docker", 858, 590, 26),
+            f'<text class="card-title" x="896" y="608">Docker · {len(runner_components) or 6} containers</text>',
+            service_icon("victoriametrics", 855, 625, 24),
+            f'<text class="muted" x="887" y="642">{esc(component_title("VictoriaMetrics"))}</text>',
+            service_icon("loki", 1045, 625, 24),
+            f'<text class="muted" x="1077" y="642">{esc(component_title("Loki"))}</text>',
+            service_icon("grafana", 855, 665, 24),
+            f'<text class="muted" x="887" y="682">{esc(component_title("Grafana"))}</text>',
+            service_icon("fluent-bit", 1045, 665, 24),
+            f'<text class="muted" x="1077" y="682">{esc(component_title("Fluent Bit"))}</text>',
+            service_icon("cloudwatch", 855, 705, 24),
+            f'<text class="muted" x="887" y="722">{esc(component_title("CloudWatch exporter"))}</text>',
+            service_icon("vmagent", 1045, 705, 24),
+            f'<text class="muted" x="1077" y="722">{esc(component_title("vmagent"))}</text>',
 
             '<path data-flow="load-to-kafka" d="M350 190 H855" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="kafka-to-application" d="M1040 255 V277.5 H602.5 V300" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
