@@ -222,6 +222,8 @@ def environment_topology_svg(
     def compact_resources(value: dict[str, Any]) -> str:
         resource_requests = value.get("requests") if isinstance(value.get("requests"), dict) else {}
         resource_limits = value.get("limits") if isinstance(value.get("limits"), dict) else {}
+        if not any(resource_requests.get(key) or resource_limits.get(key) for key in ("cpu", "memory")):
+            return "no CPU/RAM requests or limits"
         request_pair = f"{resource_requests.get('cpu') or '—'}/{resource_requests.get('memory') or '—'}"
         limit_pair = f"{resource_limits.get('cpu') or '—'}/{resource_limits.get('memory') or '—'}"
         return f"req {request_pair} · lim {limit_pair} CPU/RAM"
@@ -233,6 +235,45 @@ def environment_topology_svg(
     app_requests = f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "resources vary by target"
     app_limits = f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else ""
     load_test = report.test_definition.get("load_test") if isinstance(report.test_definition.get("load_test"), dict) else {}
+    target_load_tests = [
+        target.configuration.get("load_test", {})
+        for target in selected_targets
+        if isinstance(target.configuration, dict)
+        and isinstance(target.configuration.get("load_test"), dict)
+    ]
+
+    def common_load_value(key: str) -> Any:
+        values = [value.get(key) for value in target_load_tests if value.get(key) is not None]
+        return values[0] if values and all(value == values[0] for value in values) else load_test.get(key)
+
+    generator_pods = int(common_load_value("shards") or 1)
+    generator_workers = common_load_value("workers")
+    generator_tps = common_load_value("base_tps") or report.test_definition.get("base_tps")
+    generator_pod_label = "pod" if generator_pods == 1 else "pods"
+    generator_worker_label = "worker" if generator_workers == 1 else "workers"
+    generator_deployment = " · ".join(part for part in [
+        f"{generator_pods} {generator_pod_label}",
+        "indexed Job",
+        f"{generator_tps} aggregate TPS" if generator_tps is not None else "",
+    ] if part)
+    load_resources = {
+        "requests": {"cpu": load_test.get("cpu_request"), "memory": load_test.get("memory_request")},
+        "limits": {"cpu": load_test.get("cpu_limit"), "memory": load_test.get("memory_limit")},
+    }
+    stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
+    stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
+    configured_stub_replicas = [
+        target.configuration.get("stub_replicas")
+        for target in selected_targets
+        if isinstance(target.configuration, dict) and target.configuration.get("stub_replicas") is not None
+    ]
+    stub_replicas = int(
+        configured_stub_replicas[0]
+        if configured_stub_replicas and all(value == configured_stub_replicas[0] for value in configured_stub_replicas)
+        else stub_deployment.get("replicas") or 1
+    )
+    stub_pod_label = "pod" if stub_replicas == 1 else "pods"
+    stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
     redis_title = f"Redis {redis.get('version')} · host container" if redis.get("version") else "Redis host container"
     redis_line = " · ".join(str(value) for value in [
         redis.get("mode"),
@@ -246,6 +287,12 @@ def environment_topology_svg(
     def java_label(role: str) -> str:
         version_value = java.get(role)
         return f"Java {version_value}" if version_value else "Java version unavailable"
+
+    generator_runtime = " · ".join(part for part in [
+        f"{generator_workers} {generator_worker_label}/pod" if generator_workers is not None else "worker count unavailable",
+        java_label("load_generator"),
+    ] if part)
+    stub_runtime = f"{stub_replicas} {stub_pod_label} · {java_label('stubs')}"
     observability_components = [
         value
         for components in observability.values()
@@ -331,15 +378,6 @@ def environment_topology_svg(
             if application_scale_labels and all(value == application_scale_labels[0] for value in application_scale_labels)
             else "pod scaling varies by target"
         )
-        generator_pods = int(load_test.get("shards") or 1)
-        load_resources = {
-            "requests": {"cpu": load_test.get("cpu_request"), "memory": load_test.get("memory_request")},
-            "limits": {"cpu": load_test.get("cpu_limit"), "memory": load_test.get("memory_limit")},
-        }
-        stubs = report.test_definition.get("stubs") if isinstance(report.test_definition.get("stubs"), dict) else {}
-        stub_deployment = stubs.get("deployment") if isinstance(stubs.get("deployment"), dict) else {}
-        stub_replicas = int(stub_deployment.get("replicas") or 1)
-        stub_resources = stub_deployment.get("resources") if isinstance(stub_deployment.get("resources"), dict) else {}
         redis_service_title = "Amazon ElastiCache for Redis" if redis.get("mode") == "elasticache" else "Redis in Kubernetes"
         redis_nodes = len(redis.get("member_clusters", [])) or int(redis.get("nodes") or 0)
         redis_deployment = " · ".join(part for part in [
@@ -371,9 +409,9 @@ def environment_topology_svg(
             '<rect data-service-card="load-generator" x="50" y="145" width="300" height="130" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
             service_icon("load-generator", 68, 163, 32),
             '<text class="card-title" x="112" y="183">Load generator</text>',
-            f'<text class="muted" x="68" y="217">{generator_pods} pods · {esc(str(load_test.get("base_tps") or report.test_definition.get("base_tps") or "—"))} aggregate TPS</text>',
+            f'<text class="muted" x="68" y="217">{esc(generator_deployment.replace("indexed Job · ", ""))}</text>',
             f'<text class="muted" x="68" y="236">{esc(compact_resources(load_resources))}</text>',
-            f'<text class="muted" x="68" y="255">{esc(java_label("load_generator"))}</text>',
+            f'<text class="muted" x="68" y="255">{esc(generator_runtime)}</text>',
 
             '<rect data-service-card="application" x="445" y="320" width="315" height="130" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 463, 338, 32),
@@ -385,9 +423,9 @@ def environment_topology_svg(
             '<rect data-service-card="stubs" x="50" y="320" width="300" height="130" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 68, 338, 32),
             '<text class="card-title" x="112" y="358">HTTP downstream stubs</text>',
-            f'<text class="muted" x="68" y="392">{stub_replicas} pods</text>',
-            f'<text class="muted" x="68" y="411">{esc(compact_resources(stub_resources)) if stub_resources else "resources not captured"}</text>',
-            f'<text class="muted" x="68" y="432">{esc(java_label("stubs"))}</text>',
+            f'<text class="muted" x="68" y="392">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="68" y="411">{esc(compact_resources(stub_resources))}</text>',
+            '<text class="muted" x="68" y="432">HTTP downstream behavior defined by the test</text>',
 
             '<rect data-boundary="eks-observability" x="50" y="485" width="710" height="265" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="70" y="515">Telemetry collection inside EKS</text>',
@@ -457,19 +495,21 @@ def environment_topology_svg(
             f'<text class="card-title" x="842" y="80">Application worker · {esc(worker_name)}</text>',
             f'<text class="muted" x="842" y="100">{esc(worker_model or worker_summary)}</text>',
             f'<text class="muted" x="842" y="118">{esc(worker_summary)}</text>' if worker_model else '',
-            '<rect x="45" y="145" width="300" height="105" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
-            service_icon("load-generator", 61, 163, 30),
-            '<text class="card-title" x="103" y="182">Load generator</text>',
-            f'<text class="muted" x="61" y="213">{esc(java_label("load_generator"))} · host process</text>',
-            f'<text class="muted" x="61" y="232">{esc(str(load_test.get("workers") or "—"))} workers · no CPU/RAM limit</text>',
-            '<rect x="45" y="275" width="300" height="545" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
-            service_icon("environment-kubernetes", 65, 292, 32),
-            f'<text class="card-title" x="108" y="312">Kubernetes server · {esc(platform)} {esc(version)}</text>',
-            '<text class="muted" x="65" y="338">Control plane and supporting workloads</text>',
-            '<rect x="70" y="380" width="250" height="100" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
-            service_icon("demo-stubs", 86, 397, 30),
-            '<text class="card-title" x="128" y="416">CKC demo stubs</text>',
-            f'<text class="muted" x="86" y="446">{esc(java_label("stubs"))} · {esc(placement("stubs"))}</text>',
+            '<rect data-boundary="controller-kubernetes" x="45" y="145" width="300" height="675" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 162, 32),
+            f'<text class="card-title" x="108" y="182">Kubernetes server · {esc(platform)} {esc(version)}</text>',
+            '<text class="muted" x="65" y="209">Control plane and supporting workloads</text>',
+            '<rect data-service-card="load-generator" x="70" y="245" width="250" height="115" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 86, 262, 30),
+            '<text class="card-title" x="128" y="281">Load generator</text>',
+            f'<text class="muted" x="86" y="310">{esc(generator_deployment)}</text>',
+            f'<text class="muted" x="86" y="330">{esc(generator_runtime)}</text>',
+            f'<text class="muted" x="86" y="349">{esc(compact_resources(load_resources))}</text>',
+            '<rect data-service-card="stubs" x="70" y="390" width="250" height="110" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 86, 407, 30),
+            '<text class="card-title" x="128" y="426">CKC demo stubs</text>',
+            f'<text class="muted" x="86" y="456">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="86" y="477">{esc(compact_resources(stub_resources))}</text>',
             '<rect x="70" y="520" width="250" height="275" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
             '<text class="card-title" x="88" y="547">Observability inside Kubernetes</text>',
             service_icon("prometheus", 88, 575, 26),
@@ -513,7 +553,7 @@ def environment_topology_svg(
             f'<text class="muted" x="886" y="346">1 pod per target · {esc(java_label("application"))}</text>',
             f'<text class="muted" x="886" y="370">{esc(app_requests)}</text>',
             f'<text class="muted" x="886" y="393">{esc(app_limits)}</text>' if app_limits else '',
-            '<path data-flow="load-to-kafka" d="M345 197.5 H357.5 V302.5 H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="load-to-kafka" d="M320 302.5 H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="kafka-to-application" d="M720 302.5 H795 V323.3 H870" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-redis" d="M870 371.7 H795 V435 H720" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-stubs" d="M1000 420 V500 H357.5 V430 H320" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
@@ -528,67 +568,68 @@ def environment_topology_svg(
             f'<text class="muted" x="45" y="100">{esc(hardware_line)}</text>',
             f'<text class="muted" x="45" y="118">{esc(os_line)}</text>',
             f'<text class="muted" x="45" y="136">{esc(frequency_line)}</text>' if frequency_line else '',
-            '<rect x="645" y="70" width="280" height="105" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
-            service_icon("load-generator", 661, 88, 30),
-            '<text class="card-title" x="703" y="107">Load generator</text>',
-            f'<text class="muted" x="661" y="139">{esc(java_label("load_generator"))} · host process</text>',
-            f'<text class="muted" x="661" y="158">{esc(str(load_test.get("workers") or "—"))} workers · no CPU/RAM limit</text>',
-            '<rect x="45" y="205" width="545" height="605" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
-            service_icon("environment-kubernetes", 65, 222, 32),
-            f'<text class="card-title" x="108" y="242">Kubernetes · {esc(platform)} {esc(version)}</text>',
-            f'<text class="muted" x="65" y="270">{esc(node_line)}</text>',
-            '<rect x="70" y="330" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
-            service_icon("application", 86, 346, 30),
-            '<text class="card-title" x="128" y="365">CKC demo app</text>',
-            f'<text class="muted" x="86" y="396">1 pod per target · {esc(java_label("application"))}</text>',
-            f'<text class="muted" x="86" y="416">{esc(app_requests)}</text>',
-            f'<text class="muted" x="86" y="434">{esc(app_limits)}</text>' if app_limits else '',
-            '<rect x="330" y="330" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
-            service_icon("demo-stubs", 346, 346, 30),
-            '<text class="card-title" x="388" y="365">CKC demo stubs</text>',
-            f'<text class="muted" x="346" y="396">1 pod · {esc(java_label("stubs"))}</text>',
-            '<text class="muted" x="346" y="416">Planned HTTP downstream behavior below</text>',
-            '<rect x="70" y="530" width="485" height="250" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
-            '<text class="card-title" x="88" y="557">Observability inside Kubernetes</text>',
-            '<rect x="90" y="580" width="205" height="130" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
-            service_icon("prometheus", 106, 600, 30),
-            f'<text class="card-title" x="148" y="619">{esc(component_title("Prometheus"))}</text>',
-            '<text class="muted" x="106" y="660">Metrics store</text>',
-            '<text class="muted" x="106" y="679">Scrapes apps and exporters</text>',
-            '<rect x="330" y="580" width="205" height="130" rx="7" fill="#f5f3ff" stroke="#7c3aed"/>',
-            service_icon("alloy", 346, 600, 30),
-            f'<text class="card-title" x="388" y="619">{esc(component_title("Grafana Alloy"))}</text>',
-            '<text class="muted" x="346" y="660">Kubernetes pod logs</text>',
-            '<text class="muted" x="346" y="679">Forwards to Loki</text>',
-            '<rect x="620" y="205" width="330" height="605" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
-            service_icon("environment-docker", 640, 222, 32),
-            '<text class="card-title" x="683" y="242">Docker host services</text>',
-            '<text class="muted" x="640" y="270">Containers share the physical host</text>',
-            '<rect x="645" y="330" width="280" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>',
-            service_icon("apache-kafka", 661, 346, 30),
-            f'<text class="card-title" x="703" y="365">{esc(kafka_title.replace(" · host container", ""))}</text>',
-            f'<text class="muted" x="661" y="394">{esc(kafka_line)}</text>',
-            f'<text class="muted" x="661" y="413">{esc(java_label("kafka"))}</text>',
-            '<rect x="645" y="455" width="280" height="82" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
-            service_icon("redis-service", 661, 471, 30),
-            f'<text class="card-title" x="703" y="490">{esc(redis_title.replace(" · host container", ""))}</text>',
-            f'<text class="muted" x="661" y="519">{esc(redis_line.replace("Docker container · ", ""))}</text>',
-            '<rect x="645" y="565" width="280" height="225" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
-            '<text class="card-title" x="661" y="590">Observability inside Docker</text>',
-            service_icon("kafka-exporter", 661, 605, 24),
-            f'<text class="muted" x="692" y="621">{esc(component_title("Kafka exporter"))} · broker metrics</text>',
-            service_icon("process-exporter", 661, 640, 24),
-            f'<text class="muted" x="692" y="656">{esc(component_title("process-exporter"))} · process metrics</text>',
-            service_icon("fluent-bit", 661, 675, 24),
-            f'<text class="muted" x="692" y="691">{esc(component_title("Fluent Bit"))} · audit → file</text>',
-            service_icon("loki", 661, 710, 24),
-            f'<text class="muted" x="692" y="726">{esc(component_title("Loki"))} · log storage</text>',
-            service_icon("grafana", 661, 745, 24),
-            f'<text class="muted" x="692" y="761">{esc(component_title("Grafana"))} · dashboards</text>',
-            '<path d="M925 120 H960 V290 H880 V330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M645 371 H605 V290 H183 V330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M295 371 H330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path d="M183 445 V496 H645" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<rect data-boundary="kubernetes" x="45" y="175" width="545" height="635" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            service_icon("environment-kubernetes", 65, 192, 32),
+            f'<text class="card-title" x="108" y="212">Kubernetes · {esc(platform)} {esc(version)}</text>',
+            f'<text class="muted" x="65" y="240">{esc(node_line)}</text>',
+            '<rect data-service-card="load-generator" x="70" y="265" width="485" height="115" rx="8" fill="#ede9fe" stroke="#7c3aed"/>',
+            service_icon("load-generator", 86, 282, 30),
+            '<text class="card-title" x="128" y="301">Load generator</text>',
+            f'<text class="muted" x="86" y="329">{esc(generator_deployment)}</text>',
+            f'<text class="muted" x="86" y="349">{esc(generator_runtime)}</text>',
+            f'<text class="muted" x="86" y="369">{esc(compact_resources(load_resources))}</text>',
+            '<rect data-service-card="application" x="70" y="405" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            service_icon("application", 86, 421, 30),
+            '<text class="card-title" x="128" y="440">CKC demo app</text>',
+            f'<text class="muted" x="86" y="471">1 pod per target · {esc(java_label("application"))}</text>',
+            f'<text class="muted" x="86" y="491">{esc(app_requests)}</text>',
+            f'<text class="muted" x="86" y="509">{esc(app_limits)}</text>' if app_limits else '',
+            '<rect data-service-card="stubs" x="330" y="405" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
+            service_icon("demo-stubs", 346, 421, 30),
+            '<text class="card-title" x="388" y="440">CKC demo stubs</text>',
+            f'<text class="muted" x="346" y="471">{esc(stub_runtime)}</text>',
+            f'<text class="muted" x="346" y="491">{esc(compact_resources(stub_resources))}</text>',
+            '<rect x="70" y="550" width="485" height="230" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="88" y="577">Observability inside Kubernetes</text>',
+            '<rect x="90" y="600" width="205" height="120" rx="7" fill="#fff7ed" stroke="#e6522c"/>',
+            service_icon("prometheus", 106, 620, 30),
+            f'<text class="card-title" x="148" y="639">{esc(component_title("Prometheus"))}</text>',
+            '<text class="muted" x="106" y="680">Metrics store</text>',
+            '<text class="muted" x="106" y="699">Scrapes apps and exporters</text>',
+            '<rect x="330" y="600" width="205" height="120" rx="7" fill="#f5f3ff" stroke="#7c3aed"/>',
+            service_icon("alloy", 346, 620, 30),
+            f'<text class="card-title" x="388" y="639">{esc(component_title("Grafana Alloy"))}</text>',
+            '<text class="muted" x="346" y="680">Kubernetes pod logs</text>',
+            '<text class="muted" x="346" y="699">Forwards to Loki</text>',
+            '<rect x="620" y="175" width="330" height="635" rx="10" fill="#f0f9ff" stroke="#2496ed" stroke-width="2"/>',
+            service_icon("environment-docker", 640, 192, 32),
+            '<text class="card-title" x="683" y="212">Docker host services</text>',
+            '<text class="muted" x="640" y="240">Containers share the physical host</text>',
+            '<rect data-service-card="kafka" x="645" y="265" width="280" height="115" rx="8" fill="#fef3c7" stroke="#d97706"/>',
+            service_icon("apache-kafka", 661, 282, 30),
+            f'<text class="card-title" x="703" y="301">{esc(kafka_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="330">{esc(kafka_line)}</text>',
+            f'<text class="muted" x="661" y="351">{esc(java_label("kafka"))}</text>',
+            '<rect data-service-card="redis" x="645" y="410" width="280" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>',
+            service_icon("redis-service", 661, 426, 30),
+            f'<text class="card-title" x="703" y="445">{esc(redis_title.replace(" · host container", ""))}</text>',
+            f'<text class="muted" x="661" y="474">{esc(redis_line.replace("Docker container · ", ""))}</text>',
+            '<rect x="645" y="530" width="280" height="250" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-dasharray="5 4"/>',
+            '<text class="card-title" x="661" y="555">Observability inside Docker</text>',
+            service_icon("kafka-exporter", 661, 570, 24),
+            f'<text class="muted" x="692" y="586">{esc(component_title("Kafka exporter"))} · broker metrics</text>',
+            service_icon("process-exporter", 661, 605, 24),
+            f'<text class="muted" x="692" y="621">{esc(component_title("process-exporter"))} · process metrics</text>',
+            service_icon("fluent-bit", 661, 640, 24),
+            f'<text class="muted" x="692" y="656">{esc(component_title("Fluent Bit"))} · audit → file</text>',
+            service_icon("loki", 661, 675, 24),
+            f'<text class="muted" x="692" y="691">{esc(component_title("Loki"))} · log storage</text>',
+            service_icon("grafana", 661, 710, 24),
+            f'<text class="muted" x="692" y="726">{esc(component_title("Grafana"))} · dashboards</text>',
+            '<path data-flow="load-to-kafka" d="M555 322.5 H645" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="kafka-to-application" d="M645 342 H605 V392.5 H182.5 V405" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-stubs" d="M295 462.5 H330" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            '<path data-flow="application-to-redis" d="M182.5 520 V535 H605 V455 H645" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<text class="muted" x="45" y="855">All shown components share this physical host</text>',
             '<text class="muted" x="955" y="855" text-anchor="end">Solid arrows: experiment data flow</text>',
         ]

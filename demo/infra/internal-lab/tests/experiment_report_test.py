@@ -29,6 +29,7 @@ from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
     e2e_compliance_cells,
     is_freshness_zero_tail,
+    render_markdown,
     shared_freshness_cutoff,
 )
 from experiment_report.model import LatencySlaResult  # noqa: E402
@@ -287,6 +288,10 @@ class ExperimentReportTest(unittest.TestCase):
                     },
                 },
                 "load_test": {
+                    "shards": 2,
+                    "cpu_request": "500m",
+                    "memory_request": "512Mi",
+                    "memory_limit": "1Gi",
                     "load_profile": "0 -> (10s, warmup) -> 100 -> (60s, maximum) -> 100 -> (10s, cool-down) -> 0",
                     "measurement_windows": [
                         {"name": "max-load", "start_seconds": 20, "duration_seconds": 30},
@@ -332,8 +337,14 @@ class ExperimentReportTest(unittest.TestCase):
                     "profile": "ckc",
                     "run_profile": "ckc",
                     "replica_count": 2,
+                    "stub_replica_count": 1,
                     "processing_dispatcher_type": "FIXED",
                     "worker_dispatcher_threads": 2,
+                },
+                "load_test": {
+                    "shards": 2,
+                    "workers": 1,
+                    "base_tps": 100,
                 },
                 "run_plan": {
                     "topics": [
@@ -1150,6 +1161,13 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Planned time from workload start", svg)
             self.assertIn("Kafka network packet capture • Max load", svg)
 
+            report.environment["kafka"]["mode"] = "msk"
+            report.environment["redis"]["mode"] = "elasticache"
+            aws_markdown = render_markdown(report)
+            self.assertIn("MSK CPU average", aws_markdown)
+            self.assertIn("ElastiCache engine CPU maximum", aws_markdown)
+            self.assertNotIn("Host Kafka CPU average", aws_markdown)
+
     def test_generate_failed_report_and_svg_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1189,7 +1207,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("FAIL", model["evaluation_status"])
             self.assertEqual("internal-lab", model["environment"]["environment"])
             self.assertTrue((report_dir / "environment-topology.svg").is_file())
-            ET.parse(report_dir / "environment-topology.svg")
+            environment_root = ET.parse(report_dir / "environment-topology.svg").getroot()
             environment_svg = (report_dir / "environment-topology.svg").read_text(encoding="utf-8")
             self.assertIn("Kubernetes · K3s v1.33.0+k3s", environment_svg)
             self.assertIn("Docker host services", environment_svg)
@@ -1198,6 +1216,31 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Fluent Bit 4.2.3", environment_svg)
             self.assertIn("CKC demo app", environment_svg)
             self.assertIn("CKC demo stubs", environment_svg)
+            self.assertIn("2 pods · indexed Job · 100 aggregate TPS", environment_svg)
+            self.assertIn("1 worker/pod · Java 21.0.12", environment_svg)
+            self.assertIn("req 500m/512Mi · lim —/1Gi CPU/RAM", environment_svg)
+            self.assertIn("1 pod · Java 21.0.12", environment_svg)
+            self.assertIn("no CPU/RAM requests or limits", environment_svg)
+            self.assertNotIn("host process", environment_svg)
+            namespace = "{http://www.w3.org/2000/svg}"
+            kubernetes_boundary = next(
+                element for element in environment_root.iter(f"{namespace}rect")
+                if element.attrib.get("data-boundary") == "kubernetes"
+            )
+            load_generator = next(
+                element for element in environment_root.iter(f"{namespace}rect")
+                if element.attrib.get("data-service-card") == "load-generator"
+            )
+            self.assertGreaterEqual(float(load_generator.attrib["x"]), float(kubernetes_boundary.attrib["x"]))
+            self.assertGreaterEqual(float(load_generator.attrib["y"]), float(kubernetes_boundary.attrib["y"]))
+            self.assertLessEqual(
+                float(load_generator.attrib["x"]) + float(load_generator.attrib["width"]),
+                float(kubernetes_boundary.attrib["x"]) + float(kubernetes_boundary.attrib["width"]),
+            )
+            self.assertLessEqual(
+                float(load_generator.attrib["y"]) + float(load_generator.attrib["height"]),
+                float(kubernetes_boundary.attrib["y"]) + float(kubernetes_boundary.attrib["height"]),
+            )
             self.assertIn("Java 21.0.12", environment_svg)
             self.assertIn("Java 21.0.11", environment_svg)
             self.assertIn("Kafka exporter", environment_svg)
@@ -1596,7 +1639,7 @@ class ExperimentReportTest(unittest.TestCase):
 
             svg = (outputs[0].parent / "environment-topology.svg").read_text(encoding="utf-8")
             markdown = outputs[0].read_text(encoding="utf-8")
-            ET.fromstring(svg)
+            root_element = ET.fromstring(svg)
             self.assertIn('width="1200"', svg)
             self.assertIn("Resolved two-host environment", svg)
             self.assertIn("Controller host · optilab", svg)
@@ -1610,10 +1653,34 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Worker: measured application only", svg)
             self.assertNotIn("No Docker lab services", svg)
             self.assertNotIn("Configured IP network", svg)
-            self.assertIn('<rect x="45" y="145" width="300" height="105"', svg)
+            self.assertIn('data-boundary="controller-kubernetes" x="45" y="145" width="300" height="675"', svg)
+            self.assertIn('data-service-card="load-generator" x="70" y="245"', svg)
+            self.assertIn("2 pods · indexed Job · 100 aggregate TPS", svg)
+            self.assertIn("1 worker/pod · Java 21.0.12", svg)
+            self.assertIn("1 pod · Java 21.0.12", svg)
+            self.assertNotIn("host process", svg)
+            namespace = "{http://www.w3.org/2000/svg}"
+            controller_kubernetes = next(
+                element for element in root_element.iter(f"{namespace}rect")
+                if element.attrib.get("data-boundary") == "controller-kubernetes"
+            )
+            load_generator = next(
+                element for element in root_element.iter(f"{namespace}rect")
+                if element.attrib.get("data-service-card") == "load-generator"
+            )
+            self.assertGreaterEqual(float(load_generator.attrib["x"]), float(controller_kubernetes.attrib["x"]))
+            self.assertGreaterEqual(float(load_generator.attrib["y"]), float(controller_kubernetes.attrib["y"]))
+            self.assertLessEqual(
+                float(load_generator.attrib["x"]) + float(load_generator.attrib["width"]),
+                float(controller_kubernetes.attrib["x"]) + float(controller_kubernetes.attrib["width"]),
+            )
+            self.assertLessEqual(
+                float(load_generator.attrib["y"]) + float(load_generator.attrib["height"]),
+                float(controller_kubernetes.attrib["y"]) + float(controller_kubernetes.attrib["height"]),
+            )
             self.assertIn('<rect x="370" y="145" width="375" height="675"', svg)
             self.assertIn('<rect x="395" y="520" width="325" height="275"', svg)
-            self.assertIn('data-flow="load-to-kafka" d="M345 197.5 H357.5 V302.5 H395"', svg)
+            self.assertIn('data-flow="load-to-kafka" d="M320 302.5 H395"', svg)
             self.assertIn('data-flow="kafka-to-application" d="M720 302.5 H795 V323.3 H870"', svg)
             self.assertIn('data-flow="application-to-redis" d="M870 371.7 H795 V435 H720"', svg)
             self.assertIn('data-flow="application-to-stubs" d="M1000 420 V500 H357.5 V430 H320"', svg)
@@ -1975,6 +2042,8 @@ class ExperimentReportTest(unittest.TestCase):
                 'Host Kafka CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
                 markdown,
             )
+            self.assertNotIn("MSK CPU average", markdown)
+            self.assertNotIn("ElastiCache engine CPU maximum", markdown)
             self.assertIn(
                 'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,

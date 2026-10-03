@@ -148,6 +148,15 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn('if [ -n "${DEPLOYMENT_PLAN_PATH}" ]; then', script)
         self.assertIn('STUB_REPLICA_COUNT=""', script)
 
+    def test_load_generator_packet_capture_is_scoped_and_enabled(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        self.assertIn('LOAD_RENDER_ARGS+=(--packet-capture)', script)
+        self.assertIn(
+            '--load-test-selector "app.kubernetes.io/name=ckc-load-test,ckc.dev/test-run-id=${RUN_ID}"',
+            script,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

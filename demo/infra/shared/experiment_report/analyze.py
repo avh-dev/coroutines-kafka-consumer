@@ -723,6 +723,12 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
         "profile": profile,
         "placement": application.get("placement_requested"),
         "replicas": application.get("replica_count"),
+        "stub_replicas": application.get("stub_replica_count"),
+        "load_test": {
+            key: load_test.get(key)
+            for key in ("shards", "workers", "base_tps")
+            if load_test.get(key) is not None
+        },
         "resources": (
             run_plan.get("application", {}).get("resources", {})
             if isinstance(run_plan.get("application"), dict)
