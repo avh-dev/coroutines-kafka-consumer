@@ -135,8 +135,12 @@ def run(args: argparse.Namespace) -> None:
     aws_upload(probe, args.bucket, f"{args.prefix}/WRITE_PROBE", args.region)
     (state_dir / "READY").write_text("ready\n", encoding="utf-8")
     while True:
-        stopping = (state_dir / "STOP").is_file()
-        closed_until = int(time.time()) if stopping else int(time.time()) - CLOSE_LAG_SECONDS
+        stop_path = state_dir / "STOP"
+        stopping = stop_path.is_file()
+        # STOP is also the immutable end boundary. Using time.time() here makes
+        # finalization chase a moving target forever whenever exporting a
+        # window takes long enough for the clock to advance.
+        closed_until = int(stop_path.stat().st_mtime) if stopping else int(time.time()) - CLOSE_LAG_SECONDS
         if closed_until > cursor:
             window_end = min(closed_until, cursor + WINDOW_SECONDS)
             for attempt in range(1, 6):

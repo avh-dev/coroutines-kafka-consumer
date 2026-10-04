@@ -782,6 +782,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("export-loki.py", export)
         self.assertIn("stream-telemetry.py", configure)
         self.assertIn('touch "${STATE_DIR}/STOP"', finalize)
+        self.assertIn("stop_path.stat().st_mtime", (AWS_ROOT / "runner-assets/bin/stream-telemetry.py").read_text())
         self.assertIn('"${STATE_DIR}/COMPLETE"', finalize)
 
     def test_failed_runner_export_still_materializes_prefetched_streams(self) -> None:
