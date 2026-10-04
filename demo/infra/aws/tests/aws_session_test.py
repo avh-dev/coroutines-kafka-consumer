@@ -114,6 +114,15 @@ class AwsSessionTest(unittest.TestCase):
             r'verbs: \["get", "update"\]',
         )
 
+    def test_cluster_autoscaler_role_uses_a_bounded_name_prefix(self) -> None:
+        terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
+        self.assertIn(
+            'name_prefix        = "ckc-ca-${substr(sha256(var.environment), 0, 12)}-"',
+            terraform,
+        )
+        rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
+        self.assertLessEqual(len(rendered_prefix), 38)
+
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
         java_commands: list[list[str]] = []

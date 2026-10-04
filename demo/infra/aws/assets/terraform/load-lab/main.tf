@@ -400,7 +400,7 @@ data "aws_iam_policy_document" "cluster_autoscaler_assume_role" {
 
 resource "aws_iam_role" "cluster_autoscaler" {
   count              = var.dedicated_node_groups ? 1 : 0
-  name_prefix        = "${local.name}-cluster-autoscaler-"
+  name_prefix        = "ckc-ca-${substr(sha256(var.environment), 0, 12)}-"
   assume_role_policy = data.aws_iam_policy_document.cluster_autoscaler_assume_role.json
   tags               = local.tags
 }

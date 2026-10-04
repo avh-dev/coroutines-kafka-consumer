@@ -443,6 +443,7 @@
 | [INFRA-276](#infra-276) | Isolate and autoscale AWS application capacity for a production-like CKC 50k ramp. | DONE |
 | [INFRA-277](#infra-277) | Remove the redundant runner-local AWS audit-file fallback. | DONE |
 | [INFRA-278](#infra-278) | Remove remaining capacity and autoscaler blockers from the AWS CKC 50k ramp. | DONE |
+| [INFRA-279](#infra-279) | Keep the AWS Cluster Autoscaler IAM role prefix within the provider limit. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5173,3 +5174,12 @@ Grant Cluster Autoscaler the Kubernetes Lease permissions required for leader el
 Increase the fixed support pool to two `m7i.xlarge` nodes so generators, stubs, observability, and system pods have explicit headroom at 50k TPS.
 Increase each MSK broker volume to 100 GiB for the sixty-minute audited workload.
 Verification: the autoscaler manifest parses as six valid Kubernetes documents with exact leader-election RBAC; Terraform validates; 64 AWS and 58 shared orchestration tests pass; the materialized plan resolves to the intended node pools, broker storage, HPA, partitions, load profile, and audit settings. No AWS infrastructure or workload was launched.
+
+<a id="infra-279"></a>
+### INFRA-279 - Fix the Cluster Autoscaler IAM role name
+
+_Date: 2026-10-04_
+
+Derive the Cluster Autoscaler IAM role prefix from a compact environment hash so every generated prefix stays below AWS's 38-character limit.
+Cover the actual session-shaped environment name that exposed the failure during Terraform planning.
+Verification: a real Terraform plan using the failed session's variables succeeds; Terraform validation and all 65 AWS tests pass. The failed session cleanup completed with no remaining AWS resources.
