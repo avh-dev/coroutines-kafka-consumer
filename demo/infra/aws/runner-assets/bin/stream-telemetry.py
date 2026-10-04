@@ -6,6 +6,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -19,6 +20,7 @@ from typing import Any
 WINDOW_SECONDS = 60
 CLOSE_LAG_SECONDS = 20
 LOKI_LIMIT = 5000
+CHUNK_WINDOW = re.compile(r"^(?:loki|victoriametrics)-(\d+)-(\d+)\.(?:jsonl\.gz|bin)$")
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -108,6 +110,15 @@ def file_entry(stream: str, path: Path, records: int | None = None) -> dict[str,
     return result
 
 
+def entries_through(entries: list[dict[str, Any]], end_seconds: int) -> list[dict[str, Any]]:
+    result = []
+    for entry in entries:
+        match = CHUNK_WINDOW.fullmatch(str(entry.get("name") or ""))
+        if match and int(match.group(2)) <= end_seconds:
+            result.append(entry)
+    return result
+
+
 def upload_window(args: argparse.Namespace, state_dir: Path, start_seconds: int, end_seconds: int) -> list[dict[str, Any]]:
     chunks = state_dir / "chunks"
     chunks.mkdir(parents=True, exist_ok=True)
@@ -160,6 +171,7 @@ def run(args: argparse.Namespace) -> None:
                     time.sleep(min(30, 2 ** attempt))
             continue
         if stopping:
+            completed_entries = entries_through(entries, closed_until)
             manifest = {
                 "schema_version": 1,
                 "run_id": args.run_id,
@@ -167,7 +179,7 @@ def run(args: argparse.Namespace) -> None:
                 "started_at": datetime.fromtimestamp(started, timezone.utc).isoformat(),
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "window_seconds": WINDOW_SECONDS,
-                "chunks": entries,
+                "chunks": completed_entries,
             }
             manifest_path = state_dir / "STREAM_COMPLETE.json"
             write_json(manifest_path, manifest)
