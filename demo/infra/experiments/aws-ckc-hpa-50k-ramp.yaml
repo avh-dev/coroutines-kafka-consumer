@@ -100,7 +100,7 @@ targets:
     replicas: 2
     resources:
       requests:
-        cpu: 900m
+        cpu: 800m
         memory: 1Gi
       limits:
         memory: 3Gi

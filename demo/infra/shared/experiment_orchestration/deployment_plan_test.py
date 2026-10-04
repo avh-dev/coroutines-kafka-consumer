@@ -195,7 +195,7 @@ class DeploymentPlanTest(unittest.TestCase):
             definition["load_test"]["load_profile"],
         )
         self.assertEqual([6, 6, 6], [topic["partitions"] for topic in plan["application"]["planner"]["topics"]])
-        self.assertEqual("900m", plan["application"]["configuration"]["resources"]["requests"]["cpu"])
+        self.assertEqual("800m", plan["application"]["configuration"]["resources"]["requests"]["cpu"])
         self.assertEqual({
             "enabled": True,
             "min_replicas": 2,
@@ -235,7 +235,7 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual("application", application["spec"]["template"]["spec"]["tolerations"][0]["value"])
-        self.assertEqual("900m", application["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"])
+        self.assertEqual("800m", application["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"])
         self.assertNotIn("cpu", application["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"])
         self.assertEqual({"ckc.dev/role": "support"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "support"}, load_job["spec"]["template"]["spec"]["nodeSelector"])
