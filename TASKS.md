@@ -441,6 +441,7 @@
 | [INFRA-274](#infra-274) | Filter environment-specific report metrics and repair Kubernetes load-generator packet capture. | DONE |
 | [INFRA-275](#infra-275) | Compare Spring Kafka latency while scaling consumer parallelism at a fixed 8k workload. | DONE |
 | [INFRA-276](#infra-276) | Isolate and autoscale AWS application capacity for a production-like CKC 50k ramp. | DONE |
+| [INFRA-277](#infra-277) | Remove the redundant runner-local AWS audit-file fallback. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5150,3 +5151,14 @@ Install node autoscaling and retain enough fixed support capacity for the genera
 Add a production-like CKC experiment that ramps from zero to 50k TPS, holds the peak, and cools down while HPA scales two to six one-core-request replicas over six partitions per topic.
 Expose application and support node-group capacity separately in experiment evidence and reports.
 Verification: Terraform formatting and validation pass; 63 AWS, 64 focused orchestration, 175 internal-lab, and 26 dashboard tests pass. No AWS infrastructure or workload was launched.
+
+<a id="infra-277"></a>
+### INFRA-277 - Remove the runner-local AWS audit fallback
+
+_Date: 2026-10-04_
+
+Make immutable gzip chunks streamed through the Fluent Bit S3 output the sole AWS audit evidence path.
+Remove the unbounded uncompressed runner-local audit copy and its legacy end-of-run archive fallback.
+Keep bounded on-disk buffering, unlimited upload retries, incremental optilab prefetch, and strict final inventory validation.
+Verify runner-side S3 writes before workload startup so configuration, permission, and connectivity failures are caught before measurements begin.
+Verification: runner Terraform validation, Bash syntax, ShellCheck, Python compilation, whitespace validation, and all 63 AWS tests pass. No AWS infrastructure or workload was launched.

@@ -252,10 +252,13 @@ materialized and applied before workload deployment.
 Audit-enabled targets stream immutable gzip chunks from the runner's Fluent Bit
 collector to the session S3 bucket throughout the workload. The checkout-side
 controller prefetches completed chunks every fifteen seconds, validates the
-final stream inventory, and keeps the runner-local `audit.log` as a recovery
-fallback. AWS cleanup runs after the complete stream has been copied locally;
-the shared analyzer then runs on the controller host, outside the disposable
-AWS lab.
+final stream inventory, and rejects an incomplete stream instead of relying on
+a second uncompressed runner-local copy. Fluent Bit retains pending uploads in
+a bounded on-disk buffer and retries them without a fixed attempt limit. A
+runner-side write probe verifies S3 connectivity and `PutObject` permission
+before the target starts. AWS cleanup runs after the complete stream has been
+copied locally; the shared analyzer then runs on the controller host, outside
+the disposable AWS lab.
 
 Completed S3 audit streams remain location-independent and can also be
 reanalyzed manually from a local machine or the internal lab:

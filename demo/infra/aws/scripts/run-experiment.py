@@ -633,7 +633,6 @@ class SessionController:
                 "set -euo pipefail",
                 f"aws s3 cp {shlex.quote(context_uri)} "
                 f"{shlex.quote(remote_context)} --region {shlex.quote(region)} --only-show-errors",
-                "truncate -s 0 /opt/ckc-runner/audit/audit.log || true",
                 "docker restart audit >/dev/null",
                 f"CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH={shlex.quote(remote_context)} "
                 f"CKC_AWS_IMAGE_ENVIRONMENT={shlex.quote(config['image_environment'])} "
@@ -699,7 +698,6 @@ class SessionController:
                 f"phase_log={shlex.quote(remote_phase_log)}; "
                 f"session_log={shlex.quote(remote_log)}; "
                 ': > "$phase_log"; '
-                + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
                 + 'CKC_RUN_PHASE_FILE="$phase_log" '
                 + "CKC_RUN_PHASE_HOOK=/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/publish-run-phases.sh "
                 + f"CKC_RUN_PHASE_S3_URI={shlex.quote(phase_uri)} "
@@ -891,11 +889,6 @@ class SessionController:
         chunks = self.session_dir / "audit-prefetch" / target["run_id"]
         marker_path = chunks / "STREAM_COMPLETE.json"
         if not marker_path.is_file():
-            fallback = result_dir / "audit" / "chunks" / "audit-000001.log.gz"
-            if fallback.is_file() and fallback.stat().st_size > 0:
-                self.state.setdefault("audit_stream_fallback_targets", []).append(target["id"])
-                self.save()
-                return
             raise RuntimeError(f"AWS audit stream marker is missing for target {target['id']!r}")
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
         if marker.get("s3_prefix") != self.audit_stream_prefix(target):

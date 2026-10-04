@@ -62,5 +62,4 @@ PY
 
 aws s3 cp "${MARKER}" "s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json" \
   --region "${REGION}" --only-show-errors
-touch "${RUN_AUDIT_DIR}/streamed-to-s3"
 echo "AWS audit stream completed: s3://${BUCKET}/${PREFIX}/"

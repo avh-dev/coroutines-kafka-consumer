@@ -622,21 +622,29 @@ class AwsSessionTest(unittest.TestCase):
                 with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": 7}):
                     controller.materialize_target_audit_stream(target, Path(directory) / "result")
 
-    def test_runner_audit_stream_uses_immutable_gzip_chunks_and_fallback(self) -> None:
+    def test_runner_audit_stream_uses_only_immutable_gzip_chunks(self) -> None:
         configure = (AWS_ROOT / "runner-assets/bin/configure-audit-stream.sh").read_text(encoding="utf-8")
         finalize = (AWS_ROOT / "runner-assets/bin/finalize-audit-stream.sh").read_text(encoding="utf-8")
         export = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        bootstrap = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
         self.assertIn("upload_timeout: 1m", configure)
         self.assertIn("use_put_object: on", configure)
         self.assertIn("compression: gzip", configure)
         self.assertIn("$UUID.log.gz", configure)
         self.assertIn("s3_key_format: '/${PREFIX}/", configure)
+        self.assertIn("aws s3api put-object", configure)
+        self.assertIn('${PREFIX}/WRITE_PROBE', configure)
         self.assertIn("state_after", configure)
+        self.assertNotIn("name: file", configure)
+        self.assertNotIn("file: audit.log", configure)
         self.assertIn('--prefix "${PREFIX}/"', finalize)
         self.assertIn('s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json', finalize)
         self.assertIn("STREAM_COMPLETE.json", finalize)
-        self.assertIn("streamed-to-s3", export)
-        self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
+        self.assertNotIn("streamed-to-s3", export)
+        self.assertNotIn("AUDIT_SOURCE", export)
+        self.assertNotIn("gzip -c", export)
+        self.assertIn("- name: null", bootstrap)
+        self.assertNotIn("file: audit.log", bootstrap)
 
     def test_audit_prefetch_uses_the_object_key_returned_by_s3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -652,19 +660,15 @@ class AwsSessionTest(unittest.TestCase):
             command[3],
         )
 
-    def test_missing_stream_marker_uses_runner_archive_fallback(self) -> None:
+    def test_missing_stream_marker_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["artifact_bucket"] = "audit-bucket"
             target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
             result = Path(directory) / "result"
-            fallback = result / "audit/chunks/audit-000001.log.gz"
-            fallback.parent.mkdir(parents=True)
-            fallback.write_bytes(b"fallback")
-            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
-                controller.materialize_target_audit_stream(target, result)
-
-        self.assertEqual(["ckc"], controller.state["audit_stream_fallback_targets"])
+            with self.assertRaisesRegex(RuntimeError, "stream marker is missing"):
+                with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
+                    controller.materialize_target_audit_stream(target, result)
 
     def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
