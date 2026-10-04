@@ -105,6 +105,24 @@ def eks_text(payload: dict[str, Any]) -> str | None:
     eks = payload.get("eks") or {}
     if not isinstance(eks, dict) or not eks:
         return None
+    node_groups = eks.get("node_groups")
+    if isinstance(node_groups, dict) and node_groups:
+        groups = []
+        for role in ("support", "application"):
+            group = node_groups.get(role)
+            if not isinstance(group, dict):
+                continue
+            instance_types = group.get("instance_types") or []
+            if isinstance(instance_types, str):
+                instance_types = [instance_types]
+            instance_text = " / ".join(str(value) for value in instance_types if value)
+            minimum = group.get("min_size")
+            maximum = group.get("max_size")
+            size = ""
+            if minimum is not None and maximum is not None:
+                size = f"{minimum}–{maximum}" if minimum != maximum else str(minimum)
+            groups.append(" ".join(part for part in (role, size, instance_text) if part))
+        return " · ".join(groups) if groups else None
     instance_types = eks.get("instance_types") or []
     if isinstance(instance_types, str):
         instance_types = [instance_types]

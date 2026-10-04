@@ -285,6 +285,16 @@ data:
       }
 
       rule {
+        source_labels = ["__meta_kubernetes_node_label_ckc_dev_role"]
+        target_label  = "node_role"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_node_label_eks_amazonaws_com_nodegroup"]
+        target_label  = "node_group"
+      }
+
+      rule {
         source_labels = ["__meta_kubernetes_node_name"]
         target_label  = "__metrics_path__"
         replacement   = "/api/v1/nodes/\$1/proxy/metrics/cadvisor"
@@ -490,6 +500,10 @@ spec:
           configMap:
             name: ckc-alloy-config
 EOF
+  if [ "${DEDICATED_NODE_GROUPS:-false}" = "true" ]; then
+    kubectl -n ckc-observability patch deployment ckc-alloy --type merge \
+      -p '{"spec":{"template":{"spec":{"nodeSelector":{"ckc.dev/role":"support"}}}}}'
+  fi
   kubectl -n ckc-observability rollout status deployment/ckc-alloy --timeout=5m
 }
 
@@ -561,7 +575,180 @@ spec:
       port: 9308
       targetPort: metrics
 EOF
+  if [ "${DEDICATED_NODE_GROUPS:-false}" = "true" ]; then
+    kubectl -n ckc-observability patch deployment ckc-kafka-exporter --type merge \
+      -p '{"spec":{"template":{"spec":{"nodeSelector":{"ckc.dev/role":"support"}}}}}'
+  fi
   kubectl -n ckc-observability rollout status deployment/ckc-kafka-exporter --timeout=5m
+}
+
+deploy_cluster_autoscaler() {
+  local image="$1"
+  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-autoscaler
+rules:
+  - apiGroups: [""]
+    resources: ["events", "endpoints"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    resourceNames: ["cluster-autoscaler"]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["watch", "list", "get", "update"]
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "replicationcontrollers", "persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["watch", "list", "get"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "replicasets", "statefulsets"]
+    verbs: ["watch", "list", "get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["watch", "list", "get"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["watch", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
+    verbs: ["watch", "list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["cluster-autoscaler-status", "cluster-autoscaler-priority-expander"]
+    verbs: ["delete", "get", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-autoscaler
+subjects:
+  - kind: ServiceAccount
+    name: cluster-autoscaler
+    namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-autoscaler
+subjects:
+  - kind: ServiceAccount
+    name: cluster-autoscaler
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-autoscaler
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      serviceAccountName: cluster-autoscaler
+      priorityClassName: system-cluster-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        ckc.dev/role: support
+      containers:
+        - name: cluster-autoscaler
+          image: ${image}
+          imagePullPolicy: IfNotPresent
+          command:
+            - ./cluster-autoscaler
+            - --cloud-provider=aws
+            - --namespace=kube-system
+            - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${CLUSTER_NAME}
+            - --expander=least-waste
+            - --balance-similar-node-groups
+            - --skip-nodes-with-local-storage=false
+            - --stderrthreshold=info
+            - --v=4
+          env:
+            - name: AWS_REGION
+              value: ${REGION}
+            - name: AWS_DEFAULT_REGION
+              value: ${REGION}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 300Mi
+            limits:
+              cpu: 500m
+              memory: 600Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: ssl-certs
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              readOnly: true
+      volumes:
+        - name: ssl-certs
+          hostPath:
+            path: /etc/ssl/certs/ca-bundle.crt
+EOF
+  kubectl -n kube-system rollout status deployment/cluster-autoscaler --timeout=5m
+  local attempts=0
+  until kubectl -n kube-system get configmap cluster-autoscaler-status -o yaml 2>/dev/null | grep -q 'application'; do
+    attempts=$((attempts + 1))
+    if [ "${attempts}" -ge 60 ]; then
+      kubectl -n kube-system logs deployment/cluster-autoscaler --tail=100 >&2 || true
+      echo "cluster-autoscaler did not discover the application node group within 5 minutes." >&2
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 stop_aws_cloudwatch_exporter() {
@@ -842,6 +1029,11 @@ KUBERNETES_VERSION="$(infra_output kubernetes_version)"
 NODE_INSTANCE_TYPES="$(infra_output node_instance_types)"
 NODE_DESIRED_SIZE="$(infra_output node_desired_size)"
 NODE_DISK_SIZE="$(infra_output node_disk_size)"
+DEDICATED_NODE_GROUPS="$(infra_output dedicated_node_groups)"
+NODE_GROUPS="$(infra_output node_groups)"
+CLUSTER_AUTOSCALER_IMAGE="$(infra_output cluster_autoscaler_image)"
+CLUSTER_AUTOSCALER_VERSION="${CLUSTER_AUTOSCALER_IMAGE##*:}"
+CLUSTER_AUTOSCALER_VERSION="${CLUSTER_AUTOSCALER_VERSION#v}"
 RUNNER_INSTANCE_TYPE="$(infra_output runner_instance_type 2>/dev/null || true)"
 RUNNER_INSTANCE_TYPE="${RUNNER_INSTANCE_TYPE:-unknown}"
 RUNNER_ROOT_VOLUME_SIZE="$(infra_output runner_root_volume_size 2>/dev/null || true)"
@@ -944,6 +1136,9 @@ REMOTE_WRITE_URL="http://${RUNNER_PRIVATE_IP}:8428/api/v1/write"
 LOKI_WRITE_URL="http://${RUNNER_PRIVATE_IP}:3100/loki/api/v1/push"
 AUDIT_TCP_HOST="${RUNNER_PRIVATE_IP}"
 
+if [ "${DEDICATED_NODE_GROUPS}" = "true" ]; then
+  deploy_cluster_autoscaler "${CLUSTER_AUTOSCALER_IMAGE}"
+fi
 deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
 deploy_observability_agent "${REMOTE_WRITE_URL}" "${LOKI_WRITE_URL}"
 
@@ -979,6 +1174,15 @@ context = {
     "audit_tcp_host": "${AUDIT_TCP_HOST}",
     "audit_tcp_port": 5170,
     "kafka_exporter_enabled": True,
+    "application_node_selector": {"ckc.dev/role": "application"} if "${DEDICATED_NODE_GROUPS}" == "true" else None,
+    "application_tolerations": ([{
+        "key": "dedicated",
+        "operator": "Equal",
+        "value": "application",
+        "effect": "NoSchedule",
+    }] if "${DEDICATED_NODE_GROUPS}" == "true" else []),
+    "support_node_selector": {"ckc.dev/role": "support"} if "${DEDICATED_NODE_GROUPS}" == "true" else None,
+    "load_test_node_selector": {"ckc.dev/role": "support"} if "${DEDICATED_NODE_GROUPS}" == "true" else None,
     "msk_cloudwatch_enabled": "${MSK_CLOUDWATCH_ENABLED}" == "true",
     "msk_cloudwatch_cluster_name": "${MSK_CLOUDWATCH_CLUSTER_NAME}",
     "elasticache_member_clusters": json.loads('''${ELASTICACHE_MEMBER_CLUSTERS}'''),
@@ -988,11 +1192,12 @@ context = {
         "region": "${REGION}",
         "cluster_name": "${CLUSTER_NAME}",
         "kubernetes": {"version": "${KUBERNETES_VERSION}"},
-        "worker_group": {
+        "worker_group": ({
             "desired_nodes": ${NODE_DESIRED_SIZE},
             "instance_types": json.loads('''${NODE_INSTANCE_TYPES}'''),
             "disk_gib": ${NODE_DISK_SIZE},
-        },
+        } if "${DEDICATED_NODE_GROUPS}" != "true" else {}),
+        "node_groups": json.loads('''${NODE_GROUPS}'''),
         "runner": {
             "instance_type": "${RUNNER_INSTANCE_TYPE}",
             "root_volume_gib": ${RUNNER_ROOT_VOLUME_SIZE},
@@ -1034,6 +1239,16 @@ context = {
                         "limits": {"cpu": "500m", "memory": "256Mi"},
                     },
                 },
+                *([{
+                    "name": "Cluster Autoscaler",
+                    "version": "${CLUSTER_AUTOSCALER_VERSION}",
+                    "role": "application managed-node-group scaling",
+                    "replicas": 1,
+                    "resources": {
+                        "requests": {"cpu": "100m", "memory": "300Mi"},
+                        "limits": {"cpu": "500m", "memory": "600Mi"},
+                    },
+                }] if "${DEDICATED_NODE_GROUPS}" == "true" else []),
             ],
             "runner": [
                 {"name": "VictoriaMetrics", "version": "1.102.1", "role": "metrics store"},

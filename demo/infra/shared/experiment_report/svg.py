@@ -136,6 +136,7 @@ def environment_topology_svg(
     version = str(kubernetes.get("version") or "")
     nodes = [node for node in environment.get("nodes", []) if isinstance(node, dict)]
     worker_group = environment.get("worker_group") if isinstance(environment.get("worker_group"), dict) else {}
+    node_groups = environment.get("node_groups") if isinstance(environment.get("node_groups"), dict) else {}
     node_types = [str(value) for value in worker_group.get("instance_types", []) if value]
     if not node_types:
         node_types = sorted({str(node.get("instance_type")) for node in nodes if node.get("instance_type")})
@@ -392,10 +393,24 @@ def environment_topology_svg(
         ] if part)
         runner_purpose = " · ".join(str(value) for value in runner_roles)
         runner_components = observability.get("runner") if isinstance(observability.get("runner"), list) else []
-        eks_configuration = " · ".join(part for part in [
-            f"{node_count} × {'/'.join(node_types)} workers" if node_count and node_types else "",
-            f"{disk} GiB EBS/node" if disk else "",
-        ] if part)
+        if node_groups:
+            group_parts = []
+            for role in ("support", "application"):
+                group = node_groups.get(role) if isinstance(node_groups.get(role), dict) else {}
+                types = "/".join(str(value) for value in group.get("instance_types", []) if value)
+                minimum = group.get("min_size")
+                maximum = group.get("max_size")
+                if not group:
+                    continue
+                size = f"{minimum}–{maximum}" if minimum != maximum else str(minimum)
+                scaling = "autoscaled" if group.get("autoscaling") else "fixed"
+                group_parts.append(f"{role} {size} × {types} {scaling}")
+            eks_configuration = " · ".join(group_parts)
+        else:
+            eks_configuration = " · ".join(part for part in [
+                f"{node_count} × {'/'.join(node_types)} workers" if node_count and node_types else "",
+                f"{disk} GiB EBS/node" if disk else "",
+            ] if part)
         body = [
             '<rect data-boundary="aws" x="8" y="45" width="1264" height="842" rx="14" fill="#ffffff" stroke="#232f3e" stroke-width="2"/>',
             service_icon("environment-aws", 28, 61, 34),

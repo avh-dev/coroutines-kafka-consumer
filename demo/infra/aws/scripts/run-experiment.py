@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import copy
 import hashlib
 import json
 import os
@@ -1696,10 +1697,11 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         "nodes": redis_lab.get("elasticache_nodes") or terraform_lab_inputs.get("elasticache_num_cache_clusters"),
     }
     nodes_lab = lab.get("nodes") or {}
-    eks = {
+    node_groups_lab = lab.get("node_groups") or {}
+    eks = ({"node_groups": copy.deepcopy(node_groups_lab)} if node_groups_lab else {
         "instance_types": nodes_lab.get("instance_types") or terraform_lab_inputs.get("node_instance_types"),
         "nodes": nodes_lab.get("desired_size") or terraform_lab_inputs.get("node_desired_size"),
-    }
+    })
     return {
         "schema_version": 1,
         "created_at": utc_text(),

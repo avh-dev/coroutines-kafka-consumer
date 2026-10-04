@@ -8,3 +8,14 @@ node_desired_size   = 2
 node_min_size       = 1
 node_max_size       = 4
 node_disk_size      = 100
+
+# Experiments can replace the shared group above with isolated pools.
+# dedicated_node_groups          = true
+# support_node_instance_types    = ["m7i.large"]
+# support_node_desired_size      = 2
+# support_node_min_size          = 2
+# support_node_max_size          = 2
+# application_node_instance_types = ["m7i.large"]
+# application_node_desired_size  = 2
+# application_node_min_size      = 2
+# application_node_max_size      = 6

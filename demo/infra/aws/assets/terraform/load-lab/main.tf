@@ -320,19 +320,164 @@ module "eks" {
     }
   }
 
-  eks_managed_node_groups = {
-    default = {
-      instance_types = var.node_instance_types
-      desired_size   = var.node_desired_size
-      min_size       = var.node_min_size
-      max_size       = var.node_max_size
-      disk_size      = var.node_disk_size
+  eks_managed_node_groups = merge(
+    var.dedicated_node_groups ? tomap({}) : tomap({
+      default = {
+        instance_types = var.node_instance_types
+        desired_size   = var.node_desired_size
+        min_size       = var.node_min_size
+        max_size       = var.node_max_size
+        disk_size      = var.node_disk_size
 
-      labels = {
-        workload = "general"
+        labels = {
+          workload = "general"
+        }
+
+        taints               = {}
+        launch_template_tags = local.tags
       }
-    }
-  }
+    }),
+    var.dedicated_node_groups ? tomap({
+      support = {
+        instance_types = var.support_node_instance_types
+        desired_size   = var.support_node_desired_size
+        min_size       = var.support_node_min_size
+        max_size       = var.support_node_max_size
+        disk_size      = var.support_node_disk_size
+
+        labels = {
+          workload       = "support"
+          "ckc.dev/role" = "support"
+        }
+
+        taints = {}
+
+        launch_template_tags = merge(local.tags, {
+          CkcNodeRole = "support"
+        })
+      }
+
+      application = {
+        instance_types = var.application_node_instance_types
+        desired_size   = var.application_node_desired_size
+        min_size       = var.application_node_min_size
+        max_size       = var.application_node_max_size
+        disk_size      = var.application_node_disk_size
+
+        labels = {
+          workload       = "application"
+          "ckc.dev/role" = "application"
+        }
+
+        taints = {
+          dedicated_application = {
+            key    = "dedicated"
+            value  = "application"
+            effect = "NO_SCHEDULE"
+          }
+        }
+
+        launch_template_tags = merge(local.tags, {
+          CkcNodeRole = "application"
+        })
+      }
+    }) : tomap({})
+  )
 
   tags = local.tags
+}
+
+data "aws_iam_policy_document" "cluster_autoscaler_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole", "sts:TagSession"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "cluster_autoscaler" {
+  count              = var.dedicated_node_groups ? 1 : 0
+  name_prefix        = "${local.name}-cluster-autoscaler-"
+  assume_role_policy = data.aws_iam_policy_document.cluster_autoscaler_assume_role.json
+  tags               = local.tags
+}
+
+data "aws_iam_policy_document" "cluster_autoscaler" {
+  statement {
+    sid = "ReadScalingState"
+    actions = [
+      "autoscaling:DescribeAutoScalingGroups",
+      "autoscaling:DescribeAutoScalingInstances",
+      "autoscaling:DescribeLaunchConfigurations",
+      "autoscaling:DescribeScalingActivities",
+      "autoscaling:DescribeTags",
+      "ec2:DescribeImages",
+      "ec2:DescribeInstanceTypes",
+      "ec2:DescribeLaunchTemplateVersions",
+      "ec2:GetInstanceTypesFromInstanceRequirements",
+      "eks:DescribeNodegroup",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ScaleApplicationNodeGroup"
+    actions = [
+      "autoscaling:SetDesiredCapacity",
+      "autoscaling:TerminateInstanceInAutoScalingGroup",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/k8s.io/cluster-autoscaler/enabled"
+      values   = ["true"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/k8s.io/cluster-autoscaler/${local.name}"
+      values   = ["owned"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "cluster_autoscaler" {
+  count  = var.dedicated_node_groups ? 1 : 0
+  name   = "cluster-autoscaler"
+  role   = aws_iam_role.cluster_autoscaler[0].id
+  policy = data.aws_iam_policy_document.cluster_autoscaler.json
+}
+
+resource "aws_eks_pod_identity_association" "cluster_autoscaler" {
+  count           = var.dedicated_node_groups ? 1 : 0
+  cluster_name    = module.eks.cluster_name
+  namespace       = "kube-system"
+  service_account = "cluster-autoscaler"
+  role_arn        = aws_iam_role.cluster_autoscaler[0].arn
+}
+
+resource "aws_autoscaling_group_tag" "cluster_autoscaler_enabled" {
+  count                  = var.dedicated_node_groups ? 1 : 0
+  autoscaling_group_name = module.eks.eks_managed_node_groups["application"].node_group_autoscaling_group_names[0]
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/enabled"
+    value               = "true"
+    propagate_at_launch = false
+  }
+}
+
+resource "aws_autoscaling_group_tag" "cluster_autoscaler_cluster" {
+  count                  = var.dedicated_node_groups ? 1 : 0
+  autoscaling_group_name = module.eks.eks_managed_node_groups["application"].node_group_autoscaling_group_names[0]
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/${local.name}"
+    value               = "owned"
+    propagate_at_launch = false
+  }
 }

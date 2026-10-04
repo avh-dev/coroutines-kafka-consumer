@@ -167,6 +167,80 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
 
+    def test_materializes_dedicated_autoscaling_aws_ckc_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+        root = Path(self.temp.name) / "autoscaling"
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+        variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(variables["dedicated_node_groups"])
+        self.assertEqual(["m7i.large"], variables["support_node_instance_types"])
+        self.assertEqual((2, 2, 2), (
+            variables["support_node_desired_size"],
+            variables["support_node_min_size"],
+            variables["support_node_max_size"],
+        ))
+        self.assertEqual(["m7i.large"], variables["application_node_instance_types"])
+        self.assertEqual((2, 2, 6), (
+            variables["application_node_desired_size"],
+            variables["application_node_min_size"],
+            variables["application_node_max_size"],
+        ))
+        self.assertEqual(
+            "0 -> (30m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0",
+            definition["load_test"]["load_profile"],
+        )
+        self.assertEqual([6, 6, 6], [topic["partitions"] for topic in plan["application"]["planner"]["topics"]])
+        self.assertEqual({
+            "enabled": True,
+            "min_replicas": 2,
+            "max_replicas": 6,
+            "target_cpu_utilization_percentage": 70,
+            "scale_down_stabilization_window_seconds": 300,
+        }, plan["application"]["configuration"]["hpa"])
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="autoscaling-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="msk:9092",
+            redis_host="elasticache",
+            audit_host="audit",
+            application_node_selector={"ckc.dev/role": "application"},
+            application_tolerations=({
+                "key": "dedicated",
+                "operator": "Equal",
+                "value": "application",
+                "effect": "NoSchedule",
+            },),
+            support_node_selector={"ckc.dev/role": "support"},
+            load_test_node_selector={"ckc.dev/role": "support"},
+        ))
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        stubs = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs"
+        )
+        load_job = next(item for item in manifests if item["kind"] == "Job")
+        hpa = next(item for item in manifests if item["kind"] == "HorizontalPodAutoscaler")
+
+        self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
+        self.assertEqual("application", application["spec"]["template"]["spec"]["tolerations"][0]["value"])
+        self.assertEqual("1", application["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"])
+        self.assertNotIn("cpu", application["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"])
+        self.assertEqual({"ckc.dev/role": "support"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
+        self.assertEqual({"ckc.dev/role": "support"}, load_job["spec"]["template"]["spec"]["nodeSelector"])
+        self.assertEqual(2, hpa["spec"]["minReplicas"])
+        self.assertEqual(6, hpa["spec"]["maxReplicas"])
+        self.assertEqual(70, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
+
     def test_materializes_high_partition_internal_generator_heap(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/internal-generator-noop-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")

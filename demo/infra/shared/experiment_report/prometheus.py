@@ -43,6 +43,30 @@ STANDARD_MEASUREMENTS = {
         "avg_over_time((sum(rate(container_network_transmit_bytes_total"
         '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
     ),
+    "application_replicas_average": (
+        "avg_over_time((count(container_memory_working_set_bytes"
+        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+    ),
+    "application_replicas_max": (
+        "max_over_time((count(container_memory_working_set_bytes"
+        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+    ),
+    "application_nodes_average": (
+        "avg_over_time((count(machine_cpu_cores"
+        '{{job="kubernetes-cadvisor", node_role="application"}}))[{window}:15s])'
+    ),
+    "application_nodes_max": (
+        "max_over_time((count(machine_cpu_cores"
+        '{{job="kubernetes-cadvisor", node_role="application"}}))[{window}:15s])'
+    ),
+    "application_node_hours": (
+        "avg_over_time((count(machine_cpu_cores"
+        '{{job="kubernetes-cadvisor", node_role="application"}}))[{window}:15s]) * {seconds} / 3600'
+    ),
+    "support_node_hours": (
+        "avg_over_time((count(machine_cpu_cores"
+        '{{job="kubernetes-cadvisor", node_role="support"}}))[{window}:15s]) * {seconds} / 3600'
+    ),
     "load_test_cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
         '{{namespace=~"ckc-perf|ckc-loadtest", container="load-test", pod=~"ckc-load-test-.+"}}[1m])))[{window}:15s])'

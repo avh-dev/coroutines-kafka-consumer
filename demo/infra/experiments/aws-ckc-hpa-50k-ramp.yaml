@@ -1,0 +1,199 @@
+schema_version: 2
+name: aws-ckc-hpa-50k-ramp
+description: Production-like CKC HPA and EKS node-autoscaling qualification from zero to 50k TPS on isolated m7i.large application capacity.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
+    flavour:
+      percentiles:
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+    deployment:
+      replicas: 4
+      workers: 4
+      resources:
+        requests:
+          cpu: 300m
+          memory: 384Mi
+        limits:
+          memory: 1Gi
+  load:
+    shards: 2
+    workers: 100
+    dispatcher_threads: 2
+    base_tps: 50000
+    producer_capacity_tps:
+      order: 10000
+      batch: 10000
+      telemetry: 10000
+    load_profile: 0 -> (30m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0
+    cauldron_count: 20000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 32768
+    batch_kafka_producer_batch_size: 32768
+    telemetry_kafka_producer_batch_size: 32768
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
+    cpu_request: 800m
+    memory_request: 768Mi
+    cpu_limit: null
+    memory_limit: 1280Mi
+    java_options: -Xms256m -Xmx768m -XX:+UseG1GC
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 180
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - name: complete-profile
+    start: 0s
+    duration: 60m
+  - name: ramp
+    start: 0s
+    duration: 30m
+  - name: steady
+    start: 30m
+    duration: 20m
+  - name: cool-down
+    start: 50m
+    duration: 10m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 30
+      max_e2e_latency_ms: 2000
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 30
+      max_e2e_latency_ms: 2000
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+targets:
+- name: ckc.hpa-2-6
+  implementation: ckc
+  application:
+    replicas: 2
+    resources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    hpa:
+      enabled: true
+      min_replicas: 2
+      max_replicas: 6
+      target_cpu_utilization_percentage: 70
+      scale_down_stabilization_window_seconds: 300
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+    planning_latency:
+      order_ms: 8
+      batch_ms: 7
+      telemetry_ms: 21
+    parallelism:
+    - workers
+    topics:
+      order:
+        partitions: 6
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      batch:
+        partitions: 6
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: AT_LEAST_ONCE_KEY_ORDERING
+      telemetry:
+        partitions: 6
+        workers: 100
+        queue_capacity: 4096
+        processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+environments:
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.33'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones:
+        - eu-central-1a
+        - eu-central-1b
+        - eu-central-1c
+        private_subnets:
+        - 10.42.0.0/20
+        - 10.42.16.0/20
+        - 10.42.32.0/20
+        public_subnets:
+        - 10.42.128.0/20
+        - 10.42.144.0/20
+        - 10.42.160.0/20
+      node_groups:
+        support:
+          instance_types:
+          - m7i.large
+          desired_size: 2
+          min_size: 2
+          max_size: 2
+          disk_size_gib: 100
+        application:
+          instance_types:
+          - m7i.large
+          desired_size: 2
+          min_size: 2
+          max_size: 6
+          disk_size_gib: 100
+      kafka:
+        mode: msk
+        msk_version: 3.7.x
+        msk_brokers: 3
+        msk_instance_type: kafka.m7g.large
+        msk_volume_size_gib: 20
+      redis:
+        mode: elasticache
+        elasticache_node_type: cache.r7g.large
+        elasticache_engine_version: '7.1'
+        elasticache_nodes: 2
+      observability:
+        runner_peering: true
+        runner_project: ckc-runner
+        remote_write_port: 8428
+        loki_port: 3100
+        audit_port: 5170

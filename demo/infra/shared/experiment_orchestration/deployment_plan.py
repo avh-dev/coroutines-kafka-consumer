@@ -113,6 +113,7 @@ class DeploymentBindings:
     test_definition: str = "canonical"
     started_at: str | None = None
     application_node_selector: Mapping[str, str] | None = None
+    application_tolerations: tuple[Mapping[str, str], ...] = ()
     support_node_selector: Mapping[str, str] | None = None
     load_test_node_selector: Mapping[str, str] | None = None
     load_test_environment: Mapping[str, Any] | None = None
@@ -192,7 +193,7 @@ def aws_terraform_variables(
     lab = environment.get("lab")
     if not isinstance(lab, dict):
         raise ValueError("AWS experiment environment must define lab")
-    allowed_lab = {"kubernetes_version", "network", "nodes", "kafka", "redis", "observability"}
+    allowed_lab = {"kubernetes_version", "network", "nodes", "node_groups", "kafka", "redis", "observability"}
     unknown = sorted(set(lab) - allowed_lab)
     if unknown:
         raise ValueError(f"AWS experiment environment.lab contains unknown fields: {', '.join(unknown)}")
@@ -237,6 +238,47 @@ def aws_terraform_variables(
             "audit_port": "runner_audit_port",
         },
     }
+    node_groups = lab.get("node_groups")
+    if node_groups is not None:
+        if "nodes" in lab:
+            raise ValueError("AWS experiment environment.lab cannot define both nodes and node_groups")
+        if not isinstance(node_groups, dict):
+            raise ValueError("AWS experiment environment.lab.node_groups must be an object")
+        expected_groups = {"support", "application"}
+        unknown_groups = sorted(set(node_groups) - expected_groups)
+        missing_groups = sorted(expected_groups - set(node_groups))
+        if unknown_groups or missing_groups:
+            details = []
+            if missing_groups:
+                details.append(f"missing: {', '.join(missing_groups)}")
+            if unknown_groups:
+                details.append(f"unknown: {', '.join(unknown_groups)}")
+            raise ValueError(
+                "AWS experiment environment.lab.node_groups must define support and application ("
+                + "; ".join(details)
+                + ")"
+            )
+        node_group_fields = {
+            "instance_types": "instance_types",
+            "desired_size": "desired_size",
+            "min_size": "min_size",
+            "max_size": "max_size",
+            "disk_size_gib": "disk_size",
+        }
+        result["dedicated_node_groups"] = True
+        for role in ("support", "application"):
+            group = node_groups[role]
+            if not isinstance(group, dict):
+                raise ValueError(f"AWS experiment environment.lab.node_groups.{role} must be an object")
+            unknown_fields = sorted(set(group) - set(node_group_fields))
+            if unknown_fields:
+                raise ValueError(
+                    f"AWS experiment environment.lab.node_groups.{role} contains unknown fields: "
+                    + ", ".join(unknown_fields)
+                )
+            for source, suffix in node_group_fields.items():
+                if source in group:
+                    result[f"{role}_node_{suffix}"] = copy.deepcopy(group[source])
     for section, mapping in sections.items():
         raw = lab.get(section, {})
         if not isinstance(raw, dict):
@@ -314,6 +356,7 @@ def _deployment(
     probes: Mapping[str, Any] | None = None,
     test_definition: str = "canonical",
     node_selector: Mapping[str, str] | None = None,
+    tolerations: tuple[Mapping[str, str], ...] = (),
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name}
     pod_labels = {
@@ -362,6 +405,8 @@ def _deployment(
     }
     if node_selector:
         pod_spec["nodeSelector"] = dict(node_selector)
+    if tolerations:
+        pod_spec["tolerations"] = [dict(item) for item in tolerations]
     if packet_capture:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
@@ -464,6 +509,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             },
             test_definition=bindings.test_definition,
             node_selector=bindings.application_node_selector,
+            tolerations=bindings.application_tolerations,
         ),
         {
             "apiVersion": "v1", "kind": "Service",
@@ -574,7 +620,21 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             "capabilities": {"add": ["NET_RAW"], "drop": ["ALL"]},
         }
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
-    pod_spec: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
+    workload_labels = {
+        "app.kubernetes.io/name": "ckc-load-test",
+        "ckc.dev/test-run-id": bindings.run_id,
+        "ckc.dev/profile": str(plan["target"]["implementation"]),
+    }
+    pod_spec: dict[str, Any] = {
+        "restartPolicy": "Never",
+        "topologySpreadConstraints": [{
+            "maxSkew": 1,
+            "topologyKey": "kubernetes.io/hostname",
+            "whenUnsatisfiable": "ScheduleAnyway",
+            "labelSelector": {"matchLabels": workload_labels},
+        }],
+        "containers": [container],
+    }
     if bindings.load_test_node_selector:
         pod_spec["nodeSelector"] = dict(bindings.load_test_node_selector)
     if bindings.packet_capture_enabled:
@@ -590,11 +650,7 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             "completionMode": "Indexed",
             "backoffLimit": 0,
             "template": {
-                "metadata": {"labels": {
-                    "app.kubernetes.io/name": "ckc-load-test",
-                    "ckc.dev/test-run-id": bindings.run_id,
-                    "ckc.dev/profile": str(plan["target"]["implementation"]),
-                }},
+                "metadata": {"labels": workload_labels},
                 "spec": pod_spec,
             },
         },

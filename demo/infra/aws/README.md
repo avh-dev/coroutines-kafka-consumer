@@ -117,6 +117,25 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
   --skip-build-images
 ```
 
+The production-like CKC autoscaling qualification separates two fixed support
+workers from a dedicated application group. HPA scales the application from two
+to six one-core-request pods at 70% CPU, while Cluster Autoscaler independently
+scales the tainted application group from two to six `m7i.large` workers. The
+load ramps from zero to 50,000 messages/s for 30 minutes, holds for 20 minutes,
+and cools down for 10 minutes:
+
+```bash
+demo/infra/run-experiment.sh demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml \
+  --environment aws \
+  --skip-build-images
+```
+
+Application, generator, stubs, and observability placement is enforced by node
+labels, a `NoSchedule` application taint, required selectors, and the matching
+application toleration. Archived metrics retain `node_role` and `node_group`
+labels; generated reports show application pod/node scaling and separate
+application and support node-hours for every measurement window.
+
 Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/experiments/aws`; change the root with the global
 `--work-dir` option before the `run` subcommand.

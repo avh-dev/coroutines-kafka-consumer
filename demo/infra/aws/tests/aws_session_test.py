@@ -134,7 +134,7 @@ class AwsSessionTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            {"application", "stubs", "alloy", "kafka_exporter", "producer"},
+            {"application", "stubs", "alloy", "kafka_exporter", "cluster_autoscaler", "producer"},
             set(evidence["workloads"]),
         )
         self.assertEqual(
@@ -147,6 +147,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertTrue(any("app.kubernetes.io/name=ckc-demo-stubs" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-alloy" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-kafka-exporter" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=cluster-autoscaler" in command for command in rendered))
 
     def test_java_version_parses_modern_and_legacy_output(self) -> None:
         for output, expected in (
@@ -749,6 +750,42 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("aws-spring-msk-sizing-50k", config["experiment_id"])
         self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
         self.assertEqual(["spring-kafka.fixed-12"], [target["name"] for target in config["targets"]])
+
+    def test_autoscaling_state_exposes_dedicated_node_groups(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=5400,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual({
+            "node_groups": {
+                "support": {
+                    "instance_types": ["m7i.large"],
+                    "desired_size": 2,
+                    "min_size": 2,
+                    "max_size": 2,
+                    "disk_size_gib": 100,
+                },
+                "application": {
+                    "instance_types": ["m7i.large"],
+                    "desired_size": 2,
+                    "min_size": 2,
+                    "max_size": 6,
+                    "disk_size_gib": 100,
+                },
+            }
+        }, config["eks"])
+        self.assertTrue(config["terraform_lab_inputs"]["dedicated_node_groups"])
+        self.assertEqual(6, config["terraform_lab_inputs"]["application_node_max_size"])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

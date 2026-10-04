@@ -440,6 +440,7 @@
 | [INFRA-273](#infra-273) | Place the internal-lab load generator inside its actual Kubernetes runtime boundary. | DONE |
 | [INFRA-274](#infra-274) | Filter environment-specific report metrics and repair Kubernetes load-generator packet capture. | DONE |
 | [INFRA-275](#infra-275) | Compare Spring Kafka latency while scaling consumer parallelism at a fixed 8k workload. | DONE |
+| [INFRA-276](#infra-276) | Isolate and autoscale AWS application capacity for a production-like CKC 50k ramp. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5137,3 +5138,15 @@ Add a local three-target Spring Kafka experiment that holds 8k traffic, placemen
 Size the baseline from the latest AWS Spring planning latencies with 30% headroom, then compare one, two, and four times that partition and consumer count.
 Give every target a three-minute ramp and seven-minute full-load measurement window so the resulting latency and resource costs remain directly comparable.
 Verification: 57 shared orchestration and 175 internal-lab tests pass; all targets materialize with broker-balanced 27/24/90, 54/48/180, and 108/96/360 partition/poller counts. The renamed 8k experiment is installed incrementally, the obsolete 5k definition is removed, and no workload was launched.
+
+<a id="infra-276"></a>
+### INFRA-276 - Isolate and autoscale AWS application capacity
+
+_Date: 2026-10-04_
+
+Split AWS EKS workers into fixed support and dedicated autoscaling application managed node groups.
+Enforce workload placement with labels, taints, required scheduling constraints, and explicit resource requests.
+Install node autoscaling and retain enough fixed support capacity for the generator, stubs, and cluster services.
+Add a production-like CKC experiment that ramps from zero to 50k TPS, holds the peak, and cools down while HPA scales two to six one-core-request replicas over six partitions per topic.
+Expose application and support node-group capacity separately in experiment evidence and reports.
+Verification: Terraform formatting and validation pass; 63 AWS, 64 focused orchestration, 175 internal-lab, and 26 dashboard tests pass. No AWS infrastructure or workload was launched.
