@@ -5203,5 +5203,6 @@ _Date: 2026-10-04_
 Persist Loki logs and VictoriaMetrics samples as independently verifiable immutable S3 chunks while an AWS target is running.
 Prefetch both streams to the controller so runner teardown cannot discard already collected telemetry, and isolate stream finalization failures from other artifacts.
 Export only closed full-minute windows during a run, then freeze the single partial tail at the `STOP` timestamp so finalization cannot chase the advancing wall clock indefinitely.
+Prefer the compact final VictoriaMetrics archive when it exists, retaining incremental native chunks strictly as the runner-failure fallback instead of duplicating both forms in a bundle.
 Pack two 800m-request application pods onto each `m7i.large` node so the HPA experiment exercises node capacity while leaving room for EKS DaemonSets.
 Verification: all 69 AWS tests and the focused orchestration tests pass; Python and Bash syntax plus whitespace validation pass. Native export/import was exercised against VictoriaMetrics 1.102.1. A live AWS run exposed both the moving-boundary defect and insufficient headroom at 900m; its existing chunks were preserved and the fixed streamer successfully produced the final manifest.

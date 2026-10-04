@@ -955,6 +955,7 @@ class SessionController:
             raise RuntimeError(f"AWS telemetry stream prefix mismatch for target {target['id']!r}")
         expected = marker.get("chunks") or []
         streams = {"loki": [], "metrics": []}
+        metrics_archive = result_dir / "metrics/victoriametrics-data.tar.gz"
         seen: set[tuple[str, str]] = set()
         for item in expected:
             stream = str(item.get("stream") or "")
@@ -963,6 +964,11 @@ class SessionController:
             if stream not in streams or not re.fullmatch(pattern, name) or (stream, name) in seen:
                 raise RuntimeError(f"AWS telemetry stream contains an invalid chunk: {stream}/{name}")
             seen.add((stream, name))
+            # A clean runner export already contains the compact on-disk
+            # VictoriaMetrics archive. Native chunks are the crash fallback;
+            # do not checksum and duplicate them into the evidence bundle.
+            if stream == "metrics" and metrics_archive.is_file():
+                continue
             source = root / stream / name
             if not source.is_file() or source.stat().st_size != int(item["size"]):
                 raise RuntimeError(f"AWS telemetry chunk is missing or incomplete: {stream}/{name}")
@@ -973,14 +979,15 @@ class SessionController:
             if digest.hexdigest() != item.get("sha256"):
                 raise RuntimeError(f"AWS telemetry chunk checksum mismatch: {stream}/{name}")
             streams[stream].append(source)
-        if not streams["loki"] or not streams["metrics"]:
+        if not streams["loki"] or (not metrics_archive.is_file() and not streams["metrics"]):
             raise RuntimeError(f"AWS telemetry stream is incomplete for target {target['id']!r}")
 
         loki_dir = result_dir / "logs/loki"
         loki_chunks = loki_dir / "chunks"
         metrics_chunks = result_dir / "metrics/victoriametrics-native"
         loki_chunks.mkdir(parents=True, exist_ok=True)
-        metrics_chunks.mkdir(parents=True, exist_ok=True)
+        if not metrics_archive.is_file():
+            metrics_chunks.mkdir(parents=True, exist_ok=True)
         records: dict[tuple[str, str, str], dict[str, Any]] = {}
         applications: set[str] = set()
         for source in sorted(streams["loki"]):
@@ -1009,7 +1016,8 @@ class SessionController:
         for source in sorted(streams["metrics"]):
             shutil.copy2(source, metrics_chunks / source.name)
         shutil.copy2(marker_path, loki_chunks / marker_path.name)
-        shutil.copy2(marker_path, metrics_chunks / marker_path.name)
+        if not metrics_archive.is_file():
+            shutil.copy2(marker_path, metrics_chunks / marker_path.name)
 
     def materialize_target_audit_stream(self, target: dict[str, Any], result_dir: Path) -> None:
         if target.get("audit_log_enabled", True) is False:

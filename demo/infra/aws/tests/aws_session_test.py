@@ -785,6 +785,8 @@ class AwsSessionTest(unittest.TestCase):
         streamer = (AWS_ROOT / "runner-assets/bin/stream-telemetry.py").read_text()
         self.assertIn("stop_path.stat().st_mtime", streamer)
         self.assertIn("closed_until - cursor < WINDOW_SECONDS", streamer)
+        materializer = (AWS_ROOT / "scripts/run-experiment.py").read_text()
+        self.assertIn('metrics_archive = result_dir / "metrics/victoriametrics-data.tar.gz"', materializer)
         self.assertEqual(
             [{"name": "loki-10-20.jsonl.gz"}],
             stream_telemetry_module.entries_through([
