@@ -782,7 +782,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("export-loki.py", export)
         self.assertIn("stream-telemetry.py", configure)
         self.assertIn('touch "${STATE_DIR}/STOP"', finalize)
-        self.assertIn("stop_path.stat().st_mtime", (AWS_ROOT / "runner-assets/bin/stream-telemetry.py").read_text())
+        streamer = (AWS_ROOT / "runner-assets/bin/stream-telemetry.py").read_text()
+        self.assertIn("stop_path.stat().st_mtime", streamer)
+        self.assertIn("closed_until - cursor < WINDOW_SECONDS", streamer)
         self.assertEqual(
             [{"name": "loki-10-20.jsonl.gz"}],
             stream_telemetry_module.entries_through([

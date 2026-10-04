@@ -152,6 +152,9 @@ def run(args: argparse.Namespace) -> None:
         # finalization chase a moving target forever whenever exporting a
         # window takes long enough for the clock to advance.
         closed_until = int(stop_path.stat().st_mtime) if stopping else int(time.time()) - CLOSE_LAG_SECONDS
+        if not stopping and closed_until - cursor < WINDOW_SECONDS:
+            time.sleep(5)
+            continue
         if closed_until > cursor:
             window_end = min(closed_until, cursor + WINDOW_SECONDS)
             for attempt in range(1, 6):
