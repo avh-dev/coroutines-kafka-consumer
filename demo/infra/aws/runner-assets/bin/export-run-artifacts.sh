@@ -18,14 +18,6 @@ fi
 
 mkdir -p "${RUN_DIR}/audit/chunks" "${RUN_DIR}/metrics" "${RUN_DIR}/logs/runner" "${RUN_DIR}/config"
 
-python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
-  "${RUN_DIR}" --loki-url http://127.0.0.1:3100 \
-  --require-application ckc-demo \
-  --require-application ckc-demo-stubs \
-  --require-application ckc-load-test
-
-sleep 2
-
 for container in prometheus loki grafana audit ckc-aws-cloudwatch-exporter ckc-aws-cloudwatch-vmagent; do
   docker logs "${container}" > "${RUN_DIR}/logs/runner/${container}.log" 2>&1 || true
 done

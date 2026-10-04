@@ -445,6 +445,7 @@
 | [INFRA-278](#infra-278) | Remove remaining capacity and autoscaler blockers from the AWS CKC 50k ramp. | DONE |
 | [INFRA-279](#infra-279) | Keep the AWS Cluster Autoscaler IAM role prefix within the provider limit. | DONE |
 | [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
+| [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5193,3 +5194,13 @@ _Date: 2026-10-04_
 Use a regular temporary file for the S3 audit-stream write probe because AWS CLI v2 rejects `/dev/null` as a blob file.
 Keep the probe body empty, remove it immediately after the request, and cover the command shape with the AWS session tests.
 Verification: Bash syntax, whitespace validation, and all 60 AWS session tests pass. ShellCheck is unavailable on the controller host. No workload was launched.
+
+<a id="infra-281"></a>
+### INFRA-281 - Stream AWS telemetry incrementally
+
+_Date: 2026-10-04_
+
+Persist Loki logs and VictoriaMetrics samples as independently verifiable immutable S3 chunks while an AWS target is running.
+Prefetch both streams to the controller so runner teardown cannot discard already collected telemetry, and isolate stream finalization failures from other artifacts.
+Pack two 900m-request application pods onto each `m7i.large` node so the HPA experiment exercises node capacity instead of reserving nearly half of every worker.
+Verification: all 69 AWS tests and the focused orchestration tests pass; Python and Bash syntax plus whitespace validation pass. Native export/import was exercised against VictoriaMetrics 1.102.1. No AWS infrastructure or workload was launched.

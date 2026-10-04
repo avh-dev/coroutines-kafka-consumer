@@ -119,9 +119,10 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
 
 The production-like CKC autoscaling qualification separates two fixed
 `m7i.xlarge` support workers from a dedicated application group. HPA scales the
-application from two to six one-core-request pods at 70% CPU, while Cluster
-Autoscaler independently scales the tainted application group from two to six
-`m7i.large` workers. Three MSK brokers receive 100 GiB each for the complete
+application from two to six 900m-request pods at 70% CPU, while Cluster
+Autoscaler independently scales the tainted application group from two to three
+`m7i.large` workers. Two application pods fit on each worker instead of leaving
+nearly one core unallocated per node. Three MSK brokers receive 100 GiB each for the complete
 audited workload. The load ramps from zero to 50,000 messages/s for 30 minutes,
 holds for 20 minutes, and cools down for 10 minutes:
 
@@ -178,6 +179,13 @@ the small state files, command log, lifecycle metadata, and results are kept.
 The downloaded result contains run metadata, the resolved test, application and
 load-test logs, compact audit chunks, packet-capture diagnostics when selected,
 the environment-filtered shared dashboard, runner service logs, Loki-ready log records, and a stopped VictoriaMetrics data archive.
+While each target runs, the runner exports closed one-minute Loki and
+VictoriaMetrics windows as immutable S3 chunks. The controller prefetches both
+streams every fifteen seconds and verifies their sizes and SHA-256 digests from
+the final inventory. A normal final export still keeps the fast stopped
+VictoriaMetrics archive; native metric chunks can rebuild that archive if the
+runner-local copy is unavailable. Loki is assembled from the prefetched chunks
+instead of issuing one large end-of-run range query.
 The workload starts only after application, Kafka-exporter, thread, and cAdvisor
 telemetry are all visible. `telemetry-readiness.json` and
 `metrics-coverage.json` record that preflight and verify that the required metric

@@ -100,7 +100,7 @@ targets:
     replicas: 2
     resources:
       requests:
-        cpu: '1'
+        cpu: 900m
         memory: 1Gi
       limits:
         memory: 3Gi
@@ -178,7 +178,7 @@ environments:
           - m7i.large
           desired_size: 2
           min_size: 2
-          max_size: 6
+          max_size: 3
           disk_size_gib: 100
       kafka:
         mode: msk
