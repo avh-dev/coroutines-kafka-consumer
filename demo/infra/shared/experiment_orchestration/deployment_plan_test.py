@@ -177,13 +177,14 @@ class DeploymentPlanTest(unittest.TestCase):
         variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
 
         self.assertTrue(variables["dedicated_node_groups"])
-        self.assertEqual(["m7i.large"], variables["support_node_instance_types"])
+        self.assertEqual(["m7i.xlarge"], variables["support_node_instance_types"])
         self.assertEqual((2, 2, 2), (
             variables["support_node_desired_size"],
             variables["support_node_min_size"],
             variables["support_node_max_size"],
         ))
         self.assertEqual(["m7i.large"], variables["application_node_instance_types"])
+        self.assertEqual(100, variables["msk_ebs_volume_size"])
         self.assertEqual((2, 2, 6), (
             variables["application_node_desired_size"],
             variables["application_node_min_size"],

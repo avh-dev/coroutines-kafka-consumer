@@ -168,7 +168,7 @@ environments:
       node_groups:
         support:
           instance_types:
-          - m7i.large
+          - m7i.xlarge
           desired_size: 2
           min_size: 2
           max_size: 2
@@ -185,7 +185,7 @@ environments:
         msk_version: 3.7.x
         msk_brokers: 3
         msk_instance_type: kafka.m7g.large
-        msk_volume_size_gib: 20
+        msk_volume_size_gib: 100
       redis:
         mode: elasticache
         elasticache_node_type: cache.r7g.large

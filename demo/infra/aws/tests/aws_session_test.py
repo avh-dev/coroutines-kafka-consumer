@@ -98,6 +98,22 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("memory: 512Mi", script)
         self.assertIn("memory: 2Gi", script)
 
+    def test_cluster_autoscaler_has_leader_election_lease_permissions(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            script,
+            r'apiGroups: \["coordination\.k8s\.io"\]\s+'
+            r'resources: \["leases"\]\s+'
+            r'verbs: \["create"\]',
+        )
+        self.assertRegex(
+            script,
+            r'apiGroups: \["coordination\.k8s\.io"\]\s+'
+            r'resources: \["leases"\]\s+'
+            r'resourceNames: \["cluster-autoscaler"\]\s+'
+            r'verbs: \["get", "update"\]',
+        )
+
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
         java_commands: list[list[str]] = []
@@ -773,7 +789,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual({
             "node_groups": {
                 "support": {
-                    "instance_types": ["m7i.large"],
+                    "instance_types": ["m7i.xlarge"],
                     "desired_size": 2,
                     "min_size": 2,
                     "max_size": 2,
