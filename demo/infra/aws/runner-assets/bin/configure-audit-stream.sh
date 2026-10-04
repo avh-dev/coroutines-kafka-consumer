@@ -18,11 +18,15 @@ for value in "${REGION}" "${BUCKET}" "${PREFIX}" "${RUN_ID}"; do
   fi
 done
 
+WRITE_PROBE="$(mktemp)"
+trap 'rm -f "${WRITE_PROBE}"' EXIT
 aws s3api put-object \
   --region "${REGION}" \
   --bucket "${BUCKET}" \
   --key "${PREFIX}/WRITE_PROBE" \
-  --body /dev/null >/dev/null
+  --body "${WRITE_PROBE}" >/dev/null
+rm -f "${WRITE_PROBE}"
+trap - EXIT
 
 docker stop --time 30 audit >/dev/null 2>&1 || true
 rm -rf "${AUDIT_DIR}/s3-buffer"

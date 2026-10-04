@@ -444,6 +444,7 @@
 | [INFRA-277](#infra-277) | Remove the redundant runner-local AWS audit-file fallback. | DONE |
 | [INFRA-278](#infra-278) | Remove remaining capacity and autoscaler blockers from the AWS CKC 50k ramp. | DONE |
 | [INFRA-279](#infra-279) | Keep the AWS Cluster Autoscaler IAM role prefix within the provider limit. | DONE |
+| [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5183,3 +5184,12 @@ _Date: 2026-10-04_
 Derive the Cluster Autoscaler IAM role prefix from a compact environment hash so every generated prefix stays below AWS's 38-character limit.
 Cover the actual session-shaped environment name that exposed the failure during Terraform planning.
 Verification: a real Terraform plan using the failed session's variables succeeds; Terraform validation and all 65 AWS tests pass. The failed session cleanup completed with no remaining AWS resources.
+
+<a id="infra-280"></a>
+### INFRA-280 - Fix the AWS audit-stream write probe
+
+_Date: 2026-10-04_
+
+Use a regular temporary file for the S3 audit-stream write probe because AWS CLI v2 rejects `/dev/null` as a blob file.
+Keep the probe body empty, remove it immediately after the request, and cover the command shape with the AWS session tests.
+Verification: Bash syntax, whitespace validation, and all 60 AWS session tests pass. ShellCheck is unavailable on the controller host. No workload was launched.
