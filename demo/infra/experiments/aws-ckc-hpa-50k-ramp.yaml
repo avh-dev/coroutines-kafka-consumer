@@ -178,7 +178,7 @@ environments:
           - m7i.large
           desired_size: 2
           min_size: 2
-          max_size: 3
+          max_size: 8
           disk_size_gib: 100
       kafka:
         mode: msk

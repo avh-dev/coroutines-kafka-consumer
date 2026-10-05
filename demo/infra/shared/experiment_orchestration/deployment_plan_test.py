@@ -185,7 +185,7 @@ class DeploymentPlanTest(unittest.TestCase):
         ))
         self.assertEqual(["m7i.large"], variables["application_node_instance_types"])
         self.assertEqual(100, variables["msk_ebs_volume_size"])
-        self.assertEqual((2, 2, 3), (
+        self.assertEqual((2, 2, 8), (
             variables["application_node_desired_size"],
             variables["application_node_min_size"],
             variables["application_node_max_size"],

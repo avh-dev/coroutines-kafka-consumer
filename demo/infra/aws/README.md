@@ -120,9 +120,10 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
 The production-like CKC autoscaling qualification separates two fixed
 `m7i.xlarge` support workers from a dedicated application group. HPA scales the
 application from two to six 800m-request pods at 70% CPU, while Cluster
-Autoscaler independently scales the tainted application group from two to three
-`m7i.large` workers. Two application pods fit on each worker instead of leaving
-nearly one core unallocated per node. Three MSK brokers receive 100 GiB each for the complete
+Autoscaler may independently scale the tainted application group from two to eight
+`m7i.large` workers. This ceiling leaves enough scheduler headroom for all six
+application replicas even if only one pod fits on a worker; the expected steady
+packing remains two pods per worker. Three MSK brokers receive 100 GiB each for the complete
 audited workload. The load ramps from zero to 50,000 messages/s for 30 minutes,
 holds for 20 minutes, and cools down for 10 minutes:
 
