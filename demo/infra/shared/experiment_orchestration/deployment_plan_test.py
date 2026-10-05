@@ -194,12 +194,12 @@ class DeploymentPlanTest(unittest.TestCase):
             "0 -> (30m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0",
             definition["load_test"]["load_profile"],
         )
-        self.assertEqual([6, 6, 6], [topic["partitions"] for topic in plan["application"]["planner"]["topics"]])
+        self.assertEqual([12, 12, 12], [topic["partitions"] for topic in plan["application"]["planner"]["topics"]])
         self.assertEqual("800m", plan["application"]["configuration"]["resources"]["requests"]["cpu"])
         self.assertEqual({
             "enabled": True,
             "min_replicas": 2,
-            "max_replicas": 6,
+            "max_replicas": 12,
             "target_cpu_utilization_percentage": 70,
             "scale_down_stabilization_window_seconds": 300,
         }, plan["application"]["configuration"]["hpa"])
@@ -240,7 +240,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"ckc.dev/role": "support"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "support"}, load_job["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual(2, hpa["spec"]["minReplicas"])
-        self.assertEqual(6, hpa["spec"]["maxReplicas"])
+        self.assertEqual(12, hpa["spec"]["maxReplicas"])
         self.assertEqual(70, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
 
     def test_materializes_high_partition_internal_generator_heap(self) -> None:

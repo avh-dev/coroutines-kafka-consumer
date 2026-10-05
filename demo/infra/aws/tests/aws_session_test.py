@@ -947,6 +947,7 @@ class AwsSessionTest(unittest.TestCase):
             state = session_module.new_state(args, "safe-session", Path(directory))
 
         config = state["config"]
+        self.assertEqual(["ckc.hpa-2-12"], [target["name"] for target in config["targets"]])
         self.assertEqual({
             "node_groups": {
                 "support": {
@@ -960,13 +961,13 @@ class AwsSessionTest(unittest.TestCase):
                     "instance_types": ["m7i.large"],
                     "desired_size": 2,
                     "min_size": 2,
-                    "max_size": 3,
+                    "max_size": 8,
                     "disk_size_gib": 100,
                 },
             }
         }, config["eks"])
         self.assertTrue(config["terraform_lab_inputs"]["dedicated_node_groups"])
-        self.assertEqual(3, config["terraform_lab_inputs"]["application_node_max_size"])
+        self.assertEqual(8, config["terraform_lab_inputs"]["application_node_max_size"])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

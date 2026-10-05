@@ -94,7 +94,7 @@ workload:
       traffic_percent: 40
       max_e2e_latency_ms: 2000
 targets:
-- name: ckc.hpa-2-6
+- name: ckc.hpa-2-12
   implementation: ckc
   application:
     replicas: 2
@@ -107,7 +107,7 @@ targets:
     hpa:
       enabled: true
       min_replicas: 2
-      max_replicas: 6
+      max_replicas: 12
       target_cpu_utilization_percentage: 70
       scale_down_stabilization_window_seconds: 300
   runtime:
@@ -132,17 +132,17 @@ targets:
     - workers
     topics:
       order:
-        partitions: 6
+        partitions: 12
         workers: 100
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       batch:
-        partitions: 6
+        partitions: 12
         workers: 100
         queue_capacity: 4096
         processing_mode: AT_LEAST_ONCE_KEY_ORDERING
       telemetry:
-        partitions: 6
+        partitions: 12
         workers: 100
         queue_capacity: 4096
         processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
