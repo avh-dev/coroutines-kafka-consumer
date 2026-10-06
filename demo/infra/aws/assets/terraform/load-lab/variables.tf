@@ -136,6 +136,78 @@ variable "node_disk_size" {
   default     = 100
 }
 
+variable "dedicated_node_groups" {
+  description = "Split support and application workloads into dedicated managed node groups."
+  type        = bool
+  default     = false
+}
+
+variable "support_node_instance_types" {
+  description = "EC2 instance types accepted by the fixed support managed node group."
+  type        = list(string)
+  default     = ["m7i.large"]
+}
+
+variable "support_node_desired_size" {
+  description = "Desired support node count."
+  type        = number
+  default     = 2
+}
+
+variable "support_node_min_size" {
+  description = "Minimum support node count."
+  type        = number
+  default     = 2
+}
+
+variable "support_node_max_size" {
+  description = "Maximum support node count."
+  type        = number
+  default     = 2
+}
+
+variable "support_node_disk_size" {
+  description = "Disk size in GiB for support nodes."
+  type        = number
+  default     = 100
+}
+
+variable "application_node_instance_types" {
+  description = "EC2 instance types accepted by the autoscaling application managed node group."
+  type        = list(string)
+  default     = ["m7i.large"]
+}
+
+variable "application_node_desired_size" {
+  description = "Initial application node count."
+  type        = number
+  default     = 2
+}
+
+variable "application_node_min_size" {
+  description = "Minimum application node count."
+  type        = number
+  default     = 2
+}
+
+variable "application_node_max_size" {
+  description = "Maximum application node count."
+  type        = number
+  default     = 6
+}
+
+variable "application_node_disk_size" {
+  description = "Disk size in GiB for application nodes."
+  type        = number
+  default     = 100
+}
+
+variable "cluster_autoscaler_image" {
+  description = "Cluster Autoscaler container image used for dedicated application node groups."
+  type        = string
+  default     = "registry.k8s.io/autoscaling/cluster-autoscaler:v1.33.1"
+}
+
 variable "kafka_mode" {
   description = "Kafka deployment mode for the load lab."
   type        = string

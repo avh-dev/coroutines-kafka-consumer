@@ -19,6 +19,7 @@ sys.path.insert(0, str(HELPERS))
 
 from experiment_report.analyze import (  # noqa: E402
     analyze_experiment,
+    configured_measurement_windows,
     configuration,
     latency_profile_matches,
     normalize_chaos_scenarios,
@@ -38,6 +39,19 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_full_run_measurement_window_is_implicit(self) -> None:
+        windows = configured_measurement_windows(
+            {
+                "measurement_windows": [
+                    {"name": "complete", "start_seconds": 0, "duration_seconds": 60},
+                    {"name": "steady", "start_seconds": 20, "duration_seconds": 30},
+                ]
+            },
+            60,
+        )
+
+        self.assertEqual(["steady"], [window["name"] for window in windows])
+
     def test_configuration_reads_flat_resolved_producer_settings(self) -> None:
         result = configuration({
             "application": {"profile": "ckc"},
@@ -57,6 +71,21 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertEqual("lz4", order["producer"]["compression_type"])
         self.assertEqual(67108864, order["producer"]["buffer_memory"])
         self.assertEqual(32768, telemetry["producer"]["batch_size"])
+
+    def test_configuration_preserves_hpa_range(self) -> None:
+        result = configuration({
+            "application": {"profile": "ckc"},
+            "run_plan": {
+                "application": {
+                    "hpa": {"enabled": True, "minReplicas": 2, "maxReplicas": 12},
+                }
+            },
+        })
+
+        self.assertEqual(
+            {"enabled": True, "minReplicas": 2, "maxReplicas": 12},
+            result["hpa"],
+        )
 
     def test_sla_compliance_compares_the_complement_instead_of_near_hundred_percentages(self) -> None:
         values = [
@@ -161,12 +190,13 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("increase(", query)
 
     def test_context_switch_measurement_uses_application_thread_stats(self) -> None:
-        query = STANDARD_MEASUREMENTS["context_switches_average_per_second"]
-
-        self.assertIn("thread_stats_context_switches_total", query)
-        self.assertIn('job="ckc-demo"', query)
-        self.assertIn('pod=~"ckc-demo-.+"', query)
-        self.assertNotIn("namedprocess_", query)
+        for switch_type in ("voluntary", "involuntary"):
+            query = STANDARD_MEASUREMENTS[f"{switch_type}_context_switches_average_per_second"]
+            self.assertIn("thread_stats_context_switches_total", query)
+            self.assertIn('job="ckc-demo"', query)
+            self.assertIn('pod=~"ckc-demo-.+"', query)
+            self.assertIn(f'type="{switch_type}"', query)
+            self.assertNotIn("namedprocess_", query)
 
     def test_peak_telemetry_fleet_size_is_aggregate_across_shards_and_workers(self) -> None:
         self.assertEqual(
@@ -1192,7 +1222,8 @@ class ExperimentReportTest(unittest.TestCase):
                     "telemetry_active_workers_max": 200.0,
                     "processing_worker_cpu_average_cores": 0.02,
                     "processing_worker_allocation_average_bytes_per_second": 6 * 1024 * 1024,
-                    "context_switches_average_per_second": 700.0,
+                    "voluntary_context_switches_average_per_second": 650.0,
+                    "involuntary_context_switches_average_per_second": 50.0,
                 },
             ):
                 outputs = generate_experiment_reports(
@@ -1392,6 +1423,19 @@ class ExperimentReportTest(unittest.TestCase):
                 for element in root_element.iter(f"{namespace}rect")
                 if element.attrib.get("data-chaos-kind") == "interval"
             ]
+            measurement_interval = next(
+                element
+                for element in intervals
+                if element.attrib.get("data-scenario-type") == "measurement"
+            )
+            self.assertEqual("url(#load-profile-area)", measurement_interval.attrib.get("clip-path"))
+            self.assertTrue(
+                all(
+                    "clip-path" not in element.attrib
+                    for element in intervals
+                    if element.attrib.get("data-scenario-type") != "measurement"
+                )
+            )
             duration_ranges = [
                 element
                 for element in root_element.iter(f"{namespace}line")
@@ -1977,7 +2021,8 @@ class ExperimentReportTest(unittest.TestCase):
                 "throughput_average_rps": 100.0,
                 "cpu_average_cores": 1.0,
                 "broker_cpu_average_cores": 0.25,
-                "context_switches_average_per_second": 50.0,
+                "voluntary_context_switches_average_per_second": 45.0,
+                "involuntary_context_switches_average_per_second": 5.0,
                 "producer_records_sent_total": 3000.0,
                 "producer_records_acked_total": 2999.0,
                 "producer_records_failed_total": 1.0,
@@ -2054,8 +2099,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("Latency evaluation", markdown)
             self.assertIn('.champion{color:#15803d;font-weight:600}', markdown)
             self.assertNotIn('.champion{display:inline-block;background:', markdown)
-            self.assertIn("Application context switches average", markdown)
+            self.assertIn("JVM thread context switches", markdown)
+            self.assertIn("Voluntary", markdown)
+            self.assertIn("Involuntary", markdown)
             self.assertIn("### Measurement-window highlights", markdown)
+            highlights = markdown.split("### Measurement-window highlights", 1)[1].split("### Detailed results", 1)[0]
+            self.assertNotIn("context switches", highlights)
+            self.assertIn("Application network receive average¹", markdown)
+            self.assertEqual(1, markdown.count("¹ **Network metrics.**"))
             self.assertIn("Producer sent rate", markdown)
             self.assertNotIn("Audit published rate", markdown)
             self.assertNotIn("Audit E2E latency", markdown)
@@ -2083,7 +2134,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertLess(full_start, broker_start)
             self.assertLess(broker_start, wire_start)
             self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
-            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Resource usage</th></tr>'))
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application scaling</th></tr>'))
+            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application resources</th></tr>'))
             self.assertNotIn("Kafka broker memory", markdown)
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)

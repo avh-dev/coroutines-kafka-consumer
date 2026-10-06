@@ -577,6 +577,7 @@ def collect_workload_logs(logs_dir: Path) -> None:
     for namespace, selector in (
         ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
         ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
+        ("kube-system", "app.kubernetes.io/name=cluster-autoscaler"),
     ):
         pods_text = run(
             ["kubectl", "-n", namespace, "get", "pods", "-l", selector, "-o", "json"],
@@ -646,9 +647,18 @@ def collect_cluster_diagnostics(run_dir: Path, require_healthy: bool = False) ->
     descriptions_dir.mkdir(parents=True, exist_ok=True)
     previous_logs_dir.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
-    for namespace in ("ckc-app", "ckc-loadtest", "ckc-observability"):
+    for namespace, selector in (
+        ("ckc-app", None),
+        ("ckc-loadtest", None),
+        ("ckc-observability", None),
+        ("kube-system", "app.kubernetes.io/name=cluster-autoscaler"),
+    ):
+        command = ["kubectl", "-n", namespace, "get", "pods"]
+        if selector:
+            command.extend(["-l", selector])
+        command.extend(["-o", "json"])
         pods_text = run(
-            ["kubectl", "-n", namespace, "get", "pods", "-o", "json"],
+            command,
             capture_output=True,
             check=False,
         )
@@ -777,6 +787,9 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
         nodes.append({
             "name": metadata.get("name"),
             "instance_type": labels.get("node.kubernetes.io/instance-type") or labels.get("beta.kubernetes.io/instance-type"),
+            "node_group": labels.get("eks.amazonaws.com/nodegroup"),
+            "role": labels.get("ckc.dev/role"),
+            "created_at": metadata.get("creationTimestamp"),
             "cpu": capacity.get("cpu"),
             "memory": capacity.get("memory"),
             "allocatable_cpu": allocatable.get("cpu"),
@@ -797,6 +810,7 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
         "redis": ("ckc-app", "app.kubernetes.io/instance=ckc-redis"),
         "alloy": ("ckc-observability", "app.kubernetes.io/name=ckc-alloy"),
         "kafka_exporter": ("ckc-observability", "app.kubernetes.io/name=ckc-kafka-exporter"),
+        "cluster_autoscaler": ("kube-system", "app.kubernetes.io/name=cluster-autoscaler"),
     }
     if job_name:
         role_selectors["producer"] = ("ckc-loadtest", f"job-name={job_name}")
@@ -972,6 +986,10 @@ def deploy_workloads(
         audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
         image_pull_policy=image_pull_policy,
         packet_capture_enabled=packet_capture_enabled,
+        application_node_selector=lab_context.get("application_node_selector"),
+        application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
+        support_node_selector=lab_context.get("support_node_selector"),
+        load_test_node_selector=lab_context.get("load_test_node_selector"),
     ))
     application_manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -1008,6 +1026,10 @@ def deploy_load_workload(
         packet_capture_enabled=packet_capture_enabled,
         active_deadline_seconds=active_deadline_seconds,
         started_at=started_at,
+        application_node_selector=lab_context.get("application_node_selector"),
+        application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
+        support_node_selector=lab_context.get("support_node_selector"),
+        load_test_node_selector=lab_context.get("load_test_node_selector"),
     ))
     load_manifests = [item for item in manifests if item["kind"] in {"ConfigMap", "Job"}]
     job = next(item for item in load_manifests if item["kind"] == "Job")

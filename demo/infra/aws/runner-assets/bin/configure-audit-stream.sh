@@ -18,11 +18,20 @@ for value in "${REGION}" "${BUCKET}" "${PREFIX}" "${RUN_ID}"; do
   fi
 done
 
+WRITE_PROBE="$(mktemp)"
+trap 'rm -f "${WRITE_PROBE}"' EXIT
+aws s3api put-object \
+  --region "${REGION}" \
+  --bucket "${BUCKET}" \
+  --key "${PREFIX}/WRITE_PROBE" \
+  --body "${WRITE_PROBE}" >/dev/null
+rm -f "${WRITE_PROBE}"
+trap - EXIT
+
 docker stop --time 30 audit >/dev/null 2>&1 || true
 rm -rf "${AUDIT_DIR}/s3-buffer"
 mkdir -p "${AUDIT_DIR}/s3-buffer" "${RUN_AUDIT_DIR}/chunks"
-truncate -s 0 "${AUDIT_DIR}/audit.log"
-rm -f "${RUN_AUDIT_DIR}/streamed-to-s3" "${RUN_AUDIT_DIR}/chunks/STREAM_COMPLETE.json"
+rm -f "${RUN_AUDIT_DIR}/chunks/STREAM_COMPLETE.json"
 
 cat > "${CONFIG}" <<EOF
 service:
@@ -44,13 +53,6 @@ pipeline:
       format: json
 
   outputs:
-    - name: file
-      match: '*'
-      path: /audit
-      file: audit.log
-      format: template
-      template: '{message}'
-
     - name: s3
       match: '*'
       bucket: ${BUCKET}

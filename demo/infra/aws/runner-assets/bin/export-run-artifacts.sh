@@ -10,7 +10,6 @@ PREFIX="${5:-sessions/${RUN_ID}/result}"
 RUNNER_HOME="${CKC_RUNNER_HOME:-/opt/ckc-runner}"
 REPO_DIR="${CKC_RUNNER_REPO_DIR:-${RUNNER_HOME}/assets/repo}"
 RUN_DIR="${RUNNER_HOME}/reports/${RUN_ID}"
-AUDIT_SOURCE="${RUNNER_HOME}/audit/audit.log"
 
 if [ ! -d "${RUN_DIR}" ]; then
   echo "Run result directory was not found: ${RUN_DIR}" >&2
@@ -18,19 +17,6 @@ if [ ! -d "${RUN_DIR}" ]; then
 fi
 
 mkdir -p "${RUN_DIR}/audit/chunks" "${RUN_DIR}/metrics" "${RUN_DIR}/logs/runner" "${RUN_DIR}/config"
-
-python3 "${REPO_DIR}/demo/infra/shared/result_bundle/export-loki.py" \
-  "${RUN_DIR}" --loki-url http://127.0.0.1:3100 \
-  --require-application ckc-demo \
-  --require-application ckc-demo-stubs \
-  --require-application ckc-load-test
-
-sleep 2
-if [ -f "${AUDIT_SOURCE}" ] \
-  && [ ! -f "${RUN_DIR}/audit/streamed-to-s3" ] \
-  && ! find "${RUN_DIR}/audit/chunks" -maxdepth 1 -type f -name '*.log.gz' | grep -q .; then
-  gzip -c "${AUDIT_SOURCE}" > "${RUN_DIR}/audit/chunks/audit-000001.log.gz"
-fi
 
 for container in prometheus loki grafana audit ckc-aws-cloudwatch-exporter ckc-aws-cloudwatch-vmagent; do
   docker logs "${container}" > "${RUN_DIR}/logs/runner/${container}.log" 2>&1 || true

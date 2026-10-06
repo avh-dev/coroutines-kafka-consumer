@@ -439,6 +439,14 @@
 | [INFRA-272](#infra-272) | Select and download a completed report by its offset from the newest result. | DONE |
 | [INFRA-273](#infra-273) | Place the internal-lab load generator inside its actual Kubernetes runtime boundary. | DONE |
 | [INFRA-274](#infra-274) | Filter environment-specific report metrics and repair Kubernetes load-generator packet capture. | DONE |
+| [INFRA-275](#infra-275) | Compare Spring Kafka latency while scaling consumer parallelism at a fixed 8k workload. | DONE |
+| [INFRA-276](#infra-276) | Isolate and autoscale AWS application capacity for a production-like CKC 50k ramp. | DONE |
+| [INFRA-277](#infra-277) | Remove the redundant runner-local AWS audit-file fallback. | DONE |
+| [INFRA-278](#infra-278) | Remove remaining capacity and autoscaler blockers from the AWS CKC 50k ramp. | DONE |
+| [INFRA-279](#infra-279) | Keep the AWS Cluster Autoscaler IAM role prefix within the provider limit. | DONE |
+| [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
+| [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
+| [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5126,3 +5134,90 @@ Keep host Kafka/Redis and managed AWS capacity rows specific to the environment 
 Select only the indexed load-generator Job pods for packet capture and render those Jobs with the required capture volume and capability.
 Prevent a required generator diagnostic from falsely failing and aborting an otherwise healthy experiment.
 Verification: 56 shared orchestration and 175 internal-lab tests pass; Bash/Python syntax and whitespace validation pass. The corrected runtime is installed on optilab without launching a workload or rewriting completed reports.
+
+<a id="infra-275"></a>
+### INFRA-275 - Compare Spring Kafka consumer scaling at 8k
+
+_Date: 2026-10-03_
+
+Add a local three-target Spring Kafka experiment that holds 8k traffic, placement, application replicas, and downstream latency constant.
+Size the baseline from the latest AWS Spring planning latencies with 30% headroom, then compare one, two, and four times that partition and consumer count.
+Give every target a three-minute ramp and seven-minute full-load measurement window so the resulting latency and resource costs remain directly comparable.
+Verification: 57 shared orchestration and 175 internal-lab tests pass; all targets materialize with broker-balanced 27/24/90, 54/48/180, and 108/96/360 partition/poller counts. The renamed 8k experiment is installed incrementally, the obsolete 5k definition is removed, and no workload was launched.
+
+<a id="infra-276"></a>
+### INFRA-276 - Isolate and autoscale AWS application capacity
+
+_Date: 2026-10-04_
+
+Split AWS EKS workers into fixed support and dedicated autoscaling application managed node groups.
+Enforce workload placement with labels, taints, required scheduling constraints, and explicit resource requests.
+Install node autoscaling and retain enough fixed support capacity for the generator, stubs, and cluster services.
+Add a production-like CKC experiment that ramps from zero to 50k TPS, holds the peak, and cools down while HPA scales two to six one-core-request replicas over six partitions per topic.
+Expose application and support node-group capacity separately in experiment evidence and reports.
+Verification: Terraform formatting and validation pass; 63 AWS, 64 focused orchestration, 175 internal-lab, and 26 dashboard tests pass. No AWS infrastructure or workload was launched.
+
+<a id="infra-277"></a>
+### INFRA-277 - Remove the runner-local AWS audit fallback
+
+_Date: 2026-10-04_
+
+Make immutable gzip chunks streamed through the Fluent Bit S3 output the sole AWS audit evidence path.
+Remove the unbounded uncompressed runner-local audit copy and its legacy end-of-run archive fallback.
+Keep bounded on-disk buffering, unlimited upload retries, incremental optilab prefetch, and strict final inventory validation.
+Verify runner-side S3 writes before workload startup so configuration, permission, and connectivity failures are caught before measurements begin.
+Verification: runner Terraform validation, Bash syntax, ShellCheck, Python compilation, whitespace validation, and all 63 AWS tests pass. No AWS infrastructure or workload was launched.
+
+<a id="infra-278"></a>
+### INFRA-278 - Harden AWS CKC 50k ramp capacity
+
+_Date: 2026-10-04_
+
+Grant Cluster Autoscaler the Kubernetes Lease permissions required for leader election.
+Increase the fixed support pool to two `m7i.xlarge` nodes so generators, stubs, observability, and system pods have explicit headroom at 50k TPS.
+Increase each MSK broker volume to 100 GiB for the sixty-minute audited workload.
+Verification: the autoscaler manifest parses as six valid Kubernetes documents with exact leader-election RBAC; Terraform validates; 64 AWS and 58 shared orchestration tests pass; the materialized plan resolves to the intended node pools, broker storage, HPA, partitions, load profile, and audit settings. No AWS infrastructure or workload was launched.
+
+<a id="infra-279"></a>
+### INFRA-279 - Fix the Cluster Autoscaler IAM role name
+
+_Date: 2026-10-04_
+
+Derive the Cluster Autoscaler IAM role prefix from a compact environment hash so every generated prefix stays below AWS's 38-character limit.
+Cover the actual session-shaped environment name that exposed the failure during Terraform planning.
+Verification: a real Terraform plan using the failed session's variables succeeds; Terraform validation and all 65 AWS tests pass. The failed session cleanup completed with no remaining AWS resources.
+
+<a id="infra-280"></a>
+### INFRA-280 - Fix the AWS audit-stream write probe
+
+_Date: 2026-10-04_
+
+Use a regular temporary file for the S3 audit-stream write probe because AWS CLI v2 rejects `/dev/null` as a blob file.
+Keep the probe body empty, remove it immediately after the request, and cover the command shape with the AWS session tests.
+Verification: Bash syntax, whitespace validation, and all 60 AWS session tests pass. ShellCheck is unavailable on the controller host. No workload was launched.
+
+<a id="infra-281"></a>
+### INFRA-281 - Stream AWS telemetry incrementally
+
+_Date: 2026-10-04_
+
+Persist Loki logs and VictoriaMetrics samples as independently verifiable immutable S3 chunks while an AWS target is running.
+Prefetch both streams to the controller so runner teardown cannot discard already collected telemetry, and isolate stream finalization failures from other artifacts.
+Export only closed full-minute windows during a run, then freeze the single partial tail at the `STOP` timestamp so finalization cannot chase the advancing wall clock indefinitely.
+Prefer the compact final VictoriaMetrics archive when it exists, retaining incremental native chunks strictly as the runner-failure fallback instead of duplicating both forms in a bundle.
+Pack two 800m-request application pods onto each `m7i.large` node so the HPA experiment exercises node capacity while leaving room for EKS DaemonSets.
+Allow the application node group to grow to eight workers and HPA to twelve replicas so infrastructure ceilings do not force artificial vertical saturation.
+Use twelve partitions per topic so every maximum-scale replica receives useful work and partition leaders remain balanced across three brokers.
+Verification: all 69 AWS tests and the focused orchestration tests pass; Python and Bash syntax plus whitespace validation pass. Native export/import was exercised against VictoriaMetrics 1.102.1. A live AWS run exposed both the moving-boundary defect and insufficient headroom at 900m; its existing chunks were preserved and the fixed streamer successfully produced the final manifest.
+
+<a id="infra-282"></a>
+### INFRA-282 - Clarify experiment report measurements
+
+_Date: 2026-10-06_
+
+Remove redundant explicit full-run measurement windows while retaining the canonical full-run result.
+Clip measurement shading to the load profile and expose configured versus observed application pod and node scaling ranges.
+Select the correct Kafka CPU source per environment, report only actual per-key processing intervals, and split JVM thread context switches by type.
+Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
+Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
+Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.

@@ -117,6 +117,29 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
   --skip-build-images
 ```
 
+The production-like CKC autoscaling qualification separates two fixed
+`m7i.xlarge` support workers from a dedicated application group. HPA scales the
+application from two to twelve 800m-request pods at 70% CPU, while Cluster
+Autoscaler may independently scale the tainted application group from two to eight
+`m7i.large` workers. Twelve partitions per topic make every HPA replica useful at
+the maximum scale and distribute leaders evenly across the three brokers. The
+expected packing is two pods per worker, requiring six workers and leaving two
+workers of autoscaler headroom. Three MSK brokers receive 100 GiB each for the complete
+audited workload. The load ramps from zero to 50,000 messages/s for 30 minutes,
+holds for 20 minutes, and cools down for 10 minutes:
+
+```bash
+demo/infra/run-experiment.sh demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml \
+  --environment aws \
+  --skip-build-images
+```
+
+Application, generator, stubs, and observability placement is enforced by node
+labels, a `NoSchedule` application taint, required selectors, and the matching
+application toleration. Archived metrics retain `node_role` and `node_group`
+labels; generated reports show application pod/node scaling and separate
+application and support node-hours for every measurement window.
+
 Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/experiments/aws`; change the root with the global
 `--work-dir` option before the `run` subcommand.
@@ -158,6 +181,13 @@ the small state files, command log, lifecycle metadata, and results are kept.
 The downloaded result contains run metadata, the resolved test, application and
 load-test logs, compact audit chunks, packet-capture diagnostics when selected,
 the environment-filtered shared dashboard, runner service logs, Loki-ready log records, and a stopped VictoriaMetrics data archive.
+While each target runs, the runner exports closed one-minute Loki and
+VictoriaMetrics windows as immutable S3 chunks. The controller prefetches both
+streams every fifteen seconds and verifies their sizes and SHA-256 digests from
+the final inventory. A normal final export still keeps the fast stopped
+VictoriaMetrics archive; native metric chunks can rebuild that archive if the
+runner-local copy is unavailable. Loki is assembled from the prefetched chunks
+instead of issuing one large end-of-run range query.
 The workload starts only after application, Kafka-exporter, thread, and cAdvisor
 telemetry are all visible. `telemetry-readiness.json` and
 `metrics-coverage.json` record that preflight and verify that the required metric
@@ -233,10 +263,13 @@ materialized and applied before workload deployment.
 Audit-enabled targets stream immutable gzip chunks from the runner's Fluent Bit
 collector to the session S3 bucket throughout the workload. The checkout-side
 controller prefetches completed chunks every fifteen seconds, validates the
-final stream inventory, and keeps the runner-local `audit.log` as a recovery
-fallback. AWS cleanup runs after the complete stream has been copied locally;
-the shared analyzer then runs on the controller host, outside the disposable
-AWS lab.
+final stream inventory, and rejects an incomplete stream instead of relying on
+a second uncompressed runner-local copy. Fluent Bit retains pending uploads in
+a bounded on-disk buffer and retries them without a fixed attempt limit. A
+runner-side write probe verifies S3 connectivity and `PutObject` permission
+before the target starts. AWS cleanup runs after the complete stream has been
+copied locally; the shared analyzer then runs on the controller host, outside
+the disposable AWS lab.
 
 Completed S3 audit streams remain location-independent and can also be
 reanalyzed manually from a local machine or the internal lab:

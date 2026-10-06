@@ -333,7 +333,8 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(1, fairness["keys_without_processed"])
         self.assertEqual(0.444444, fairness["processed_ratio"]["gini"])
         self.assertEqual(0.816497, fairness["processed_ratio"]["coefficient_of_variation"])
-        self.assertEqual(1, fairness["processed_max_gap_ms"]["keys_over_5s"])
+        self.assertEqual(0, fairness["processed_max_gap_ms"]["keys_over_5s"])
+        self.assertEqual(3000, fairness["processed_max_gap_ms"]["max"])
         self.assertEqual(3, fairness["record_age"]["processed"]["count"])
         self.assertEqual(2200, fairness["record_age"]["processed"]["max_ms"])
 

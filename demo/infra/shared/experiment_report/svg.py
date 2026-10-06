@@ -136,6 +136,7 @@ def environment_topology_svg(
     version = str(kubernetes.get("version") or "")
     nodes = [node for node in environment.get("nodes", []) if isinstance(node, dict)]
     worker_group = environment.get("worker_group") if isinstance(environment.get("worker_group"), dict) else {}
+    node_groups = environment.get("node_groups") if isinstance(environment.get("node_groups"), dict) else {}
     node_types = [str(value) for value in worker_group.get("instance_types", []) if value]
     if not node_types:
         node_types = sorted({str(node.get("instance_type")) for node in nodes if node.get("instance_type")})
@@ -392,10 +393,24 @@ def environment_topology_svg(
         ] if part)
         runner_purpose = " · ".join(str(value) for value in runner_roles)
         runner_components = observability.get("runner") if isinstance(observability.get("runner"), list) else []
-        eks_configuration = " · ".join(part for part in [
-            f"{node_count} × {'/'.join(node_types)} workers" if node_count and node_types else "",
-            f"{disk} GiB EBS/node" if disk else "",
-        ] if part)
+        if node_groups:
+            group_parts = []
+            for role in ("support", "application"):
+                group = node_groups.get(role) if isinstance(node_groups.get(role), dict) else {}
+                types = "/".join(str(value) for value in group.get("instance_types", []) if value)
+                minimum = group.get("min_size")
+                maximum = group.get("max_size")
+                if not group:
+                    continue
+                size = f"{minimum}–{maximum}" if minimum != maximum else str(minimum)
+                scaling = "autoscaled" if group.get("autoscaling") else "fixed"
+                group_parts.append(f"{role} {size} × {types} {scaling}")
+            eks_configuration = " · ".join(group_parts)
+        else:
+            eks_configuration = " · ".join(part for part in [
+                f"{node_count} × {'/'.join(node_types)} workers" if node_count and node_types else "",
+                f"{disk} GiB EBS/node" if disk else "",
+            ] if part)
         body = [
             '<rect data-boundary="aws" x="8" y="45" width="1264" height="842" rx="14" fill="#ffffff" stroke="#232f3e" stroke-width="2"/>',
             service_icon("environment-aws", 28, 61, 34),
@@ -1116,7 +1131,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         area = " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
         polygon = f"{left},{axis_y} {area} {width-right},{axis_y}"
         normal_ranges = [(0.0, total)]
-        clip_paths = []
+        clip_paths = [f'<clipPath id="load-profile-area"><polygon points="{polygon}"/></clipPath>']
         for index, (range_start, range_end) in enumerate(normal_ranges):
             clip_paths.append(
                 f'<clipPath id="load-fill-{index}"><rect x="{x(range_start):.1f}" y="{top}" '
@@ -1224,11 +1239,16 @@ def load_profile_svg(report: ExperimentReport) -> str:
             range_y = range_y_positions[index]
             arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
             arrow_height = max(0.5, min(4.0, arrow_width * 2 / 3))
+            measurement_clip = (
+                ' clip-path="url(#load-profile-area)"'
+                if scenario.get("type") == "measurement"
+                else ""
+            )
             chaos_fills.append(
                 f'<rect data-chaos-kind="interval" data-range-background="overlay" '
                 f'data-scenario-type="{esc(scenario.get("type"))}" '
                 f'x="{start_x:.1f}" y="{top}" width="{max(2, end_x-start_x):.1f}" height="{plot_height}" '
-                f'fill="{color}" fill-opacity="0.38"/>'
+                f'fill="{color}" fill-opacity="0.38"{measurement_clip}/>'
             )
             chaos_overlays.extend(
                 [

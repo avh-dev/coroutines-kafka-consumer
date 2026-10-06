@@ -17,6 +17,15 @@ def number(value: Any, digits: int = 2) -> str:
     return f"{value:,}" if isinstance(value, int) else str(value)
 
 
+def milliseconds(value: Any) -> str:
+    if value is None:
+        return "—"
+    numeric = float(value)
+    if numeric >= 1000:
+        return f"{numeric / 1000:,.2f} s"
+    return f"{numeric:,.0f} ms"
+
+
 def escaped(value: Any) -> str:
     if value is None or value == "":
         return "—"
@@ -206,6 +215,10 @@ def render_markdown(report: ExperimentReport) -> str:
     show_host_kafka_metrics = kafka_mode == "docker"
     show_msk_metrics = kafka_mode == "msk"
     show_elasticache_metrics = redis_mode == "elasticache"
+    node_groups = environment.get("node_groups") if isinstance(environment.get("node_groups"), dict) else {}
+    application_node_group = (
+        node_groups.get("application") if isinstance(node_groups.get("application"), dict) else {}
+    )
     diagnostic_steps = []
     diagnostic_names = set()
     for definition in [report.test_definition, *[target.test_definition for target in targets]]:
@@ -867,6 +880,18 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Application placement", [escaped(target.configuration.get("placement")) for target in targets])
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     row("Replicas", [number(target.configuration.get("replicas"), 0) for target in targets])
+    row(
+        "HPA replicas",
+        [
+            (
+                f'{number((target.configuration.get("hpa") or {}).get("minReplicas"), 0)}–'
+                f'{number((target.configuration.get("hpa") or {}).get("maxReplicas"), 0)} pods'
+            )
+            if (target.configuration.get("hpa") or {}).get("enabled")
+            else "Disabled"
+            for target in targets
+        ],
+    )
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
     row("CPU limit", [resource_value(target, "limits", "cpu") for target in targets])
     row("Memory request", [resource_value(target, "requests", "memory") for target in targets])
@@ -1064,9 +1089,16 @@ def render_markdown(report: ExperimentReport) -> str:
             "prometheus",
         )
         row("Application CPU", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
-        row("Kafka broker CPU", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
+        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
+        row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
+        if show_host_kafka_metrics:
+            row("Kafka broker CPU average", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        if show_msk_metrics:
+            row("MSK CPU average", compared([value.get("msk_cpu_average_percent") for value in measurements], 1, "%"), "prometheus")
+            row("MSK CPU maximum", compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
         row("Application memory", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
-        row("Application context switches", compared([value.get("context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
         highlighted_topics = {
             topic
             for evidence in topic_evidence
@@ -1189,25 +1221,66 @@ def render_markdown(report: ExperimentReport) -> str:
             "prometheus",
         )
         row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
-        subsection("Resource usage")
+        subsection("Application scaling")
+        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
+        row("Application replicas average", compared([value.get("application_replicas_average") for value in measurements], 2, " pods"), "prometheus")
+        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        row(
+            "Configured HPA range",
+            [
+                (
+                    f'{number((target.configuration.get("hpa") or {}).get("minReplicas"), 0)}–'
+                    f'{number((target.configuration.get("hpa") or {}).get("maxReplicas"), 0)} pods'
+                )
+                if (target.configuration.get("hpa") or {}).get("enabled") else "Disabled"
+                for target in targets
+            ],
+        )
+        row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
+        row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")
+        row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
+        if application_node_group:
+            row(
+                "Configured application node range",
+                [
+                    f'{number(application_node_group.get("min_size"), 0)}–'
+                    f'{number(application_node_group.get("max_size"), 0)} nodes'
+                    for _target in targets
+                ],
+            )
+        row("Application node-hours", compared([value.get("application_node_hours") for value in measurements], 3, " h"), "prometheus")
+        row("Support node-hours", compared([value.get("support_node_hours") for value in measurements], 3, " h"), "prometheus")
+
+        subsection("Application resources")
         row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
-        row("Application network receive average", compared([value.get("application_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
-        row("Application network transmit average", compared([value.get("application_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
-        row("Application context switches average", compared([value.get("context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
+
+        subsection("JVM thread context switches")
+        row("Voluntary", compared([value.get("voluntary_context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
+        row("Involuntary", compared([value.get("involuntary_context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
+
+        subsection("Network I/O")
+        row("Application network receive average¹", compared([value.get("application_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("Application network transmit average¹", compared([value.get("application_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("Load generator network transmit average¹", compared([value.get("load_test_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        row("Stubs network receive average¹", compared([value.get("stubs_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        if show_msk_metrics:
+            row("MSK ingress average", compared([value.get("msk_ingress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+            row("MSK egress average", compared([value.get("msk_egress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        if show_elasticache_metrics:
+            row("ElastiCache network receive average", compared([value.get("redis_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+            row("ElastiCache network transmit average", compared([value.get("redis_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
+        subsection("Support workloads")
         row("Load generator CPU average", compared([value.get("load_test_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Load generator memory average", compared([value.get("load_test_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
-        row("Load generator network transmit average", compared([value.get("load_test_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
         row("Stubs CPU average", compared([value.get("stubs_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Stubs memory average", compared([value.get("stubs_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
-        row("Stubs network receive average", compared([value.get("stubs_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
         row("Producer CPU average", compared([value.get("producer_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Producer memory average", compared([value.get("producer_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
         row("Producer Kafka buffer utilization maximum", compared([value.get("producer_buffer_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
         if show_elasticache_metrics:
+            subsection("Redis")
             row("ElastiCache engine CPU maximum", compared([value.get("redis_engine_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("ElastiCache network receive average", compared([value.get("redis_network_receive_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
-            row("ElastiCache network transmit average", compared([value.get("redis_network_transmit_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
             row("ElastiCache connections maximum", compared([value.get("redis_connections_max") for value in measurements], 0, ""), "prometheus")
             row("ElastiCache evictions", counts([value.get("redis_evictions_total") for value in measurements]), "prometheus")
         available = {name for target_evidence in evidence for name in target_evidence}
@@ -1280,8 +1353,13 @@ def render_markdown(report: ExperimentReport) -> str:
                     row(f"Skipped >{cutoff}", tail_cells, "audit")
                 for percentile in ("p95", "p99", "max"):
                     row(
-                        f"Time between processed updates {percentile}",
-                        compared([((value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile) for value in values], 0, " ms"),
+                        f"Maximum actual interval between processed updates {percentile}",
+                        [
+                            milliseconds(
+                                ((value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile)
+                            )
+                            for value in values
+                        ],
                         "audit",
                     )
 
@@ -1317,8 +1395,6 @@ def render_markdown(report: ExperimentReport) -> str:
             row("MSK CPU maximum" + suffix, compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
             row("MSK network processor utilization maximum" + suffix, compared([value.get("msk_network_processor_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
             row("MSK request handler utilization maximum" + suffix, compared([value.get("msk_request_handler_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK ingress average" + suffix, compared([value.get("msk_ingress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
-            row("MSK egress average" + suffix, compared([value.get("msk_egress_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
             row("MSK produce latency maximum" + suffix, compared([value.get("msk_produce_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
             row("MSK consumer fetch latency maximum" + suffix, compared([value.get("msk_fetch_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
             row("MSK produce throttle maximum" + suffix, compared([value.get("msk_produce_throttle_max_ms") for value in measurements], 1, " ms"), "prometheus")
@@ -1454,7 +1530,12 @@ def render_markdown(report: ExperimentReport) -> str:
             "capture",
         )
 
-    lines.extend(["</tbody></table>", ""])
+    lines.extend([
+        "</tbody></table>",
+        "",
+        "¹ **Network metrics.** Kubernetes rows are total pod-interface rates reported by cAdvisor. They include Kafka, Redis, stubs, monitoring, DNS, and protocol overhead, so they are neither application-payload nor per-destination rates. MSK and ElastiCache rows come from CloudWatch.",
+        "",
+    ])
     if diagnostic_steps:
         lines.extend([
             "Kafka request metrics are calculated per named packet-capture window from decoded Kafka protocol messages. Single-topic Produce and Fetch exchanges are attributed exactly. Empty incremental Fetch exchanges inherit a topic only when their TCP stream is unambiguous; genuine multi-topic and remaining unattributed exchanges are reported separately. Rates use the scheduled capture duration. Fetch records are carried by responses, while Produce records are carried by requests. Captures can begin or end with an exchange in flight, so request and response counts may differ at window boundaries.",

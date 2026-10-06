@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import importlib.util
 import io
 import json
@@ -40,6 +41,10 @@ run_test_module = load_module(
 export_loki_module = load_module(
     "ckc_export_loki",
     REPO_ROOT / "demo" / "infra" / "shared" / "result_bundle" / "export-loki.py",
+)
+stream_telemetry_module = load_module(
+    "ckc_stream_telemetry",
+    AWS_ROOT / "runner-assets/bin/stream-telemetry.py",
 )
 finalize_result_module = load_module(
     "ckc_prepare_result",
@@ -93,10 +98,34 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "pod"', script)
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
-        for application in ("ckc-demo", "ckc-demo-stubs", "ckc-load-test"):
-            self.assertIn(f"--require-application {application}", export_script)
+        self.assertNotIn("export-loki.py", export_script)
         self.assertIn("memory: 512Mi", script)
         self.assertIn("memory: 2Gi", script)
+
+    def test_cluster_autoscaler_has_leader_election_lease_permissions(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            script,
+            r'apiGroups: \["coordination\.k8s\.io"\]\s+'
+            r'resources: \["leases"\]\s+'
+            r'verbs: \["create"\]',
+        )
+        self.assertRegex(
+            script,
+            r'apiGroups: \["coordination\.k8s\.io"\]\s+'
+            r'resources: \["leases"\]\s+'
+            r'resourceNames: \["cluster-autoscaler"\]\s+'
+            r'verbs: \["get", "update"\]',
+        )
+
+    def test_cluster_autoscaler_role_uses_a_bounded_name_prefix(self) -> None:
+        terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
+        self.assertIn(
+            'name_prefix        = "ckc-ca-${substr(sha256(var.environment), 0, 12)}-"',
+            terraform,
+        )
+        rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
+        self.assertLessEqual(len(rendered_prefix), 38)
 
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
@@ -134,7 +163,7 @@ class AwsSessionTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            {"application", "stubs", "alloy", "kafka_exporter", "producer"},
+            {"application", "stubs", "alloy", "kafka_exporter", "cluster_autoscaler", "producer"},
             set(evidence["workloads"]),
         )
         self.assertEqual(
@@ -147,6 +176,7 @@ class AwsSessionTest(unittest.TestCase):
         self.assertTrue(any("app.kubernetes.io/name=ckc-demo-stubs" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-alloy" in command for command in rendered))
         self.assertTrue(any("app.kubernetes.io/name=ckc-kafka-exporter" in command for command in rendered))
+        self.assertTrue(any("app.kubernetes.io/name=cluster-autoscaler" in command for command in rendered))
 
     def test_java_version_parses_modern_and_legacy_output(self) -> None:
         for output, expected in (
@@ -402,9 +432,11 @@ class AwsSessionTest(unittest.TestCase):
                 }],
                 "test_timeout_seconds": 1800,
             })
-            with patch.object(controller, "notify") as notify, patch.object(
-                controller, "ssm", return_value={"Status": "Success"}
-            ) as ssm:
+            with (
+                patch.object(controller, "notify") as notify,
+                patch.object(controller, "ssm", return_value={"Status": "Success"}) as ssm,
+                patch.object(controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 42}),
+            ):
                 controller.execute_test()
 
         self.assertEqual("target_started", notify.call_args_list[0].args[0])
@@ -413,7 +445,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
         self.assertEqual("measurements_finished", notify.call_args_list[2].args[0])
-        self.assertEqual(3600, ssm.call_args.args[2])
+        workload_call = next(call for call in ssm.call_args_list if "run AWS experiment workload" in call.args[1])
+        self.assertEqual(3600, workload_call.args[2])
 
     def test_target_progress_reports_only_a_long_active_consumer_drain(self) -> None:
         progress = session_module.TargetRunProgress()
@@ -497,6 +530,7 @@ class AwsSessionTest(unittest.TestCase):
                     "read_target_phase_events",
                     return_value='CKC_RUN_PHASE {"phase":"workload_finished","timestamp":"2026-10-01T08:57:00Z"}',
                 ),
+                patch.object(controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 42}),
             ):
                 controller.execute_test()
 
@@ -526,6 +560,7 @@ class AwsSessionTest(unittest.TestCase):
                 patch.object(controller, "notify") as notify,
                 patch.object(controller, "ssm", side_effect=ssm),
                 patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}),
+                patch.object(controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 42}),
                 patch.object(session_module.time, "monotonic", side_effect=[0.0, 1.0, 2.0, 33.0]),
             ):
                 controller.execute_test()
@@ -551,19 +586,27 @@ class AwsSessionTest(unittest.TestCase):
                 patch.object(
                     controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}
                 ) as sync,
+                patch.object(
+                    controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 21}
+                ) as telemetry_sync,
             ):
                 controller.execute_test()
 
-        self.assertEqual(3, ssm.call_count)
-        configure = ssm.call_args_list[0].args[0]
-        execute = ssm.call_args_list[1].args[0]
-        finalize = ssm.call_args_list[2].args[0]
+        self.assertEqual(5, ssm.call_count)
+        commands = [call.args[0] for call in ssm.call_args_list]
+        configure = next(command for command in commands if "configure-audit-stream.sh" in command)
+        execute = next(command for command in commands if "run-test.sh" in command)
+        finalize = next(command for command in commands if "finalize-audit-stream.sh" in command)
         self.assertIn("configure-audit-stream.sh", configure)
+        self.assertTrue(any("configure-telemetry-stream.sh" in command for command in commands))
         self.assertIn("s3://", f"s3://{controller.state['artifact_bucket']}")
         self.assertNotIn("finalize-audit-stream.sh", execute)
         self.assertIn("finalize-audit-stream.sh", finalize)
+        self.assertTrue(any("finalize-telemetry-stream.sh" in command for command in commands))
         self.assertGreaterEqual(sync.call_count, 1)
+        self.assertGreaterEqual(telemetry_sync.call_count, 1)
         self.assertEqual(3, controller.state["audit_prefetch"]["ckc"]["chunks"])
+        self.assertEqual(2, controller.state["telemetry_prefetch"]["ckc"]["chunks"])
 
     def test_workload_completion_is_not_hidden_by_audit_finalization_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -581,9 +624,11 @@ class AwsSessionTest(unittest.TestCase):
             with (
                 patch.object(controller, "notify") as notify,
                 patch.object(controller, "ssm", side_effect=[
-                    {"Status": "Success"}, {"Status": "Success"}, {"Status": "Failed"},
+                    {"Status": "Success"}, {"Status": "Success"}, {"Status": "Success"},
+                    {"Status": "Failed"}, {"Status": "Success"},
                 ]),
                 patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 3, "bytes": 42}),
+                patch.object(controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 42}),
             ):
                 with self.assertRaisesRegex(session_module.CommandError, "target 'ckc.fixed-12' failed"):
                     controller.execute_test()
@@ -621,21 +666,162 @@ class AwsSessionTest(unittest.TestCase):
                 with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": 7}):
                     controller.materialize_target_audit_stream(target, Path(directory) / "result")
 
-    def test_runner_audit_stream_uses_immutable_gzip_chunks_and_fallback(self) -> None:
+    def test_runner_audit_stream_uses_only_immutable_gzip_chunks(self) -> None:
         configure = (AWS_ROOT / "runner-assets/bin/configure-audit-stream.sh").read_text(encoding="utf-8")
         finalize = (AWS_ROOT / "runner-assets/bin/finalize-audit-stream.sh").read_text(encoding="utf-8")
         export = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        bootstrap = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
         self.assertIn("upload_timeout: 1m", configure)
         self.assertIn("use_put_object: on", configure)
         self.assertIn("compression: gzip", configure)
         self.assertIn("$UUID.log.gz", configure)
         self.assertIn("s3_key_format: '/${PREFIX}/", configure)
+        self.assertIn("aws s3api put-object", configure)
+        self.assertIn('${PREFIX}/WRITE_PROBE', configure)
+        self.assertIn('WRITE_PROBE="$(mktemp)"', configure)
+        self.assertIn('--body "${WRITE_PROBE}"', configure)
+        self.assertNotIn("--body /dev/null", configure)
         self.assertIn("state_after", configure)
+        self.assertNotIn("name: file", configure)
+        self.assertNotIn("file: audit.log", configure)
         self.assertIn('--prefix "${PREFIX}/"', finalize)
         self.assertIn('s3://${BUCKET}/${PREFIX}/STREAM_COMPLETE.json', finalize)
         self.assertIn("STREAM_COMPLETE.json", finalize)
-        self.assertIn("streamed-to-s3", export)
-        self.assertIn('gzip -c "${AUDIT_SOURCE}"', export)
+        self.assertNotIn("streamed-to-s3", export)
+        self.assertNotIn("AUDIT_SOURCE", export)
+        self.assertNotIn("gzip -c", export)
+        self.assertIn("- name: null", bootstrap)
+        self.assertNotIn("file: audit.log", bootstrap)
+
+    def test_runner_telemetry_stream_exports_bounded_native_and_loki_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            loki = root / "loki.jsonl.gz"
+            metrics = root / "metrics.bin"
+            page = [{
+                "stream": {"application": "ckc-demo", "run_id": "run-a"},
+                "values": [["1000000001", "started"]],
+            }]
+            with patch.object(stream_telemetry_module, "query_loki", return_value=page) as query:
+                count = stream_telemetry_module.export_loki(
+                    loki, "http://loki", '{run_id="run-a"}', 1, 61,
+                )
+            with patch.object(
+                stream_telemetry_module.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(b"native-metrics"),
+            ) as urlopen:
+                stream_telemetry_module.export_metrics(metrics, "http://metrics", 1, 61)
+
+            with gzip.open(loki, "rt", encoding="utf-8") as source:
+                record = json.loads(source.read())
+            metrics_payload = metrics.read_bytes()
+
+        self.assertEqual(1, count)
+        self.assertEqual("started", record["line"])
+        self.assertEqual(1_000_000_000, query.call_args.args[2])
+        self.assertEqual(60_999_999_999, query.call_args.args[3])
+        request = urlopen.call_args.args[0]
+        self.assertIn("/api/v1/export/native?", request.full_url)
+        self.assertIn("match%5B%5D=", request.full_url)
+        self.assertEqual(b"native-metrics", metrics_payload)
+
+    def test_streamed_telemetry_materializes_loki_and_native_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["artifact_bucket"] = "artifact-bucket"
+            target = {"id": "ckc", "run_id": "run-ckc"}
+            root = Path(directory) / "telemetry-prefetch/run-ckc"
+            (root / "loki").mkdir(parents=True)
+            (root / "metrics").mkdir(parents=True)
+            loki = root / "loki/loki-1-61.jsonl.gz"
+            with gzip.open(loki, "wt", encoding="utf-8") as output:
+                for index, application in enumerate(("ckc-demo", "ckc-demo-stubs", "ckc-load-test"), start=2):
+                    output.write(json.dumps({
+                        "ts": str(index), "labels": {"application": application}, "line": "ready",
+                    }) + "\n")
+            metrics = root / "metrics/victoriametrics-1-61.bin"
+            metrics.write_bytes(b"native")
+
+            def entry(stream: str, path: Path) -> dict[str, object]:
+                return {
+                    "stream": stream,
+                    "name": path.name,
+                    "size": path.stat().st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+
+            (root / "STREAM_COMPLETE.json").write_text(json.dumps({
+                "schema_version": 1,
+                "s3_prefix": controller.telemetry_stream_prefix(target),
+                "chunks": [entry("loki", loki), entry("metrics", metrics)],
+            }), encoding="utf-8")
+            result = Path(directory) / "result"
+            with patch.object(
+                controller, "sync_target_telemetry_stream", return_value={"chunks": 2, "bytes": 12},
+            ):
+                controller.materialize_target_telemetry_stream(target, result)
+
+            exported = [
+                json.loads(line)
+                for line in (result / "logs/loki/kubernetes.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            native = result / "metrics/victoriametrics-native/victoriametrics-1-61.bin"
+            native_payload = native.read_bytes()
+            marker_exists = (result / "logs/loki/chunks/STREAM_COMPLETE.json").is_file()
+
+        self.assertEqual(3, len(exported))
+        self.assertTrue(all(record["line"] == "ready" for record in exported))
+        self.assertEqual(b"native", native_payload)
+        self.assertTrue(marker_exists)
+
+    def test_final_artifact_export_does_not_requery_full_loki_range(self) -> None:
+        export = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
+        configure = (AWS_ROOT / "runner-assets/bin/configure-telemetry-stream.sh").read_text(encoding="utf-8")
+        finalize = (AWS_ROOT / "runner-assets/bin/finalize-telemetry-stream.sh").read_text(encoding="utf-8")
+        self.assertNotIn("export-loki.py", export)
+        self.assertIn("stream-telemetry.py", configure)
+        self.assertIn('touch "${STATE_DIR}/STOP"', finalize)
+        streamer = (AWS_ROOT / "runner-assets/bin/stream-telemetry.py").read_text()
+        self.assertIn("stop_path.stat().st_mtime", streamer)
+        self.assertIn("closed_until - cursor < WINDOW_SECONDS", streamer)
+        materializer = (AWS_ROOT / "scripts/run-experiment.py").read_text()
+        self.assertIn('metrics_archive = result_dir / "metrics/victoriametrics-data.tar.gz"', materializer)
+        self.assertEqual(
+            [{"name": "loki-10-20.jsonl.gz"}],
+            stream_telemetry_module.entries_through([
+                {"name": "loki-10-20.jsonl.gz"},
+                {"name": "victoriametrics-20-31.bin"},
+            ], 30),
+        )
+        self.assertIn('"${STATE_DIR}/COMPLETE"', finalize)
+
+    def test_failed_runner_export_still_materializes_prefetched_streams(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state.update({
+                "artifact_bucket": "artifact-bucket",
+                "target_results": [{"id": "ckc", "name": "ckc", "run_id": "run-ckc"}],
+            })
+            controller.state["config"].update({
+                "experiment_name": "streaming",
+                "targets": [{"id": "ckc", "name": "ckc", "run_id": "run-ckc"}],
+            })
+            with (
+                patch.object(controller, "notify"),
+                patch.object(controller, "phase"),
+                patch.object(controller, "ssm", return_value={"Status": "Failed"}),
+                patch.object(controller, "run"),
+                patch.object(controller, "materialize_target_audit_stream") as audit,
+                patch.object(controller, "materialize_target_telemetry_stream") as telemetry,
+            ):
+                with self.assertRaisesRegex(session_module.CommandError, "runner artifact export: Failed"):
+                    controller.collect()
+
+        audit.assert_called_once()
+        telemetry.assert_called_once()
+        self.assertFalse(controller.state["artifacts_verified"])
+        self.assertIn("ckc", controller.state["local_result_dirs"])
 
     def test_audit_prefetch_uses_the_object_key_returned_by_s3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -651,19 +837,15 @@ class AwsSessionTest(unittest.TestCase):
             command[3],
         )
 
-    def test_missing_stream_marker_uses_runner_archive_fallback(self) -> None:
+    def test_missing_stream_marker_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.state["artifact_bucket"] = "audit-bucket"
             target = {"id": "ckc", "run_id": "run-ckc", "audit_log_enabled": True}
             result = Path(directory) / "result"
-            fallback = result / "audit/chunks/audit-000001.log.gz"
-            fallback.parent.mkdir(parents=True)
-            fallback.write_bytes(b"fallback")
-            with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
-                controller.materialize_target_audit_stream(target, result)
-
-        self.assertEqual(["ckc"], controller.state["audit_stream_fallback_targets"])
+            with self.assertRaisesRegex(RuntimeError, "stream marker is missing"):
+                with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 0, "bytes": 0}):
+                    controller.materialize_target_audit_stream(target, result)
 
     def test_runner_asset_bundle_contains_shared_warmup(self) -> None:
         sync_script = (AWS_ROOT / "scripts/libexec/sync-runner-assets.sh").read_text(encoding="utf-8")
@@ -749,6 +931,43 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual("aws-spring-msk-sizing-50k", config["experiment_id"])
         self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
         self.assertEqual(["spring-kafka.fixed-12"], [target["name"] for target in config["targets"]])
+
+    def test_autoscaling_state_exposes_dedicated_node_groups(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=5400,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual(["ckc.hpa-2-12"], [target["name"] for target in config["targets"]])
+        self.assertEqual({
+            "node_groups": {
+                "support": {
+                    "instance_types": ["m7i.xlarge"],
+                    "desired_size": 2,
+                    "min_size": 2,
+                    "max_size": 2,
+                    "disk_size_gib": 100,
+                },
+                "application": {
+                    "instance_types": ["m7i.large"],
+                    "desired_size": 2,
+                    "min_size": 2,
+                    "max_size": 8,
+                    "disk_size_gib": 100,
+                },
+            }
+        }, config["eks"])
+        self.assertTrue(config["terraform_lab_inputs"]["dedicated_node_groups"])
+        self.assertEqual(8, config["terraform_lab_inputs"]["application_node_max_size"])
 
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

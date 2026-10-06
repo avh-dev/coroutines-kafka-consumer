@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import copy
+import gzip
 import hashlib
 import json
 import os
@@ -632,7 +634,6 @@ class SessionController:
                 "set -euo pipefail",
                 f"aws s3 cp {shlex.quote(context_uri)} "
                 f"{shlex.quote(remote_context)} --region {shlex.quote(region)} --only-show-errors",
-                "truncate -s 0 /opt/ckc-runner/audit/audit.log || true",
                 "docker restart audit >/dev/null",
                 f"CKC_LOAD_LAB_PROVISIONED_CONTEXT_PATH={shlex.quote(remote_context)} "
                 f"CKC_AWS_IMAGE_ENVIRONMENT={shlex.quote(config['image_environment'])} "
@@ -661,8 +662,10 @@ class SessionController:
             phase_uri = self.target_phase_uri(target)
             audit_enabled = target.get("audit_log_enabled", True) is not False
             audit_prefix = self.audit_stream_prefix(target)
+            telemetry_prefix = self.telemetry_stream_prefix(target)
             prefetch_stop = threading.Event()
-            prefetch_failures: list[str] = []
+            audit_prefetch_failures: list[str] = []
+            telemetry_prefetch_failures: list[str] = []
             prefetch_thread: threading.Thread | None = None
             if audit_enabled:
                 self.ssm(
@@ -673,19 +676,6 @@ class SessionController:
                     300,
                 )
 
-                def prefetch() -> None:
-                    while not prefetch_stop.wait(15):
-                        try:
-                            self.sync_target_audit_stream(target)
-                        except Exception as error:
-                            prefetch_failures.append(str(error))
-
-                prefetch_thread = threading.Thread(
-                    target=prefetch,
-                    name=f"audit-prefetch-{target['id']}",
-                    daemon=True,
-                )
-                prefetch_thread.start()
                 audit_finalize = (
                     "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/finalize-audit-stream.sh "
                     f"{shlex.quote(config['region'])} {shlex.quote(self.state['artifact_bucket'])} "
@@ -693,12 +683,41 @@ class SessionController:
                 )
             else:
                 audit_finalize = None
+            self.ssm(
+                "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/configure-telemetry-stream.sh "
+                f"{shlex.quote(config['region'])} {shlex.quote(self.state['artifact_bucket'])} "
+                f"{shlex.quote(telemetry_prefix)} {shlex.quote(run_id)}",
+                f"configure incremental telemetry stream for {target['name']}",
+                300,
+            )
+            telemetry_finalize = (
+                "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/finalize-telemetry-stream.sh "
+                f"{shlex.quote(run_id)}"
+            )
+
+            def prefetch() -> None:
+                while not prefetch_stop.wait(15):
+                    if audit_enabled:
+                        try:
+                            self.sync_target_audit_stream(target)
+                        except Exception as error:
+                            audit_prefetch_failures.append(str(error))
+                    try:
+                        self.sync_target_telemetry_stream(target)
+                    except Exception as error:
+                        telemetry_prefetch_failures.append(str(error))
+
+            prefetch_thread = threading.Thread(
+                target=prefetch,
+                name=f"evidence-prefetch-{target['id']}",
+                daemon=True,
+            )
+            prefetch_thread.start()
             command = (
                 "set -uo pipefail; "
                 f"phase_log={shlex.quote(remote_phase_log)}; "
                 f"session_log={shlex.quote(remote_log)}; "
                 ': > "$phase_log"; '
-                + ("" if audit_enabled else "truncate -s 0 /opt/ckc-runner/audit/audit.log; ")
                 + 'CKC_RUN_PHASE_FILE="$phase_log" '
                 + "CKC_RUN_PHASE_HOOK=/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/publish-run-phases.sh "
                 + f"CKC_RUN_PHASE_S3_URI={shlex.quote(phase_uri)} "
@@ -810,23 +829,42 @@ class SessionController:
                     if audit_finalize
                     else {"Status": "Success"}
                 )
-                invocation = (
-                    workload_invocation
-                    if workload_invocation.get("Status") != "Success"
-                    else audit_invocation
+                telemetry_invocation = self.ssm(
+                    telemetry_finalize,
+                    f"finalize AWS telemetry stream {index}/{len(targets)}: {target['name']}",
+                    1200,
+                    check=False,
+                )
+                invocation = next(
+                    (
+                        candidate
+                        for candidate in (workload_invocation, audit_invocation, telemetry_invocation)
+                        if candidate.get("Status") != "Success"
+                    ),
+                    telemetry_invocation,
                 )
             finally:
                 if prefetch_thread is not None:
                     prefetch_stop.set()
                     prefetch_thread.join(timeout=30)
+                    if audit_enabled:
+                        try:
+                            audit_prefetch_result = self.sync_target_audit_stream(target)
+                        except Exception as error:
+                            audit_prefetch_failures.append(str(error))
+                            audit_prefetch_result = {"chunks": 0, "bytes": 0}
+                        self.state.setdefault("audit_prefetch", {})[target["id"]] = {
+                            **audit_prefetch_result,
+                            "failures": audit_prefetch_failures[-10:],
+                        }
                     try:
-                        prefetch_result = self.sync_target_audit_stream(target)
+                        telemetry_prefetch_result = self.sync_target_telemetry_stream(target)
                     except Exception as error:
-                        prefetch_failures.append(str(error))
-                        prefetch_result = {"chunks": 0, "bytes": 0}
-                    self.state.setdefault("audit_prefetch", {})[target["id"]] = {
-                        **prefetch_result,
-                        "failures": prefetch_failures[-10:],
+                        telemetry_prefetch_failures.append(str(error))
+                        telemetry_prefetch_result = {"chunks": 0, "bytes": 0}
+                    self.state.setdefault("telemetry_prefetch", {})[target["id"]] = {
+                        **telemetry_prefetch_result,
+                        "failures": telemetry_prefetch_failures[-10:],
                     }
                     self.save()
             result = {**target, "status": invocation.get("Status")}
@@ -849,6 +887,12 @@ class SessionController:
         return (
             f"sessions/{self.config['session_id']}/result/runs/{target['run_id']}"
             "/audit/streaming"
+        )
+
+    def telemetry_stream_prefix(self, target: dict[str, Any]) -> str:
+        return (
+            f"sessions/{self.config['session_id']}/result/runs/{target['run_id']}"
+            "/telemetry/streaming"
         )
 
     def target_phase_uri(self, target: dict[str, Any]) -> str:
@@ -883,6 +927,98 @@ class SessionController:
         files = list(chunks.glob("*.log.gz"))
         return {"chunks": len(files), "bytes": sum(path.stat().st_size for path in files)}
 
+    def sync_target_telemetry_stream(self, target: dict[str, Any]) -> dict[str, int]:
+        root = self.session_dir / "telemetry-prefetch" / target["run_id"]
+        root.mkdir(parents=True, exist_ok=True)
+        self.run([
+            "aws", "s3", "sync",
+            f"s3://{self.state['artifact_bucket']}/{self.telemetry_stream_prefix(target)}/",
+            str(root),
+            "--region", self.config["region"],
+            "--exclude", "*",
+            "--include", "*.jsonl.gz",
+            "--include", "*.bin",
+            "--include", "STREAM_COMPLETE.json",
+            "--only-show-errors",
+        ])
+        files = list((root / "loki").glob("*.jsonl.gz")) + list((root / "metrics").glob("*.bin"))
+        return {"chunks": len(files), "bytes": sum(path.stat().st_size for path in files)}
+
+    def materialize_target_telemetry_stream(self, target: dict[str, Any], result_dir: Path) -> None:
+        self.sync_target_telemetry_stream(target)
+        root = self.session_dir / "telemetry-prefetch" / target["run_id"]
+        marker_path = root / "STREAM_COMPLETE.json"
+        if not marker_path.is_file():
+            raise RuntimeError(f"AWS telemetry stream marker is missing for target {target['id']!r}")
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if marker.get("s3_prefix") != self.telemetry_stream_prefix(target):
+            raise RuntimeError(f"AWS telemetry stream prefix mismatch for target {target['id']!r}")
+        expected = marker.get("chunks") or []
+        streams = {"loki": [], "metrics": []}
+        metrics_archive = result_dir / "metrics/victoriametrics-data.tar.gz"
+        seen: set[tuple[str, str]] = set()
+        for item in expected:
+            stream = str(item.get("stream") or "")
+            name = str(item.get("name") or "")
+            pattern = r"loki-\d+-\d+\.jsonl\.gz" if stream == "loki" else r"victoriametrics-\d+-\d+\.bin"
+            if stream not in streams or not re.fullmatch(pattern, name) or (stream, name) in seen:
+                raise RuntimeError(f"AWS telemetry stream contains an invalid chunk: {stream}/{name}")
+            seen.add((stream, name))
+            # A clean runner export already contains the compact on-disk
+            # VictoriaMetrics archive. Native chunks are the crash fallback;
+            # do not checksum and duplicate them into the evidence bundle.
+            if stream == "metrics" and metrics_archive.is_file():
+                continue
+            source = root / stream / name
+            if not source.is_file() or source.stat().st_size != int(item["size"]):
+                raise RuntimeError(f"AWS telemetry chunk is missing or incomplete: {stream}/{name}")
+            digest = hashlib.sha256()
+            with source.open("rb") as file_stream:
+                for block in iter(lambda: file_stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            if digest.hexdigest() != item.get("sha256"):
+                raise RuntimeError(f"AWS telemetry chunk checksum mismatch: {stream}/{name}")
+            streams[stream].append(source)
+        if not streams["loki"] or (not metrics_archive.is_file() and not streams["metrics"]):
+            raise RuntimeError(f"AWS telemetry stream is incomplete for target {target['id']!r}")
+
+        loki_dir = result_dir / "logs/loki"
+        loki_chunks = loki_dir / "chunks"
+        metrics_chunks = result_dir / "metrics/victoriametrics-native"
+        loki_chunks.mkdir(parents=True, exist_ok=True)
+        if not metrics_archive.is_file():
+            metrics_chunks.mkdir(parents=True, exist_ok=True)
+        records: dict[tuple[str, str, str], dict[str, Any]] = {}
+        applications: set[str] = set()
+        for source in sorted(streams["loki"]):
+            shutil.copy2(source, loki_chunks / source.name)
+            with gzip.open(source, "rt", encoding="utf-8") as stream:
+                for line in stream:
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    labels_json = json.dumps(record.get("labels", {}), sort_keys=True, separators=(",", ":"))
+                    application = str(record.get("labels", {}).get("application") or "")
+                    if application:
+                        applications.add(application)
+                    key = (str(record["ts"]), labels_json, str(record["line"]))
+                    records[key] = record
+        required_applications = {"ckc-demo", "ckc-demo-stubs", "ckc-load-test"}
+        missing_applications = sorted(required_applications - applications)
+        if missing_applications:
+            raise RuntimeError(
+                "AWS telemetry stream is missing required Loki applications: "
+                + ", ".join(missing_applications)
+            )
+        with (loki_dir / "kubernetes.jsonl").open("w", encoding="utf-8") as target_file:
+            for key in sorted(records, key=lambda item: (int(item[0]), item[1], item[2])):
+                target_file.write(json.dumps(records[key], ensure_ascii=False) + "\n")
+        for source in sorted(streams["metrics"]):
+            shutil.copy2(source, metrics_chunks / source.name)
+        shutil.copy2(marker_path, loki_chunks / marker_path.name)
+        if not metrics_archive.is_file():
+            shutil.copy2(marker_path, metrics_chunks / marker_path.name)
+
     def materialize_target_audit_stream(self, target: dict[str, Any], result_dir: Path) -> None:
         if target.get("audit_log_enabled", True) is False:
             return
@@ -890,11 +1026,6 @@ class SessionController:
         chunks = self.session_dir / "audit-prefetch" / target["run_id"]
         marker_path = chunks / "STREAM_COMPLETE.json"
         if not marker_path.is_file():
-            fallback = result_dir / "audit" / "chunks" / "audit-000001.log.gz"
-            if fallback.is_file() and fallback.stat().st_size > 0:
-                self.state.setdefault("audit_stream_fallback_targets", []).append(target["id"])
-                self.save()
-                return
             raise RuntimeError(f"AWS audit stream marker is missing for target {target['id']!r}")
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
         if marker.get("s3_prefix") != self.audit_stream_prefix(target):
@@ -983,16 +1114,18 @@ class SessionController:
         result_root = self.session_dir / "result"
         result_root.mkdir(parents=True, exist_ok=True)
         local_results: dict[str, str] = {}
+        collection_errors: list[str] = []
         for index, target in enumerate(targets, start=1):
             run_id = target["run_id"]
             prefix = f"sessions/{config['session_id']}/result/runs/{run_id}"
             self.phase("EXPORTING_TARGET_ARTIFACTS", target_index=index, target_total=len(targets), target_id=target["id"])
-            self.ssm(
+            export_invocation = self.ssm(
                 "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/export-run-artifacts.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} {shlex.quote(run_id)} "
                 f"{shlex.quote(self.state['artifact_bucket'])} {shlex.quote(prefix)}",
                 f"export AWS target artifacts {index}/{len(targets)}",
                 3600,
+                check=False,
             )
             result_dir = result_root / "runs" / run_id
             result_dir.mkdir(parents=True, exist_ok=True)
@@ -1000,15 +1133,35 @@ class SessionController:
                 "aws", "s3", "sync", f"s3://{self.state['artifact_bucket']}/{prefix}/", str(result_dir),
                 "--region", config["region"],
                 "--exclude", "audit/streaming/*",
+                "--exclude", "telemetry/streaming/*",
                 "--only-show-errors",
             ])
-            self.materialize_target_audit_stream(target, result_dir)
-            self.verify_manifest(result_dir)
+            for label, materialize in (
+                ("audit", self.materialize_target_audit_stream),
+                ("telemetry", self.materialize_target_telemetry_stream),
+            ):
+                try:
+                    materialize(target, result_dir)
+                except Exception as error:
+                    collection_errors.append(f"{target['name']} {label} stream: {error}")
+            if export_invocation.get("Status") == "Success":
+                try:
+                    self.verify_manifest(result_dir)
+                except Exception as error:
+                    collection_errors.append(f"{target['name']} artifact manifest: {error}")
+            else:
+                collection_errors.append(
+                    f"{target['name']} runner artifact export: {export_invocation.get('Status', 'unknown')}"
+                )
             local_results[target["id"]] = str(result_dir)
         self.state["local_result_dirs"] = local_results
         self.state["local_result_dir"] = next(iter(local_results.values())) if len(local_results) == 1 else str(result_root)
-        self.state["artifacts_verified"] = True
+        self.state["artifacts_verified"] = not collection_errors
+        if collection_errors:
+            self.state["artifact_collection_errors"] = collection_errors
         self.save()
+        if collection_errors:
+            raise CommandError("AWS artifact collection was incomplete:\n- " + "\n- ".join(collection_errors))
 
     @staticmethod
     def verify_manifest(result_dir: Path) -> None:
@@ -1455,6 +1608,7 @@ class SessionController:
             shutil.copy2(metrics_source, metrics_target)
         loki_root = result_root / "logs/loki"
         loki_root.mkdir(parents=True, exist_ok=True)
+        native_metrics_target = result_root / "metrics/victoriametrics-native"
         event_lines: list[str] = []
         for target_id, value in local_results.items():
             run_dir = Path(value)
@@ -1463,6 +1617,9 @@ class SessionController:
             events = run_dir / "experiment-events.jsonl"
             if events.is_file():
                 event_lines.extend(events.read_text(encoding="utf-8").splitlines())
+            for source in sorted((run_dir / "metrics/victoriametrics-native").glob("*.bin")):
+                native_metrics_target.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, native_metrics_target / f"{target_id}-{source.name}")
         if event_lines:
             (result_root / "experiment-events.jsonl").write_text("\n".join(event_lines) + "\n", encoding="utf-8")
         (result_root / "COMPLETE").write_text("complete\n", encoding="utf-8")
@@ -1481,17 +1638,22 @@ class SessionController:
             return
         result_root = Path(self.state["local_result_dir"])
         archive = result_root / "metrics/victoriametrics-data.tar.gz"
-        if not archive.is_file():
-            raise RuntimeError(f"Experiment metrics archive was not found: {archive}")
+        native_chunks = sorted((result_root / "metrics/victoriametrics-native").glob("*.bin"))
+        if not archive.is_file() and not native_chunks:
+            raise RuntimeError(f"Experiment metrics archive and native chunks were not found under {result_root / 'metrics'}")
         restore_root = self.session_dir / "report-metrics"
         if restore_root.exists():
             shutil.rmtree(restore_root)
         restore_root.mkdir(parents=True)
-        with tarfile.open(archive, "r:gz") as source:
-            source.extractall(restore_root, filter="data")
         metrics_dir = restore_root / "prometheus"
-        if not metrics_dir.is_dir():
-            raise RuntimeError(f"VictoriaMetrics data directory was not found in {archive}")
+        restored_from_native = not archive.is_file()
+        if archive.is_file():
+            with tarfile.open(archive, "r:gz") as source:
+                source.extractall(restore_root, filter="data")
+            if not metrics_dir.is_dir():
+                raise RuntimeError(f"VictoriaMetrics data directory was not found in {archive}")
+        else:
+            metrics_dir.mkdir(parents=True)
 
         port = self.free_local_port()
         container_name = slug(f"ckc-report-{self.config['session_id']}", 63)
@@ -1515,6 +1677,12 @@ class SessionController:
                     time.sleep(1)
             else:
                 raise RuntimeError(f"Restored VictoriaMetrics did not become ready at {health_url}")
+            if restored_from_native:
+                for chunk in native_chunks:
+                    self.run([
+                        "curl", "-fsS", "--data-binary", f"@{chunk.resolve()}",
+                        f"http://127.0.0.1:{port}/api/v1/import/native",
+                    ])
             reports = generate_experiment_reports(
                 Path(self.state["experiment_summary"]),
                 self.repo / "demo/infra/shared",
@@ -1527,6 +1695,11 @@ class SessionController:
                 "reports": self.state["experiment_reports"],
                 "environment": {"name": "aws", "detail": self.config["region"]},
             })
+            if restored_from_native:
+                self.run(["docker", "stop", "--time", "30", container_name])
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                with tarfile.open(archive, "w:gz") as target:
+                    target.add(metrics_dir, arcname="prometheus")
         finally:
             self.run(["docker", "rm", "-f", container_name], check=False)
             shutil.rmtree(restore_root, ignore_errors=True)
@@ -1696,10 +1869,11 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
         "nodes": redis_lab.get("elasticache_nodes") or terraform_lab_inputs.get("elasticache_num_cache_clusters"),
     }
     nodes_lab = lab.get("nodes") or {}
-    eks = {
+    node_groups_lab = lab.get("node_groups") or {}
+    eks = ({"node_groups": copy.deepcopy(node_groups_lab)} if node_groups_lab else {
         "instance_types": nodes_lab.get("instance_types") or terraform_lab_inputs.get("node_instance_types"),
         "nodes": nodes_lab.get("desired_size") or terraform_lab_inputs.get("node_desired_size"),
-    }
+    })
     return {
         "schema_version": 1,
         "created_at": utc_text(),

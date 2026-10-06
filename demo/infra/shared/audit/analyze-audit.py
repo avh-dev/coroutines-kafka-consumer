@@ -412,15 +412,6 @@ class KeyFairnessStats:
     def finish(self, watermark_ms: int) -> None:
         if self.finalized:
             return
-        for stats in self.by_message_key.values():
-            if stats.last_processed_ms is None:
-                continue
-            trailing_gap_ms = watermark_ms - stats.last_processed_ms
-            stats.max_processed_gap_ms = (
-                trailing_gap_ms
-                if stats.max_processed_gap_ms is None
-                else max(stats.max_processed_gap_ms, trailing_gap_ms)
-            )
         self.finalized = True
 
     def summary(self) -> dict[str, object]:

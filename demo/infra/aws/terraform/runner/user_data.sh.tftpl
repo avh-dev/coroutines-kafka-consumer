@@ -72,12 +72,8 @@ pipeline:
       format: json
 
   outputs:
-    - name: file
+    - name: null
       match: '*'
-      path: /audit
-      file: audit.log
-      format: template
-      template: '{message}'
 EOF
 
 cat > /opt/ckc-runner/bin/configure-observability.sh <<'EOF'

@@ -28,6 +28,50 @@ output "node_disk_size" {
   value       = var.node_disk_size
 }
 
+output "dedicated_node_groups" {
+  description = "Whether support and application workloads use separate managed node groups."
+  value       = var.dedicated_node_groups
+}
+
+output "node_groups" {
+  description = "Resolved EKS managed node-group capacity used in experiment evidence."
+  value = merge(
+    var.dedicated_node_groups ? {
+      support = {
+        instance_types = var.support_node_instance_types
+        desired_size   = var.support_node_desired_size
+        min_size       = var.support_node_min_size
+        max_size       = var.support_node_max_size
+        disk_size_gib  = var.support_node_disk_size
+        autoscaling    = false
+      }
+      application = {
+        instance_types = var.application_node_instance_types
+        desired_size   = var.application_node_desired_size
+        min_size       = var.application_node_min_size
+        max_size       = var.application_node_max_size
+        disk_size_gib  = var.application_node_disk_size
+        autoscaling    = true
+      }
+    } : {},
+    var.dedicated_node_groups ? {} : {
+      shared = {
+        instance_types = var.node_instance_types
+        desired_size   = var.node_desired_size
+        min_size       = var.node_min_size
+        max_size       = var.node_max_size
+        disk_size_gib  = var.node_disk_size
+        autoscaling    = false
+      }
+    }
+  )
+}
+
+output "cluster_autoscaler_image" {
+  description = "Cluster Autoscaler image for the provisioned Kubernetes version."
+  value       = var.dedicated_node_groups ? var.cluster_autoscaler_image : ""
+}
+
 output "vpc_id" {
   description = "VPC identifier."
   value       = module.vpc.vpc_id

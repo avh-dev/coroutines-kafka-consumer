@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import operator
 import re
 from decimal import Decimal, ROUND_CEILING
@@ -734,6 +735,11 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
             if isinstance(run_plan.get("application"), dict)
             else {}
         ),
+        "hpa": (
+            run_plan.get("application", {}).get("hpa", {})
+            if isinstance(run_plan.get("application"), dict)
+            else {}
+        ),
         "dedicated_processing_workers": bool(dedicated_workers),
         "business_logic": business_logic,
         "dispatcher": application.get("processing_dispatcher_type"),
@@ -913,9 +919,21 @@ def window_audit(
     return {}
 
 
-def configured_measurement_windows(load_test: dict[str, Any]) -> list[dict[str, Any]]:
+def configured_measurement_windows(
+    load_test: dict[str, Any], load_duration: float | None = None
+) -> list[dict[str, Any]]:
     windows = load_test.get("measurement_windows")
-    return [window for window in windows if isinstance(window, dict)] if isinstance(windows, list) else []
+    configured = [window for window in windows if isinstance(window, dict)] if isinstance(windows, list) else []
+    if load_duration is None:
+        return configured
+    return [
+        window
+        for window in configured
+        if not (
+            float(window.get("start_seconds") or 0) == 0
+            and math.isclose(float(window.get("duration_seconds") or 0), load_duration)
+        )
+    ]
 
 
 def analyze_experiment(
@@ -993,7 +1011,7 @@ def analyze_experiment(
                 measurements = collect_standard_measurements(prometheus, start, target_load_duration)
             except Exception as error:
                 warnings.append(f"Prometheus measurements are unavailable: {error}")
-            for window in configured_measurement_windows(target_load_test):
+            for window in configured_measurement_windows(target_load_test, target_load_duration):
                 result = {
                     **window,
                     "delivery": {},
@@ -1035,7 +1053,7 @@ def analyze_experiment(
                 "delivery": {},
                 "topic_evidence": {},
                 "measurements": {name: None for name in STANDARD_MEASUREMENTS},
-            } for window in configured_measurement_windows(target_load_test)]
+            } for window in configured_measurement_windows(target_load_test, target_load_duration)]
         first_window = measurement_window_results[0] if measurement_window_results else {}
         window_measurements = first_window.get("measurements", {})
         window_delivery = first_window.get("delivery", {})
@@ -1168,7 +1186,10 @@ def analyze_experiment(
             "load_phases": phases,
             "load_topics": load_topics,
             "topic_contracts": topic_contracts,
-            "measurement_windows": configured_measurement_windows(load_test),
+            "measurement_windows": configured_measurement_windows(
+                load_test,
+                float(sum(phase["duration_seconds"] for phase in phases)),
+            ),
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
