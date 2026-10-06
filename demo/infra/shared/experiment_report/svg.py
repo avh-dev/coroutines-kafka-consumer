@@ -1131,7 +1131,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         area = " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
         polygon = f"{left},{axis_y} {area} {width-right},{axis_y}"
         normal_ranges = [(0.0, total)]
-        clip_paths = []
+        clip_paths = [f'<clipPath id="load-profile-area"><polygon points="{polygon}"/></clipPath>']
         for index, (range_start, range_end) in enumerate(normal_ranges):
             clip_paths.append(
                 f'<clipPath id="load-fill-{index}"><rect x="{x(range_start):.1f}" y="{top}" '
@@ -1239,11 +1239,16 @@ def load_profile_svg(report: ExperimentReport) -> str:
             range_y = range_y_positions[index]
             arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
             arrow_height = max(0.5, min(4.0, arrow_width * 2 / 3))
+            measurement_clip = (
+                ' clip-path="url(#load-profile-area)"'
+                if scenario.get("type") == "measurement"
+                else ""
+            )
             chaos_fills.append(
                 f'<rect data-chaos-kind="interval" data-range-background="overlay" '
                 f'data-scenario-type="{esc(scenario.get("type"))}" '
                 f'x="{start_x:.1f}" y="{top}" width="{max(2, end_x-start_x):.1f}" height="{plot_height}" '
-                f'fill="{color}" fill-opacity="0.38"/>'
+                f'fill="{color}" fill-opacity="0.38"{measurement_clip}/>'
             )
             chaos_overlays.extend(
                 [

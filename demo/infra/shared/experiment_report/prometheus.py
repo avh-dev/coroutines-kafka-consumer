@@ -47,12 +47,20 @@ STANDARD_MEASUREMENTS = {
         "avg_over_time((count(container_memory_working_set_bytes"
         '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
     ),
+    "application_replicas_min": (
+        "min_over_time((count(container_memory_working_set_bytes"
+        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+    ),
     "application_replicas_max": (
         "max_over_time((count(container_memory_working_set_bytes"
         '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
     ),
     "application_nodes_average": (
         "avg_over_time((count(machine_cpu_cores"
+        '{{job="kubernetes-cadvisor", node_role="application"}}))[{window}:15s])'
+    ),
+    "application_nodes_min": (
+        "min_over_time((count(machine_cpu_cores"
         '{{job="kubernetes-cadvisor", node_role="application"}}))[{window}:15s])'
     ),
     "application_nodes_max": (
@@ -151,9 +159,13 @@ STANDARD_MEASUREMENTS = {
         "sum(increase(thread_stats_allocated_bytes_total"
         '{{job="ckc-demo", category=~"^([0-9]+\\\\. )?business$", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
-    "context_switches_average_per_second": (
+    "voluntary_context_switches_average_per_second": (
         "sum(increase(thread_stats_context_switches_total"
-        '{{job="ckc-demo", pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
+        '{{job="ckc-demo", pod=~"ckc-demo-.+", type="voluntary"}}[{window}])) / {seconds}'
+    ),
+    "involuntary_context_switches_average_per_second": (
+        "sum(increase(thread_stats_context_switches_total"
+        '{{job="ckc-demo", pod=~"ckc-demo-.+", type="involuntary"}}[{window}])) / {seconds}'
     ),
     "msk_cpu_average_percent": (
         "max(avg_over_time((aws_kafka_cpu_user_average + "

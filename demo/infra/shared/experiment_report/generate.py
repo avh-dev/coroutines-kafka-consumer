@@ -128,8 +128,8 @@ def write_report(report_dir: Path, report: Any) -> None:
     (report_dir / "context-switches-average.svg").write_text(
         comparison_bar_svg(
             report,
-            "context_switches_average_per_second",
-            "Average application process context switches",
+            "voluntary_context_switches_average_per_second",
+            "Average voluntary JVM thread context switches",
             "switches/s",
         ),
         encoding="utf-8",

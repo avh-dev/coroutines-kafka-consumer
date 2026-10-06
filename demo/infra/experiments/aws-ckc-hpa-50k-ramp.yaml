@@ -68,9 +68,6 @@ workload:
     telemetry_settle_seconds: 180
     maximum_first_sample_delay_seconds: 90
   measurement_windows:
-  - name: complete-profile
-    start: 0s
-    duration: 60m
   - name: ramp
     start: 0s
     duration: 30m

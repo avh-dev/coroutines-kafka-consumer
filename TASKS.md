@@ -446,6 +446,7 @@
 | [INFRA-279](#infra-279) | Keep the AWS Cluster Autoscaler IAM role prefix within the provider limit. | DONE |
 | [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
+| [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5208,3 +5209,15 @@ Pack two 800m-request application pods onto each `m7i.large` node so the HPA exp
 Allow the application node group to grow to eight workers and HPA to twelve replicas so infrastructure ceilings do not force artificial vertical saturation.
 Use twelve partitions per topic so every maximum-scale replica receives useful work and partition leaders remain balanced across three brokers.
 Verification: all 69 AWS tests and the focused orchestration tests pass; Python and Bash syntax plus whitespace validation pass. Native export/import was exercised against VictoriaMetrics 1.102.1. A live AWS run exposed both the moving-boundary defect and insufficient headroom at 900m; its existing chunks were preserved and the fixed streamer successfully produced the final manifest.
+
+<a id="infra-282"></a>
+### INFRA-282 - Clarify experiment report measurements
+
+_Date: 2026-10-06_
+
+Remove redundant explicit full-run measurement windows while retaining the canonical full-run result.
+Clip measurement shading to the load profile and expose configured versus observed application pod and node scaling ranges.
+Select the correct Kafka CPU source per environment, report only actual per-key processing intervals, and split JVM thread context switches by type.
+Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
+Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
+Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.
