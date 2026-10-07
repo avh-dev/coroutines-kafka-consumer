@@ -70,9 +70,11 @@ class SpringKafkaProfileContextTest(
             kafka.consumer.commitIntervalMs = 1_234
             kafka.consumer.fetchMinBytes = 8_192
             consumers.order.processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
+            consumers.order.groupId = "ckc-demo-order"
             consumers.order.kafka.fetchMinBytes = 4_096
             consumers.order.kafka.fetchMaxBytes = 16 * 1024 * 1024
             consumers.batch.processingMode = ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING
+            consumers.batch.groupId = "ckc-demo-batch"
         }
         val configuration = SpringKafkaProfileConfiguration()
 
@@ -90,8 +92,8 @@ class SpringKafkaProfileContextTest(
         assertEquals(false, orderConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(false, batchConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals(true, telemetryConsumerFactory.config()[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
-        assertEquals("ckc-demo", orderConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
-        assertEquals("ckc-demo", batchConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
+        assertEquals("ckc-demo-order", orderConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
+        assertEquals("ckc-demo-batch", batchConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
         assertEquals("ckc-demo", telemetryConsumerFactory.config()[ConsumerConfig.GROUP_ID_CONFIG])
         assertEquals(4_096, orderConsumerFactory.config()[ConsumerConfig.FETCH_MIN_BYTES_CONFIG])
         assertEquals(16 * 1024 * 1024, orderConsumerFactory.config()[ConsumerConfig.FETCH_MAX_BYTES_CONFIG])

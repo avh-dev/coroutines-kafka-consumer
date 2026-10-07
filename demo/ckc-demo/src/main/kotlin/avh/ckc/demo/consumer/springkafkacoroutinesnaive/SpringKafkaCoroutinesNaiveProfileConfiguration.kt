@@ -86,7 +86,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
     ): ConsumerFactory<String, OrderLifecycleEvent> =
         kafkaConsumerFactoryWithClientMetrics(
             consumerProperties = commonConsumerProperties(properties, properties.consumers.order) + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.consumers.order.groupIdOr(properties.kafka.groupId),
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to OrderLifecycleEventDeserializer::class.java
             ),
@@ -113,7 +113,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
     ): ConsumerFactory<String, BatchLifecycleEvent> =
         kafkaConsumerFactoryWithClientMetrics(
             consumerProperties = commonConsumerProperties(properties, properties.consumers.batch) + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.consumers.batch.groupIdOr(properties.kafka.groupId),
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to BatchLifecycleEventDeserializer::class.java
             ),
@@ -140,7 +140,7 @@ class SpringKafkaCoroutinesNaiveProfileConfiguration {
     ): ConsumerFactory<String, CauldronTelemetryEvent> =
         kafkaConsumerFactoryWithClientMetrics(
             consumerProperties = commonConsumerProperties(properties, properties.consumers.telemetry) + mapOf(
-                ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId,
+                ConsumerConfig.GROUP_ID_CONFIG to properties.consumers.telemetry.groupIdOr(properties.kafka.groupId),
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java
             ),

@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 
 class SpringKafkaListenerAnnotationTest {
     @Test
-    fun `spring kafka listener ids do not override the shared consumer group`() {
+    fun `spring kafka listeners preserve configured groups and declare topic startup switches`() {
         val listeners = listOf(
             SpringKafkaTrackingListeners::class.java,
             SpringKafkaCoroutinesNaiveListeners::class.java,
@@ -26,5 +26,13 @@ class SpringKafkaListenerAnnotationTest {
             assertFalse(listener.idIsGroup)
             assertEquals("", listener.groupId)
         }
+        assertEquals(
+            setOf(
+                "\${demo.consumers.order.enabled}",
+                "\${demo.consumers.batch.enabled}",
+                "\${demo.consumers.telemetry.enabled}"
+            ),
+            listeners.map { it.autoStartup }.toSet()
+        )
     }
 }

@@ -123,10 +123,14 @@ data class DemoApplicationProperties(
     }
 
     data class ConsumerRuntime(
+        var enabled: Boolean = true,
+        var groupId: String = "",
         var workerConcurrency: Int = 1,
         var pollLoopConcurrency: Int = 1,
         var workChannelCapacity: Int = 1024,
         var processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
         var kafka: KafkaConsumerOverrides = KafkaConsumerOverrides()
-    )
+    ) {
+        fun groupIdOr(fallback: String): String = groupId.ifBlank { fallback }
+    }
 }

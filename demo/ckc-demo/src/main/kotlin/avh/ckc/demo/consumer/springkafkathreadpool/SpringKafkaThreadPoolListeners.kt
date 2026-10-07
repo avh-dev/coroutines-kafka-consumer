@@ -18,6 +18,7 @@ class SpringKafkaThreadPoolListeners(
     @KafkaListener(
         id = "spring-kafka-consumer-order-lifecycle",
         idIsGroup = false,
+        autoStartup = "\${demo.consumers.order.enabled}",
         topics = ["\${demo.topics.order-events}"],
         containerFactory = "springKafkaThreadPoolOrderListenerContainerFactory"
     )
@@ -28,6 +29,7 @@ class SpringKafkaThreadPoolListeners(
     @KafkaListener(
         id = "spring-kafka-consumer-batch-lifecycle",
         idIsGroup = false,
+        autoStartup = "\${demo.consumers.batch.enabled}",
         topics = ["\${demo.topics.batch-events}"],
         containerFactory = "springKafkaThreadPoolBatchListenerContainerFactory"
     )
@@ -38,6 +40,7 @@ class SpringKafkaThreadPoolListeners(
     @KafkaListener(
         id = "spring-kafka-consumer-cauldron-telemetry",
         idIsGroup = false,
+        autoStartup = "\${demo.consumers.telemetry.enabled}",
         topics = ["\${demo.topics.cauldron-events}"],
         containerFactory = "springKafkaThreadPoolTelemetryListenerContainerFactory"
     )

@@ -168,6 +168,7 @@
 | [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
 | [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
+| [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5221,3 +5222,14 @@ Select the correct Kafka CPU source per environment, report only actual per-key 
 Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
 Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
 Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.
+
+<a id="demo-103"></a>
+### DEMO-103 - Isolate Spring Kafka topic consumers
+
+_Date: 2026-10-07_
+
+Allow order, batch, and telemetry Spring Kafka listeners to be enabled independently while preserving the current all-enabled default.
+Give every topic consumer an independently configurable group id with the existing global group id as the compatibility fallback.
+Keep one application artifact so Kubernetes can run topic-specific deployments without maintaining separate builds.
+Apply the same startup switches and group-id resolution to the blocking, thread-pool, and coroutine-naive Spring Kafka profiles.
+Verification: all `ckc-demo` tests and focused configuration/profile tests pass; whitespace validation passes.
