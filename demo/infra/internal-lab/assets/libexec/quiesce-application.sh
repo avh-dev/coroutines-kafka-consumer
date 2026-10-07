@@ -38,7 +38,7 @@ for application in ${deployments}; do
   if ! timeout "${TIMEOUT_SECONDS}" sh -c '
     namespace="$1"
     application="$2"
-    name="${application#deployment/}"
+    name="${application#*/}"
     while kubectl -n "${namespace}" get pods -l "app.kubernetes.io/name=${name}" -o name | grep -q .; do
       sleep 1
     done

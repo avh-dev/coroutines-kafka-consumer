@@ -1504,6 +1504,48 @@ class AwsSessionTest(unittest.TestCase):
         self.assertFalse(drained)
         self.assertEqual("TIMEOUT", document["status"])
 
+    def test_consumer_drain_queries_only_selected_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "drain.json"
+            with (
+                patch.object(run_test_module, "prometheus_scalar", side_effect=[0.0, 100.0]),
+                patch.object(run_test_module.time, "monotonic", side_effect=[0.0, 1.0]),
+            ):
+                run_test_module.wait_for_consumer_drain(
+                    "http://metrics",
+                    report,
+                    timeout_seconds=0,
+                    consumer_groups=["ckc-demo-order", "ckc-demo-batch", "ckc-demo-telemetry"],
+                )
+            document = json.loads(report.read_text(encoding="utf-8"))
+
+        self.assertIn(
+            'consumergroup=~"^(?:ckc-demo-order|ckc-demo-batch|ckc-demo-telemetry)$"',
+            document["query"],
+        )
+
+    def test_deployment_consumer_groups_reads_per_topic_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            definition = root / "resolved-test.yaml"
+            definition.write_text("name: test\n", encoding="utf-8")
+            (root / "deployment-plan.yaml").write_text(yaml.safe_dump({
+                "application": {
+                    "configuration": {
+                        "deployment_mode": "per_topic",
+                        "workloads": {
+                            "order": {"group_id": "orders"},
+                            "batch": {"group_id": "batches"},
+                            "telemetry": {"group_id": "telemetry"},
+                        },
+                    },
+                },
+            }), encoding="utf-8")
+
+            groups = run_test_module.deployment_consumer_groups(definition)
+
+        self.assertEqual(["orders", "batches", "telemetry"], groups)
+
     def test_consumer_drain_accepts_zero_lag_observed_at_deadline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "drain.json"

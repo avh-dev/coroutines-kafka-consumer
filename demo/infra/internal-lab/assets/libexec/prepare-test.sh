@@ -286,7 +286,7 @@ with open(sys.argv[1], encoding="utf-8") as stream:
     plan = yaml.safe_load(stream)
 configuration = (plan.get("application") or {}).get("configuration") or {}
 if configuration.get("deployment_mode") == "per_topic":
-    print(" ".join(
+    print(",".join(
         str(values.get("group_id") or f"ckc-demo-{name}")
         for name, values in (configuration.get("workloads") or {}).items()
     ))
@@ -316,7 +316,7 @@ LAB_KAFKA_HEAP_PER_BROKER="${LAB_KAFKA_HEAP_PER_BROKER:-}" \
 LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-}" \
 LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
-CONSUMER_GROUPS="${CONSUMER_GROUPS}" \
+CONSUMER_GROUPS="ckc-demo,ckc-demo-order,ckc-demo-batch,ckc-demo-telemetry,${CONSUMER_GROUPS}" \
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target
 

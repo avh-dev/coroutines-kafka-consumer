@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
 DRAINED = "DRAINED"
 IDLE = "IDLE"
+
+
+def exact_group_regex(groups: list[str]) -> str:
+    values = [value.strip() for value in groups if value.strip()]
+    if not values:
+        raise ValueError("At least one consumer group is required")
+    escaped = [re.sub(r"([\\.^$|?*+(){}\[\]])", r"\\\1", value) for value in values]
+    return "^(?:" + "|".join(escaped) + ")$"
 
 
 @dataclass

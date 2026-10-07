@@ -154,16 +154,21 @@ metric, so the lag recommendation is effectively
 `ceil(total lag / lagThreshold)`. CPU remains an independent scaling signal and
 the HPA uses the larger replica recommendation.
 
-The qualification runs at 5k TPS for 28 minutes: a five-minute fast baseline,
-eight minutes of downstream tail degradation, and twelve minutes of recovery.
-The recovery interval intentionally exceeds the ten-minute scale-down
-stabilization window. Topic capacity is fixed at 18 / 18 / 60 partitions, with
-3 / 3 / 10 Spring pollers per pod and up to six pods per topic deployment.
-The local 300m CPU request lets the six-core worker schedule the full 18-pod
-ceiling; the 200% CPU target corresponds to roughly 600m per pod. Lag thresholds
-of 300 / 330 / 360 messages for order / batch / telemetry represent approximately
-one second of planned per-pod processing capacity after the configured 30%
-headroom. Every deployment retains one minimum replica, so scale-to-zero
-activation is intentionally unused. KEDA polls Kafka directly, uses the
-topic-specific consumer group, and does not depend on the Prometheus exporter
-for scaling decisions.
+The qualification runs for 71 minutes. Traffic ramps from zero to 3k TPS over
+20 minutes, remains at 3k for ten minutes, saturates only the order downstream
+for five minutes, recovers for six minutes, ramps to 5k over 20 minutes, and
+then remains at 5k for ten minutes. Keeping ETA and registry fast during the
+order disturbance prevents telemetry freshness drops from reducing unrelated
+application CPU.
+
+Topic capacity is fixed at 21 / 21 / 60 partitions, with 4 / 4 / 12 Spring
+pollers per pod and up to five pods per topic deployment. The 15-pod ceiling
+fits the local worker. At maximum scale all 20 order and batch pollers are
+active—one handles two partitions—while telemetry maps its 60 partitions
+exactly to 60 pollers. The local 300m CPU request corresponds to a 600m CPU
+target at 200% utilization. Lag thresholds of 400 / 440 / 440 messages for
+order / batch / telemetry represent approximately one second of planned
+per-pod processing capacity after the configured 30% headroom. Every deployment
+retains one minimum replica, so scale-to-zero activation is intentionally
+unused. KEDA polls Kafka directly, uses the topic-specific consumer group, and
+does not depend on the Prometheus exporter for scaling decisions.

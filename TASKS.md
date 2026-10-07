@@ -450,6 +450,7 @@
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
 | [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
+| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and isolated order saturation. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5257,3 +5258,14 @@ Scale each topic deployment from its own consumer-group lag while retaining CPU 
 Define and document lag thresholds as target backlog per replica so the resulting replica calculation follows standard KEDA/HPA semantics.
 Remove the Prometheus autoscaling dependency while retaining Prometheus strictly for experiment observability and reporting.
 Verification: 62 shared orchestration, 177 internal-lab, and 69 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts all generated resources in a server-side dry-run. No experiment was launched.
+
+<a id="infra-285"></a>
+### INFRA-285 - Refine the Spring autoscaling qualification
+
+_Date: 2026-10-07_
+
+Replace the immediate 5k load with staged 3k and 5k ramps that expose scaling and recovery behavior.
+Degrade only the order downstream so telemetry freshness drops cannot reduce unrelated application CPU.
+Fit the maximum replica set on the worker while retaining full Kafka partition concurrency.
+Use only active deployment consumer groups during drain and accept Kubernetes fully qualified deployment resource names during cleanup.
+Verification: 63 shared orchestration, 180 internal-lab, and 71 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts the generated resources in a server-side dry-run. No experiment was launched.

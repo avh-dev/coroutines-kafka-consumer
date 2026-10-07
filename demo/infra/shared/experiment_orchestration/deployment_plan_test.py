@@ -539,15 +539,38 @@ class DeploymentPlanTest(unittest.TestCase):
 
         target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
 
         self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
+        self.assertEqual(
+            "0 -> (20m, ramp-to-3k) -> 60 -> (10m, steady-3k) -> 60 -> "
+            "(5m, order-saturation) -> 60 -> (6m, order-recovery) -> 60 -> "
+            "(20m, ramp-to-5k) -> 100 -> (10m, steady-5k) -> 100",
+            plan["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            [{
+                "at": "30m",
+                "duration": "5m",
+                "type": "stubs_degradation",
+                "name": "order-downstream-saturation",
+                "params": {"flavour": {"percentiles": {
+                    "p90": 60, "p95": 500, "p99": 1000, "p100": 2000,
+                }}},
+            }],
+            definition["chaos_steps"],
+        )
         workloads = plan["application"]["configuration"]["workloads"]
         self.assertEqual(
-            {"order": 300, "batch": 330, "telemetry": 360},
+            {"order": 400, "batch": 440, "telemetry": 440},
             {name: workload["hpa"]["kafka_lag"]["lag_threshold"] for name, workload in workloads.items()},
         )
         self.assertEqual(
-            [(18, 3, 6), (18, 3, 6), (60, 10, 6)],
+            {"order": 5, "batch": 5, "telemetry": 5},
+            {name: workload["hpa"]["max_replicas"] for name, workload in workloads.items()},
+        )
+        self.assertEqual(
+            [(21, 4, 5), (21, 4, 5), (60, 12, 5)],
             [
                 (topic["partitions"], topic["poll_loop_concurrency"], topic["capacity_replicas"])
                 for topic in plan["application"]["planner"]["topics"]
