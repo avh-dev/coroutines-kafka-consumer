@@ -143,3 +143,20 @@ serialization becomes the bottleneck.
 
 Kafka parameter semantics: [producer configuration](https://kafka.apache.org/41/configuration/producer-configs/)
 and [consumer configuration](https://kafka.apache.org/41/configuration/consumer-configs/).
+
+## Independent Spring topic autoscaling
+
+`spring-topic-autoscaling-5k-local.yaml` deploys order, batch, and telemetry
+listeners as three independent Spring workloads. Each deployment has its own
+consumer group, resource request, replica range, and KEDA scaler. CPU remains a
+scaling signal; the custom signal activates only when both estimated lag age and
+a sustained positive lag slope indicate that the topic is falling behind.
+
+The qualification runs at 5k TPS for 28 minutes: a five-minute fast baseline,
+eight minutes of downstream tail degradation, and twelve minutes of recovery.
+The recovery interval intentionally exceeds the ten-minute scale-down
+stabilization window. Topic capacity is fixed at 18 / 18 / 60 partitions, with
+3 / 3 / 10 Spring pollers per pod and up to six pods per topic deployment.
+The local 300m CPU request lets the six-core worker schedule the full 18-pod
+ceiling; the 200% CPU target corresponds to roughly 600m per pod, while lag
+pressure remains an independent scaling signal.

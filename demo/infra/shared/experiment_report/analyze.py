@@ -974,8 +974,14 @@ def analyze_experiment(
     report_warnings: list[str] = []
     observed_events: list[dict[str, Any]] = []
     environment_snapshots: list[tuple[str, dict[str, Any]]] = []
+    configured_targets = {
+        str(item.get("name") or item.get("id")): item
+        for item in (experiment.get("targets") or [])
+        if isinstance(item, dict)
+    }
 
     for target in experiment_summary.get("targets", []):
+        report_target_name = str(target.get("name") or target.get("target") or "")
         run_dir = Path(str(target.get("run_dir") or ""))
         target_test_path = Path(str(target.get("resolved_test_path") or test_definition_path))
         target_test_definition = load_yaml(target_test_path)
@@ -1111,6 +1117,19 @@ def analyze_experiment(
                 event["target_name"] = str(target.get("name") or target.get("target") or run_dir.name)
                 events.append(event)
                 observed_events.append(event)
+        target_configuration = configuration(metadata)
+        configured_target = configured_targets.get(report_target_name)
+        configured_application = (
+            configured_target.get("application")
+            if isinstance(configured_target, dict) and isinstance(configured_target.get("application"), dict)
+            else {}
+        )
+        if configured_application.get("deployment_mode") == "per_topic":
+            target_configuration.update({
+                "deployment_mode": "per_topic",
+                "workloads": configured_application.get("workloads") or {},
+                "resources": configured_application.get("resources") or target_configuration.get("resources") or {},
+            })
         targets.append(
             TargetReport(
                 name=str(target.get("name") or target.get("target") or run_dir.name),
@@ -1129,7 +1148,7 @@ def analyze_experiment(
                 started_at=started.isoformat() if started else "",
                 ended_at=ended.isoformat() if ended else "",
                 duration_seconds=(ended - started).total_seconds() if started and ended else None,
-                configuration=configuration(metadata),
+                configuration=target_configuration,
                 test_definition={
                     "name": str(target.get("test_definition") or test_definition_name),
                     "resolved_path": str(target_test_path),

@@ -45,15 +45,15 @@ STANDARD_MEASUREMENTS = {
     ),
     "application_replicas_average": (
         "avg_over_time((count(container_memory_working_set_bytes"
-        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
     ),
     "application_replicas_min": (
         "min_over_time((count(container_memory_working_set_bytes"
-        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
     ),
     "application_replicas_max": (
         "max_over_time((count(container_memory_working_set_bytes"
-        '{{namespace="ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
     ),
     "application_nodes_average": (
         "avg_over_time((count(machine_cpu_cores"
@@ -233,6 +233,15 @@ STANDARD_MEASUREMENTS = {
         "sum(sum_over_time(aws_elasticache_evictions_sum[{window}]))"
     ),
 }
+
+for _workload in ("order", "batch", "telemetry"):
+    for _aggregate in ("average", "min", "max"):
+        _function = {"average": "avg_over_time", "min": "min_over_time", "max": "max_over_time"}[_aggregate]
+        STANDARD_MEASUREMENTS[f"application_{_workload}_replicas_{_aggregate}"] = (
+            f'{_function}((count(container_memory_working_set_bytes'
+            f'{{{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-{_workload}-.+"}}}})'
+            ')[{window}:15s])'
+        )
 
 
 class PrometheusClient:

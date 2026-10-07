@@ -587,8 +587,8 @@ if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
-  if ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy ckc-demo >/dev/null 2>&1"; then
-    ssh "${LAB_TARGET}" "export KUBECONFIG=\"\$HOME/.kube/config\"; kubectl -n ckc-perf rollout restart deploy/ckc-demo && kubectl -n ckc-perf rollout status deploy/ckc-demo --timeout=240s"
+  if ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy -l ckc.dev/component=application -o name | grep -q ."; then
+    ssh "${LAB_TARGET}" 'export KUBECONFIG="$HOME/.kube/config"; for deployment in $(kubectl -n ckc-perf get deploy -l ckc.dev/component=application -o name); do kubectl -n ckc-perf rollout restart "$deployment" && kubectl -n ckc-perf rollout status "$deployment" --timeout=240s || exit; done'
     DEMO_DEPLOY_RESTARTED=1
   fi
 fi

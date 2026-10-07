@@ -117,7 +117,32 @@
         "placement": {"enum": ["controller", "worker"]},
         "resources": {"type": "object"},
         "hpa": {"type": "object"},
-        "java_options": {"type": "string"}
+        "java_options": {"type": "string"},
+        "deployment_mode": {"enum": ["combined", "per_topic"]},
+        "workloads": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["order", "batch", "telemetry"],
+          "properties": {
+            "order": {"$ref": "#/$defs/applicationWorkload"},
+            "batch": {"$ref": "#/$defs/applicationWorkload"},
+            "telemetry": {"$ref": "#/$defs/applicationWorkload"}
+          }
+        }
+      },
+      "allOf": [{
+        "if": {"properties": {"deployment_mode": {"const": "per_topic"}}, "required": ["deployment_mode"]},
+        "then": {"required": ["workloads"]}
+      }]
+    },
+    "applicationWorkload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 1},
+        "group_id": {"type": "string", "minLength": 1},
+        "resources": {"type": "object"},
+        "hpa": {"type": "object"}
       }
     },
     "placement": {

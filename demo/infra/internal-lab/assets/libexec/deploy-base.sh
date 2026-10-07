@@ -87,6 +87,16 @@ kubectl -n ckc-perf delete service,endpoints ckc-external-demo-stubs --ignore-no
 kubectl -n ckc-perf delete service,endpoints ckc-external-load-test --ignore-not-found=true
 kubectl apply -f "${K8S_DIR}/prometheus.yaml"
 
+helm repo add kedacore https://kedacore.github.io/charts --force-update >/dev/null
+helm repo update kedacore >/dev/null
+helm upgrade --install keda kedacore/keda \
+  --version 2.21.0 \
+  --namespace keda \
+  --create-namespace \
+  --set 'nodeSelector.ckc\.dev/role=controller' \
+  --wait \
+  --timeout 5m
+
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
 # Reconcile process state as well as the ConfigMap. A previous deploy may have updated the
 # mounted file without making Prometheus reread it, so equality of old/new ConfigMaps does
@@ -177,6 +187,7 @@ kubectl -n ckc-perf rollout status deployment/ckc-log-collector --timeout=5m
 echo "Base lab is ready."
 echo "  app:        http://${LAB_HOST}:30080"
 echo "  prometheus: http://${LAB_HOST}:30090"
+echo "  autoscaling: KEDA 2.21.0"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${KAFKA_BOOTSTRAP} (${LAB_KAFKA_IMPLEMENTATION}, ${LAB_KAFKA_TOPOLOGY})"

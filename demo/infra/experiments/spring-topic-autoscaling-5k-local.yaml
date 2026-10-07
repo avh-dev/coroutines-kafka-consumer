@@ -1,0 +1,189 @@
+schema_version: 2
+name: spring-topic-autoscaling-5k-local
+description: Qualify independent Spring Kafka topic deployments under sustained lag pressure and recovery at 5k TPS.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: &fast_stub
+      percentiles:
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
+    flavour: *fast_stub
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 5000
+    producer_capacity_tps:
+      order: 5000
+      batch: 5000
+      telemetry: 5000
+    load_profile: 0 -> (3m, warmup) -> 100 -> (25m, qualification) -> 100
+    cauldron_count: 10000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
+    consumer_drain_timeout_seconds: 600
+    consumer_drain_required: true
+    telemetry_settle_seconds: 90
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - name: fast-baseline
+    start: 3m
+    duration: 5m
+  - name: downstream-degradation
+    start: 8m
+    duration: 8m
+  - name: recovery-and-scale-down
+    start: 16m
+    duration: 12m
+  chaos:
+  - at: 8m
+    duration: 8m
+    type: stubs_degradation
+    name: sustained-downstream-tail
+    params:
+      eta: &degraded_stub
+        percentiles:
+          p90: 60
+          p95: 500
+          p99: 1000
+          p100: 2000
+      flavour: *degraded_stub
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 30
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_partition
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 30
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_partition
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+targets:
+- name: spring-kafka.per-topic-autoscaling
+  annotation_label: Spring Kafka · per-topic lag-pressure autoscaling · split host
+  implementation: spring-kafka
+  application:
+    deployment_mode: per_topic
+    placement: worker
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        memory: 1280Mi
+    java_options: -Xms256m -Xmx768m -Xss256k -XX:+UseSerialGC
+    workloads:
+      order:
+        replicas: 1
+        group_id: ckc-demo-order
+        hpa: &topic_hpa
+          enabled: true
+          min_replicas: 1
+          max_replicas: 6
+          target_cpu_utilization_percentage: 200
+          scale_up:
+            stabilization_window_seconds: 30
+            max_pods: 2
+            period_seconds: 60
+          scale_down:
+            stabilization_window_seconds: 600
+            max_pods: 1
+            period_seconds: 300
+          consumer_lag_pressure:
+            enabled: true
+            lag_age_threshold_seconds: 1
+            lag_growth_window_seconds: 90
+            rate_window_seconds: 90
+            minimum_lag_growth_per_second: 5
+            maximum_pressure: 2
+      batch:
+        replicas: 1
+        group_id: ckc-demo-batch
+        hpa: *topic_hpa
+      telemetry:
+        replicas: 1
+        group_id: ckc-demo-telemetry
+        hpa: *topic_hpa
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 8
+      batch_ms: 7
+      telemetry_ms: 21
+    planning_headroom_percent: 30
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 18
+        pollers: 3
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 18
+        pollers: 3
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 60
+        pollers: 10
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi

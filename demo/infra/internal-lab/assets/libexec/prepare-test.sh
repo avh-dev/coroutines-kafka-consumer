@@ -273,12 +273,36 @@ if [[ ! -s "${LAB_ROOT}/state/fingerprints/images/demo.fingerprint" ]]; then
   echo "Required lab image has not been built and loaded; run update-lab.sh first." >&2
   exit 1
 fi
-
-kubectl -n ckc-perf delete hpa ckc-demo --ignore-not-found=true
-if kubectl -n ckc-perf get deployment ckc-demo >/dev/null 2>&1; then
-  kubectl -n ckc-perf scale deployment/ckc-demo --replicas=0
-  kubectl -n ckc-perf wait --for=delete pod -l app.kubernetes.io/name=ckc-demo --timeout=5m || true
+if [[ -z "${DEPLOYMENT_PLAN_PATH}" || ! -f "${DEPLOYMENT_PLAN_PATH}" ]]; then
+  echo "A generated deployment plan is required: ${DEPLOYMENT_PLAN_PATH}" >&2
+  exit 1
 fi
+
+CONSUMER_GROUPS="$(python3 - "${DEPLOYMENT_PLAN_PATH}" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    plan = yaml.safe_load(stream)
+configuration = (plan.get("application") or {}).get("configuration") or {}
+if configuration.get("deployment_mode") == "per_topic":
+    print(" ".join(
+        str(values.get("group_id") or f"ckc-demo-{name}")
+        for name, values in (configuration.get("workloads") or {}).items()
+    ))
+else:
+    print("ckc-demo")
+PY
+)"
+
+kubectl -n ckc-perf delete scaledobject -l ckc.dev/component=application --ignore-not-found=true 2>/dev/null || true
+kubectl -n ckc-perf delete hpa -l ckc.dev/component=application --ignore-not-found=true 2>/dev/null || true
+kubectl -n ckc-perf delete hpa \
+  keda-hpa-ckc-demo-order keda-hpa-ckc-demo-batch keda-hpa-ckc-demo-telemetry \
+  --ignore-not-found=true 2>/dev/null || true
+kubectl -n ckc-perf delete deployment,service -l ckc.dev/component=application --ignore-not-found=true
+# Compatibility cleanup for manifests created before application component labels existed.
+kubectl -n ckc-perf delete deployment,service,hpa ckc-demo --ignore-not-found=true
 
 LAB_ROOT="${LAB_ROOT}" \
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
@@ -292,7 +316,7 @@ LAB_KAFKA_HEAP_PER_BROKER="${LAB_KAFKA_HEAP_PER_BROKER:-}" \
 LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-}" \
 LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-}" \
 TOPIC_SPECS="${TOPIC_SPECS}" \
-CONSUMER_GROUPS="ckc-demo" \
+CONSUMER_GROUPS="${CONSUMER_GROUPS}" \
 KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
   "${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target
 
@@ -301,10 +325,6 @@ python3 "${LAB_ROOT}/helpers/experiment_orchestration/seed_telemetry_fleet.py" \
   --host 127.0.0.1 \
   --docker-container ckc-perf-redis
 
-if [[ -z "${DEPLOYMENT_PLAN_PATH}" || ! -f "${DEPLOYMENT_PLAN_PATH}" ]]; then
-  echo "A generated deployment plan is required: ${DEPLOYMENT_PLAN_PATH}" >&2
-  exit 1
-fi
 if [[ -n "${STUB_REPLICA_COUNT}" ]]; then
   echo "stub replicas must be declared in the canonical experiment" >&2
   exit 1
@@ -326,6 +346,7 @@ RENDER_ARGS=(
   --application-node-port 30080
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --applications-only
+  --prometheus-url http://ckc-prometheus.ckc-perf.svc.cluster.local:9090
 )
 if [[ -n "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
   RENDER_ARGS+=(--application-node-selector "${LAB_APPLICATION_NODE_SELECTOR}")
@@ -342,7 +363,16 @@ done
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
 kubectl apply -f "${PROJECT_MANIFEST}"
 
-kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=10m
+mapfile -t APPLICATION_DEPLOYMENTS < <(
+  kubectl -n ckc-perf get deployment -l ckc.dev/component=application -o name | sort
+)
+if [[ "${#APPLICATION_DEPLOYMENTS[@]}" -eq 0 ]]; then
+  echo "No application deployments were rendered." >&2
+  exit 1
+fi
+for deployment in "${APPLICATION_DEPLOYMENTS[@]}"; do
+  kubectl -n ckc-perf rollout status "${deployment}" --timeout=10m
+done
 "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 kubectl -n ckc-perf get pods,svc,endpoints -o wide
 
@@ -376,6 +406,7 @@ WORKER_DISPATCHER_THREADS='${WORKER_DISPATCHER_THREADS}'
 STUB_REPLICA_COUNT='${STUB_REPLICA_COUNT}'
 TEST_DEFINITION_NAME='$(basename "${TEST_DEFINITION}" .yaml)'
 TOPIC_SPECS='${TOPIC_SPECS}'
+CONSUMER_GROUPS='${CONSUMER_GROUPS}'
 BASE_TPS='${BASE_TPS}'
 ORDER_PROCESSING_MODE='${ORDER_PROCESSING_MODE:-}'
 BATCH_PROCESSING_MODE='${BATCH_PROCESSING_MODE:-}'

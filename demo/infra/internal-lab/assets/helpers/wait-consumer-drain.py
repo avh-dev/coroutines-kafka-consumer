@@ -26,7 +26,7 @@ PROCESSING_TOTAL_QUERY = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wait until internal-lab Kafka consumer lag drains to zero.")
     parser.add_argument("--prometheus-url")
-    parser.add_argument("--group-regex", default="^ckc-demo$")
+    parser.add_argument("--group-regex", default="^ckc-demo(|-(order|batch|telemetry))$")
     parser.add_argument(
         "--groups",
         default="ckc-demo",

@@ -455,6 +455,93 @@ class DeploymentPlanTest(unittest.TestCase):
             load_pod_spec["volumes"],
         )
 
+    def test_renders_independent_topic_deployments_and_lag_pressure_scalers(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        plan["application"]["configuration"] = {
+            "deployment_mode": "per_topic",
+            "resources": {"requests": {"cpu": "1", "memory": "1Gi"}},
+            "workloads": {
+                name: {
+                    "replicas": 1,
+                    "group_id": f"spring-{name}",
+                    "hpa": {
+                        "enabled": True,
+                        "min_replicas": 1,
+                        "max_replicas": 6,
+                        "target_cpu_utilization_percentage": 80,
+                        "consumer_lag_pressure": {
+                            "enabled": True,
+                            "lag_age_threshold_seconds": 2,
+                            "minimum_lag_growth_per_second": 5,
+                        },
+                    },
+                }
+                for name in ("order", "batch", "telemetry")
+            },
+        }
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="spring-scaling-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9092",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+            application_service_type="NodePort",
+            application_node_port=30080,
+            prometheus_url="http://prometheus:9090",
+        ))
+
+        deployments = {
+            item["metadata"]["name"]: item
+            for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"].startswith("ckc-demo-")
+            and item["metadata"]["name"] != "ckc-demo-stubs"
+        }
+        self.assertEqual(
+            {"ckc-demo-order", "ckc-demo-batch", "ckc-demo-telemetry"},
+            set(deployments),
+        )
+        for workload, deployment in ((name, deployments[f"ckc-demo-{name}"]) for name in ("order", "batch", "telemetry")):
+            environment = {
+                item["name"]: item["value"]
+                for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+            }
+            self.assertEqual("true", environment[f"{workload.upper()}_CONSUMER_ENABLED"])
+            self.assertEqual(f"spring-{workload}", environment[f"{workload.upper()}_CONSUMER_GROUP_ID"])
+            self.assertEqual(workload, deployment["metadata"]["labels"]["ckc.dev/workload"])
+        scalers = [item for item in manifests if item["kind"] == "ScaledObject"]
+        self.assertEqual(3, len(scalers))
+        order_scaler = next(item for item in scalers if item["metadata"]["name"] == "ckc-demo-order")
+        self.assertEqual(6, order_scaler["spec"]["maxReplicaCount"])
+        self.assertEqual("AverageValue", order_scaler["spec"]["triggers"][1]["metricType"])
+        query = order_scaler["spec"]["triggers"][1]["metadata"]["query"]
+        self.assertIn('consumergroup="spring-order"', query)
+        self.assertIn('topic="order.events.v1"', query)
+        alias = next(
+            item for item in manifests if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo"
+        )
+        self.assertEqual("ckc-demo-order", alias["spec"]["selector"]["app.kubernetes.io/name"])
+        self.assertEqual(30080, alias["spec"]["ports"][0]["nodePort"])
+
+    def test_materializes_local_spring_topic_autoscaling_qualification(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-topic-autoscaling-5k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "spring-topic-autoscaling"
+
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
+        self.assertEqual(
+            [(18, 3, 6), (18, 3, 6), (60, 10, 6)],
+            [
+                (topic["partitions"], topic["poll_loop_concurrency"], topic["capacity_replicas"])
+                for topic in plan["application"]["planner"]["topics"]
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

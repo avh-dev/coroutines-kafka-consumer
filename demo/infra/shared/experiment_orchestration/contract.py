@@ -459,7 +459,10 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
     if "application" in value:
         application = require_mapping(value["application"], f"{context}.application")
         unknown_application = sorted(
-            set(application) - {"replicas", "resources", "hpa", "java_options", "placement"}
+            set(application) - {
+                "replicas", "resources", "hpa", "java_options", "placement",
+                "deployment_mode", "workloads",
+            }
         )
         if unknown_application:
             raise ValueError(f"{context}.application contains unknown fields: {', '.join(unknown_application)}")
@@ -476,6 +479,41 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
             raise ValueError(f"{context}.application.java_options must be a string")
         if "placement" in application and application["placement"] not in {"controller", "worker"}:
             raise ValueError(f"{context}.application.placement must be controller or worker")
+        deployment_mode = application.get("deployment_mode", "combined")
+        if deployment_mode not in {"combined", "per_topic"}:
+            raise ValueError(f"{context}.application.deployment_mode must be combined or per_topic")
+        if deployment_mode == "per_topic":
+            workloads = require_mapping(application.get("workloads"), f"{context}.application.workloads")
+            expected_workloads = {"order", "batch", "telemetry"}
+            if set(workloads) != expected_workloads:
+                raise ValueError(
+                    f"{context}.application.workloads must define exactly: "
+                    + ", ".join(sorted(expected_workloads))
+                )
+            if "hpa" in application:
+                raise ValueError(f"{context}.application.hpa must be configured per workload in per_topic mode")
+            for workload_name, raw_workload in workloads.items():
+                workload = require_mapping(raw_workload, f"{context}.application.workloads.{workload_name}")
+                unknown_workload = sorted(set(workload) - {"replicas", "resources", "hpa", "group_id"})
+                if unknown_workload:
+                    raise ValueError(
+                        f"{context}.application.workloads.{workload_name} contains unknown fields: "
+                        + ", ".join(unknown_workload)
+                    )
+                replicas = workload.get("replicas", 1)
+                if not isinstance(replicas, int) or isinstance(replicas, bool) or replicas < 1:
+                    raise ValueError(
+                        f"{context}.application.workloads.{workload_name}.replicas must be a positive integer"
+                    )
+                for key in ("resources", "hpa"):
+                    if key in workload:
+                        require_mapping(workload[key], f"{context}.application.workloads.{workload_name}.{key}")
+                if "group_id" in workload and not str(workload["group_id"]).strip():
+                    raise ValueError(
+                        f"{context}.application.workloads.{workload_name}.group_id must not be empty"
+                    )
+        elif "workloads" in application:
+            raise ValueError(f"{context}.application.workloads requires deployment_mode per_topic")
     if "placement" in value:
         placement = require_mapping(value["placement"], f"{context}.placement")
         unknown_placement = sorted(set(placement) - {"application", "stubs", "generator"})

@@ -1003,7 +1003,10 @@ class SessionController:
                         applications.add(application)
                     key = (str(record["ts"]), labels_json, str(record["line"]))
                     records[key] = record
-        required_applications = {"ckc-demo", "ckc-demo-stubs", "ckc-load-test"}
+        required_applications = {"ckc-demo-stubs", "ckc-load-test"}
+        split_applications = {"ckc-demo-order", "ckc-demo-batch", "ckc-demo-telemetry"}
+        if "ckc-demo" not in applications:
+            required_applications.update(split_applications)
         missing_applications = sorted(required_applications - applications)
         if missing_applications:
             raise RuntimeError(

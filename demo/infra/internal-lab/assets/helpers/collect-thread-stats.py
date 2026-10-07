@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--interval-seconds", type=int, default=60)
     parser.add_argument("--namespace", default="ckc-perf")
-    parser.add_argument("--selector", default="app.kubernetes.io/name=ckc-demo")
+    parser.add_argument("--selector", default="ckc.dev/component=application")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--endpoint", default="/actuator/threadstats")
     parser.add_argument("--request-timeout-seconds", type=int, default=20)

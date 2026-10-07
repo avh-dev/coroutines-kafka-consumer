@@ -1245,7 +1245,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("CPU capped at 2 GHz", environment_svg)
             self.assertIn("Prometheus 3.3.1", environment_svg)
             self.assertIn("Fluent Bit 4.2.3", environment_svg)
-            self.assertIn("CKC demo app", environment_svg)
+            self.assertIn("Demo application", environment_svg)
             self.assertIn("CKC demo stubs", environment_svg)
             self.assertIn("2 pods · indexed Job · 100 aggregate TPS", environment_svg)
             self.assertIn("1 worker/pod · Java 21.0.12", environment_svg)

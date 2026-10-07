@@ -117,6 +117,7 @@ class DeploymentBindings:
     support_node_selector: Mapping[str, str] | None = None
     load_test_node_selector: Mapping[str, str] | None = None
     load_test_environment: Mapping[str, Any] | None = None
+    prometheus_url: str | None = None
 
 
 def build_deployment_plan(
@@ -323,7 +324,7 @@ def _hpa(name: str, namespace: str, values: Mapping[str, Any]) -> dict[str, Any]
     return {
         "apiVersion": "autoscaling/v2",
         "kind": "HorizontalPodAutoscaler",
-        "metadata": _metadata(name, namespace),
+        "metadata": _metadata(name, namespace, {"ckc.dev/component": "application"}),
         "spec": {
             "behavior": {"scaleDown": {"stabilizationWindowSeconds": int(values.get("scaleDownStabilizationWindowSeconds", 300))}},
             "scaleTargetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": name},
@@ -336,6 +337,135 @@ def _hpa(name: str, namespace: str, values: Mapping[str, Any]) -> dict[str, Any]
                     "target": {"type": "Utilization", "averageUtilization": int(values.get("targetCPUUtilizationPercentage", 70))},
                 },
             }],
+        },
+    }
+
+
+def _hpa_value(values: Mapping[str, Any], snake_name: str, camel_name: str, default: Any) -> Any:
+    return values.get(snake_name, values.get(camel_name, default))
+
+
+def _consumer_lag_pressure_query(topic: str, group: str, values: Mapping[str, Any]) -> str:
+    escaped_topic = topic.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_group = group.replace("\\", "\\\\").replace('"', '\\"')
+    growth_window = int(_hpa_value(values, "lag_growth_window_seconds", "lagGrowthWindowSeconds", 90))
+    rate_window = int(_hpa_value(values, "rate_window_seconds", "rateWindowSeconds", 90))
+    age_threshold = float(_hpa_value(values, "lag_age_threshold_seconds", "lagAgeThresholdSeconds", 1.0))
+    minimum_growth = float(
+        _hpa_value(values, "minimum_lag_growth_per_second", "minimumLagGrowthPerSecond", 10.0)
+    )
+    maximum_pressure = float(_hpa_value(values, "maximum_pressure", "maximumPressure", 2.0))
+    selector = f'consumergroup="{escaped_group}",topic="{escaped_topic}"'
+    topic_selector = f'topic="{escaped_topic}"'
+    lag = f"sum by(topic, partition) (kafka_consumergroup_lag{{{selector}}})"
+    ingress = (
+        "sum by(topic, partition) "
+        f"(rate(kafka_topic_partition_current_offset{{{topic_selector}}}[{rate_window}s]))"
+    )
+    growth = f"deriv(({lag})[{growth_window}s:15s])"
+    return (
+        "max("
+        f"clamp_max(clamp_min((({lag}) / clamp_min(({ingress}), 0.001)) / {age_threshold:g}, 1), "
+        f"{maximum_pressure:g}) * (({growth}) > bool {minimum_growth:g})"
+        ")"
+    )
+
+
+def _scaled_object(
+    name: str,
+    namespace: str,
+    values: Mapping[str, Any],
+    *,
+    topic: str,
+    group: str,
+    prometheus_url: str | None,
+) -> dict[str, Any] | None:
+    if not values.get("enabled"):
+        return None
+    pressure = values.get("consumer_lag_pressure") or values.get("consumerLagPressure") or {}
+    if not pressure:
+        return _hpa(name, namespace, {
+            "enabled": True,
+            "minReplicas": _hpa_value(values, "min_replicas", "minReplicas", 1),
+            "maxReplicas": _hpa_value(values, "max_replicas", "maxReplicas", 1),
+            "targetCPUUtilizationPercentage": _hpa_value(
+                values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
+            ),
+            "scaleDownStabilizationWindowSeconds": _hpa_value(
+                values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
+            ),
+        })
+    if not pressure.get("enabled", True):
+        return _hpa(name, namespace, {
+            "enabled": True,
+            "minReplicas": _hpa_value(values, "min_replicas", "minReplicas", 1),
+            "maxReplicas": _hpa_value(values, "max_replicas", "maxReplicas", 1),
+            "targetCPUUtilizationPercentage": _hpa_value(
+                values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
+            ),
+            "scaleDownStabilizationWindowSeconds": _hpa_value(
+                values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
+            ),
+        })
+    if not prometheus_url:
+        raise ValueError("Consumer lag pressure autoscaling requires a Prometheus query URL")
+    scale_up = values.get("scale_up") or values.get("scaleUp") or {}
+    scale_down = values.get("scale_down") or values.get("scaleDown") or {}
+    behavior = {
+        "scaleUp": {
+            "stabilizationWindowSeconds": int(
+                _hpa_value(scale_up, "stabilization_window_seconds", "stabilizationWindowSeconds", 30)
+            ),
+            "policies": [{
+                "type": "Pods",
+                "value": int(_hpa_value(scale_up, "max_pods", "maxPods", 2)),
+                "periodSeconds": int(_hpa_value(scale_up, "period_seconds", "periodSeconds", 60)),
+            }],
+        },
+        "scaleDown": {
+            "stabilizationWindowSeconds": int(_hpa_value(
+                scale_down,
+                "stabilization_window_seconds",
+                "stabilizationWindowSeconds",
+                _hpa_value(values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 600),
+            )),
+            "policies": [{
+                "type": "Pods",
+                "value": int(_hpa_value(scale_down, "max_pods", "maxPods", 1)),
+                "periodSeconds": int(_hpa_value(scale_down, "period_seconds", "periodSeconds", 300)),
+            }],
+        },
+    }
+    return {
+        "apiVersion": "keda.sh/v1alpha1",
+        "kind": "ScaledObject",
+        "metadata": _metadata(name, namespace, {"ckc.dev/component": "application"}),
+        "spec": {
+            "scaleTargetRef": {"name": name},
+            "minReplicaCount": int(_hpa_value(values, "min_replicas", "minReplicas", 1)),
+            "maxReplicaCount": int(_hpa_value(values, "max_replicas", "maxReplicas", 1)),
+            "advanced": {"horizontalPodAutoscalerConfig": {"behavior": behavior}},
+            "triggers": [
+                {
+                    "type": "cpu",
+                    "metricType": "Utilization",
+                    "metadata": {"value": str(int(_hpa_value(
+                        values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
+                    )))},
+                },
+                {
+                    "type": "prometheus",
+                    "name": "consumer-lag-pressure",
+                    "metricType": "AverageValue",
+                    "metadata": {
+                        "serverAddress": prometheus_url.rstrip("/"),
+                        "query": _consumer_lag_pressure_query(topic, group, pressure),
+                        "threshold": "1",
+                        "activationThreshold": "0",
+                        "ignoreNullValues": "false",
+                    },
+                },
+            ],
         },
     }
 
@@ -357,8 +487,9 @@ def _deployment(
     test_definition: str = "canonical",
     node_selector: Mapping[str, str] | None = None,
     tolerations: tuple[Mapping[str, str], ...] = (),
+    extra_labels: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    labels = {"app.kubernetes.io/name": name}
+    labels = {"app.kubernetes.io/name": name, **dict(extra_labels or {})}
     pod_labels = {
         **labels,
         "ckc.dev/test-run-id": run_id,
@@ -491,42 +622,98 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             "metadata": _metadata("ckc-demo-stubs", bindings.application_namespace),
             "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": 8080, "targetPort": 8080}]},
         },
-        _deployment(
-            name="ckc-demo",
-            namespace=bindings.application_namespace,
-            container_name="demo",
-            image=bindings.application_image,
-            pull_policy=bindings.image_pull_policy,
-            replicas=replicas,
-            run_id=bindings.run_id,
-            profile=profile,
-            environment=computed_env,
-            resources=resources,
-            packet_capture=bindings.packet_capture_enabled,
-            probes=values.get("probes") or {
-                "readiness": {"initialDelaySeconds": 15, "periodSeconds": 10, "timeoutSeconds": 1, "failureThreshold": 3},
-                "liveness": {"initialDelaySeconds": 30, "periodSeconds": 15, "timeoutSeconds": 1, "failureThreshold": 3},
-            },
-            test_definition=bindings.test_definition,
-            node_selector=bindings.application_node_selector,
-            tolerations=bindings.application_tolerations,
-        ),
-        {
-            "apiVersion": "v1", "kind": "Service",
-            "metadata": _metadata("ckc-demo", bindings.application_namespace),
-            "spec": {
-                "selector": {"app.kubernetes.io/name": "ckc-demo"},
-                "type": bindings.application_service_type,
-                "ports": [{
-                    "name": "http", "port": 8080, "targetPort": 8080,
-                    **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {}),
-                }],
-            },
-        },
     ]
-    application_hpa = _hpa("ckc-demo", bindings.application_namespace, values.get("hpa") or configuration.get("hpa") or {})
-    if application_hpa:
-        manifests.append(application_hpa)
+    probes = values.get("probes") or {
+        "readiness": {"initialDelaySeconds": 15, "periodSeconds": 10, "timeoutSeconds": 1, "failureThreshold": 3},
+        "liveness": {"initialDelaySeconds": 30, "periodSeconds": 15, "timeoutSeconds": 1, "failureThreshold": 3},
+    }
+    deployment_mode = str(configuration.get("deployment_mode") or "combined")
+    if deployment_mode == "combined":
+        manifests.extend([
+            _deployment(
+                name="ckc-demo", namespace=bindings.application_namespace, container_name="demo",
+                image=bindings.application_image, pull_policy=bindings.image_pull_policy, replicas=replicas,
+                run_id=bindings.run_id, profile=profile, environment=computed_env, resources=resources,
+                packet_capture=bindings.packet_capture_enabled, probes=probes,
+                test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
+                tolerations=bindings.application_tolerations,
+                extra_labels={"ckc.dev/component": "application", "ckc.dev/workload": "combined"},
+            ),
+            {
+                "apiVersion": "v1", "kind": "Service",
+                "metadata": _metadata("ckc-demo", bindings.application_namespace, {"ckc.dev/component": "application"}),
+                "spec": {
+                    "selector": {"app.kubernetes.io/name": "ckc-demo"},
+                    "type": bindings.application_service_type,
+                    "ports": [{"name": "http", "port": 8080, "targetPort": 8080,
+                               **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {})}],
+                },
+            },
+        ])
+        application_hpa = _hpa(
+            "ckc-demo", bindings.application_namespace, values.get("hpa") or configuration.get("hpa") or {}
+        )
+        if application_hpa:
+            manifests.append(application_hpa)
+    else:
+        topics = {
+            str(topic.get("name")): str(topic.get("kafka_topic") or topic.get("topic") or "")
+            for topic in ((application.get("planner") or {}).get("topics") or [])
+        }
+        workloads = configuration.get("workloads") or {}
+        consumer_switches = {
+            "order": "ORDER_CONSUMER",
+            "batch": "BATCH_CONSUMER",
+            "telemetry": "TELEMETRY_CONSUMER",
+        }
+        for workload_name in ("order", "batch", "telemetry"):
+            workload = workloads[workload_name]
+            deployment_name = f"ckc-demo-{workload_name}"
+            group_id = str(workload.get("group_id") or deployment_name)
+            workload_environment = dict(computed_env)
+            for candidate, prefix in consumer_switches.items():
+                workload_environment[f"{prefix}_ENABLED"] = candidate == workload_name
+                workload_environment[f"{prefix}_GROUP_ID"] = (
+                    group_id if candidate == workload_name else f"disabled-{deployment_name}-{candidate}"
+                )
+            workload_environment["GROUP_ID"] = group_id
+            workload_labels = {"ckc.dev/component": "application", "ckc.dev/workload": workload_name}
+            manifests.extend([
+                _deployment(
+                    name=deployment_name, namespace=bindings.application_namespace, container_name="demo",
+                    image=bindings.application_image, pull_policy=bindings.image_pull_policy,
+                    replicas=int(workload.get("replicas", 1)), run_id=bindings.run_id, profile=profile,
+                    environment=workload_environment, resources=workload.get("resources") or resources,
+                    packet_capture=bindings.packet_capture_enabled, probes=probes,
+                    test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
+                    tolerations=bindings.application_tolerations, extra_labels=workload_labels,
+                ),
+                {
+                    "apiVersion": "v1", "kind": "Service",
+                    "metadata": _metadata(deployment_name, bindings.application_namespace, workload_labels),
+                    "spec": {"selector": {"app.kubernetes.io/name": deployment_name},
+                             "ports": [{"name": "http", "port": 8080, "targetPort": 8080}]},
+                },
+            ])
+            topic = topics.get(workload_name)
+            if not topic:
+                raise ValueError(f"Deployment plan does not contain the Kafka topic for {workload_name}")
+            autoscaler = _scaled_object(
+                deployment_name, bindings.application_namespace, workload.get("hpa") or {},
+                topic=topic, group=group_id, prometheus_url=bindings.prometheus_url,
+            )
+            if autoscaler:
+                manifests.append(autoscaler)
+        manifests.append({
+            "apiVersion": "v1", "kind": "Service",
+            "metadata": _metadata("ckc-demo", bindings.application_namespace, {"ckc.dev/component": "application"}),
+            "spec": {
+                "selector": {"app.kubernetes.io/name": "ckc-demo-order"},
+                "type": bindings.application_service_type,
+                "ports": [{"name": "http", "port": 8080, "targetPort": 8080,
+                           **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {})}],
+            },
+        })
     workload = plan["workload"]
     manifests.extend([
         {

@@ -288,7 +288,7 @@ def wait_for_consumer_drain(
     idle_seconds: int = 60,
     poll_seconds: int = 15,
 ) -> bool:
-    expression = 'sum(kafka_consumergroup_lag{consumergroup="ckc-demo"})'
+    expression = 'sum(kafka_consumergroup_lag{consumergroup=~"ckc-demo(|-(order|batch|telemetry))"})'
     deadline = time.monotonic() + timeout_seconds
     observations: list[dict[str, Any]] = []
     tracker = ConsumerDrainTracker(stable_seconds=poll_seconds, idle_seconds=idle_seconds)
@@ -555,7 +555,14 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
 
 def wait_for_demo_rollout() -> None:
     run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo-stubs", "--timeout=10m"])
-    run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo", "--timeout=10m"])
+    deployments = json.loads(run([
+        "kubectl", "-n", "ckc-app", "get", "deployment", "-l", "ckc.dev/component=application", "-o", "json"
+    ], capture_output=True))
+    names = sorted(item["metadata"]["name"] for item in deployments.get("items", []))
+    if not names:
+        raise RuntimeError("No application deployments were rendered")
+    for name in names:
+        run(["kubectl", "-n", "ckc-app", "rollout", "status", f"deployment/{name}", "--timeout=10m"])
 
 
 def collect_job_logs(job_name: str, logs_dir: Path) -> None:
@@ -575,7 +582,7 @@ def collect_job_logs(job_name: str, logs_dir: Path) -> None:
 def collect_workload_logs(logs_dir: Path) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     for namespace, selector in (
-        ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        ("ckc-app", "ckc.dev/component=application"),
         ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
         ("kube-system", "app.kubernetes.io/name=cluster-autoscaler"),
     ):
@@ -804,7 +811,7 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
     workloads: dict[str, list[str]] = {}
     representative_pods: dict[str, tuple[str, str]] = {}
     role_selectors = {
-        "application": ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        "application": ("ckc-app", "ckc.dev/component=application"),
         "stubs": ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
         "kafka": ("ckc-app", "app.kubernetes.io/instance=ckc-kafka"),
         "redis": ("ckc-app", "app.kubernetes.io/instance=ckc-redis"),
@@ -990,6 +997,7 @@ def deploy_workloads(
         application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
         support_node_selector=lab_context.get("support_node_selector"),
         load_test_node_selector=lab_context.get("load_test_node_selector"),
+        prometheus_url=lab_context.get("autoscaling_prometheus_url"),
     ))
     application_manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -1030,6 +1038,7 @@ def deploy_load_workload(
         application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
         support_node_selector=lab_context.get("support_node_selector"),
         load_test_node_selector=lab_context.get("load_test_node_selector"),
+        prometheus_url=lab_context.get("autoscaling_prometheus_url"),
     ))
     load_manifests = [item for item in manifests if item["kind"] in {"ConfigMap", "Job"}]
     job = next(item for item in load_manifests if item["kind"] == "Job")

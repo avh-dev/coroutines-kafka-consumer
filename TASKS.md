@@ -448,6 +448,7 @@
 | [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
+| [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5233,3 +5234,14 @@ Give every topic consumer an independently configurable group id with the existi
 Keep one application artifact so Kubernetes can run topic-specific deployments without maintaining separate builds.
 Apply the same startup switches and group-id resolution to the blocking, thread-pool, and coroutine-naive Spring Kafka profiles.
 Verification: all `ckc-demo` tests and focused configuration/profile tests pass; whitespace validation passes.
+
+<a id="infra-283"></a>
+### INFRA-283 - Autoscale Spring topic workloads independently
+
+_Date: 2026-10-07_
+
+Extend the portable experiment model with optional per-topic application workloads while preserving the existing combined deployment shape.
+Render independent Spring order, batch, and telemetry Deployments with topic-scoped group ids, resources, concurrency, and autoscaling.
+Drive each workload from CPU plus sustained topic lag pressure and retain the inputs, replica histories, and aggregate cost evidence in reports.
+Qualify the production-style topology locally before using it for the full AWS ramp.
+Verification: demo, orchestration, internal-lab, report, and AWS tests pass; KEDA accepts all generated resources in a server-side dry-run.
