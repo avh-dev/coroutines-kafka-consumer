@@ -117,7 +117,6 @@ class DeploymentBindings:
     support_node_selector: Mapping[str, str] | None = None
     load_test_node_selector: Mapping[str, str] | None = None
     load_test_environment: Mapping[str, Any] | None = None
-    prometheus_url: str | None = None
 
 
 def build_deployment_plan(
@@ -345,32 +344,6 @@ def _hpa_value(values: Mapping[str, Any], snake_name: str, camel_name: str, defa
     return values.get(snake_name, values.get(camel_name, default))
 
 
-def _consumer_lag_pressure_query(topic: str, group: str, values: Mapping[str, Any]) -> str:
-    escaped_topic = topic.replace("\\", "\\\\").replace('"', '\\"')
-    escaped_group = group.replace("\\", "\\\\").replace('"', '\\"')
-    growth_window = int(_hpa_value(values, "lag_growth_window_seconds", "lagGrowthWindowSeconds", 90))
-    rate_window = int(_hpa_value(values, "rate_window_seconds", "rateWindowSeconds", 90))
-    age_threshold = float(_hpa_value(values, "lag_age_threshold_seconds", "lagAgeThresholdSeconds", 1.0))
-    minimum_growth = float(
-        _hpa_value(values, "minimum_lag_growth_per_second", "minimumLagGrowthPerSecond", 10.0)
-    )
-    maximum_pressure = float(_hpa_value(values, "maximum_pressure", "maximumPressure", 2.0))
-    selector = f'consumergroup="{escaped_group}",topic="{escaped_topic}"'
-    topic_selector = f'topic="{escaped_topic}"'
-    lag = f"sum by(topic, partition) (kafka_consumergroup_lag{{{selector}}})"
-    ingress = (
-        "sum by(topic, partition) "
-        f"(rate(kafka_topic_partition_current_offset{{{topic_selector}}}[{rate_window}s]))"
-    )
-    growth = f"deriv(({lag})[{growth_window}s:15s])"
-    return (
-        "max("
-        f"clamp_max(clamp_min((({lag}) / clamp_min(({ingress}), 0.001)) / {age_threshold:g}, 1), "
-        f"{maximum_pressure:g}) * (({growth}) > bool {minimum_growth:g})"
-        ")"
-    )
-
-
 def _scaled_object(
     name: str,
     namespace: str,
@@ -378,12 +351,12 @@ def _scaled_object(
     *,
     topic: str,
     group: str,
-    prometheus_url: str | None,
+    kafka_bootstrap: str,
 ) -> dict[str, Any] | None:
     if not values.get("enabled"):
         return None
-    pressure = values.get("consumer_lag_pressure") or values.get("consumerLagPressure") or {}
-    if not pressure:
+    kafka_lag = values.get("kafka_lag") or values.get("kafkaLag") or {}
+    if not kafka_lag:
         return _hpa(name, namespace, {
             "enabled": True,
             "minReplicas": _hpa_value(values, "min_replicas", "minReplicas", 1),
@@ -395,7 +368,7 @@ def _scaled_object(
                 values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
             ),
         })
-    if not pressure.get("enabled", True):
+    if not kafka_lag.get("enabled", True):
         return _hpa(name, namespace, {
             "enabled": True,
             "minReplicas": _hpa_value(values, "min_replicas", "minReplicas", 1),
@@ -407,8 +380,21 @@ def _scaled_object(
                 values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
             ),
         })
-    if not prometheus_url:
-        raise ValueError("Consumer lag pressure autoscaling requires a Prometheus query URL")
+    if not kafka_bootstrap:
+        raise ValueError("KEDA Kafka lag autoscaling requires Kafka bootstrap servers")
+    lag_threshold = int(_hpa_value(kafka_lag, "lag_threshold", "lagThreshold", 1000))
+    activation_lag_threshold = int(_hpa_value(
+        kafka_lag, "activation_lag_threshold", "activationLagThreshold", 0
+    ))
+    if lag_threshold < 1:
+        raise ValueError("KEDA Kafka lagThreshold must be a positive integer")
+    if activation_lag_threshold < 0:
+        raise ValueError("KEDA Kafka activationLagThreshold must not be negative")
+    offset_reset_policy = str(_hpa_value(
+        kafka_lag, "offset_reset_policy", "offsetResetPolicy", "latest"
+    ))
+    if offset_reset_policy not in {"earliest", "latest"}:
+        raise ValueError("KEDA Kafka offsetResetPolicy must be earliest or latest")
     scale_up = values.get("scale_up") or values.get("scaleUp") or {}
     scale_down = values.get("scale_down") or values.get("scaleDown") or {}
     behavior = {
@@ -454,15 +440,18 @@ def _scaled_object(
                     )))},
                 },
                 {
-                    "type": "prometheus",
-                    "name": "consumer-lag-pressure",
+                    "type": "kafka",
+                    "name": "consumer-lag",
                     "metricType": "AverageValue",
                     "metadata": {
-                        "serverAddress": prometheus_url.rstrip("/"),
-                        "query": _consumer_lag_pressure_query(topic, group, pressure),
-                        "threshold": "1",
-                        "activationThreshold": "0",
-                        "ignoreNullValues": "false",
+                        "bootstrapServers": kafka_bootstrap,
+                        "consumerGroup": group,
+                        "topic": topic,
+                        "lagThreshold": str(lag_threshold),
+                        "activationLagThreshold": str(activation_lag_threshold),
+                        "offsetResetPolicy": offset_reset_policy,
+                        "allowIdleConsumers": "false",
+                        "fullMetadata": "false",
                     },
                 },
             ],
@@ -700,7 +689,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 raise ValueError(f"Deployment plan does not contain the Kafka topic for {workload_name}")
             autoscaler = _scaled_object(
                 deployment_name, bindings.application_namespace, workload.get("hpa") or {},
-                topic=topic, group=group_id, prometheus_url=bindings.prometheus_url,
+                topic=topic, group=group_id, kafka_bootstrap=bindings.kafka_bootstrap,
             )
             if autoscaler:
                 manifests.append(autoscaler)

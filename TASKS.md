@@ -449,6 +449,7 @@
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
+| [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5245,3 +5246,14 @@ Render independent Spring order, batch, and telemetry Deployments with topic-sco
 Drive each workload from CPU plus sustained topic lag pressure and retain the inputs, replica histories, and aggregate cost evidence in reports.
 Qualify the production-style topology locally before using it for the full AWS ramp.
 Verification: demo, orchestration, internal-lab, report, and AWS tests pass; KEDA accepts all generated resources in a server-side dry-run.
+
+<a id="infra-284"></a>
+### INFRA-284 - Use native KEDA Kafka lag scaling
+
+_Date: 2026-10-07_
+
+Replace the custom lag-age and growth-pressure formula with KEDA's built-in Kafka scaler for the Spring baseline.
+Scale each topic deployment from its own consumer-group lag while retaining CPU as an independent safety signal.
+Define and document lag thresholds as target backlog per replica so the resulting replica calculation follows standard KEDA/HPA semantics.
+Remove the Prometheus autoscaling dependency while retaining Prometheus strictly for experiment observability and reporting.
+Verification: 62 shared orchestration, 177 internal-lab, and 69 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts all generated resources in a server-side dry-run. No experiment was launched.

@@ -346,7 +346,6 @@ RENDER_ARGS=(
   --application-node-port 30080
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --applications-only
-  --prometheus-url http://ckc-prometheus.ckc-perf.svc.cluster.local:9090
 )
 if [[ -n "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
   RENDER_ARGS+=(--application-node-selector "${LAB_APPLICATION_NODE_SELECTOR}")

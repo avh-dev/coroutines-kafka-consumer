@@ -455,7 +455,7 @@ class DeploymentPlanTest(unittest.TestCase):
             load_pod_spec["volumes"],
         )
 
-    def test_renders_independent_topic_deployments_and_lag_pressure_scalers(self) -> None:
+    def test_renders_independent_topic_deployments_and_native_kafka_lag_scalers(self) -> None:
         _, plan, _ = self.materialize("internal-lab")
         plan["application"]["configuration"] = {
             "deployment_mode": "per_topic",
@@ -469,10 +469,9 @@ class DeploymentPlanTest(unittest.TestCase):
                         "min_replicas": 1,
                         "max_replicas": 6,
                         "target_cpu_utilization_percentage": 80,
-                        "consumer_lag_pressure": {
+                        "kafka_lag": {
                             "enabled": True,
-                            "lag_age_threshold_seconds": 2,
-                            "minimum_lag_growth_per_second": 5,
+                            "lag_threshold": 300,
                         },
                     },
                 }
@@ -490,7 +489,6 @@ class DeploymentPlanTest(unittest.TestCase):
             audit_host="audit.internal",
             application_service_type="NodePort",
             application_node_port=30080,
-            prometheus_url="http://prometheus:9090",
         ))
 
         deployments = {
@@ -515,10 +513,19 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(3, len(scalers))
         order_scaler = next(item for item in scalers if item["metadata"]["name"] == "ckc-demo-order")
         self.assertEqual(6, order_scaler["spec"]["maxReplicaCount"])
-        self.assertEqual("AverageValue", order_scaler["spec"]["triggers"][1]["metricType"])
-        query = order_scaler["spec"]["triggers"][1]["metadata"]["query"]
-        self.assertIn('consumergroup="spring-order"', query)
-        self.assertIn('topic="order.events.v1"', query)
+        lag_trigger = order_scaler["spec"]["triggers"][1]
+        self.assertEqual("kafka", lag_trigger["type"])
+        self.assertEqual("AverageValue", lag_trigger["metricType"])
+        self.assertEqual({
+            "bootstrapServers": "kafka.internal:9092",
+            "consumerGroup": "spring-order",
+            "topic": "order.events.v1",
+            "lagThreshold": "300",
+            "activationLagThreshold": "0",
+            "offsetResetPolicy": "latest",
+            "allowIdleConsumers": "false",
+            "fullMetadata": "false",
+        }, lag_trigger["metadata"])
         alias = next(
             item for item in manifests if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo"
         )
@@ -534,6 +541,11 @@ class DeploymentPlanTest(unittest.TestCase):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
 
         self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
+        workloads = plan["application"]["configuration"]["workloads"]
+        self.assertEqual(
+            {"order": 300, "batch": 330, "telemetry": 360},
+            {name: workload["hpa"]["kafka_lag"]["lag_threshold"] for name, workload in workloads.items()},
+        )
         self.assertEqual(
             [(18, 3, 6), (18, 3, 6), (60, 10, 6)],
             [

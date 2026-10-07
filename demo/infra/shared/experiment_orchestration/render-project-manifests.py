@@ -44,7 +44,6 @@ def main() -> int:
     parser.add_argument("--application-node-selector")
     parser.add_argument("--support-node-selector")
     parser.add_argument("--load-test-node-selector")
-    parser.add_argument("--prometheus-url")
     parser.add_argument("--packet-capture", action="store_true")
     resource_filter = parser.add_mutually_exclusive_group()
     resource_filter.add_argument("--applications-only", action="store_true")
@@ -89,7 +88,6 @@ def main() -> int:
         support_node_selector=node_selector(args.support_node_selector),
         load_test_node_selector=node_selector(args.load_test_node_selector),
         load_test_environment=load_environment,
-        prometheus_url=args.prometheus_url,
     ))
     if args.applications_only:
         manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]

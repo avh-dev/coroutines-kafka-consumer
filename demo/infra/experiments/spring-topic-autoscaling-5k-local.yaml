@@ -1,6 +1,6 @@
 schema_version: 2
 name: spring-topic-autoscaling-5k-local
-description: Qualify independent Spring Kafka topic deployments under sustained lag pressure and recovery at 5k TPS.
+description: Qualify independent Spring Kafka topic deployments under standard KEDA Kafka lag scaling at 5k TPS.
 workload:
   stubs:
     error_rate_percent: 0
@@ -92,7 +92,7 @@ workload:
         ordering: not_guaranteed
 targets:
 - name: spring-kafka.per-topic-autoscaling
-  annotation_label: Spring Kafka · per-topic lag-pressure autoscaling · split host
+  annotation_label: Spring Kafka · native per-topic Kafka lag autoscaling · split host
   implementation: spring-kafka
   application:
     deployment_mode: per_topic
@@ -121,21 +121,25 @@ targets:
             stabilization_window_seconds: 600
             max_pods: 1
             period_seconds: 300
-          consumer_lag_pressure:
+          kafka_lag:
             enabled: true
-            lag_age_threshold_seconds: 1
-            lag_growth_window_seconds: 90
-            rate_window_seconds: 90
-            minimum_lag_growth_per_second: 5
-            maximum_pressure: 2
+            lag_threshold: 300
       batch:
         replicas: 1
         group_id: ckc-demo-batch
-        hpa: *topic_hpa
+        hpa:
+          <<: *topic_hpa
+          kafka_lag:
+            enabled: true
+            lag_threshold: 330
       telemetry:
         replicas: 1
         group_id: ckc-demo-telemetry
-        hpa: *topic_hpa
+        hpa:
+          <<: *topic_hpa
+          kafka_lag:
+            enabled: true
+            lag_threshold: 360
   runtime:
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
