@@ -404,8 +404,9 @@ port `3102` is occupied, the launcher selects the next available port and
 prints the resolved dashboard URL. Set `CKC_RESTORE_GRAFANA_PORT` or
 `CKC_RESTORE_LOKI_PORT` to require a specific port; an occupied explicit port
 is reported as an error. The restored stack runs in the background; stop it
-explicitly with `./stop-grafana.sh`. The dashboard permits anonymous read-only
-access and does not ask for a Grafana login or password.
+explicitly with `./stop-grafana.sh`. Grafana does not ask for a login or
+password and permits Explore plus ad-hoc dashboard/query editing through its
+bundle-local anonymous Editor session.
 
 ## Verification
 
