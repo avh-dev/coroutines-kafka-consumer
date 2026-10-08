@@ -447,6 +447,7 @@
 | [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
+| [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5221,3 +5222,13 @@ Select the correct Kafka CPU source per environment, report only actual per-key 
 Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
 Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
 Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.
+<a id="infra-286"></a>
+### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle
+
+_Date: 2026-10-08_
+
+Replace the foreground key-reading restore launcher with explicit detached start and stop commands.
+Report each material restore phase so large metrics and Loki imports no longer look stalled over remote terminals.
+Keep port selection, VPN bind-address configuration, reusable imported data, and per-bundle Compose isolation intact.
+Keep anonymous read-only Grafana access so restored dashboards never require a login or password.
+Verification: 18 focused result-bundle tests, 63 shared orchestration tests, 181 internal-lab tests, and 71 AWS tests pass; Bash/Python/Compose/whitespace checks pass. The installed lab was intentionally left unchanged while an experiment was running.

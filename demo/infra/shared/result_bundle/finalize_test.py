@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import gzip
-import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -214,10 +213,20 @@ class CanonicalFinalizerTest(unittest.TestCase):
                 if len(Path(name).parts) > 1
             }
             self.assertEqual(
-                {"README.md", "run-grafana.sh", "report", "restore", "deployment", "lab", "diagnostics"},
+                {
+                    "README.md",
+                    "start-grafana.sh",
+                    "stop-grafana.sh",
+                    "report",
+                    "restore",
+                    "deployment",
+                    "lab",
+                    "diagnostics",
+                },
                 evidence_children,
             )
-            self.assertIn(f"{identity}/run-grafana.sh", evidence_names)
+            self.assertIn(f"{identity}/start-grafana.sh", evidence_names)
+            self.assertIn(f"{identity}/stop-grafana.sh", evidence_names)
             self.assertIn(f"{identity}/report/report.md", evidence_names)
             self.assertIn(f"{identity}/report/assets/load.svg", evidence_names)
             self.assertIn(f"{identity}/restore/dashboard/ckc-experiment.json", evidence_names)
@@ -230,20 +239,20 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn(f"{identity}/diagnostics/targets/run-a/pcap-analysis/summary.json", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/kafka-metadata.json", evidence_names)
             self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
-            self.assertIn("Run `./run-grafana.sh`", readme)
+            self.assertIn("Run `./start-grafana.sh`", readme)
+            self.assertIn("Run `./stop-grafana.sh`", readme)
             self.assertIn("$RESULT_DIR/input.yaml", resolved)
             self.assertFalse(any(name.endswith("manifest.json") for name in evidence_names))
             self.assertFalse(any("session.json" in name or "artifact-manifest" in name for name in evidence_names))
             self.assertFalse(any("terraform.tfstate" in name for name in evidence_names))
-            noninteractive = subprocess.run(
-                [str(extracted / identity / "run-grafana.sh")],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
+            self.assertIn(
+                "[1/7] Preparing the evidence restore workspace.",
+                (extracted / identity / "start-grafana.sh").read_text(encoding="utf-8"),
             )
-            self.assertEqual(2, noninteractive.returncode)
-            self.assertIn("interactive terminal", noninteractive.stderr)
+            self.assertIn(
+                "docker compose",
+                (extracted / identity / "stop-grafana.sh").read_text(encoding="utf-8"),
+            )
             self.assertFalse(any(path.name.endswith(".partial") for path in published.iterdir()))
 
     def test_writes_fallback_report_for_early_failure(self) -> None:

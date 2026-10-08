@@ -396,14 +396,16 @@ The evidence archive uses pinned Grafana, Loki, and Prometheus images:
 ```bash
 tar -xzf ckc-experiment-smoke-repeat-20260905T0441Z-evidence.tar.gz
 cd ckc-experiment-smoke-repeat-20260905T0441Z
-./run-grafana.sh
+./start-grafana.sh
 ```
 
 Grafana starts at `http://127.0.0.1:3002`. If that port or the restore Loki
 port `3102` is occupied, the launcher selects the next available port and
 prints the resolved dashboard URL. Set `CKC_RESTORE_GRAFANA_PORT` or
 `CKC_RESTORE_LOKI_PORT` to require a specific port; an occupied explicit port
-is reported as an error. Press `q` or `Ctrl-C` to stop the stack.
+is reported as an error. The restored stack runs in the background; stop it
+explicitly with `./stop-grafana.sh`. The dashboard permits anonymous read-only
+access and does not ask for a Grafana login or password.
 
 ## Verification
 
