@@ -5281,6 +5281,9 @@ Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; 
 The completed 40/40/20 calibration sustained 5k with 5 / 5 / 3 replicas at 4,999 records/s; order and batch p99 stayed below one second while telemetry p99 fell from 9.85 seconds at 3 / 3 / 2 to 741 milliseconds.
 Calibrate native KEDA thresholds from observed p95 steady-state lag per replica: 1,500 for order and batch, and 1,250 for telemetry. Retain the measured 5 / 5 / 3 capacity ceiling and align the qualification partitions and traffic mix with the calibration.
 Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; the calibrated manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The follow-up autoscaling qualification remains intentionally unstarted.
+The first qualification exposed two scenario defects: its 139 ms mean degraded stub latency left five order replicas below incoming capacity, while a six-minute recovery could never outlast the ten-minute HPA scale-down stabilization window.
+Reduce the degraded flavour distribution to a measured recoverable range and extend the 3k recovery plateau to twenty minutes so scale-out can overtake ingress and scale-down can be observed before the 5k ramp.
+Verification: 63 shared orchestration and 181 internal-lab tests pass; whitespace checks pass and the revised experiment is installed without rebuilding or redeploying application images.
 
 <a id="infra-286"></a>
 ### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle

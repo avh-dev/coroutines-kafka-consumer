@@ -1,6 +1,6 @@
 schema_version: 2
 name: spring-topic-autoscaling-5k-local
-description: Qualify calibrated independent Spring Kafka topic deployments through staged 3k and 5k KEDA scaling with isolated order saturation.
+description: Qualify calibrated independent Spring Kafka topic deployments through staged 3k and 5k KEDA scaling with recoverable order saturation.
 workload:
   stubs:
     error_rate_percent: 0
@@ -25,7 +25,7 @@ workload:
       order: 5000
       batch: 5000
       telemetry: 5000
-    load_profile: 0 -> (20m, ramp-to-3k) -> 60 -> (10m, steady-3k) -> 60 -> (5m, order-saturation) -> 60 -> (6m, order-recovery) -> 60 -> (20m, ramp-to-5k) -> 100 -> (10m, steady-5k) -> 100
+    load_profile: 0 -> (20m, ramp-to-3k) -> 60 -> (10m, steady-3k) -> 60 -> (5m, order-saturation) -> 60 -> (20m, order-recovery) -> 60 -> (20m, ramp-to-5k) -> 100 -> (10m, steady-5k) -> 100
     cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -53,12 +53,12 @@ workload:
     duration: 5m
   - name: order-recovery
     start: 35m
-    duration: 6m
+    duration: 20m
   - name: ramp-3k-to-5k
-    start: 41m
+    start: 55m
     duration: 20m
   - name: steady-5k
-    start: 61m
+    start: 75m
     duration: 10m
   chaos:
   - at: 30m
@@ -68,10 +68,10 @@ workload:
     params:
       flavour:
         percentiles:
-          p90: 60
-          p95: 500
-          p99: 1000
-          p100: 2000
+          p90: 40
+          p95: 70
+          p99: 120
+          p100: 250
   topics:
     order:
       kafka_topic: order.events.v1

@@ -544,7 +544,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
         self.assertEqual(
             "0 -> (20m, ramp-to-3k) -> 60 -> (10m, steady-3k) -> 60 -> "
-            "(5m, order-saturation) -> 60 -> (6m, order-recovery) -> 60 -> "
+            "(5m, order-saturation) -> 60 -> (20m, order-recovery) -> 60 -> "
             "(20m, ramp-to-5k) -> 100 -> (10m, steady-5k) -> 100",
             plan["workload"]["load"]["load_profile"],
         )
@@ -555,7 +555,7 @@ class DeploymentPlanTest(unittest.TestCase):
                 "type": "stubs_degradation",
                 "name": "order-downstream-saturation",
                 "params": {"flavour": {"percentiles": {
-                    "p90": 60, "p95": 500, "p99": 1000, "p100": 2000,
+                    "p90": 40, "p95": 70, "p99": 120, "p100": 250,
                 }}},
             }],
             definition["chaos_steps"],
