@@ -12,8 +12,9 @@ Every environment publishes the same named result directory:
 ```
 
 The evidence archive has a strict whitelist and the same root name as the
-result. It contains `README.md`, one foreground `run-grafana.sh`, and four
-purpose-specific directories: `report/`, `restore/`, `deployment/`, and `lab/`.
+result. It contains `README.md`, detached `start-grafana.sh` and
+`stop-grafana.sh` lifecycle commands, and five purpose-specific directories:
+`report/`, `restore/`, `deployment/`, `lab/`, and `diagnostics/`.
 It does not expose collection manifests, controller session state, transport
 markers, Terraform state, kubeconfigs, or arbitrary result-tree JSON.
 
@@ -25,10 +26,15 @@ environment; AWS evidence additionally contains controller commands, exact
 Terraform module sources and resolved variables, its runner-side lab script,
 and generated Helm values and commands when charts were used.
 
-Extract evidence, enter its root directory, and run `./run-grafana.sh`. It
-starts Grafana, Loki, and the matching Prometheus-compatible metrics engine, imports the preserved data, prints
-the dashboard URL, and remains attached. Press `q` or `Ctrl-C` to stop and
-remove the containers. Runtime files remain owned by the invoking user.
+Extract evidence, enter its root directory, and run `./start-grafana.sh`. It
+reports the restore phases while it starts Grafana, Loki, and the matching
+Prometheus-compatible metrics engine and imports the preserved data. It then
+prints the dashboard URL and leaves the containers running in the background.
+Run `./stop-grafana.sh` to remove the containers. An interruption or failure
+during startup removes a partially started stack. Runtime files remain owned
+by the invoking user and are reused on the next start. Grafana permits
+anonymous read-only access, so opening the restored dashboard does not require
+a login or password.
 
 The launcher starts with host ports `3002` for Grafana and `3102` for Loki. If
 either default is occupied, it selects the next available port and prints the

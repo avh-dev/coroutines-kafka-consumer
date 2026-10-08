@@ -217,15 +217,17 @@ Open the archived metrics and logs with:
 ```bash
 tar -xzf ckc-experiment-aws-smoke-20260905T0517Z-evidence.tar.gz
 cd ckc-experiment-aws-smoke-20260905T0517Z
-./run-grafana.sh
+./start-grafana.sh
 ```
 
 Grafana starts at `127.0.0.1:3002` by default. If that port or restore Loki's
 default `3102` is occupied, the launcher selects the next available port and
 prints the resolved dashboard URL. Explicit `CKC_RESTORE_GRAFANA_PORT` and
 `CKC_RESTORE_LOKI_PORT` values remain strict and fail clearly when occupied.
-The script stays attached; press `q` or `Ctrl-C` to stop and remove the local
-containers.
+The script reports each restore phase and leaves the local containers running
+in the background. The dashboard permits anonymous read-only access without a
+Grafana login or password. Remove the containers explicitly with
+`./stop-grafana.sh`.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are

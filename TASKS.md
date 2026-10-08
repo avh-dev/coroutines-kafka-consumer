@@ -451,6 +451,7 @@
 | [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
 | [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
 | [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and isolated order saturation. | IN_PROGRESS |
+| [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5225,7 +5226,6 @@ Select the correct Kafka CPU source per environment, report only actual per-key 
 Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
 Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
 Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.
-
 <a id="demo-103"></a>
 ### DEMO-103 - Isolate Spring Kafka topic consumers
 
@@ -5277,3 +5277,14 @@ Freeze the final production-like workload mix at 40% order, 40% batch, and 20% t
 Use 10k telemetry keys at 50k aggregate TPS so the 10k telemetry messages/s represent an approximately one-second per-key interval.
 Rebase the local fixed-capacity calibration on 3 / 3 / 2 saturation-boundary replicas and 5 / 5 / 3 replicas with 30% planned headroom, using 27 / 21 / 30 balanced Kafka partitions.
 Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; both revised local targets pass Kubernetes server-side dry-run and the installed lab is updated. The revised calibration remains intentionally unstarted.
+
+<a id="infra-286"></a>
+### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle
+
+_Date: 2026-10-08_
+
+Replace the foreground key-reading restore launcher with explicit detached start and stop commands.
+Report each material restore phase so large metrics and Loki imports no longer look stalled over remote terminals.
+Keep port selection, VPN bind-address configuration, reusable imported data, and per-bundle Compose isolation intact.
+Keep anonymous read-only Grafana access so restored dashboards never require a login or password.
+Verification: 19 focused result-bundle tests, 63 shared orchestration tests, 181 internal-lab tests, and 71 AWS tests pass; Bash/Python/Compose/whitespace checks pass. The installed lab was updated after the active experiment completed. The latest CKC AWS bundle and all eight retained AWS evidence bundles were rebuilt or safely repacked and passed gzip, launcher, and archive-contract checks.
