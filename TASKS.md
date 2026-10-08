@@ -450,7 +450,7 @@
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
 | [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
-| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and isolated order saturation. | DONE |
+| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and isolated order saturation. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5269,3 +5269,7 @@ Degrade only the order downstream so telemetry freshness drops cannot reduce unr
 Fit the maximum replica set on the worker while retaining full Kafka partition concurrency.
 Use only active deployment consumer groups during drain and accept Kubernetes fully qualified deployment resource names during cleanup.
 Verification: 63 shared orchestration, 180 internal-lab, and 71 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts the generated resources in a server-side dry-run. No experiment was launched.
+Reopened to calibrate the native Kafka scaler against measured fixed-replica Spring capacity before freezing the production baseline for CKC comparison.
+Archived Prometheus data shows healthy 3k median committed-offset lag of roughly 2.9k / 2.9k / 3.9k, already above the previous five-replica KEDA boundaries.
+Add a no-audit calibration run comparing fixed 3 / 3 / 3 saturation-boundary capacity with a planned 4 / 4 / 5 configuration carrying 30% headroom.
+Verification: 63 shared orchestration and 181 internal-lab tests pass; both generated target manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The calibration experiment remains intentionally unstarted.

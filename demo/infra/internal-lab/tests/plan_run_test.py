@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 
 from demo.infra.shared.experiment_orchestration.contract import validate_canonical_experiment
+from demo.infra.shared.experiment_orchestration.definition import resolve_experiment_definition
+from demo.infra.shared.experiment_orchestration.materialize import materialize_experiment
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -16,6 +18,42 @@ INTERNAL_LAB = REPO_ROOT / "demo" / "infra" / "internal-lab"
 
 
 class PlanRunTest(unittest.TestCase):
+    def test_spring_topic_capacity_calibration_materializes_fixed_replica_targets(self) -> None:
+        path = REPO_ROOT / "demo/infra/experiments/spring-topic-capacity-calibration-5k-local.yaml"
+        experiment = resolve_experiment_definition(path, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            targets = materialize_experiment(
+                experiment,
+                output_dir=Path(directory),
+                repo_dir=REPO_ROOT,
+            )
+
+            self.assertEqual(
+                ["spring-kafka.fixed-3-3-3", "spring-kafka.fixed-4-4-5"],
+                [target.target.id for target in targets],
+            )
+            self.assertEqual(
+                [
+                    {"order": 3, "batch": 3, "telemetry": 3},
+                    {"order": 4, "batch": 4, "telemetry": 5},
+                ],
+                [
+                    {
+                        name: int(configuration["replicas"])
+                        for name, configuration in yaml.safe_load(
+                            target.deployment_plan_path.read_text(encoding="utf-8")
+                        )["application"]["configuration"]["workloads"].items()
+                    }
+                    for target in targets
+                ],
+            )
+            self.assertEqual(
+                [0, 30],
+                [target.plan["topics"][0]["planning_headroom_percent"] for target in targets],
+            )
+            self.assertTrue(all(not target.plan["application"]["hpa"] for target in targets))
+
     def test_application_placement_comparison_has_requested_order_and_timing(self) -> None:
         path = REPO_ROOT / "demo/infra/experiments/application-placement-5k-comparison.yaml"
         experiment = yaml.safe_load(path.read_text(encoding="utf-8"))
