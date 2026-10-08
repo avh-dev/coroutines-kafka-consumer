@@ -96,7 +96,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
         self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
         self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
-        self.assertEqual(20000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(10000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
             {"order": 10000, "batch": 10000, "telemetry": 10000},
             definition["load_test"]["producer_capacity_tps"],
@@ -104,7 +104,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(300, definition["load_test"]["kafka_producer_linger_ms"])
         self.assertEqual("lz4", definition["load_test"]["kafka_producer_compression_type"])
         self.assertEqual(
-            {"order": 30, "batch": 30, "telemetry": 40},
+            {"order": 40, "batch": 40, "telemetry": 20},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -308,9 +308,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(50000, plan["workload"]["load"]["base_tps"])
         self.assertEqual(2, definition["load_test"]["shards"])
         self.assertEqual(2, definition["load_test"]["dispatcher_threads"])
-        self.assertEqual(20_000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(10_000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
-            {"order": 30, "batch": 30, "telemetry": 40},
+            {"order": 40, "batch": 40, "telemetry": 20},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -324,12 +324,12 @@ class DeploymentPlanTest(unittest.TestCase):
         )
         topics = plan["application"]["planner"]["topics"]
         self.assertEqual(
-            [156, 144, 552],
+            [216, 192, 276],
             [topic["partitions"] for topic in topics],
         )
-        self.assertEqual([13, 12, 46], [topic["poll_loop_concurrency"] for topic in topics])
-        self.assertEqual([120, 105, 420], [topic["required_parallelism_without_headroom"] for topic in topics])
-        self.assertEqual([156, 137, 546], [topic["required_parallelism"] for topic in topics])
+        self.assertEqual([18, 16, 23], [topic["poll_loop_concurrency"] for topic in topics])
+        self.assertEqual([160, 140, 210], [topic["required_parallelism_without_headroom"] for topic in topics])
+        self.assertEqual([208, 182, 273], [topic["required_parallelism"] for topic in topics])
         self.assertEqual([30.0, 30.0, 30.0], [topic["planning_headroom_percent"] for topic in topics])
         self.assertTrue(all(not topic["manual_overrides"] for topic in topics))
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
@@ -379,9 +379,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
         self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertEqual("true", application_environment["AUDIT_LOG_ENABLED"])
-        self.assertEqual("13", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("12", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("46", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("18", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("16", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("23", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
         self.assertEqual(4, stubs["spec"]["replicas"])
         self.assertEqual("4", stubs_environment["STUB_WORKERS"])
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])

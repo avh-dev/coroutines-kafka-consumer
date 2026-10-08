@@ -5273,3 +5273,7 @@ Reopened to calibrate the native Kafka scaler against measured fixed-replica Spr
 Archived Prometheus data shows healthy 3k median committed-offset lag of roughly 2.9k / 2.9k / 3.9k, already above the previous five-replica KEDA boundaries.
 Add a no-audit calibration run comparing fixed 3 / 3 / 3 saturation-boundary capacity with a planned 4 / 4 / 5 configuration carrying 30% headroom.
 Verification: 63 shared orchestration and 181 internal-lab tests pass; both generated target manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The calibration experiment remains intentionally unstarted.
+Freeze the final production-like workload mix at 40% order, 40% batch, and 20% telemetry for the local calibration and paired AWS 50k Spring/CKC definitions.
+Use 10k telemetry keys at 50k aggregate TPS so the 10k telemetry messages/s represent an approximately one-second per-key interval.
+Rebase the local fixed-capacity calibration on 3 / 3 / 2 saturation-boundary replicas and 5 / 5 / 3 replicas with 30% planned headroom, using 27 / 21 / 30 balanced Kafka partitions.
+Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; both revised local targets pass Kubernetes server-side dry-run and the installed lab is updated. The revised calibration remains intentionally unstarted.

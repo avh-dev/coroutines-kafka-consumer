@@ -30,13 +30,13 @@ class PlanRunTest(unittest.TestCase):
             )
 
             self.assertEqual(
-                ["spring-kafka.fixed-3-3-3", "spring-kafka.fixed-4-4-5"],
+                ["spring-kafka.fixed-3-3-2", "spring-kafka.fixed-5-5-3"],
                 [target.target.id for target in targets],
             )
             self.assertEqual(
                 [
-                    {"order": 3, "batch": 3, "telemetry": 3},
-                    {"order": 4, "batch": 4, "telemetry": 5},
+                    {"order": 3, "batch": 3, "telemetry": 2},
+                    {"order": 5, "batch": 5, "telemetry": 3},
                 ],
                 [
                     {
@@ -53,6 +53,13 @@ class PlanRunTest(unittest.TestCase):
                 [target.plan["topics"][0]["planning_headroom_percent"] for target in targets],
             )
             self.assertTrue(all(not target.plan["application"]["hpa"] for target in targets))
+            self.assertEqual(
+                {"order.events.v1": 40, "batch.events.v1": 40, "cauldron.events.v1": 20},
+                {
+                    topic["kafka_topic"]: int(topic["traffic_percent"])
+                    for topic in experiment.snapshot["workload"]["topics"].values()
+                },
+            )
 
     def test_application_placement_comparison_has_requested_order_and_timing(self) -> None:
         path = REPO_ROOT / "demo/infra/experiments/application-placement-5k-comparison.yaml"

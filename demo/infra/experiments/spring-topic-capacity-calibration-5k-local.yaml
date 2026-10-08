@@ -1,6 +1,6 @@
 schema_version: 2
 name: spring-topic-capacity-calibration-5k-local
-description: Calibrate fixed per-topic Spring Kafka capacity at 3k and 5k before tuning the native KEDA lag scaler.
+description: Calibrate fixed per-topic Spring Kafka capacity for a production-like 40/40/20 workload before tuning the native KEDA lag scaler.
 workload:
   stubs:
     error_rate_percent: 0
@@ -57,29 +57,29 @@ workload:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
       contract:
         delivery: at_least_once
         ordering: per_partition
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
       contract:
         delivery: at_least_once
         ordering: per_partition
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent: 40
+      traffic_percent: 20
       max_e2e_latency_ms: 2000
       contract:
         semantics: freshness_first
         delivery: not_guaranteed
         ordering: not_guaranteed
 targets:
-- name: spring-kafka.fixed-3-3-3
-  annotation_label: Spring Kafka · fixed order 3 · batch 3 · telemetry 3 · split host
+- name: spring-kafka.fixed-3-3-2
+  annotation_label: Spring Kafka · fixed order 3 · batch 3 · telemetry 2 · split host
   implementation: spring-kafka
   application: &application_base
     deployment_mode: per_topic
@@ -99,7 +99,7 @@ targets:
         replicas: 3
         group_id: ckc-demo-batch
       telemetry:
-        replicas: 3
+        replicas: 2
         group_id: ckc-demo-telemetry
   runtime: &runtime
     env:
@@ -129,31 +129,31 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 21
-        pollers: 4
+        partitions: 27
+        pollers: 5
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
         partitions: 21
         pollers: 4
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 60
-        pollers: 12
+        partitions: 30
+        pollers: 10
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
-- name: spring-kafka.fixed-4-4-5
-  annotation_label: Spring Kafka · fixed order 4 · batch 4 · telemetry 5 · split host
+- name: spring-kafka.fixed-5-5-3
+  annotation_label: Spring Kafka · fixed order 5 · batch 5 · telemetry 3 · split host
   implementation: spring-kafka
   application:
     <<: *application_base
     workloads:
       order:
-        replicas: 4
+        replicas: 5
         group_id: ckc-demo-order
       batch:
-        replicas: 4
+        replicas: 5
         group_id: ckc-demo-batch
       telemetry:
-        replicas: 5
+        replicas: 3
         group_id: ckc-demo-telemetry
   runtime:
     <<: *runtime

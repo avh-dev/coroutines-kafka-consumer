@@ -41,7 +41,7 @@ workload:
       batch: 10000
       telemetry: 10000
     load_profile: 0 -> (3m, warmup) -> 100 -> (20m, steady) -> 100
-    cauldron_count: 20000
+    cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
     min_brewing_steps: 5
@@ -83,15 +83,15 @@ workload:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent: 40
+      traffic_percent: 20
       max_e2e_latency_ms: 2000
 targets:
 - name: ckc.fixed-12
