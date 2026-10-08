@@ -81,15 +81,19 @@ def main() -> int:
     batch: dict[tuple[tuple[str, str], ...], list[list[str]]] = defaultdict(list)
     count = 0
     for path in args.files:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            batch[labels_key(record.get("labels", {}))].append([str(record["ts"]), str(record.get("line", ""))])
-            count += 1
-            if count % args.batch_size == 0:
-                push(args.loki_url, batch)
-                batch.clear()
+        print(f"importing Loki records from {path.name}", flush=True)
+        with path.open(encoding="utf-8") as records:
+            for line in records:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                batch[labels_key(record.get("labels", {}))].append([str(record["ts"]), str(record.get("line", ""))])
+                count += 1
+                if count % args.batch_size == 0:
+                    push(args.loki_url, batch)
+                    batch.clear()
+                if count % 10000 == 0:
+                    print(f"imported {count} Loki records so far", flush=True)
     if batch:
         push(args.loki_url, batch)
     print(f"imported {count} Loki records")

@@ -166,8 +166,14 @@ def run_directories(result_root: Path) -> list[Path]:
                 configured = Path(configured_value)
                 if not configured.is_absolute():
                     configured = result_root / configured
-                if configured.is_dir():
-                    paths.append(configured)
+                try:
+                    if configured.is_dir():
+                        paths.append(configured)
+                except OSError:
+                    # Relocated results can retain an absolute controller path
+                    # that is absent or not traversable on the archive host.
+                    # Fall back to the bundled result/runs directories below.
+                    continue
         if paths:
             return paths
     nested = result_root / "runs"
@@ -273,7 +279,7 @@ def evidence_readme(identity: str, experiment: str, environment: str, status: st
 | Status | `{status}` |
 | Result | `{identity}` |
 
-Run `./run-grafana.sh` from an interactive terminal to open the preserved report, metrics, and logs. Docker with Compose, Python 3, and curl are required. The command stays attached; press `q` or `Ctrl-C` to stop and remove the containers.
+Run `./start-grafana.sh` to restore the preserved report, metrics, and logs. Docker with Compose, Python 3, and curl are required. The command reports each restore phase and leaves the containers running in the background. Grafana opens read-only without a login or password. Run `./stop-grafana.sh` when you are finished.
 
 ## Contents
 
@@ -330,7 +336,8 @@ def build_restore(
         for name in RESTORE_FILES:
             copy_portable(source / name, implementation / name, replacements)
         copy_portable_tree(source / "provisioning", implementation / "provisioning", replacements)
-        copy_portable(source / "run-grafana.sh", destination.parent / "run-grafana.sh", replacements)
+        copy_portable(source / "start-grafana.sh", destination.parent / "start-grafana.sh", replacements)
+        copy_portable(source / "stop-grafana.sh", destination.parent / "stop-grafana.sh", replacements)
     dashboard = result_root / "config/ckc-experiment.json"
     copy_portable(dashboard, destination / "dashboard/ckc-experiment.json", replacements)
     root_loki = sorted((result_root / "logs/loki").glob("*.jsonl"))
