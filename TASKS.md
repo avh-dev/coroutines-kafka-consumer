@@ -450,7 +450,7 @@
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
 | [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
-| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and isolated order saturation. | IN_PROGRESS |
+| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and recoverable order saturation. | DONE |
 | [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
@@ -5284,6 +5284,7 @@ Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; 
 The first qualification exposed two scenario defects: its 139 ms mean degraded stub latency left five order replicas below incoming capacity, while a six-minute recovery could never outlast the ten-minute HPA scale-down stabilization window.
 Reduce the degraded flavour distribution to a measured recoverable range and extend the 3k recovery plateau to twenty minutes so scale-out can overtake ingress and scale-down can be observed before the 5k ramp.
 Verification: 63 shared orchestration and 181 internal-lab tests pass; whitespace checks pass and the revised experiment is installed without rebuilding or redeploying application images.
+The qualification demonstrated the intended local production baseline: order lag triggered scale-out to five replicas, recoverable degradation let processing overtake ingress, and the conservative HPA policy produced an observable 5 -> 4 scale-down before the subsequent load ramp required renewed growth.
 
 <a id="infra-286"></a>
 ### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle
