@@ -279,7 +279,7 @@ def evidence_readme(identity: str, experiment: str, environment: str, status: st
 | Status | `{status}` |
 | Result | `{identity}` |
 
-Run `./start-grafana.sh` to restore the preserved report, metrics, and logs. Docker with Compose, Python 3, and curl are required. The command reports each restore phase and leaves the containers running in the background. Grafana opens read-only without a login or password. Run `./stop-grafana.sh` when you are finished.
+Run `./start-grafana.sh` to restore the preserved report, metrics, and logs. Docker with Compose, Python 3, and curl are required. The command reports each restore phase and leaves the containers running in the background. Grafana opens without a login or password and permits Explore and ad-hoc query editing. Run `./stop-grafana.sh` when you are finished.
 
 ## Contents
 

@@ -26,7 +26,7 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
     volumes:
       - ${CKC_RESTORE_WORK_DIR}/grafana:/var/lib/grafana
       - ./provisioning:/etc/grafana/provisioning:ro

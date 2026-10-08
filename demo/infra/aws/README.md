@@ -225,9 +225,9 @@ default `3102` is occupied, the launcher selects the next available port and
 prints the resolved dashboard URL. Explicit `CKC_RESTORE_GRAFANA_PORT` and
 `CKC_RESTORE_LOKI_PORT` values remain strict and fail clearly when occupied.
 The script reports each restore phase and leaves the local containers running
-in the background. The dashboard permits anonymous read-only access without a
-Grafana login or password. Remove the containers explicitly with
-`./stop-grafana.sh`.
+in the background. Grafana permits Explore and ad-hoc dashboard/query editing
+through a bundle-local anonymous Editor session, without asking for a login or
+password. Remove the containers explicitly with `./stop-grafana.sh`.
 
 The older `create-runner-and-ecr.sh`, `update-aws-lab.sh`, and interactive runner
 entrypoints remain available for manual infrastructure development. They are
