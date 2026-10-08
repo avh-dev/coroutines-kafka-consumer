@@ -166,8 +166,14 @@ def run_directories(result_root: Path) -> list[Path]:
                 configured = Path(configured_value)
                 if not configured.is_absolute():
                     configured = result_root / configured
-                if configured.is_dir():
-                    paths.append(configured)
+                try:
+                    if configured.is_dir():
+                        paths.append(configured)
+                except OSError:
+                    # Relocated results can retain an absolute controller path
+                    # that is absent or not traversable on the archive host.
+                    # Fall back to the bundled result/runs directories below.
+                    continue
         if paths:
             return paths
     nested = result_root / "runs"

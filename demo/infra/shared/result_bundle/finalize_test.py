@@ -83,6 +83,26 @@ class CanonicalFinalizerTest(unittest.TestCase):
 
             self.assertEqual([], run_directories(result))
 
+    def test_inaccessible_original_run_path_falls_back_to_bundled_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = Path(directory)
+            bundled = result / "runs/run-a"
+            bundled.mkdir(parents=True)
+            (result / "summary.json").write_text(
+                '{"experiments":[{"targets":[{"run_dir":"/original/result/runs/run-a"}]}]}\n',
+                encoding="utf-8",
+            )
+
+            original_is_dir = Path.is_dir
+
+            def is_dir(path: Path) -> bool:
+                if path == Path("/original/result/runs/run-a"):
+                    raise PermissionError("archived controller home is not traversable")
+                return original_is_dir(path)
+
+            with patch.object(Path, "is_dir", is_dir):
+                self.assertEqual([bundled], run_directories(result))
+
     def test_collection_preserves_a_manifest_when_a_source_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
