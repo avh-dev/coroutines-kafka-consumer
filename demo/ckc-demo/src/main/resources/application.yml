@@ -193,6 +193,8 @@ demo:
       max-attempts: ${DEMO_CONSUMER_RETRY_MAX_ATTEMPTS:3}
       backoff-ms: ${DEMO_CONSUMER_RETRY_BACKOFF_MS:250}
     order:
+      enabled: ${ORDER_CONSUMER_ENABLED:true}
+      group-id: ${ORDER_CONSUMER_GROUP_ID:${GROUP_ID:ckc-demo}}
       processing-mode: ${ORDER_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
       worker-concurrency: ${ORDER_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${ORDER_POLL_LOOP_CONCURRENCY:1}
@@ -204,6 +206,8 @@ demo:
         fetch-max-bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
         max-partition-fetch-bytes: ${ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     batch:
+      enabled: ${BATCH_CONSUMER_ENABLED:true}
+      group-id: ${BATCH_CONSUMER_GROUP_ID:${GROUP_ID:ckc-demo}}
       processing-mode: ${BATCH_PROCESSING_MODE:AT_LEAST_ONCE_NO_ORDERING}
       worker-concurrency: ${BATCH_WORKER_CONCURRENCY:2}
       poll-loop-concurrency: ${BATCH_POLL_LOOP_CONCURRENCY:1}
@@ -215,6 +219,8 @@ demo:
         fetch-max-bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
         max-partition-fetch-bytes: ${BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     telemetry:
+      enabled: ${TELEMETRY_CONSUMER_ENABLED:true}
+      group-id: ${TELEMETRY_CONSUMER_GROUP_ID:${GROUP_ID:ckc-demo}}
       processing-mode: ${TELEMETRY_PROCESSING_MODE:FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
       worker-concurrency: ${TELEMETRY_WORKER_CONCURRENCY:4}
       poll-loop-concurrency: ${TELEMETRY_POLL_LOOP_CONCURRENCY:1}

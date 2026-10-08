@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-epoch-seconds", type=float, default=time.time())
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--application-namespace", default="ckc-perf")
-    parser.add_argument("--application-selector", default="app.kubernetes.io/name=ckc-demo")
+    parser.add_argument("--application-selector", default="ckc.dev/component=application")
     parser.add_argument("--application-container", default="demo")
     parser.add_argument("--load-test-backend", choices=["host", "kubernetes"], default="host")
     parser.add_argument("--load-test-namespace", default="ckc-loadtest")

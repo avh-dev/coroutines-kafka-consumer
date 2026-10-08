@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker
+from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker, exact_group_regex
 from experiment_progress import ProgressWriter
 
 
@@ -26,7 +26,7 @@ PROCESSING_TOTAL_QUERY = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wait until internal-lab Kafka consumer lag drains to zero.")
     parser.add_argument("--prometheus-url")
-    parser.add_argument("--group-regex", default="^ckc-demo$")
+    parser.add_argument("--group-regex")
     parser.add_argument(
         "--groups",
         default="ckc-demo",
@@ -196,7 +196,8 @@ def normalize_kafka_implementation(value: str) -> str:
 def query_lag_with_fallback(args: argparse.Namespace) -> tuple[float | None, str]:
     if args.prometheus_url:
         try:
-            lag = query_lag(args.prometheus_url, args.group_regex)
+            groups = [value.strip() for value in args.groups.split(",") if value.strip()]
+            lag = query_lag(args.prometheus_url, args.group_regex or exact_group_regex(groups))
         except Exception:
             # Drain completion must not depend on the observability stack. A
             # Prometheus restart near the end of a long run must not turn an

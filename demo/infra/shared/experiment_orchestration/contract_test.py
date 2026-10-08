@@ -222,6 +222,36 @@ class CanonicalExperimentContractTest(unittest.TestCase):
 
         self.assertEqual("worker", snapshot["targets"][0]["placement"]["generator"])
 
+    def test_accepts_exact_per_topic_application_workloads(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["application"] = {
+            "deployment_mode": "per_topic",
+            "resources": {"requests": {"cpu": "1"}},
+            "workloads": {
+                name: {
+                    "replicas": 1,
+                    "group_id": f"spring-{name}",
+                    "hpa": {"enabled": True, "min_replicas": 1, "max_replicas": 6},
+                }
+                for name in ("order", "batch", "telemetry")
+            },
+        }
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
+        self.assertEqual("per_topic", snapshot["targets"][0]["application"]["deployment_mode"])
+        self.assertEqual("spring-order", snapshot["targets"][0]["application"]["workloads"]["order"]["group_id"])
+
+    def test_rejects_incomplete_per_topic_application_workloads(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["application"] = {
+            "deployment_mode": "per_topic",
+            "workloads": {"order": {"replicas": 1}},
+        }
+
+        with self.assertRaisesRegex(ValueError, "must define exactly"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
     def test_rejects_application_placement_for_aws_and_unknown_values(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["placement"] = {"application": "worker"}

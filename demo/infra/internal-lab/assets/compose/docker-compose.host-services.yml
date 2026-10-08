@@ -288,7 +288,7 @@ services:
       - --kafka.server=apache-kafka-3:29092
       - --web.listen-address=:9308
       - --topic.filter=^(order|batch|cauldron)\.events\.v1$
-      - --group.filter=^ckc-demo$
+      - --group.filter=^ckc-demo(|-(order|batch|telemetry))$
       - --offset.show-all
 
   process-exporter:

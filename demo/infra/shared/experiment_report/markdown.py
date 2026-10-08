@@ -876,22 +876,40 @@ def render_markdown(report: ExperimentReport) -> str:
         values = resources.get(group) if isinstance(resources, dict) else None
         return escaped(values.get(name)) if isinstance(values, dict) else "—"
 
+    def replica_configuration(target: TargetReport) -> str:
+        workloads = target.configuration.get("workloads")
+        if target.configuration.get("deployment_mode") != "per_topic" or not isinstance(workloads, dict):
+            return number(target.configuration.get("replicas"), 0)
+        return " · ".join(
+            f"{escaped(name)} {number((workloads.get(name) or {}).get('replicas'), 0)}"
+            for name in ("order", "batch", "telemetry")
+        )
+
+    def hpa_configuration(target: TargetReport) -> str:
+        workloads = target.configuration.get("workloads")
+        if target.configuration.get("deployment_mode") == "per_topic" and isinstance(workloads, dict):
+            values = []
+            for name in ("order", "batch", "telemetry"):
+                hpa = (workloads.get(name) or {}).get("hpa") or {}
+                if not hpa.get("enabled"):
+                    values.append(f"{escaped(name)} disabled")
+                    continue
+                values.append(
+                    f"{escaped(name)} {number(hpa.get('min_replicas', hpa.get('minReplicas')), 0)}–"
+                    f"{number(hpa.get('max_replicas', hpa.get('maxReplicas')), 0)}"
+                )
+            return " · ".join(values) + " pods"
+        hpa = target.configuration.get("hpa") or {}
+        return (
+            f'{number(hpa.get("minReplicas"), 0)}–{number(hpa.get("maxReplicas"), 0)} pods'
+            if hpa.get("enabled") else "Disabled"
+        )
+
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("Application placement", [escaped(target.configuration.get("placement")) for target in targets])
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
-    row("Replicas", [number(target.configuration.get("replicas"), 0) for target in targets])
-    row(
-        "HPA replicas",
-        [
-            (
-                f'{number((target.configuration.get("hpa") or {}).get("minReplicas"), 0)}–'
-                f'{number((target.configuration.get("hpa") or {}).get("maxReplicas"), 0)} pods'
-            )
-            if (target.configuration.get("hpa") or {}).get("enabled")
-            else "Disabled"
-            for target in targets
-        ],
-    )
+    row("Replicas", [replica_configuration(target) for target in targets])
+    row("HPA replicas", [hpa_configuration(target) for target in targets])
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
     row("CPU limit", [resource_value(target, "limits", "cpu") for target in targets])
     row("Memory request", [resource_value(target, "requests", "memory") for target in targets])
@@ -1225,16 +1243,24 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
         row("Application replicas average", compared([value.get("application_replicas_average") for value in measurements], 2, " pods"), "prometheus")
         row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        if any(target.configuration.get("deployment_mode") == "per_topic" for target in targets):
+            for workload in ("order", "batch", "telemetry"):
+                label = workload.capitalize()
+                row(
+                    f"{label} replicas minimum / average / maximum",
+                    [
+                        " / ".join((
+                            number(value.get(f"application_{workload}_replicas_min"), 0),
+                            number(value.get(f"application_{workload}_replicas_average"), 2),
+                            number(value.get(f"application_{workload}_replicas_max"), 0),
+                        )) + " pods"
+                        for value in measurements
+                    ],
+                    "prometheus",
+                )
         row(
             "Configured HPA range",
-            [
-                (
-                    f'{number((target.configuration.get("hpa") or {}).get("minReplicas"), 0)}–'
-                    f'{number((target.configuration.get("hpa") or {}).get("maxReplicas"), 0)} pods'
-                )
-                if (target.configuration.get("hpa") or {}).get("enabled") else "Disabled"
-                for target in targets
-            ],
+            [hpa_configuration(target) for target in targets],
         )
         row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
         row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")

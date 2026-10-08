@@ -1,0 +1,174 @@
+schema_version: 2
+name: spring-topic-capacity-calibration-5k-local
+description: Calibrate fixed per-topic Spring Kafka capacity for a production-like 40/40/20 workload before tuning the native KEDA lag scaler.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: &fast_stub
+      percentiles:
+        p90: 10
+        p95: 20
+        p99: 40
+        p100: 60
+    flavour: *fast_stub
+    registry:
+      percentiles:
+        p90: 2
+        p95: 3
+        p99: 4
+        p100: 5
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 5000
+    producer_capacity_tps:
+      order: 5000
+      batch: 5000
+      telemetry: 5000
+    load_profile: 0 -> (10m, ramp-to-3k) -> 60 -> (8m, steady-3k) -> 60 -> (10m, ramp-to-5k) -> 100 -> (8m, steady-5k) -> 100
+    cauldron_count: 10000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: false
+    consumer_drain_timeout_seconds: 1200
+    consumer_drain_required: true
+    telemetry_settle_seconds: 90
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - name: steady-3k
+    start: 10m
+    duration: 8m
+  - name: ramp-3k-to-5k
+    start: 18m
+    duration: 10m
+  - name: steady-5k
+    start: 28m
+    duration: 8m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_partition
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+      contract:
+        delivery: at_least_once
+        ordering: per_partition
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 20
+      max_e2e_latency_ms: 2000
+      contract:
+        semantics: freshness_first
+        delivery: not_guaranteed
+        ordering: not_guaranteed
+targets:
+- name: spring-kafka.fixed-3-3-2
+  annotation_label: Spring Kafka · fixed order 3 · batch 3 · telemetry 2 · split host
+  implementation: spring-kafka
+  application: &application_base
+    deployment_mode: per_topic
+    placement: worker
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        memory: 1280Mi
+    java_options: -Xms256m -Xmx768m -Xss256k -XX:+UseSerialGC
+    workloads:
+      order:
+        replicas: 3
+        group_id: ckc-demo-order
+      batch:
+        replicas: 3
+        group_id: ckc-demo-batch
+      telemetry:
+        replicas: 2
+        group_id: ckc-demo-telemetry
+  runtime: &runtime
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency:
+      order_ms: 8
+      batch_ms: 7
+      telemetry_ms: 21
+    # Intentionally exercise the 5k saturation boundary without planner
+    # headroom; the second target supplies the production 30% reserve.
+    planning_headroom_percent: 0
+    parallelism:
+    - partitions
+    - pollers
+    topics:
+      order:
+        partitions: 27
+        pollers: 5
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      batch:
+        partitions: 21
+        pollers: 4
+        processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
+      telemetry:
+        partitions: 30
+        pollers: 10
+        processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
+- name: spring-kafka.fixed-5-5-3
+  annotation_label: Spring Kafka · fixed order 5 · batch 5 · telemetry 3 · split host
+  implementation: spring-kafka
+  application:
+    <<: *application_base
+    workloads:
+      order:
+        replicas: 5
+        group_id: ckc-demo-order
+      batch:
+        replicas: 5
+        group_id: ckc-demo-batch
+      telemetry:
+        replicas: 3
+        group_id: ckc-demo-telemetry
+  runtime:
+    <<: *runtime
+    planning_headroom_percent: 30
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi

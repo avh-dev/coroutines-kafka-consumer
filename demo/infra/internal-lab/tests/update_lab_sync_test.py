@@ -7,9 +7,17 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/update-lab.sh"
 TARGET_RUNNER = Path(__file__).resolve().parents[1] / "assets/libexec/run-target.sh"
 PREPARE_TEST = Path(__file__).resolve().parents[1] / "assets/libexec/prepare-test.sh"
+QUIESCE_APPLICATION = Path(__file__).resolve().parents[1] / "assets/libexec/quiesce-application.sh"
 
 
 class UpdateLabSyncTest(unittest.TestCase):
+    def test_per_topic_groups_are_comma_separated_and_cleanup_accepts_qualified_resources(self) -> None:
+        prepare = PREPARE_TEST.read_text(encoding="utf-8")
+        quiesce = QUIESCE_APPLICATION.read_text(encoding="utf-8")
+
+        self.assertIn('print(",".join(', prepare)
+        self.assertIn('name="${application#*/}"', quiesce)
+
     def test_target_runner_exports_topology_to_environment_evidence_collector(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
 

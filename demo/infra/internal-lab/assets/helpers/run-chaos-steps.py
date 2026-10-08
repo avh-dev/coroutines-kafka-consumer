@@ -410,7 +410,7 @@ def random_running_pod(namespace: str, selector: str) -> str:
 
 def pod_params(params: dict[str, Any]) -> tuple[str, str]:
     namespace = str(params.get("namespace", "ckc-perf"))
-    selector = str(params.get("selector", "app.kubernetes.io/name=ckc-demo"))
+    selector = str(params.get("selector", "ckc.dev/component=application"))
     return namespace, selector
 
 

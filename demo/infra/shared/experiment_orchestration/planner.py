@@ -205,6 +205,15 @@ def target_namespace(
     hpa = application.get("hpa") or helm.get("hpa") or {}
     if not isinstance(hpa, dict):
         raise ValueError("target application.hpa must be an object")
+    topic_capacity_replicas: dict[str, int] = {}
+    if application.get("deployment_mode") == "per_topic":
+        for topic, workload in (application.get("workloads") or {}).items():
+            workload_hpa = workload.get("hpa") or {}
+            topic_capacity_replicas[str(topic)] = int(
+                workload_hpa.get("max_replicas")
+                if workload_hpa.get("enabled")
+                else workload.get("replicas", 1)
+            )
 
     values: dict[str, Any] = {
         "test_definition": str(definition_path),
@@ -233,6 +242,7 @@ def target_namespace(
         "hpa_max_replicas": hpa.get("max_replicas"),
         "hpa_target_cpu_utilization_percentage": hpa.get("target_cpu_utilization_percentage"),
         "hpa_scale_down_stabilization_window_seconds": hpa.get("scale_down_stabilization_window_seconds"),
+        "topic_capacity_replicas": topic_capacity_replicas,
         "list_profiles": False,
         "profile_dispatchers": False,
         "profile_planning_latencies": False,
@@ -654,22 +664,23 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
             if value is not None and knob not in knobs and knob != "partitions":
                 raise ValueError(f"Profile {args.profile!r} does not allow manual {topic_name} {knob} overrides for {mode}")
 
+        capacity_replicas = int(getattr(args, "topic_capacity_replicas", {}).get(topic_name, replica_count))
         if "partitions" in knobs:
-            partitions = round_up_to_multiple(max(MIN_PARTITIONS, required), replica_count)
+            partitions = round_up_to_multiple(max(MIN_PARTITIONS, required), capacity_replicas)
         else:
-            partitions = round_up_to_multiple(max(MIN_PARTITIONS, replica_count), replica_count)
+            partitions = round_up_to_multiple(max(MIN_PARTITIONS, capacity_replicas), capacity_replicas)
         if "workers" in knobs:
-            worker_concurrency = max(1, math.ceil(required / replica_count))
+            worker_concurrency = max(1, math.ceil(required / capacity_replicas))
         else:
             worker_concurrency = 1
         if "pollers" in knobs:
-            poll_loop_concurrency = max(1, math.ceil(partitions / replica_count))
+            poll_loop_concurrency = max(1, math.ceil(partitions / capacity_replicas))
         else:
             poll_loop_concurrency = 1
 
         manual_fields: dict[str, int] = {}
         if overrides["pollers"] is not None and overrides["partitions"] is None and "partitions" in knobs:
-            partitions = overrides["pollers"] * replica_count
+            partitions = overrides["pollers"] * capacity_replicas
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = overrides["pollers"]
             manual_fields["partitions"] = partitions
@@ -677,7 +688,7 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
             partitions = overrides["partitions"]
             manual_fields["partitions"] = partitions
             if "pollers" in knobs and overrides["pollers"] is None:
-                poll_loop_concurrency = max(1, math.ceil(partitions / replica_count))
+                poll_loop_concurrency = max(1, math.ceil(partitions / capacity_replicas))
         if overrides["workers"] is not None:
             worker_concurrency = overrides["workers"]
             manual_fields["workers"] = worker_concurrency
@@ -685,20 +696,20 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
             poll_loop_concurrency = overrides["pollers"]
             manual_fields["pollers"] = poll_loop_concurrency
         if "pollers" in knobs and overrides["partitions"] is not None and overrides["pollers"] is not None:
-            minimum_partitions = overrides["pollers"] * replica_count
+            minimum_partitions = overrides["pollers"] * capacity_replicas
             if partitions < minimum_partitions:
                 raise ValueError(
                     f"{topic_name} partitions must be at least pollers * replicas for {args.profile}: "
-                    f"{partitions} < {overrides['pollers']} * {replica_count}"
+                    f"{partitions} < {overrides['pollers']} * {capacity_replicas}"
                 )
         if planning_headroom_percent > 0 and "partitions" in knobs and "pollers" in knobs:
-            aggregate_pollers = poll_loop_concurrency * replica_count
+            aggregate_pollers = poll_loop_concurrency * capacity_replicas
             available_parallelism = min(partitions, aggregate_pollers)
             if available_parallelism < required:
                 raise ValueError(
                     f"{topic_name} planned capacity is insufficient for {args.profile} with "
                     f"{planning_headroom_percent:g}% headroom: min({partitions} partitions, "
-                    f"{poll_loop_concurrency} pollers * {replica_count} replicas) = "
+                    f"{poll_loop_concurrency} pollers * {capacity_replicas} replicas) = "
                     f"{available_parallelism} < {required} required parallelism"
                 )
 
@@ -724,6 +735,7 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]] |
                 "planning_headroom_percent": planning_headroom_percent,
                 "required_parallelism_without_headroom": required_without_headroom,
                 "required_parallelism": required,
+                "capacity_replicas": capacity_replicas,
                 "partitions": partitions,
                 "worker_concurrency": worker_concurrency,
                 "poll_loop_concurrency": poll_loop_concurrency,

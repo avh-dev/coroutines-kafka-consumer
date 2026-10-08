@@ -67,6 +67,16 @@ def java_version(arguments: list[str]) -> str | None:
     return match.group(1) if match else None
 
 
+def application_java_version() -> str | None:
+    for deployment in ("ckc-demo", "ckc-demo-order", "ckc-demo-batch", "ckc-demo-telemetry"):
+        version = java_version([
+            "kubectl", "-n", "ckc-perf", "exec", f"deployment/{deployment}", "--", "java", "-version",
+        ])
+        if version:
+            return version
+    return None
+
+
 def memory_gib(value: str) -> float:
     match = re.fullmatch(r"([1-9][0-9]*)(Mi|Gi)", value)
     if not match:
@@ -105,7 +115,7 @@ def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[st
         )
     workloads: dict[str, list[str]] = {}
     for role, selector in {
-        "application": "app.kubernetes.io/name=ckc-demo",
+        "application": "ckc.dev/component=application",
         "stubs": "app.kubernetes.io/name=ckc-demo-stubs",
     }.items():
         pods = command_json(["kubectl", "-n", "ckc-perf", "get", "pods", "-l", selector, "-o", "json"])
@@ -351,7 +361,7 @@ def main() -> int:
         else ["ckc-perf-kafka"]
     )
     java = {
-        "application": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo", "--", "java", "-version"]),
+        "application": application_java_version(),
         "stubs": java_version(["kubectl", "-n", "ckc-perf", "exec", "deployment/ckc-demo-stubs", "--", "java", "-version"]),
         "load_generator": java_version(["java", "-version"]),
         "kafka": (

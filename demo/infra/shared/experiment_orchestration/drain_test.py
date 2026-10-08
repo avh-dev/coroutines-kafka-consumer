@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from .drain import DRAINED, IDLE, ConsumerDrainTracker
+from .drain import DRAINED, IDLE, ConsumerDrainTracker, exact_group_regex
 
 
 class ConsumerDrainTrackerTest(unittest.TestCase):
+    def test_exact_group_regex_matches_only_selected_groups(self) -> None:
+        self.assertEqual(
+            "^(?:ckc-demo-order|custom\\.group)$",
+            exact_group_regex(["ckc-demo-order", "custom.group"]),
+        )
+
     def test_reports_drained_after_zero_lag_is_stable(self) -> None:
         tracker = ConsumerDrainTracker(stable_seconds=15, idle_seconds=60)
 

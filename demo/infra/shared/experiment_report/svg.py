@@ -358,6 +358,29 @@ def environment_topology_svg(
         ] if part)
         return model, details
 
+    def application_deployment_label() -> str:
+        configurations = [
+            target.configuration for target in selected_targets if isinstance(target.configuration, dict)
+        ]
+        if configurations and all(item.get("deployment_mode") == "per_topic" for item in configurations):
+            workloads = configurations[0].get("workloads") or {}
+            ranges = {
+                (
+                    (values.get("hpa") or {}).get("min_replicas"),
+                    (values.get("hpa") or {}).get("max_replicas"),
+                )
+                for values in workloads.values()
+                if isinstance(values, dict) and (values.get("hpa") or {}).get("enabled")
+            }
+            if len(ranges) == 1:
+                minimum, maximum = next(iter(ranges))
+                return f"3 topic deployments · HPA {minimum}–{maximum} each"
+            return "3 independently scaled topic deployments"
+        replicas = {item.get("replicas") for item in configurations if item.get("replicas") is not None}
+        return f"{next(iter(replicas))} pods" if len(replicas) == 1 else "pod count varies by target"
+
+    local_application_label = application_deployment_label()
+
     if kafka_mode != "docker":
         # AWS keeps measured workloads in EKS, stateful dependencies in managed
         # services, and durable experiment telemetry on the runner instance.
@@ -564,8 +587,8 @@ def environment_topology_svg(
             '<text class="muted" x="865" y="209">Application-only worker</text>',
             '<rect x="870" y="275" width="260" height="145" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 886, 294, 30),
-            '<text class="card-title" x="928" y="313">CKC demo app</text>',
-            f'<text class="muted" x="886" y="346">1 pod per target · {esc(java_label("application"))}</text>',
+            '<text class="card-title" x="928" y="313">Demo application</text>',
+            f'<text class="muted" x="886" y="346">{esc(local_application_label)} · {esc(java_label("application"))}</text>',
             f'<text class="muted" x="886" y="370">{esc(app_requests)}</text>',
             f'<text class="muted" x="886" y="393">{esc(app_limits)}</text>' if app_limits else '',
             '<path data-flow="load-to-kafka" d="M320 302.5 H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
@@ -595,8 +618,8 @@ def environment_topology_svg(
             f'<text class="muted" x="86" y="369">{esc(compact_resources(load_resources))}</text>',
             '<rect data-service-card="application" x="70" y="405" width="225" height="115" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 86, 421, 30),
-            '<text class="card-title" x="128" y="440">CKC demo app</text>',
-            f'<text class="muted" x="86" y="471">1 pod per target · {esc(java_label("application"))}</text>',
+            '<text class="card-title" x="128" y="440">Demo application</text>',
+            f'<text class="muted" x="86" y="471">{esc(local_application_label)} · {esc(java_label("application"))}</text>',
             f'<text class="muted" x="86" y="491">{esc(app_requests)}</text>',
             f'<text class="muted" x="86" y="509">{esc(app_limits)}</text>' if app_limits else '',
             '<rect data-service-card="stubs" x="330" y="405" width="225" height="115" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',

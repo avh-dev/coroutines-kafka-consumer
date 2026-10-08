@@ -98,6 +98,15 @@ apt-get install -y \
   linux-tools-common linux-tools-generic openssh-server
 
 if [[ "${NODE_ROLE}" == "server" ]]; then
+  if ! command -v helm >/dev/null 2>&1; then
+    HELM_VERSION="v3.21.0"
+    HELM_ARCHIVE="helm-${HELM_VERSION}-linux-amd64.tar.gz"
+    HELM_TMP_DIR="$(mktemp -d)"
+    curl -fsSL "https://get.helm.sh/${HELM_ARCHIVE}" -o "${HELM_TMP_DIR}/${HELM_ARCHIVE}"
+    tar -xzf "${HELM_TMP_DIR}/${HELM_ARCHIVE}" -C "${HELM_TMP_DIR}"
+    install -m 0755 "${HELM_TMP_DIR}/linux-amd64/helm" /usr/local/bin/helm
+    rm -rf "${HELM_TMP_DIR}"
+  fi
   apt-get install -y openjdk-21-jre-headless python3-yaml rsync tcpdump tshark libcap2-bin
 fi
 

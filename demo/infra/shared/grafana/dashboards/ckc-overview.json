@@ -3580,7 +3580,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=\"ckc-demo\"}) or sum by (consumergroup, topic) (clamp_min(kafka_topic_partition_current_offset{topic=~\"(order|batch|cauldron)\\\\.events\\\\.v1\"} - on (topic, partition) group_right label_replace(label_replace(label_replace(redpanda_kafka_consumer_group_committed_offset{redpanda_group=\"ckc-demo\"}, \"consumergroup\", \"$1\", \"redpanda_group\", \"(.+)\"), \"topic\", \"$1\", \"redpanda_topic\", \"(.+)\"), \"partition\", \"$1\", \"redpanda_partition\", \"(.+)\"), 0))",
+              "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"ckc-demo(|-(order|batch|telemetry))\"}) or sum by (consumergroup, topic) (clamp_min(kafka_topic_partition_current_offset{topic=~\"(order|batch|cauldron)\\\\.events\\\\.v1\"} - on (topic, partition) group_right label_replace(label_replace(label_replace(redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\"ckc-demo(|-(order|batch|telemetry))\"}, \"consumergroup\", \"$1\", \"redpanda_group\", \"(.+)\"), \"topic\", \"$1\", \"redpanda_topic\", \"(.+)\"), \"partition\", \"$1\", \"redpanda_partition\", \"(.+)\"), 0))",
               "refId": "A",
               "legendFormat": "{{consumergroup}} / {{topic}}"
             }
@@ -3626,12 +3626,12 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=\"ckc-demo\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_estimated_max_time_lag_maximum{consumer_group=~\"ckc-demo(|-(order|batch|telemetry))\"})",
               "refId": "A",
               "legendFormat": "{{consumer_group}} / {{topic}}"
             },
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=\"ckc-demo\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_rolling_estimated_time_lag_max_maximum{consumer_group=~\"ckc-demo(|-(order|batch|telemetry))\"})",
               "refId": "B",
               "legendFormat": "rolling {{consumer_group}} / {{topic}}"
             }
@@ -3677,12 +3677,12 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=\"ckc-demo\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_max_offset_lag_maximum{consumer_group=~\"ckc-demo(|-(order|batch|telemetry))\"})",
               "refId": "A",
               "legendFormat": "{{consumer_group}} / {{topic}}"
             },
             {
-              "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=\"ckc-demo\"})",
+              "expr": "sum by (consumer_group, topic) (aws_kafka_sum_offset_lag_maximum{consumer_group=~\"ckc-demo(|-(order|batch|telemetry))\"})",
               "refId": "B",
               "legendFormat": "sum {{consumer_group}} / {{topic}}"
             }
@@ -4243,6 +4243,22 @@
             {"expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"ckc-perf|ckc-app\", pod=~\"ckc-demo-stubs-.+\"}[$__rate_interval]))", "legendFormat": "stubs receive", "refId": "D"}
           ],
           "title": "Workload Network by Component",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Live application pod count in aggregate and for each independent topic deployment. Per-topic series are present only when deployment_mode is per_topic.",
+          "fieldConfig": {"defaults": {"decimals": 0, "min": 0, "unit": "short"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 45},
+          "id": 153,
+          "options": {"legend": {"calcs": ["lastNotNull", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "count(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"ckc-demo-.+\"})", "legendFormat": "all application pods", "refId": "A"},
+            {"expr": "count(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"ckc-demo-order-.+\"})", "legendFormat": "order", "refId": "B"},
+            {"expr": "count(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"ckc-demo-batch-.+\"})", "legendFormat": "batch", "refId": "C"},
+            {"expr": "count(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\", container=\"demo\", pod=~\"ckc-demo-telemetry-.+\"})", "legendFormat": "telemetry", "refId": "D"}
+          ],
+          "title": "Application Replicas — Aggregate and per Topic",
           "type": "timeseries"
         }
       ],

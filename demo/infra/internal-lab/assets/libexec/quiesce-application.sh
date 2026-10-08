@@ -19,19 +19,27 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-kubectl -n "${NAMESPACE}" delete hpa ckc-demo --ignore-not-found=true >/dev/null
+kubectl -n "${NAMESPACE}" delete scaledobject -l ckc.dev/component=application --ignore-not-found=true >/dev/null 2>&1 || true
+kubectl -n "${NAMESPACE}" delete hpa -l ckc.dev/component=application --ignore-not-found=true >/dev/null 2>&1 || true
+kubectl -n "${NAMESPACE}" delete hpa \
+  keda-hpa-ckc-demo-order keda-hpa-ckc-demo-batch keda-hpa-ckc-demo-telemetry \
+  --ignore-not-found=true >/dev/null 2>&1 || true
 
-for deployment in ckc-demo ckc-demo-stubs; do
-  if kubectl -n "${NAMESPACE}" get deployment "${deployment}" >/dev/null 2>&1; then
-    kubectl -n "${NAMESPACE}" scale deployment "${deployment}" --replicas=0 >/dev/null
+deployments="$(kubectl -n "${NAMESPACE}" get deployment -l ckc.dev/component=application -o name 2>/dev/null || true)"
+deployments="${deployments}${deployments:+
+}deployment/ckc-demo-stubs"
+for deployment in ${deployments}; do
+  if kubectl -n "${NAMESPACE}" get "${deployment}" >/dev/null 2>&1; then
+    kubectl -n "${NAMESPACE}" scale "${deployment}" --replicas=0 >/dev/null
   fi
 done
 
-for application in ckc-demo ckc-demo-stubs; do
+for application in ${deployments}; do
   if ! timeout "${TIMEOUT_SECONDS}" sh -c '
     namespace="$1"
     application="$2"
-    while kubectl -n "${namespace}" get pods -l "app.kubernetes.io/name=${application}" -o name | grep -q .; do
+    name="${application#*/}"
+    while kubectl -n "${namespace}" get pods -l "app.kubernetes.io/name=${name}" -o name | grep -q .; do
       sleep 1
     done
   ' sh "${NAMESPACE}" "${application}"; then

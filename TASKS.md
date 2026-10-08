@@ -168,6 +168,7 @@
 | [DEMO-100](#demo-100) | Keep brewing-step bursts from accumulating duplicate simulated batches in the load generator. | DONE |
 | [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
 | [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
+| [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -447,6 +448,9 @@
 | [INFRA-280](#infra-280) | Use a regular temporary file for the AWS audit-stream write probe. | DONE |
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
+| [INFRA-283](#infra-283) | Run Spring topic consumers as independently autoscaled Kubernetes workloads. | DONE |
+| [INFRA-284](#infra-284) | Use native KEDA Kafka lag scaling for the Spring production baseline. | DONE |
+| [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and recoverable order saturation. | DONE |
 | [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
@@ -5223,6 +5227,65 @@ Select the correct Kafka CPU source per environment, report only actual per-key 
 Group workload, application, network, support, and managed-dependency measurements explicitly and document what the network counters include.
 Regenerate the latest AWS report from its preserved audit and metrics evidence after backing up the original report.
 Verification: all 177 internal-lab tests, all 69 AWS tests, 17 audit analyzer tests, Python compilation, and whitespace validation pass; no experiment was launched.
+<a id="demo-103"></a>
+### DEMO-103 - Isolate Spring Kafka topic consumers
+
+_Date: 2026-10-07_
+
+Allow order, batch, and telemetry Spring Kafka listeners to be enabled independently while preserving the current all-enabled default.
+Give every topic consumer an independently configurable group id with the existing global group id as the compatibility fallback.
+Keep one application artifact so Kubernetes can run topic-specific deployments without maintaining separate builds.
+Apply the same startup switches and group-id resolution to the blocking, thread-pool, and coroutine-naive Spring Kafka profiles.
+Verification: all `ckc-demo` tests and focused configuration/profile tests pass; whitespace validation passes.
+
+<a id="infra-283"></a>
+### INFRA-283 - Autoscale Spring topic workloads independently
+
+_Date: 2026-10-07_
+
+Extend the portable experiment model with optional per-topic application workloads while preserving the existing combined deployment shape.
+Render independent Spring order, batch, and telemetry Deployments with topic-scoped group ids, resources, concurrency, and autoscaling.
+Drive each workload from CPU plus sustained topic lag pressure and retain the inputs, replica histories, and aggregate cost evidence in reports.
+Qualify the production-style topology locally before using it for the full AWS ramp.
+Verification: demo, orchestration, internal-lab, report, and AWS tests pass; KEDA accepts all generated resources in a server-side dry-run.
+
+<a id="infra-284"></a>
+### INFRA-284 - Use native KEDA Kafka lag scaling
+
+_Date: 2026-10-07_
+
+Replace the custom lag-age and growth-pressure formula with KEDA's built-in Kafka scaler for the Spring baseline.
+Scale each topic deployment from its own consumer-group lag while retaining CPU as an independent safety signal.
+Define and document lag thresholds as target backlog per replica so the resulting replica calculation follows standard KEDA/HPA semantics.
+Remove the Prometheus autoscaling dependency while retaining Prometheus strictly for experiment observability and reporting.
+Verification: 62 shared orchestration, 177 internal-lab, and 69 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts all generated resources in a server-side dry-run. No experiment was launched.
+
+<a id="infra-285"></a>
+### INFRA-285 - Refine the Spring autoscaling qualification
+
+_Date: 2026-10-07_
+
+Replace the immediate 5k load with staged 3k and 5k ramps that expose scaling and recovery behavior.
+Degrade only the order downstream so telemetry freshness drops cannot reduce unrelated application CPU.
+Fit the maximum replica set on the worker while retaining full Kafka partition concurrency.
+Use only active deployment consumer groups during drain and accept Kubernetes fully qualified deployment resource names during cleanup.
+Verification: 63 shared orchestration, 180 internal-lab, and 71 AWS tests pass; shell/Python/whitespace checks pass; the installed lab is updated and Kubernetes accepts the generated resources in a server-side dry-run. No experiment was launched.
+Reopened to calibrate the native Kafka scaler against measured fixed-replica Spring capacity before freezing the production baseline for CKC comparison.
+Archived Prometheus data shows healthy 3k median committed-offset lag of roughly 2.9k / 2.9k / 3.9k, already above the previous five-replica KEDA boundaries.
+Add a no-audit calibration run comparing fixed 3 / 3 / 3 saturation-boundary capacity with a planned 4 / 4 / 5 configuration carrying 30% headroom.
+Verification: 63 shared orchestration and 181 internal-lab tests pass; both generated target manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The calibration experiment remains intentionally unstarted.
+Freeze the final production-like workload mix at 40% order, 40% batch, and 20% telemetry for the local calibration and paired AWS 50k Spring/CKC definitions.
+Use 10k telemetry keys at 50k aggregate TPS so the 10k telemetry messages/s represent an approximately one-second per-key interval.
+Rebase the local fixed-capacity calibration on 3 / 3 / 2 saturation-boundary replicas and 5 / 5 / 3 replicas with 30% planned headroom, using 27 / 21 / 30 balanced Kafka partitions.
+Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; both revised local targets pass Kubernetes server-side dry-run and the installed lab is updated. The revised calibration remains intentionally unstarted.
+The completed 40/40/20 calibration sustained 5k with 5 / 5 / 3 replicas at 4,999 records/s; order and batch p99 stayed below one second while telemetry p99 fell from 9.85 seconds at 3 / 3 / 2 to 741 milliseconds.
+Calibrate native KEDA thresholds from observed p95 steady-state lag per replica: 1,500 for order and batch, and 1,250 for telemetry. Retain the measured 5 / 5 / 3 capacity ceiling and align the qualification partitions and traffic mix with the calibration.
+Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; the calibrated manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The follow-up autoscaling qualification remains intentionally unstarted.
+The first qualification exposed two scenario defects: its 139 ms mean degraded stub latency left five order replicas below incoming capacity, while a six-minute recovery could never outlast the ten-minute HPA scale-down stabilization window.
+Reduce the degraded flavour distribution to a measured recoverable range and extend the 3k recovery plateau to twenty minutes so scale-out can overtake ingress and scale-down can be observed before the 5k ramp.
+Verification: 63 shared orchestration and 181 internal-lab tests pass; whitespace checks pass and the revised experiment is installed without rebuilding or redeploying application images.
+The qualification demonstrated the intended local production baseline: order lag triggered scale-out to five replicas, recoverable degradation let processing overtake ingress, and the conservative HPA policy produced an observable 5 -> 4 scale-down before the subsequent load ramp required renewed growth.
+
 <a id="infra-286"></a>
 ### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle
 

@@ -27,7 +27,7 @@ if str(SHARED_INFRA) not in sys.path:
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
 from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
-from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker
+from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker, exact_group_regex
 
 
 PROCESSING_TOTAL_QUERY = (
@@ -287,8 +287,10 @@ def wait_for_consumer_drain(
     required: bool = True,
     idle_seconds: int = 60,
     poll_seconds: int = 15,
+    consumer_groups: list[str] | None = None,
 ) -> bool:
-    expression = 'sum(kafka_consumergroup_lag{consumergroup="ckc-demo"})'
+    group_regex = exact_group_regex(consumer_groups or ["ckc-demo"])
+    expression = f'sum(kafka_consumergroup_lag{{consumergroup=~"{group_regex}"}})'
     deadline = time.monotonic() + timeout_seconds
     observations: list[dict[str, Any]] = []
     tracker = ConsumerDrainTracker(stable_seconds=poll_seconds, idle_seconds=idle_seconds)
@@ -359,6 +361,21 @@ def estimate_load_profile_seconds(load_profile: str) -> int:
     for duration_token in re.findall(r"\(([^,()]+)\s*,[^()]*\)", load_profile):
         total_seconds += parse_duration_token(duration_token)
     return total_seconds
+
+
+def deployment_consumer_groups(definition_path: Path) -> list[str]:
+    plan_path = definition_path.parent / "deployment-plan.yaml"
+    if not plan_path.is_file():
+        return ["ckc-demo"]
+    plan = yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
+    configuration = (plan.get("application") or {}).get("configuration") or {}
+    if configuration.get("deployment_mode") != "per_topic":
+        return ["ckc-demo"]
+    workloads = configuration.get("workloads") or {}
+    return [
+        str((workloads.get(name) or {}).get("group_id") or f"ckc-demo-{name}")
+        for name in ("order", "batch", "telemetry")
+    ]
 
 
 def load_definition_from_yaml(test_definition_path: Path) -> dict[str, Any]:
@@ -555,7 +572,14 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
 
 def wait_for_demo_rollout() -> None:
     run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo-stubs", "--timeout=10m"])
-    run(["kubectl", "-n", "ckc-app", "rollout", "status", "deployment/ckc-demo", "--timeout=10m"])
+    deployments = json.loads(run([
+        "kubectl", "-n", "ckc-app", "get", "deployment", "-l", "ckc.dev/component=application", "-o", "json"
+    ], capture_output=True))
+    names = sorted(item["metadata"]["name"] for item in deployments.get("items", []))
+    if not names:
+        raise RuntimeError("No application deployments were rendered")
+    for name in names:
+        run(["kubectl", "-n", "ckc-app", "rollout", "status", f"deployment/{name}", "--timeout=10m"])
 
 
 def collect_job_logs(job_name: str, logs_dir: Path) -> None:
@@ -575,7 +599,7 @@ def collect_job_logs(job_name: str, logs_dir: Path) -> None:
 def collect_workload_logs(logs_dir: Path) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     for namespace, selector in (
-        ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        ("ckc-app", "ckc.dev/component=application"),
         ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
         ("kube-system", "app.kubernetes.io/name=cluster-autoscaler"),
     ):
@@ -804,7 +828,7 @@ def environment_evidence(lab_context: dict[str, Any], job_name: str | None = Non
     workloads: dict[str, list[str]] = {}
     representative_pods: dict[str, tuple[str, str]] = {}
     role_selectors = {
-        "application": ("ckc-app", "app.kubernetes.io/name=ckc-demo"),
+        "application": ("ckc-app", "ckc.dev/component=application"),
         "stubs": ("ckc-app", "app.kubernetes.io/name=ckc-demo-stubs"),
         "kafka": ("ckc-app", "app.kubernetes.io/instance=ckc-kafka"),
         "redis": ("ckc-app", "app.kubernetes.io/instance=ckc-redis"),
@@ -1056,6 +1080,7 @@ def main() -> None:
     temp_dir.mkdir(parents=True, exist_ok=True)
     tempfile.tempdir = str(temp_dir)
     definition, definition_path = load_definition(args, repo_dir)
+    active_consumer_groups = deployment_consumer_groups(definition_path)
     diagnostic_steps = normalized_diagnostic_steps(repo_dir, definition, definition_path)
     stub_settings = normalized_stub_settings(repo_dir, definition, definition_path)
     validate_aws_chaos_capabilities(definition, definition_path)
@@ -1192,6 +1217,7 @@ def main() -> None:
             as_int(load_test.get("consumer_drain_timeout_seconds"), 300),
             as_bool(load_test.get("consumer_drain_required"), True),
             as_int(load_test.get("consumer_drain_idle_seconds"), 60),
+            consumer_groups=active_consumer_groups,
         )
         telemetry_settle_seconds = as_int(load_test.get("telemetry_settle_seconds"), 65)
         if telemetry_settle_seconds > 0:

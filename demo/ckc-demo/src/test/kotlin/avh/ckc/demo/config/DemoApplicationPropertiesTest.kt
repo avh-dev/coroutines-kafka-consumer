@@ -30,6 +30,9 @@ class DemoApplicationPropertiesTest {
         assertEquals(1024 * 1024, properties.kafka.consumer.maxPartitionFetchBytes)
         assertEquals("", properties.experimentTargetName)
         assertEquals("ckc-demo", properties.kafka.groupId)
+        assertEquals(true, properties.consumers.order.enabled)
+        assertEquals("", properties.consumers.order.groupId)
+        assertEquals("ckc-demo", properties.consumers.order.groupIdOr(properties.kafka.groupId))
         assertEquals(2, properties.consumers.order.workerConcurrency)
         assertEquals(1, properties.consumers.order.pollLoopConcurrency)
         assertEquals(1024, properties.consumers.order.workChannelCapacity)
@@ -75,6 +78,8 @@ class DemoApplicationPropertiesTest {
                 "demo.kafka.consumer.max-partition-fetch-bytes" to "2097152",
                 "demo.experiment-target-name" to "spring.many-consumers.linger50",
                 "demo.kafka.group-id" to "demo-test-group",
+                "demo.consumers.order.enabled" to "false",
+                "demo.consumers.order.group-id" to "demo-order-group",
                 "demo.consumers.order.worker-concurrency" to "12",
                 "demo.consumers.order.poll-loop-concurrency" to "3",
                 "demo.consumers.order.work-channel-capacity" to "2048",
@@ -120,6 +125,9 @@ class DemoApplicationPropertiesTest {
         assertEquals(2097152, properties.kafka.consumer.maxPartitionFetchBytes)
         assertEquals("spring.many-consumers.linger50", properties.experimentTargetName)
         assertEquals("demo-test-group", properties.kafka.groupId)
+        assertEquals(false, properties.consumers.order.enabled)
+        assertEquals("demo-order-group", properties.consumers.order.groupId)
+        assertEquals("demo-order-group", properties.consumers.order.groupIdOr(properties.kafka.groupId))
         assertEquals(12, properties.consumers.order.workerConcurrency)
         assertEquals(3, properties.consumers.order.pollLoopConcurrency)
         assertEquals(2048, properties.consumers.order.workChannelCapacity)

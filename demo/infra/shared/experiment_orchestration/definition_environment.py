@@ -281,7 +281,7 @@ def _normalize_chaos_action(
         normalized["target"] = target
         normalized["params"] = {
             "namespace": str(params.get("namespace", "ckc-perf")),
-            "selector": str(params.get("selector", "app.kubernetes.io/name=ckc-demo")),
+            "selector": str(params.get("selector", "ckc.dev/component=application")),
         }
         if step_type == "pod_crash" and "endpoint" in params:
             normalized["params"]["endpoint"] = str(params["endpoint"])

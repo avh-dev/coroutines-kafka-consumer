@@ -153,7 +153,7 @@ data:
 
       rule {
         source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
-        regex         = "ckc-demo"
+        regex         = "ckc-demo(|-(order|batch|telemetry))"
         action        = "keep"
       }
 
@@ -540,7 +540,7 @@ spec:
           args:
 ${kafka_server_args}            - --web.listen-address=:9308
             - --topic.filter=^(order|batch|cauldron)\\.events\\.v1$
-            - --group.filter=^ckc-demo$
+            - --group.filter=^ckc-demo(|-(order|batch|telemetry))$
             - --offset.show-all
           ports:
             - name: metrics
@@ -1024,6 +1024,7 @@ kubectl create namespace ckc-observability --dry-run=client -o yaml | kubectl ap
 wait_for_cluster_readiness
 
 helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
+helm repo add kedacore https://kedacore.github.io/charts --force-update
 helm repo update
 
 KAFKA_MODE="$(infra_output kafka_mode)"
@@ -1148,6 +1149,18 @@ if [ "${DEDICATED_NODE_GROUPS}" = "true" ]; then
 fi
 deploy_kafka_exporter "${KAFKA_BOOTSTRAP}"
 deploy_observability_agent "${REMOTE_WRITE_URL}" "${LOKI_WRITE_URL}"
+
+KEDA_VALUES_FILE="${HELM_EVIDENCE_DIR}/keda-values.yaml"
+if [ "${DEDICATED_NODE_GROUPS}" = "true" ]; then
+  cat > "${KEDA_VALUES_FILE}" <<EOF
+nodeSelector:
+  ckc.dev/role: support
+EOF
+else
+  printf '%s\n' '{}' > "${KEDA_VALUES_FILE}"
+fi
+printf '%s\n' 'helm upgrade --install keda kedacore/keda --version 2.21.0 --namespace keda --create-namespace -f keda-values.yaml' >> "${HELM_EVIDENCE_DIR}/commands.log"
+helm upgrade --install keda kedacore/keda --version 2.21.0 --namespace keda --create-namespace -f "${KEDA_VALUES_FILE}" --wait --timeout 10m
 
 MSK_CLOUDWATCH_ENABLED=false
 MSK_CLOUDWATCH_CLUSTER_NAME=""

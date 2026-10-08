@@ -48,6 +48,26 @@ class ConsumerDrainHelperTest(unittest.TestCase):
         with patch.object(DRAIN, "query_processing_total", side_effect=OSError("connection refused")):
             self.assertIsNone(DRAIN.query_processing_total_optional("http://prometheus:9090"))
 
+    def test_prometheus_lag_query_is_limited_to_active_groups(self) -> None:
+        args = self.args()
+        args.group_regex = None
+        args.groups = "ckc-demo-order,ckc-demo-batch,ckc-demo-telemetry"
+        with patch.object(DRAIN, "query_lag", return_value=0.0) as query:
+            lag, source = DRAIN.query_lag_with_fallback(args)
+
+        self.assertEqual(0.0, lag)
+        self.assertEqual("prometheus", source)
+        query.assert_called_once_with(
+            "http://prometheus:9090",
+            "^(?:ckc-demo-order|ckc-demo-batch|ckc-demo-telemetry)$",
+        )
+
+    def test_group_regex_escapes_regular_expression_characters(self) -> None:
+        self.assertEqual(
+            "^(?:group\\.one|group\\+two)$",
+            DRAIN.exact_group_regex(["group.one", "group+two"]),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -96,7 +96,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertTrue(definition["load_test"]["audit_log_enabled"])
         self.assertEqual("FLEET", definition["load_test"]["telemetry_source_mode"])
         self.assertEqual(1, definition["load_test"]["telemetry_publish_interval_seconds"])
-        self.assertEqual(20000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(10000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
             {"order": 10000, "batch": 10000, "telemetry": 10000},
             definition["load_test"]["producer_capacity_tps"],
@@ -104,7 +104,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(300, definition["load_test"]["kafka_producer_linger_ms"])
         self.assertEqual("lz4", definition["load_test"]["kafka_producer_compression_type"])
         self.assertEqual(
-            {"order": 30, "batch": 30, "telemetry": 40},
+            {"order": 40, "batch": 40, "telemetry": 20},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -308,9 +308,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(50000, plan["workload"]["load"]["base_tps"])
         self.assertEqual(2, definition["load_test"]["shards"])
         self.assertEqual(2, definition["load_test"]["dispatcher_threads"])
-        self.assertEqual(20_000, definition["load_test"]["cauldron_count"])
+        self.assertEqual(10_000, definition["load_test"]["cauldron_count"])
         self.assertEqual(
-            {"order": 30, "batch": 30, "telemetry": 40},
+            {"order": 40, "batch": 40, "telemetry": 20},
             {
                 "order": definition["load_test"]["order_event_percent"],
                 "batch": definition["load_test"]["batch_event_percent"],
@@ -324,12 +324,12 @@ class DeploymentPlanTest(unittest.TestCase):
         )
         topics = plan["application"]["planner"]["topics"]
         self.assertEqual(
-            [156, 144, 552],
+            [216, 192, 276],
             [topic["partitions"] for topic in topics],
         )
-        self.assertEqual([13, 12, 46], [topic["poll_loop_concurrency"] for topic in topics])
-        self.assertEqual([120, 105, 420], [topic["required_parallelism_without_headroom"] for topic in topics])
-        self.assertEqual([156, 137, 546], [topic["required_parallelism"] for topic in topics])
+        self.assertEqual([18, 16, 23], [topic["poll_loop_concurrency"] for topic in topics])
+        self.assertEqual([160, 140, 210], [topic["required_parallelism_without_headroom"] for topic in topics])
+        self.assertEqual([208, 182, 273], [topic["required_parallelism"] for topic in topics])
         self.assertEqual([30.0, 30.0, 30.0], [topic["planning_headroom_percent"] for topic in topics])
         self.assertTrue(all(not topic["manual_overrides"] for topic in topics))
         self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
@@ -379,9 +379,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
         self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
         self.assertEqual("true", application_environment["AUDIT_LOG_ENABLED"])
-        self.assertEqual("13", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("12", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
-        self.assertEqual("46", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("18", application_environment["ORDER_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("16", application_environment["BATCH_POLL_LOOP_CONCURRENCY"])
+        self.assertEqual("23", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
         self.assertEqual(4, stubs["spec"]["replicas"])
         self.assertEqual("4", stubs_environment["STUB_WORKERS"])
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
@@ -453,6 +453,128 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(
             [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}],
             load_pod_spec["volumes"],
+        )
+
+    def test_renders_independent_topic_deployments_and_native_kafka_lag_scalers(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        plan["application"]["configuration"] = {
+            "deployment_mode": "per_topic",
+            "resources": {"requests": {"cpu": "1", "memory": "1Gi"}},
+            "workloads": {
+                name: {
+                    "replicas": 1,
+                    "group_id": f"spring-{name}",
+                    "hpa": {
+                        "enabled": True,
+                        "min_replicas": 1,
+                        "max_replicas": 6,
+                        "target_cpu_utilization_percentage": 80,
+                        "kafka_lag": {
+                            "enabled": True,
+                            "lag_threshold": 300,
+                        },
+                    },
+                }
+                for name in ("order", "batch", "telemetry")
+            },
+        }
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="spring-scaling-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9092",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+            application_service_type="NodePort",
+            application_node_port=30080,
+        ))
+
+        deployments = {
+            item["metadata"]["name"]: item
+            for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"].startswith("ckc-demo-")
+            and item["metadata"]["name"] != "ckc-demo-stubs"
+        }
+        self.assertEqual(
+            {"ckc-demo-order", "ckc-demo-batch", "ckc-demo-telemetry"},
+            set(deployments),
+        )
+        for workload, deployment in ((name, deployments[f"ckc-demo-{name}"]) for name in ("order", "batch", "telemetry")):
+            environment = {
+                item["name"]: item["value"]
+                for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+            }
+            self.assertEqual("true", environment[f"{workload.upper()}_CONSUMER_ENABLED"])
+            self.assertEqual(f"spring-{workload}", environment[f"{workload.upper()}_CONSUMER_GROUP_ID"])
+            self.assertEqual(workload, deployment["metadata"]["labels"]["ckc.dev/workload"])
+        scalers = [item for item in manifests if item["kind"] == "ScaledObject"]
+        self.assertEqual(3, len(scalers))
+        order_scaler = next(item for item in scalers if item["metadata"]["name"] == "ckc-demo-order")
+        self.assertEqual(6, order_scaler["spec"]["maxReplicaCount"])
+        lag_trigger = order_scaler["spec"]["triggers"][1]
+        self.assertEqual("kafka", lag_trigger["type"])
+        self.assertEqual("AverageValue", lag_trigger["metricType"])
+        self.assertEqual({
+            "bootstrapServers": "kafka.internal:9092",
+            "consumerGroup": "spring-order",
+            "topic": "order.events.v1",
+            "lagThreshold": "300",
+            "activationLagThreshold": "0",
+            "offsetResetPolicy": "latest",
+            "allowIdleConsumers": "false",
+            "fullMetadata": "false",
+        }, lag_trigger["metadata"])
+        alias = next(
+            item for item in manifests if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo"
+        )
+        self.assertEqual("ckc-demo-order", alias["spec"]["selector"]["app.kubernetes.io/name"])
+        self.assertEqual(30080, alias["spec"]["ports"][0]["nodePort"])
+
+    def test_materializes_local_spring_topic_autoscaling_qualification(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-topic-autoscaling-5k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "spring-topic-autoscaling"
+
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
+        self.assertEqual(
+            "0 -> (20m, ramp-to-3k) -> 60 -> (10m, steady-3k) -> 60 -> "
+            "(5m, order-saturation) -> 60 -> (20m, order-recovery) -> 60 -> "
+            "(20m, ramp-to-5k) -> 100 -> (10m, steady-5k) -> 100",
+            plan["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            [{
+                "at": "30m",
+                "duration": "5m",
+                "type": "stubs_degradation",
+                "name": "order-downstream-saturation",
+                "params": {"flavour": {"percentiles": {
+                    "p90": 40, "p95": 70, "p99": 120, "p100": 250,
+                }}},
+            }],
+            definition["chaos_steps"],
+        )
+        workloads = plan["application"]["configuration"]["workloads"]
+        self.assertEqual(
+            {"order": 1500, "batch": 1500, "telemetry": 1250},
+            {name: workload["hpa"]["kafka_lag"]["lag_threshold"] for name, workload in workloads.items()},
+        )
+        self.assertEqual(
+            {"order": 5, "batch": 5, "telemetry": 3},
+            {name: workload["hpa"]["max_replicas"] for name, workload in workloads.items()},
+        )
+        self.assertEqual(
+            [(27, 5, 5), (21, 4, 5), (30, 10, 3)],
+            [
+                (topic["partitions"], topic["poll_loop_concurrency"], topic["capacity_replicas"])
+                for topic in plan["application"]["planner"]["topics"]
+            ],
         )
 
 
