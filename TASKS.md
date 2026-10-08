@@ -5231,4 +5231,4 @@ Replace the foreground key-reading restore launcher with explicit detached start
 Report each material restore phase so large metrics and Loki imports no longer look stalled over remote terminals.
 Keep port selection, VPN bind-address configuration, reusable imported data, and per-bundle Compose isolation intact.
 Keep anonymous read-only Grafana access so restored dashboards never require a login or password.
-Verification: 18 focused result-bundle tests, 63 shared orchestration tests, 181 internal-lab tests, and 71 AWS tests pass; Bash/Python/Compose/whitespace checks pass. The installed lab was intentionally left unchanged while an experiment was running.
+Verification: 19 focused result-bundle tests, 63 shared orchestration tests, 181 internal-lab tests, and 71 AWS tests pass; Bash/Python/Compose/whitespace checks pass. The installed lab was updated after the active experiment completed. The latest CKC AWS bundle and all eight retained AWS evidence bundles were rebuilt or safely repacked and passed gzip, launcher, and archive-contract checks.
