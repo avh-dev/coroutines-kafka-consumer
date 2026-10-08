@@ -5277,6 +5277,9 @@ Freeze the final production-like workload mix at 40% order, 40% batch, and 20% t
 Use 10k telemetry keys at 50k aggregate TPS so the 10k telemetry messages/s represent an approximately one-second per-key interval.
 Rebase the local fixed-capacity calibration on 3 / 3 / 2 saturation-boundary replicas and 5 / 5 / 3 replicas with 30% planned headroom, using 27 / 21 / 30 balanced Kafka partitions.
 Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; both revised local targets pass Kubernetes server-side dry-run and the installed lab is updated. The revised calibration remains intentionally unstarted.
+The completed 40/40/20 calibration sustained 5k with 5 / 5 / 3 replicas at 4,999 records/s; order and batch p99 stayed below one second while telemetry p99 fell from 9.85 seconds at 3 / 3 / 2 to 741 milliseconds.
+Calibrate native KEDA thresholds from observed p95 steady-state lag per replica: 1,500 for order and batch, and 1,250 for telemetry. Retain the measured 5 / 5 / 3 capacity ceiling and align the qualification partitions and traffic mix with the calibration.
+Verification: 63 shared orchestration, 181 internal-lab, and 71 AWS tests pass; the calibrated manifests are accepted by Kubernetes server-side dry-run and the installed lab is updated. The follow-up autoscaling qualification remains intentionally unstarted.
 
 <a id="infra-286"></a>
 ### INFRA-286 - Split the evidence-bundle Grafana restore lifecycle

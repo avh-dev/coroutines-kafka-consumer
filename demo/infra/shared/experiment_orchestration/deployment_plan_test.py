@@ -562,15 +562,15 @@ class DeploymentPlanTest(unittest.TestCase):
         )
         workloads = plan["application"]["configuration"]["workloads"]
         self.assertEqual(
-            {"order": 400, "batch": 440, "telemetry": 440},
+            {"order": 1500, "batch": 1500, "telemetry": 1250},
             {name: workload["hpa"]["kafka_lag"]["lag_threshold"] for name, workload in workloads.items()},
         )
         self.assertEqual(
-            {"order": 5, "batch": 5, "telemetry": 5},
+            {"order": 5, "batch": 5, "telemetry": 3},
             {name: workload["hpa"]["max_replicas"] for name, workload in workloads.items()},
         )
         self.assertEqual(
-            [(21, 4, 5), (21, 4, 5), (60, 12, 5)],
+            [(27, 5, 5), (21, 4, 5), (30, 10, 3)],
             [
                 (topic["partitions"], topic["poll_loop_concurrency"], topic["capacity_replicas"])
                 for topic in plan["application"]["planner"]["topics"]

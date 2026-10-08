@@ -1,6 +1,6 @@
 schema_version: 2
 name: spring-topic-autoscaling-5k-local
-description: Qualify independent Spring Kafka topic deployments through staged 3k and 5k KEDA scaling with isolated order saturation.
+description: Qualify calibrated independent Spring Kafka topic deployments through staged 3k and 5k KEDA scaling with isolated order saturation.
 workload:
   stubs:
     error_rate_percent: 0
@@ -75,21 +75,21 @@ workload:
   topics:
     order:
       kafka_topic: order.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
       contract:
         delivery: at_least_once
         ordering: per_partition
     batch:
       kafka_topic: batch.events.v1
-      traffic_percent: 30
+      traffic_percent: 40
       max_e2e_latency_ms: 2000
       contract:
         delivery: at_least_once
         ordering: per_partition
     telemetry:
       kafka_topic: cauldron.events.v1
-      traffic_percent: 40
+      traffic_percent: 20
       max_e2e_latency_ms: 2000
       contract:
         semantics: freshness_first
@@ -128,7 +128,8 @@ targets:
             period_seconds: 300
           kafka_lag:
             enabled: true
-            lag_threshold: 400
+            # Fixed-capacity calibration p95: 7,427 / 5 replicas.
+            lag_threshold: 1500
       batch:
         replicas: 1
         group_id: ckc-demo-batch
@@ -136,15 +137,18 @@ targets:
           <<: *topic_hpa
           kafka_lag:
             enabled: true
-            lag_threshold: 440
+            # Fixed-capacity calibration p95: 7,303 / 5 replicas.
+            lag_threshold: 1500
       telemetry:
         replicas: 1
         group_id: ckc-demo-telemetry
         hpa:
           <<: *topic_hpa
+          max_replicas: 3
           kafka_lag:
             enabled: true
-            lag_threshold: 440
+            # Fixed-capacity calibration p95: 3,702 / 3 replicas.
+            lag_threshold: 1250
   runtime:
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
@@ -171,16 +175,16 @@ targets:
     - pollers
     topics:
       order:
-        partitions: 21
-        pollers: 4
+        partitions: 27
+        pollers: 5
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       batch:
         partitions: 21
         pollers: 4
         processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING
       telemetry:
-        partitions: 60
-        pollers: 12
+        partitions: 30
+        pollers: 10
         processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED
 environments:
   internal-lab:
