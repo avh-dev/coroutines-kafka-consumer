@@ -32,9 +32,10 @@ Prometheus-compatible metrics engine and imports the preserved data. It then
 prints the dashboard URL and leaves the containers running in the background.
 Run `./stop-grafana.sh` to remove the containers. An interruption or failure
 during startup removes a partially started stack. Runtime files remain owned
-by the invoking user and are reused on the next start. Grafana permits
-anonymous read-only access, so opening the restored dashboard does not require
-a login or password.
+by the invoking user and are reused on the next start. Grafana grants the
+bundle-local anonymous session the Editor role, so no login or password is
+required and Explore plus ad-hoc dashboard/query editing remain available.
+This does not grant Grafana server or data-source administration.
 
 The launcher starts with host ports `3002` for Grafana and `3102` for Loki. If
 either default is occupied, it selects the next available port and prints the

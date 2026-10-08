@@ -448,6 +448,7 @@
 | [INFRA-281](#infra-281) | Stream AWS logs and metrics incrementally and pack two application pods per node. | DONE |
 | [INFRA-282](#infra-282) | Clarify experiment report windows, autoscaling ranges, runtime metrics, and resource grouping. | DONE |
 | [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
+| [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5232,3 +5233,13 @@ Report each material restore phase so large metrics and Loki imports no longer l
 Keep port selection, VPN bind-address configuration, reusable imported data, and per-bundle Compose isolation intact.
 Keep anonymous read-only Grafana access so restored dashboards never require a login or password.
 Verification: 19 focused result-bundle tests, 63 shared orchestration tests, 181 internal-lab tests, and 71 AWS tests pass; Bash/Python/Compose/whitespace checks pass. The installed lab was updated after the active experiment completed. The latest CKC AWS bundle and all eight retained AWS evidence bundles were rebuilt or safely repacked and passed gzip, launcher, and archive-contract checks.
+
+<a id="infra-287"></a>
+### INFRA-287 - Enable Grafana Explore in restored evidence
+
+_Date: 2026-10-08_
+
+Retain passwordless access while granting the disposable bundle-local anonymous session Grafana's Editor role.
+Expose Explore and ad-hoc dashboard/query editing without granting Grafana server or data-source administration.
+Update generated bundle guidance so it describes the actual interactive access contract instead of read-only viewing.
+Verification: 17 focused result-bundle tests and Compose/whitespace checks pass. The live restored AWS Grafana reports anonymous `datasources:explore` and `datasources:query` permissions; the latest CKC bundle and all eight retained AWS bundles pass gzip and Editor-role contract checks. The active experiment's installed finalizer is updated without modifying its running workloads.
