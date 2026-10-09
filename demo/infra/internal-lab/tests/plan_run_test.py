@@ -18,6 +18,70 @@ INTERNAL_LAB = REPO_ROOT / "demo" / "infra" / "internal-lab"
 
 
 class PlanRunTest(unittest.TestCase):
+    def test_ckc_partition_assignor_comparison_keeps_only_assignor_variable(self) -> None:
+        path = REPO_ROOT / "demo/infra/experiments/ckc-partition-assignor-5k-comparison.yaml"
+        experiment = resolve_experiment_definition(path, environment="internal-lab")
+
+        self.assertEqual(
+            ["ckc.range.fixed-10", "ckc.round-robin.fixed-10"],
+            [target.id for target in experiment.targets],
+        )
+        self.assertEqual(5000, experiment.test.definition["load_test"]["base_tps"])
+        self.assertFalse(experiment.test.definition["load_test"]["audit_log_enabled"])
+        self.assertEqual(
+            [{"name": "full-load", "start_seconds": 180, "duration_seconds": 420}],
+            experiment.test.definition["load_test"]["measurement_windows"],
+        )
+        self.assertEqual(
+            {"order.events.v1": 40, "batch.events.v1": 40, "cauldron.events.v1": 20},
+            {
+                topic["kafka_topic"]: int(topic["traffic_percent"])
+                for topic in experiment.snapshot["workload"]["topics"].values()
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            targets = materialize_experiment(
+                experiment,
+                output_dir=Path(directory),
+                repo_dir=REPO_ROOT,
+            )
+
+            plans = [
+                yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+                for target in targets
+            ]
+            applications = [plan["application"]["configuration"] for plan in plans]
+            environments = [plan["application"]["runtime"]["env"] for plan in plans]
+            self.assertTrue(all(application["replicas"] == 10 for application in applications))
+            self.assertTrue(all(application["placement"] == "worker" for application in applications))
+            self.assertTrue(all(application["hpa"] == {"enabled": False} for application in applications))
+            self.assertTrue(
+                all("cpu" not in application["resources"]["limits"] for application in applications)
+            )
+            self.assertTrue(
+                all(
+                    {topic["partitions"] for topic in target.plan["topics"]} == {12}
+                    for target in targets
+                )
+            )
+            self.assertEqual(
+                [
+                    "org.apache.kafka.clients.consumer.RangeAssignor",
+                    "org.apache.kafka.clients.consumer.RoundRobinAssignor",
+                ],
+                [
+                    environment["KAFKA_CONSUMER_ASSIGNMENT_STRATEGY"]
+                    for environment in environments
+                ],
+            )
+            self.assertTrue(
+                all(environment["AUDIT_LOG_ENABLED"] is False for environment in environments)
+            )
+            self.assertTrue(
+                all(environment["KAFKA_CLIENT_METRICS_ENABLED"] is True for environment in environments)
+            )
+
     def test_spring_topic_capacity_calibration_materializes_fixed_replica_targets(self) -> None:
         path = REPO_ROOT / "demo/infra/experiments/spring-topic-capacity-calibration-5k-local.yaml"
         experiment = resolve_experiment_definition(path, environment="internal-lab")

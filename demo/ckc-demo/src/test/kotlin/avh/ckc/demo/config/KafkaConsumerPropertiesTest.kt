@@ -6,6 +6,31 @@ import kotlin.test.assertEquals
 
 class KafkaConsumerPropertiesTest {
     @Test
+    fun `shared assignment strategy is passed to Kafka`() {
+        val properties = DemoApplicationProperties().apply {
+            kafka.consumer.assignmentStrategy = "org.apache.kafka.clients.consumer.RoundRobinAssignor"
+        }
+
+        val resolved = properties.kafkaConsumerProperties(properties.consumers.order)
+
+        assertEquals(
+            "org.apache.kafka.clients.consumer.RoundRobinAssignor",
+            resolved[ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG]
+        )
+    }
+
+    @Test
+    fun `blank assignment strategy preserves Kafka defaults`() {
+        val properties = DemoApplicationProperties().apply {
+            kafka.consumer.assignmentStrategy = "  "
+        }
+
+        val resolved = properties.kafkaConsumerProperties(properties.consumers.order)
+
+        assertEquals(false, resolved.containsKey(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG))
+    }
+
+    @Test
     fun `topic overrides replace only selected shared consumer settings`() {
         val properties = DemoApplicationProperties().apply {
             kafka.consumer.fetchMinBytes = 8192
