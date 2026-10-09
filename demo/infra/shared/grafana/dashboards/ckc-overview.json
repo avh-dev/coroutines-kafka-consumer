@@ -3341,7 +3341,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Partitions currently assigned to each Apache Kafka consumer client.",
+          "description": "Partitions currently assigned to each application pod, split by consumer type and summed across all three consumer types.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -3374,9 +3374,14 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_assigned_partitions{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "sum by (consumer_id, pod) (kafka_consumer_coordinator_assigned_partitions{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}}"
+              "legendFormat": "{{pod}} · {{consumer_id}}"
+            },
+            {
+              "expr": "sum by (pod) (kafka_consumer_coordinator_assigned_partitions{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "refId": "B",
+              "legendFormat": "{{pod}} · total"
             }
           ],
           "title": "Kafka Consumer Assigned Partitions",
@@ -3387,13 +3392,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Successful and failed consumer-group rebalance rates per hour.",
+          "description": "Average and maximum Kafka consumer-group rebalance latency for each consumer type and application pod.",
           "fieldConfig": {
             "defaults": {
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "short"
+              "unit": "ms"
             },
             "overrides": []
           },
@@ -3407,7 +3412,9 @@
           "options": {
             "legend": {
               "calcs": [
-                "lastNotNull"
+                "lastNotNull",
+                "mean",
+                "max"
               ],
               "displayMode": "table",
               "placement": "bottom",
@@ -3420,17 +3427,17 @@
           },
           "targets": [
             {
-              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_rebalance_rate_per_hour{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "avg by (consumer_id, pod) (kafka_consumer_coordinator_rebalance_latency_avg{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
               "refId": "A",
-              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} successful / hour"
+              "legendFormat": "{{pod}} · {{consumer_id}} avg"
             },
             {
-              "expr": "sum by (consumer_id, client_id, ${pod_grouping}) (kafka_consumer_coordinator_failed_rebalance_rate_per_hour{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
+              "expr": "max by (consumer_id, pod) (kafka_consumer_coordinator_rebalance_latency_max{pod=~\"$pod\", consumer_id=~\"order_events|batch_events|cauldron_events\"})",
               "refId": "B",
-              "legendFormat": "{{consumer_id}} {{client_id}} {{pod}} failed / hour"
+              "legendFormat": "{{pod}} · {{consumer_id}} max"
             }
           ],
-          "title": "Kafka Consumer Rebalances",
+          "title": "Kafka Consumer Rebalance Latency",
           "type": "timeseries"
         },
         {
@@ -4075,9 +4082,12 @@
             },
             "legend": {
               "showLegend": true,
-              "displayMode": "list",
+              "displayMode": "table",
               "placement": "bottom",
               "calcs": [
+                "min",
+                "mean",
+                "max",
                 "lastNotNull"
               ]
             }
@@ -4089,14 +4099,14 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "1000 * avg(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
-              "legendFormat": "selected pods average",
+              "expr": "1000 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
+              "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
             }
           ],
-      "description": "Average CPU used per selected demo application pod, derived from kubelet/cAdvisor container counters. This remains interpretable across replica-count changes and brief rollout overlap.",
-      "title": "Application Container CPU — Average per Pod",
+          "description": "CPU used by each selected demo application pod, derived from kubelet/cAdvisor container counters. The legend reports minimum, mean, maximum, and latest CPU for every pod over the selected range.",
+          "title": "Application Container CPU — By Pod",
           "type": "timeseries",
           "id": 139
         },
