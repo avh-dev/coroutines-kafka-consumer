@@ -513,6 +513,44 @@ class DeploymentPlanTest(unittest.TestCase):
             load_pod_spec["volumes"],
         )
 
+    def test_bounds_indexed_load_job_name_without_losing_run_identity(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        run_id = "s-20261009-125002-9266d3-spring-kafka-per-topic-ke"
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id=run_id,
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9092",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+        ))
+
+        load_test = next(item for item in manifests if item["kind"] == "Job")
+        name = load_test["metadata"]["name"]
+        environment = {
+            item["name"]: item["value"]
+            for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertLessEqual(len(name), 61)
+        self.assertRegex(name, r"^ckc-load-test-[a-z0-9-]+-[0-9a-f]{8}$")
+        self.assertEqual(run_id, environment["TEST_RUN_ID"])
+
+        other_bindings = DeploymentBindings(
+            run_id=run_id + "-other",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9092",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+        )
+        other_name = next(
+            item for item in render_project_manifests(plan, other_bindings)
+            if item["kind"] == "Job"
+        )["metadata"]["name"]
+        self.assertNotEqual(name, other_name)
+
     def test_renders_independent_topic_deployments_and_native_kafka_lag_scalers(self) -> None:
         _, plan, _ = self.materialize("internal-lab")
         plan["application"]["configuration"] = {

@@ -5347,7 +5347,8 @@ _Date: 2026-10-09_
 Prepare a Spring Kafka AWS qualification with the same 50k ramp and workload mix used for CKC.
 Keep the production baseline split by topic and scale each deployment with native KEDA Kafka lag signals.
 Size pollers, partitions, pods, application nodes, and Kafka brokers from measured capacity rather than a permanently oversized fixed cluster.
-Pre-run verification: all 64 shared orchestration tests and all 72 AWS tests pass; the experiment materializes to three KEDA workloads with broker-balanced planned capacity.
+Bound indexed load-test Job names with a deterministic hash while retaining the full run id in runtime metadata, preventing long AWS target ids from exceeding Kubernetes DNS-label limits.
+Pre-run verification: all 65 shared orchestration tests, all 72 AWS tests, and all 184 internal-lab tests pass; the experiment materializes to three KEDA workloads with broker-balanced planned capacity.
 
 <a id="infra-291"></a>
 ### INFRA-291 - Compare CKC partition assignment strategies

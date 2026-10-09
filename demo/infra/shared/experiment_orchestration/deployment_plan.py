@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -815,7 +816,14 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         pod_spec["nodeSelector"] = dict(bindings.load_test_node_selector)
     if bindings.packet_capture_enabled:
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
-    name = f"ckc-load-test-{bindings.run_id.lower()}"
+    # Indexed Jobs append ``-<completion-index>`` to the Job name when they
+    # derive each Pod hostname. Leave room for that suffix as well as keeping
+    # the Job name itself within the DNS-label limit.
+    completion_index_width = len(str(max(shards - 1, 0)))
+    name = _bounded_dns_label(
+        f"ckc-load-test-{bindings.run_id}",
+        max_length=63 - completion_index_width - 1,
+    )
     return {
         "apiVersion": "batch/v1", "kind": "Job",
         "metadata": _metadata(name, bindings.load_test_namespace),
@@ -831,6 +839,17 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             },
         },
     }
+
+
+def _bounded_dns_label(value: str, *, max_length: int) -> str:
+    normalized = re.sub(r"[^a-z0-9-]+", "-", value.lower()).strip("-")
+    if not normalized:
+        raise ValueError(f"Kubernetes name is empty after normalization: {value!r}")
+    if len(normalized) <= max_length:
+        return normalized
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+    prefix = normalized[:max_length - len(digest) - 1].rstrip("-")
+    return f"{prefix}-{digest}"
 
 
 def write_project_manifests(path: Path, plan: Mapping[str, Any], bindings: DeploymentBindings) -> None:
