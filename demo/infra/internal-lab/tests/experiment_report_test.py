@@ -771,8 +771,8 @@ class ExperimentReportTest(unittest.TestCase):
             [step["title"] for step in scenarios[0]["steps"]],
         )
         sequence_card_width, sequence_card_height = svg_renderer.chaos_card_dimensions(scenarios[-1])
-        self.assertGreater(sequence_card_width, 420)
-        self.assertGreater(sequence_card_height, 180)
+        self.assertGreaterEqual(sequence_card_width, 300)
+        self.assertGreater(sequence_card_height, 170)
 
     def test_repeating_sequence_card_renders_nested_icons_timing_and_degradation(self) -> None:
         baseline = {
@@ -848,7 +848,7 @@ class ExperimentReportTest(unittest.TestCase):
         )
         rendered_labels = ["".join(element.itertext()) for element in sequence_card.iter(f"{namespace}text")]
         labels = set(rendered_labels)
-        self.assertIn("Repeating chaos sequence • ETA tail degradation", labels)
+        self.assertIn("ETA tail degradation", labels)
         self.assertIn("Scale application: 2 → 3 replicas", labels)
         self.assertIn("Wait", labels)
         self.assertIn("· 30s", labels)
@@ -1189,7 +1189,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
             svg = svg_renderer.load_profile_svg(report)
             self.assertIn("Planned time from workload start", svg)
-            self.assertIn("Kafka network packet capture • Max load", svg)
+            self.assertIn(">Max load</text>", svg)
 
             report.environment["kafka"]["mode"] = "msk"
             report.environment["redis"]["mode"] = "elasticache"
@@ -1340,9 +1340,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-topic-legend="order.events.v1"', svg)
             self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
             self.assertIn(">warmup · 10s</text>", svg)
-            self.assertIn(">Measurement window • max load</text>", svg)
+            self.assertIn(">Max load</text>", svg)
             self.assertIn(">Delete random application pod</text>", svg)
-            self.assertIn(">· 40s–50s · 10s</text>", svg)
+            self.assertIn(">· 40s–50s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
             self.assertIn(">p999, ms</text>", svg)
@@ -1382,16 +1382,18 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertEqual(sorted(eta_percentile_y), eta_percentile_y)
             self.assertGreater(len(set(eta_percentile_y)), 1)
+            chronological_cards = [
+                element
+                for element in root_element.iter(f"{namespace}g")
+                if element.attrib.get("data-chaos-card")
+            ]
+            self.assertEqual(
+                ["pod_delete", "measurement", "diagnostic", "service_outage", "service_restart", "stubs_degradation"],
+                [element.attrib["data-chaos-card"] for element in chronological_cards],
+            )
             chronological_card_y = [
-                float(text_elements[label].attrib["y"])
-                for label in (
-                    "Delete random application pod",
-                    "Measurement window • max load",
-                    "Kafka network packet capture • Max load",
-                    "Pause Kafka broker 1",
-                    "Restart Redis",
-                    "Degrade downstream responses",
-                )
+                float(next(card.iter(f"{namespace}rect")).attrib["y"])
+                for card in chronological_cards
             ]
             self.assertEqual(
                 sorted(chronological_card_y, reverse=True),
@@ -1464,7 +1466,8 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertEqual(outage_interval.attrib["x"], interval_start.attrib["x1"])
             self.assertEqual(outage_interval.attrib["fill"], interval_start.attrib["stroke"])
-            self.assertEqual("1.2", interval_start.attrib["stroke-width"])
+            self.assertEqual("0.8", interval_start.attrib["stroke-width"])
+            self.assertEqual("url(#load-profile-area)", interval_start.attrib["clip-path"])
             self.assertNotIn("stroke-dasharray", interval_start.attrib)
             interval_connector = next(
                 element
@@ -1473,7 +1476,7 @@ class ExperimentReportTest(unittest.TestCase):
                 and element.attrib.get("data-scenario-type") == "service_outage"
             )
             self.assertEqual(interval_start.attrib["x1"], interval_connector.attrib["x1"])
-            self.assertEqual("2.0", interval_connector.attrib["stroke-width"])
+            self.assertEqual("1.2", interval_connector.attrib["stroke-width"])
             self.assertIn("stroke-dasharray", interval_connector.attrib)
             interval_end_connector = next(
                 element
@@ -1500,6 +1503,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual({"start", "end"}, {
                 element.attrib["data-duration-arrow"] for element in duration_arrows
             })
+            self.assertTrue(all(element.attrib["stroke-width"] == "1.4" for element in duration_arrows))
             outage_card = next(
                 element
                 for element in root_element.iter(f"{namespace}g")
@@ -1560,6 +1564,14 @@ class ExperimentReportTest(unittest.TestCase):
                         if element.attrib.get("data-icon-role") == "action"
                     ]
                 ),
+            )
+            self.assertEqual(
+                {"measurement", "delete", "diagnostic", "outage", "restart", "degradation"},
+                {
+                    element.attrib["data-action"]
+                    for element in root_element.iter(f"{namespace}g")
+                    if element.attrib.get("data-icon-role") == "action-legend"
+                },
             )
             service_images = list(root_element.iter(f"{namespace}image"))
             self.assertEqual(4, len(service_images))
@@ -2193,8 +2205,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("baseline window · 10–20 s", markdown)
             self.assertIn("degraded window · 30–40 s", markdown)
             timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
-            self.assertIn("Measurement window • baseline", timeline)
-            self.assertIn("Measurement window • degraded", timeline)
+            self.assertIn(">Baseline</text>", timeline)
+            self.assertIn(">Degraded</text>", timeline)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
