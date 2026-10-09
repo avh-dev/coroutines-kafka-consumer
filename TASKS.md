@@ -455,7 +455,7 @@
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [INFRA-288](#infra-288) | Qualify CKC CPU autoscaling and burstable MSK capacity before the long AWS comparison. | DONE |
 | [INFRA-289](#infra-289) | Compact the report load timeline and clarify chaos and measurement annotations. | DONE |
-| [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | IN_PROGRESS |
+| [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | DONE |
 | [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
