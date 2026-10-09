@@ -44,16 +44,16 @@ STANDARD_MEASUREMENTS = {
         '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
     ),
     "application_replicas_average": (
-        "avg_over_time((count(container_memory_working_set_bytes"
-        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        "avg_over_time((count(last_over_time(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
     ),
     "application_replicas_min": (
-        "min_over_time((count(container_memory_working_set_bytes"
-        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        "min_over_time((count(last_over_time(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
     ),
     "application_replicas_max": (
-        "max_over_time((count(container_memory_working_set_bytes"
-        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}))[{window}:15s])'
+        "max_over_time((count(last_over_time(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
     ),
     "application_nodes_average": (
         "avg_over_time((count(machine_cpu_cores"
@@ -238,8 +238,8 @@ for _workload in ("order", "batch", "telemetry"):
     for _aggregate in ("average", "min", "max"):
         _function = {"average": "avg_over_time", "min": "min_over_time", "max": "max_over_time"}[_aggregate]
         STANDARD_MEASUREMENTS[f"application_{_workload}_replicas_{_aggregate}"] = (
-            f'{_function}((count(container_memory_working_set_bytes'
-            f'{{{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-{_workload}-.+"}}}})'
+            f'{_function}((count(last_over_time(container_memory_working_set_bytes'
+            f'{{{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-{_workload}-.+"}}}}[1m]))'
             ')[{window}:15s])'
         )
 

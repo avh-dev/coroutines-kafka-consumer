@@ -5320,4 +5320,5 @@ Provide a checkout-local SSM helper that exposes live runner Grafana through the
 The AWS qualification scaled from one to seven pods and one to four application nodes; steady application CPU was 4.24 cores while T3 broker credits accumulated and broker executor pools remained about 99% idle.
 The audit covered 104,985,478 published records with no missing terminal outcomes; the result supports an 85% HPA target for an even six-pod final plateau.
 Correct the CloudWatch-exporter CPU-credit metric name in both the dashboard and report, then regenerate the completed report and evidence bundle with populated credit values.
-Verification: 75 orchestration, AWS session, and report-query tests pass; the focused AWS dashboard test passes; the completed audit, regenerated report, and both canonical archives are verified.
+Suppress one-scrape cAdvisor gaps in replica counts so missing node samples no longer resemble HPA scale-down and immediate recovery.
+Verification: 76 orchestration, AWS session, and report-query tests pass; the focused AWS dashboard tests pass; the completed audit, regenerated report, and both canonical archives are verified.
