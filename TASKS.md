@@ -454,6 +454,7 @@
 | [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [INFRA-288](#infra-288) | Qualify CKC CPU autoscaling and burstable MSK capacity before the long AWS comparison. | DONE |
+| [INFRA-289](#infra-289) | Compact the report load timeline and clarify chaos and measurement annotations. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5322,3 +5323,16 @@ The audit covered 104,985,478 published records with no missing terminal outcome
 Correct the CloudWatch-exporter CPU-credit metric name in both the dashboard and report, then regenerate the completed report and evidence bundle with populated credit values.
 Suppress one-scrape cAdvisor gaps in replica counts so missing node samples no longer resemble HPA scale-down and immediate recovery.
 Verification: 76 orchestration, AWS session, and report-query tests pass; the focused AWS dashboard tests pass; the completed audit, regenerated report, and both canonical archives are verified.
+
+<a id="infra-289"></a>
+### INFRA-289 - Compact report chaos timeline
+
+_Date: 2026-10-09_
+
+Make duration arrows and dashed event connectors visually lighter and keep plot annotations below the load-profile line.
+Remove redundant event-type wording from cards and reduce horizontal padding while preserving the connector-aware card ordering.
+Add an action-icon legend below the timeline so compact cards remain self-explanatory.
+Keep card contents within compact frames, left-align the detached `Experiment events and stages` key, and omit all card and key spacing when the timeline has no annotations.
+Size card headers with glyph-aware text estimates and use symmetric eight-pixel margins around a sixteen-pixel title/time gap with its separator at the midpoint.
+Match the key hierarchy to the report's metric-source legend with a slightly larger semibold heading and regular-weight item labels.
+Verification: all 183 internal-lab tests pass; the latest completed AWS report timeline is regenerated in place and parses as valid SVG.

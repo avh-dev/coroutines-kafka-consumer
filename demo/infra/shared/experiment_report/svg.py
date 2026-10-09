@@ -27,6 +27,20 @@ ACTION_COLORS = {
     "diagnostic": "#0891b2",
     "chaos": "#64748b",
 }
+ACTION_LABELS = {
+    "scale": "Scaling",
+    "sequence": "Repeating sequence",
+    "delay": "Wait",
+    "delete": "Pod deletion",
+    "crash": "Pod crash",
+    "restart": "Service restart",
+    "degradation": "Downstream degradation",
+    "network": "Network degradation",
+    "outage": "Service outage",
+    "measurement": "Measurement window",
+    "diagnostic": "Diagnostic capture",
+    "chaos": "Chaos action",
+}
 SERVICE_BADGES = {
     "ckc-demo": ("kubernetes", "K8S", "#326ce5"),
     "demo-stubs": ("demo-stubs", "STB", "#475569"),
@@ -65,6 +79,7 @@ def svg_document(width: int, height: int, body: list[str], title: str) -> str:
             ".title{font-size:18px;font-weight:600}.label{font-size:12px}.muted{font-size:11px;fill:#6b7280}",
             ".axis-label{font-size:11px;font-weight:500;fill:#374151}",
             ".card-title{font-size:12px;font-weight:600}.card-time{font-size:11px;fill:#4b5563}.icon-letter{font-size:9px;font-weight:700;fill:white}",
+            ".legend-title{font-size:13px;font-weight:600}.legend-label{font-size:12px;fill:#4b5563}",
             ".table-head{font-size:10px;font-weight:600;fill:#4b5563}.table-cell{font-size:10px;fill:#374151}",
             ".table-base{fill:#6b7280}.table-arrow{font-weight:600}.table-new{font-weight:700}",
             "</style>",
@@ -706,7 +721,7 @@ def smoothed_line_path(points: list[tuple[float, float]], radius: float = 10) ->
     return " ".join(commands)
 
 
-def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
+def action_icon(action: str, x: float, y: float, size: float = 28, role: str = "action") -> str:
     color = ACTION_COLORS.get(action, ACTION_COLORS["chaos"])
     center_x = x + size / 2
     center_y = y + size / 2
@@ -777,7 +792,7 @@ def action_icon(action: str, x: float, y: float, size: float = 28) -> str:
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
-        f'<g data-icon-role="action" data-action="{esc(action)}">'
+        f'<g data-icon-role="{esc(role)}" data-action="{esc(action)}">'
         f'<rect x="{x:.1f}" y="{y:.1f}" width="{size}" height="{size}" rx="6" fill="{color}"/>'
         f'{symbol}</g>'
     )
@@ -819,41 +834,73 @@ def stubs_table_rows(scenario: dict[str, Any]) -> list[dict[str, Any]]:
     return [row for row in table["rows"] if isinstance(row, dict)]
 
 
+def chaos_card_title(scenario: dict[str, Any]) -> str:
+    title = str(scenario.get("title") or scenario.get("type") or "Chaos")
+    for prefix in (
+        "Measurement window • ",
+        "Repeating chaos sequence • ",
+        "Kafka network packet capture • ",
+    ):
+        if title.startswith(prefix):
+            compact = title.removeprefix(prefix).strip()
+            return compact[:1].upper() + compact[1:]
+    return title
+
+
+def chaos_card_time_label(scenario: dict[str, Any]) -> str:
+    at = float(scenario.get("at_seconds") or 0)
+    duration = scenario.get("duration_seconds")
+    if duration is None:
+        return format_duration(at)
+    end = float(scenario.get("end_seconds") or at)
+    return f"{format_duration(at)}–{format_duration(end)}"
+
+
+CARD_TEXT_MARGIN = 8
+CARD_TEXT_GAP = CARD_TEXT_MARGIN * 2
+
+
+def estimated_text_width(value: str, font_size: float) -> float:
+    width = 0.0
+    for character in value:
+        if character in " ilIjtfr1.,:;|'":
+            factor = 0.32
+        elif character in "mwMW@%":
+            factor = 0.80
+        elif character in "–—":
+            factor = 0.70
+        elif character.isupper():
+            factor = 0.62
+        else:
+            factor = 0.55
+        width += factor * font_size
+    return width
+
+
+def chaos_card_header_width(scenario: dict[str, Any]) -> float:
+    title_width = estimated_text_width(chaos_card_title(scenario), 12)
+    time_width = estimated_text_width(chaos_card_time_label(scenario), 11)
+    title_offset = 75 if scenario.get("target") and scenario.get("type") != "sequence" else 41
+    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_TEXT_MARGIN
+
+
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     if scenario.get("type") == "sequence":
         steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
-        title = str(scenario.get("title") or "Repeating chaos sequence")
-        at = float(scenario.get("at_seconds") or 0)
-        duration = scenario.get("duration_seconds")
-        end = float(scenario.get("end_seconds") or at)
-        time_label = (
-            f"{format_duration(at)}–{format_duration(end)} · {format_duration(float(duration))}"
-            if duration is not None
-            else format_duration(at)
-        )
-        header_width = 72 + len(title) * 7.0 + len(time_label) * 6.2
+        header_width = chaos_card_header_width(scenario)
         step_widths = []
         step_heights = []
         for step in steps:
             step_width, step_height = chaos_card_dimensions(step)
-            step_widths.append(step_width + 18)
-            step_heights.append(max(38, step_height))
-        return min(900, max(420, header_width, *step_widths)), 50 + sum(step_heights) + 8
+            step_widths.append(step_width + 12)
+            step_heights.append(max(36, step_height))
+        return min(900, max(300, header_width, *step_widths)), 44 + sum(step_heights) + 6
     rows = stubs_table_rows(scenario)
     if rows:
         table = scenario.get("stubs_changes")
         columns = table.get("columns") if isinstance(table, dict) else []
-        return min(900, max(280, 20 + len(rows) * 220)), 76 + max(1, len(columns)) * 25
-    title = str(scenario.get("title") or scenario.get("type") or "Chaos")
-    at = float(scenario.get("at_seconds") or 0)
-    duration = scenario.get("duration_seconds")
-    end = float(scenario.get("end_seconds") or at)
-    time_label = (
-        f"{format_duration(at)}–{format_duration(end)} · {format_duration(float(duration))}"
-        if duration is not None
-        else format_duration(at)
-    )
-    return min(680, max(260, 104 + len(title) * 7.0 + len(time_label) * 6.2)), 38
+        return min(900, max(280, 20 + len(rows) * 220, chaos_card_header_width(scenario))), 76 + max(1, len(columns)) * 25
+    return min(680, max(110, chaos_card_header_width(scenario))), 36
 
 
 def sequence_steps_svg(
@@ -873,10 +920,10 @@ def sequence_steps_svg(
     row_y = card_y + 48
     for index, step in enumerate(steps, start=1):
         _step_width, step_height = chaos_card_dimensions(step)
-        step_height = max(38, step_height)
+        step_height = max(36, step_height)
         action = str(step.get("action") or "chaos")
         target = str(step.get("target") or "")
-        title = str(step.get("title") or step.get("type") or "Chaos")
+        title = chaos_card_title(step)
         duration = step.get("duration_seconds")
         step_color = ACTION_COLORS.get(action, ACTION_COLORS["chaos"])
         background = "#fafafa" if index % 2 else "#f8fafc"
@@ -885,21 +932,24 @@ def sequence_steps_svg(
                 f'<g data-sequence-step="{index}" data-scenario-type="{esc(step.get("type"))}">',
                 f'<rect x="{card_x+8:.1f}" y="{row_y:.1f}" width="{card_width-16:.1f}" '
                 f'height="{step_height:.1f}" rx="6" fill="{background}"/>',
-                action_icon(action, card_x + 14, row_y + 5),
+                action_icon(action, card_x + 12, row_y + 4),
             ]
         )
         if target:
-            result.append(service_icon(target, card_x + 49, row_y + 5))
-            title_x = card_x + 84
+            result.append(service_icon(target, card_x + 47, row_y + 4))
+            title_x = card_x + 83
         else:
-            title_x = card_x + 49
-        result.append(f'<text class="card-title" x="{title_x:.1f}" y="{row_y+23:.1f}">{esc(title)}</text>')
+            title_x = card_x + 47
+        result.append(f'<text class="card-title" x="{title_x:.1f}" y="{row_y+22:.1f}">{esc(title)}</text>')
         if duration is not None:
-            time_x = title_x + len(title) * 6.8 + 10
-            result.append(
-                f'<text class="card-time" x="{time_x:.1f}" y="{row_y+23:.1f}">'
-                f'· {esc(format_duration(float(duration)))}</text>'
-            )
+            title_end = title_x + estimated_text_width(title, 12)
+            separator_x = title_end + CARD_TEXT_MARGIN
+            time_x = title_end + CARD_TEXT_GAP
+            result.extend([
+                f'<text class="card-time" x="{separator_x:.1f}" y="{row_y+22:.1f}" text-anchor="middle">·</text>',
+                f'<text class="card-time" x="{time_x:.1f}" y="{row_y+22:.1f}">'
+                f'{esc(format_duration(float(duration)))}</text>',
+            ])
         result.extend(stubs_table_svg(step, card_x + 8, row_y, card_width - 16, step_color))
         result.append("</g>")
         row_y += step_height
@@ -1023,9 +1073,34 @@ def load_profile_svg(report: ExperimentReport) -> str:
         })
     chaos_scenarios.sort(key=lambda scenario: float(scenario.get("at_seconds") or 0))
     card_dimensions = [chaos_card_dimensions(scenario) for scenario in chaos_scenarios]
-    card_gap = 10
+    card_gap = 7
     cards_height = sum(card_height for _card_width, card_height in card_dimensions)
     cards_height += max(0, len(card_dimensions) - 1) * card_gap
+    legend_actions = []
+    for scenario in chaos_scenarios:
+        nested_steps = scenario.get("steps")
+        candidates = [scenario, *(nested_steps if isinstance(nested_steps, list) else [])]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            action = str(candidate.get("action") or "chaos")
+            if action not in legend_actions:
+                legend_actions.append(action)
+    legend_rows: list[list[tuple[str, str, float]]] = []
+    available_legend_width = width - left - right
+    for action in legend_actions:
+        label = ACTION_LABELS.get(action, ACTION_LABELS["chaos"])
+        item_width = 28 + 7 + len(label) * 6.2 + 20
+        if not legend_rows or sum(item[2] for item in legend_rows[-1]) + item_width > available_legend_width:
+            legend_rows.append([])
+        legend_rows[-1].append((action, label, item_width))
+    legend_items = []
+    for row_index, row in enumerate(legend_rows):
+        legend_x = left
+        for action, label, item_width in row:
+            legend_items.append((action, label, legend_x, row_index))
+            legend_x += item_width
+    legend_height = 82 + len(legend_rows) * 38 if legend_items else 0
     duration_indexes = [
         index
         for index, scenario in enumerate(chaos_scenarios)
@@ -1040,7 +1115,8 @@ def load_profile_svg(report: ExperimentReport) -> str:
         axis_y + 58 + max(0, len(duration_indexes) - 1) * range_lane_gap + 14
         if duration_indexes else axis_y + 52
     )
-    height = cards_top + max(38, cards_height) + 18
+    cards_block_height = cards_height if card_dimensions else 0
+    height = cards_top + cards_block_height + legend_height + 18
     plot_width = width - left - right
     load_total = sum(float(phase["duration_seconds"]) for phase in phases)
     chaos_total = max(
@@ -1209,7 +1285,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
     chaos_overlays = []
     chaos_markers = []
     chaos_cards = []
-    card_bottom = height - 18
+    card_bottom = cards_top + cards_block_height
     card_y_positions = []
     card_cursor = card_bottom
     for _card_width, scenario_card_height in card_dimensions:
@@ -1223,41 +1299,23 @@ def load_profile_svg(report: ExperimentReport) -> str:
         action = str(scenario.get("action") or "chaos")
         target = str(scenario.get("target") or "")
         header_target = "" if scenario.get("type") == "sequence" else target
-        title = str(scenario.get("title") or scenario.get("type") or "Chaos")
+        title = chaos_card_title(scenario)
         color = ACTION_COLORS.get(action, ACTION_COLORS["chaos"])
         start_x = x(at)
         end_x = x(end)
         connector_x = start_x
         estimated_width, card_height = card_dimensions[index]
         card_y = card_y_positions[index]
-        if duration is not None:
-            time_label = (
-                f"{format_duration(at)}–{format_duration(end)}"
-                f" · {format_duration(float(duration))}"
-            )
-        else:
-            time_label = format_duration(at)
+        time_label = chaos_card_time_label(scenario)
         table_rows = stubs_table_rows(scenario)
-        if table_rows:
-            action_x = connector_x - 14
-            card_x = min(max(5, connector_x - 19), width - estimated_width - 5)
-            service_x = action_x + 34
-            title_x = action_x + 72
-        elif connector_x + estimated_width - 19 <= width - 5:
-            card_x = max(5, connector_x - 19)
-            action_x = card_x + 5
-            service_x = card_x + 39
-            title_x = card_x + 76
-        else:
-            card_x = min(width - estimated_width - 5, connector_x - estimated_width + 19)
-            action_x = card_x + estimated_width - 33
-            service_x = action_x - 34
-            title_x = card_x + 10
-        if scenario.get("type") == "sequence" and action_x < card_x + estimated_width / 2:
-            title_x = action_x + 38
-        icon_y = card_y + 5
-        title_width = len(title) * 6.8
-        time_x = title_x + title_width + 10
+        card_x = min(max(5, connector_x - 19), width - estimated_width - 5)
+        action_x = card_x + 5
+        service_x = card_x + 39
+        title_x = card_x + (75 if header_target else 41)
+        icon_y = card_y + 4
+        title_end = title_x + estimated_text_width(title, 12)
+        separator_x = title_end + CARD_TEXT_MARGIN
+        time_x = title_end + CARD_TEXT_GAP
         if duration is not None:
             range_y = range_y_positions[index]
             arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
@@ -1275,22 +1333,26 @@ def load_profile_svg(report: ExperimentReport) -> str:
             )
             chaos_overlays.extend(
                 [
-                    f'<line data-chaos-boundary="start" x1="{start_x:.1f}" y1="{top}" x2="{start_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.8"/>',
-                    f'<line data-chaos-boundary="end" x1="{end_x:.1f}" y1="{top}" x2="{end_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.8"/>',
-                    f'<line data-chaos-connector="interval-start" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{axis_y}" x2="{start_x:.1f}" y2="{card_y:.1f}" stroke="{color}" stroke-width="2.0" stroke-opacity="0.82" stroke-dasharray="6 5"/>',
-                    f'<line data-chaos-connector="interval-end" data-scenario-type="{esc(scenario.get("type"))}" x1="{end_x:.1f}" y1="{axis_y}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="2.0" stroke-opacity="0.82" stroke-dasharray="6 5"/>',
-                    f'<line data-duration-range="line" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{range_y:.1f}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="2.4" stroke-opacity="0.9"/>',
-                    f'<path data-duration-arrow="start" data-scenario-type="{esc(scenario.get("type"))}" d="M {start_x+arrow_width:.1f} {range_y-arrow_height:.1f} L {start_x:.1f} {range_y:.1f} L {start_x+arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
-                    f'<path data-duration-arrow="end" data-scenario-type="{esc(scenario.get("type"))}" d="M {end_x-arrow_width:.1f} {range_y-arrow_height:.1f} L {end_x:.1f} {range_y:.1f} L {end_x-arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+                    f'<line data-chaos-boundary="start" x1="{start_x:.1f}" y1="{top}" x2="{start_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="0.8" stroke-opacity="0.72" clip-path="url(#load-profile-area)"/>',
+                    f'<line data-chaos-boundary="end" x1="{end_x:.1f}" y1="{top}" x2="{end_x:.1f}" y2="{axis_y}" stroke="{color}" stroke-width="0.8" stroke-opacity="0.72" clip-path="url(#load-profile-area)"/>',
+                    f'<line data-chaos-connector="interval-start" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{axis_y}" x2="{start_x:.1f}" y2="{card_y:.1f}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.76" stroke-dasharray="4 4"/>',
+                    f'<line data-chaos-connector="interval-end" data-scenario-type="{esc(scenario.get("type"))}" x1="{end_x:.1f}" y1="{axis_y}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="1.2" stroke-opacity="0.76" stroke-dasharray="4 4"/>',
+                    f'<line data-duration-range="line" data-scenario-type="{esc(scenario.get("type"))}" x1="{start_x:.1f}" y1="{range_y:.1f}" x2="{end_x:.1f}" y2="{range_y:.1f}" stroke="{color}" stroke-width="1.4" stroke-opacity="0.86"/>',
+                    f'<path data-duration-arrow="start" data-scenario-type="{esc(scenario.get("type"))}" d="M {start_x+arrow_width:.1f} {range_y-arrow_height:.1f} L {start_x:.1f} {range_y:.1f} L {start_x+arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+                    f'<path data-duration-arrow="end" data-scenario-type="{esc(scenario.get("type"))}" d="M {end_x-arrow_width:.1f} {range_y-arrow_height:.1f} L {end_x:.1f} {range_y:.1f} L {end_x-arrow_width:.1f} {range_y+arrow_height:.1f}" fill="none" stroke="{color}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
                 ]
             )
         else:
             point_y = y(load_at(at))
-            chaos_overlays.append(
+            chaos_overlays.extend([
                 f'<line data-chaos-kind="instant" data-scenario-type="{esc(scenario.get("type"))}" '
-                f'x1="{start_x:.1f}" y1="{top}" x2="{start_x:.1f}" y2="{card_y:.1f}" '
-                f'stroke="{color}" stroke-width="2.4" stroke-opacity="0.82" stroke-dasharray="5 5"/>'
-            )
+                f'x1="{start_x:.1f}" y1="{top}" x2="{start_x:.1f}" y2="{axis_y:.1f}" '
+                f'stroke="{color}" stroke-width="0.8" stroke-opacity="0.72" stroke-dasharray="4 4" '
+                f'clip-path="url(#load-profile-area)"/>',
+                f'<line data-chaos-connector="instant" data-scenario-type="{esc(scenario.get("type"))}" '
+                f'x1="{start_x:.1f}" y1="{axis_y:.1f}" x2="{start_x:.1f}" y2="{card_y:.1f}" '
+                f'stroke="{color}" stroke-width="1.2" stroke-opacity="0.76" stroke-dasharray="4 4"/>',
+            ])
             chaos_markers.append(f'<circle cx="{start_x:.1f}" cy="{point_y:.1f}" r="4.5" fill="{color}" stroke="white" stroke-width="1.5"/>')
         chaos_cards.extend(
             [
@@ -1298,8 +1360,9 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{estimated_width:.1f}" height="{card_height}" rx="8" fill="white" fill-opacity="0.96" stroke="{color}" stroke-opacity="0.72"/>',
                 action_icon(action, action_x, icon_y),
                 *( [service_icon(header_target, service_x - 1, card_y + 4, 30)] if header_target else [] ),
-                f'<text class="card-title" x="{title_x:.1f}" y="{card_y+24:.1f}">{esc(title)}</text>',
-                f'<text class="card-time" x="{time_x:.1f}" y="{card_y+24:.1f}">· {esc(time_label)}</text>',
+                f'<text class="card-title" x="{title_x:.1f}" y="{card_y+22:.1f}">{esc(title)}</text>',
+                f'<text class="card-time" x="{separator_x:.1f}" y="{card_y+22:.1f}" text-anchor="middle">·</text>',
+                f'<text class="card-time" x="{time_x:.1f}" y="{card_y+22:.1f}">{esc(time_label)}</text>',
                 *sequence_steps_svg(scenario, card_x, card_y, estimated_width),
                 *stubs_table_svg(scenario, card_x, card_y, estimated_width, color),
                 "</g>",
@@ -1332,6 +1395,21 @@ def load_profile_svg(report: ExperimentReport) -> str:
         f'<text class="muted" x="{width-right}" y="{axis_y+40}" text-anchor="end">Planned time from workload start</text>'
     )
     body.extend(chaos_cards)
+    if legend_items:
+        legend_base = cards_top + cards_block_height
+        legend_top = legend_base + 82
+        body.append(
+            f'<line x1="{left}" y1="{legend_base+26:.1f}" x2="{width-right}" y2="{legend_base+26:.1f}" stroke="#e5e7eb"/>'
+        )
+        body.append(
+            f'<text class="legend-title" x="{left}" y="{legend_base+61:.1f}">Experiment events and stages</text>'
+        )
+        for action, label, item_x, row in legend_items:
+            item_y = legend_top + row * 38
+            body.extend([
+                action_icon(action, item_x, item_y, role="action-legend"),
+                f'<text class="legend-label" x="{item_x+35:.1f}" y="{item_y+18:.1f}">{esc(label)}</text>',
+            ])
     return svg_document(width, height, body, "Load profile and planned chaos scenarios")
 
 

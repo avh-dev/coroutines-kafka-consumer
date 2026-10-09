@@ -771,8 +771,8 @@ class ExperimentReportTest(unittest.TestCase):
             [step["title"] for step in scenarios[0]["steps"]],
         )
         sequence_card_width, sequence_card_height = svg_renderer.chaos_card_dimensions(scenarios[-1])
-        self.assertGreater(sequence_card_width, 420)
-        self.assertGreater(sequence_card_height, 180)
+        self.assertGreaterEqual(sequence_card_width, 300)
+        self.assertGreater(sequence_card_height, 170)
 
     def test_repeating_sequence_card_renders_nested_icons_timing_and_degradation(self) -> None:
         baseline = {
@@ -848,16 +848,108 @@ class ExperimentReportTest(unittest.TestCase):
         )
         rendered_labels = ["".join(element.itertext()) for element in sequence_card.iter(f"{namespace}text")]
         labels = set(rendered_labels)
-        self.assertIn("Repeating chaos sequence • ETA tail degradation", labels)
+        self.assertIn("ETA tail degradation", labels)
         self.assertIn("Scale application: 2 → 3 replicas", labels)
         self.assertIn("Wait", labels)
-        self.assertIn("· 30s", labels)
+        self.assertIn("30s", labels)
         self.assertIn("Degrade downstream responses", labels)
-        self.assertIn("· 10s", labels)
+        self.assertIn("10s", labels)
         self.assertTrue(any(
             element.attrib.get("data-stubs-layout") == "vertical"
             for element in sequence_card.iter(f"{namespace}g")
         ))
+
+    def test_timeline_aligns_legend_left_and_keeps_compact_card_text_inside(self) -> None:
+        report = SimpleNamespace(test_definition={
+            "base_tps": 5000,
+            "load_phases": [{
+                "name": "steady",
+                "start_seconds": 0,
+                "duration_seconds": 600,
+                "start_percent": 100,
+                "end_percent": 100,
+            }],
+            "load_topics": [],
+            "chaos_scenarios": [],
+            "measurement_windows": [{"name": "steady", "start_seconds": 0, "duration_seconds": 600}],
+            "diagnostic_steps": [],
+        })
+
+        root = ET.fromstring(svg_renderer.load_profile_svg(report))
+        namespace = "{http://www.w3.org/2000/svg}"
+        card = next(
+            element for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-chaos-card") == "measurement"
+        )
+        frame = next(card.iter(f"{namespace}rect"))
+        action = next(
+            element for element in card.iter(f"{namespace}g")
+            if element.attrib.get("data-icon-role") == "action"
+        )
+        action_frame = next(action.iter(f"{namespace}rect"))
+        labels = list(card.iter(f"{namespace}text"))
+        self.assertAlmostEqual(
+            float(action_frame.attrib["x"]) + float(action_frame.attrib["width"]) + 8,
+            float(labels[0].attrib["x"]),
+        )
+        title_end = float(labels[0].attrib["x"]) + svg_renderer.estimated_text_width("Steady", 12)
+        self.assertAlmostEqual(8, float(labels[1].attrib["x"]) - title_end, places=1)
+        self.assertAlmostEqual(8, float(labels[2].attrib["x"]) - float(labels[1].attrib["x"]), places=1)
+        self.assertAlmostEqual(16, float(labels[2].attrib["x"]) - title_end, places=1)
+        time_end = float(labels[2].attrib["x"]) + svg_renderer.estimated_text_width("0m–10m", 11)
+        self.assertAlmostEqual(8, float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end, places=1)
+
+        legend = next(
+            element for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-icon-role") == "action-legend"
+        )
+        legend_frame = next(legend.iter(f"{namespace}rect"))
+        self.assertEqual(75, float(legend_frame.attrib["x"]))
+        self.assertGreater(float(legend_frame.attrib["y"]), float(frame.attrib["y"]) + float(frame.attrib["height"]) + 70)
+        legend_title = next(
+            text for text in root.iter(f"{namespace}text")
+            if "".join(text.itertext()) == "Experiment events and stages"
+        )
+        self.assertEqual("legend-title", legend_title.attrib["class"])
+        self.assertEqual(75, float(legend_title.attrib["x"]))
+        legend_label = next(
+            text for text in root.iter(f"{namespace}text")
+            if "".join(text.itertext()) == "Measurement window"
+        )
+        self.assertEqual("legend-label", legend_label.attrib["class"])
+
+        base = {
+            "type": "measurement", "action": "measurement", "target": "",
+            "at_seconds": 0, "duration_seconds": 600, "end_seconds": 600,
+        }
+        widths = [
+            svg_renderer.chaos_card_dimensions({**base, "title": f"Measurement window • {name}"})[0]
+            for name in ("ramp", "steady", "cool down")
+        ]
+        self.assertLess(widths[0], widths[1])
+        self.assertLess(widths[1], widths[2])
+
+    def test_timeline_without_cards_omits_legend_and_unused_card_space(self) -> None:
+        report = SimpleNamespace(test_definition={
+            "base_tps": 5000,
+            "load_phases": [{
+                "name": "steady",
+                "start_seconds": 0,
+                "duration_seconds": 600,
+                "start_percent": 100,
+                "end_percent": 100,
+            }],
+            "load_topics": [],
+            "chaos_scenarios": [],
+            "measurement_windows": [],
+            "diagnostic_steps": [],
+        })
+
+        root = ET.fromstring(svg_renderer.load_profile_svg(report))
+        namespace = "{http://www.w3.org/2000/svg}"
+        self.assertFalse(any(element.attrib.get("data-chaos-card") for element in root.iter(f"{namespace}g")))
+        self.assertFalse(any(element.attrib.get("data-icon-role") == "action-legend" for element in root.iter(f"{namespace}g")))
+        self.assertLess(int(root.attrib["height"]), 350)
 
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {
@@ -1189,7 +1281,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("target-a", report.targets[0].events[0]["target_name"])
             svg = svg_renderer.load_profile_svg(report)
             self.assertIn("Planned time from workload start", svg)
-            self.assertIn("Kafka network packet capture • Max load", svg)
+            self.assertIn(">Max load</text>", svg)
 
             report.environment["kafka"]["mode"] = "msk"
             report.environment["redis"]["mode"] = "elasticache"
@@ -1340,9 +1432,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-topic-legend="order.events.v1"', svg)
             self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
             self.assertIn(">warmup · 10s</text>", svg)
-            self.assertIn(">Measurement window • max load</text>", svg)
+            self.assertIn(">Max load</text>", svg)
             self.assertIn(">Delete random application pod</text>", svg)
-            self.assertIn(">· 40s–50s · 10s</text>", svg)
+            self.assertIn(">40s–50s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
             self.assertIn(">p999, ms</text>", svg)
@@ -1382,16 +1474,18 @@ class ExperimentReportTest(unittest.TestCase):
             ]
             self.assertEqual(sorted(eta_percentile_y), eta_percentile_y)
             self.assertGreater(len(set(eta_percentile_y)), 1)
+            chronological_cards = [
+                element
+                for element in root_element.iter(f"{namespace}g")
+                if element.attrib.get("data-chaos-card")
+            ]
+            self.assertEqual(
+                ["pod_delete", "measurement", "diagnostic", "service_outage", "service_restart", "stubs_degradation"],
+                [element.attrib["data-chaos-card"] for element in chronological_cards],
+            )
             chronological_card_y = [
-                float(text_elements[label].attrib["y"])
-                for label in (
-                    "Delete random application pod",
-                    "Measurement window • max load",
-                    "Kafka network packet capture • Max load",
-                    "Pause Kafka broker 1",
-                    "Restart Redis",
-                    "Degrade downstream responses",
-                )
+                float(next(card.iter(f"{namespace}rect")).attrib["y"])
+                for card in chronological_cards
             ]
             self.assertEqual(
                 sorted(chronological_card_y, reverse=True),
@@ -1464,7 +1558,8 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertEqual(outage_interval.attrib["x"], interval_start.attrib["x1"])
             self.assertEqual(outage_interval.attrib["fill"], interval_start.attrib["stroke"])
-            self.assertEqual("1.2", interval_start.attrib["stroke-width"])
+            self.assertEqual("0.8", interval_start.attrib["stroke-width"])
+            self.assertEqual("url(#load-profile-area)", interval_start.attrib["clip-path"])
             self.assertNotIn("stroke-dasharray", interval_start.attrib)
             interval_connector = next(
                 element
@@ -1473,7 +1568,7 @@ class ExperimentReportTest(unittest.TestCase):
                 and element.attrib.get("data-scenario-type") == "service_outage"
             )
             self.assertEqual(interval_start.attrib["x1"], interval_connector.attrib["x1"])
-            self.assertEqual("2.0", interval_connector.attrib["stroke-width"])
+            self.assertEqual("1.2", interval_connector.attrib["stroke-width"])
             self.assertIn("stroke-dasharray", interval_connector.attrib)
             interval_end_connector = next(
                 element
@@ -1500,6 +1595,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual({"start", "end"}, {
                 element.attrib["data-duration-arrow"] for element in duration_arrows
             })
+            self.assertTrue(all(element.attrib["stroke-width"] == "1.4" for element in duration_arrows))
             outage_card = next(
                 element
                 for element in root_element.iter(f"{namespace}g")
@@ -1560,6 +1656,14 @@ class ExperimentReportTest(unittest.TestCase):
                         if element.attrib.get("data-icon-role") == "action"
                     ]
                 ),
+            )
+            self.assertEqual(
+                {"measurement", "delete", "diagnostic", "outage", "restart", "degradation"},
+                {
+                    element.attrib["data-action"]
+                    for element in root_element.iter(f"{namespace}g")
+                    if element.attrib.get("data-icon-role") == "action-legend"
+                },
             )
             service_images = list(root_element.iter(f"{namespace}image"))
             self.assertEqual(4, len(service_images))
@@ -2193,8 +2297,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("baseline window · 10–20 s", markdown)
             self.assertIn("degraded window · 30–40 s", markdown)
             timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
-            self.assertIn("Measurement window • baseline", timeline)
-            self.assertIn("Measurement window • degraded", timeline)
+            self.assertIn(">Baseline</text>", timeline)
+            self.assertIn(">Degraded</text>", timeline)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
