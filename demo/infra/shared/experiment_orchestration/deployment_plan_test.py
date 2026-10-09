@@ -185,22 +185,23 @@ class DeploymentPlanTest(unittest.TestCase):
         ))
         self.assertEqual(["m7i.large"], variables["application_node_instance_types"])
         self.assertEqual(100, variables["msk_ebs_volume_size"])
-        self.assertEqual((2, 2, 8), (
+        self.assertEqual((1, 1, 8), (
             variables["application_node_desired_size"],
             variables["application_node_min_size"],
             variables["application_node_max_size"],
         ))
+        self.assertEqual("kafka.t3.small", variables["msk_broker_instance_type"])
         self.assertEqual(
-            "0 -> (30m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0",
+            "0 -> (20m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0",
             definition["load_test"]["load_profile"],
         )
         self.assertEqual([12, 12, 12], [topic["partitions"] for topic in plan["application"]["planner"]["topics"]])
-        self.assertEqual("800m", plan["application"]["configuration"]["resources"]["requests"]["cpu"])
+        self.assertEqual("850m", plan["application"]["configuration"]["resources"]["requests"]["cpu"])
         self.assertEqual({
             "enabled": True,
-            "min_replicas": 2,
+            "min_replicas": 1,
             "max_replicas": 12,
-            "target_cpu_utilization_percentage": 70,
+            "target_cpu_utilization_percentage": 75,
             "scale_down_stabilization_window_seconds": 300,
         }, plan["application"]["configuration"]["hpa"])
 
@@ -235,13 +236,13 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual("application", application["spec"]["template"]["spec"]["tolerations"][0]["value"])
-        self.assertEqual("800m", application["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"])
+        self.assertEqual("850m", application["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"])
         self.assertNotIn("cpu", application["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"])
         self.assertEqual({"ckc.dev/role": "support"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "support"}, load_job["spec"]["template"]["spec"]["nodeSelector"])
-        self.assertEqual(2, hpa["spec"]["minReplicas"])
+        self.assertEqual(1, hpa["spec"]["minReplicas"])
         self.assertEqual(12, hpa["spec"]["maxReplicas"])
-        self.assertEqual(70, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
+        self.assertEqual(75, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
 
     def test_materializes_high_partition_internal_generator_heap(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/internal-generator-noop-50k.yaml"

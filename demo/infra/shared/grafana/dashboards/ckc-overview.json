@@ -8030,7 +8030,7 @@
           "targets": [
             {"expr": "max(aws_kafka_under_replicated_partitions_maximum)", "legendFormat": "under-replicated partitions", "refId": "A"},
             {"expr": "max(aws_kafka_offline_partitions_count_maximum)", "legendFormat": "offline partitions", "refId": "B"},
-            {"expr": "min(aws_kafka_cpu_credit_balance_minimum)", "legendFormat": "minimum CPU credits", "refId": "C"}
+            {"expr": "min(aws_kafka_cpucredit_balance_minimum)", "legendFormat": "minimum CPU credits", "refId": "C"}
           ],
           "title": "MSK Health and Burst Credits",
           "type": "timeseries"

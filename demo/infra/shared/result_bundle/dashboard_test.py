@@ -189,7 +189,7 @@ class DashboardTest(unittest.TestCase):
         for metric in (
             "aws_kafka_cpu_user_average",
             "aws_kafka_bytes_out_per_sec_average",
-            "aws_kafka_cpu_credit_balance_minimum",
+            "aws_kafka_cpucredit_balance_minimum",
             "aws_kafka_fetch_consumer_total_time_ms_mean_maximum",
             "aws_elasticache_engine_cpuutilization_maximum",
             "aws_elasticache_network_bytes_out_sum",

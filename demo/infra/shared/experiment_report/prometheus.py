@@ -209,7 +209,7 @@ STANDARD_MEASUREMENTS = {
         "max(max_over_time(aws_kafka_kafka_data_logs_disk_used_maximum[{window}]))"
     ),
     "msk_cpu_credit_balance_min": (
-        "min(min_over_time(aws_kafka_cpu_credit_balance_minimum[{window}]))"
+        "min(min_over_time(aws_kafka_cpucredit_balance_minimum[{window}]))"
     ),
     "msk_under_replicated_partitions_max": (
         "max(max_over_time(aws_kafka_under_replicated_partitions_maximum[{window}]))"

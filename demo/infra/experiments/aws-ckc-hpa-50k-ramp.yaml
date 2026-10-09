@@ -1,6 +1,6 @@
 schema_version: 2
 name: aws-ckc-hpa-50k-ramp
-description: Production-like CKC HPA and EKS node-autoscaling qualification from zero to 50k TPS on isolated m7i.large application capacity.
+description: CKC HPA, EKS node-autoscaling, and burstable MSK qualification from one pod and node to 50k TPS.
 workload:
   stubs:
     error_rate_percent: 0
@@ -40,7 +40,7 @@ workload:
       order: 10000
       batch: 10000
       telemetry: 10000
-    load_profile: 0 -> (30m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0
+    load_profile: 0 -> (20m, ramp) -> 100 -> (20m, steady) -> 100 -> (10m, cool-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -70,12 +70,12 @@ workload:
   measurement_windows:
   - name: ramp
     start: 0s
-    duration: 30m
+    duration: 20m
   - name: steady
-    start: 30m
+    start: 20m
     duration: 20m
   - name: cool-down
-    start: 50m
+    start: 40m
     duration: 10m
   topics:
     order:
@@ -91,21 +91,21 @@ workload:
       traffic_percent: 20
       max_e2e_latency_ms: 2000
 targets:
-- name: ckc.hpa-2-12
+- name: ckc.hpa-1-12
   implementation: ckc
   application:
-    replicas: 2
+    replicas: 1
     resources:
       requests:
-        cpu: 800m
+        cpu: 850m
         memory: 1Gi
       limits:
         memory: 3Gi
     hpa:
       enabled: true
-      min_replicas: 2
+      min_replicas: 1
       max_replicas: 12
-      target_cpu_utilization_percentage: 70
+      target_cpu_utilization_percentage: 75
       scale_down_stabilization_window_seconds: 300
   runtime:
     env:
@@ -173,15 +173,15 @@ environments:
         application:
           instance_types:
           - m7i.large
-          desired_size: 2
-          min_size: 2
+          desired_size: 1
+          min_size: 1
           max_size: 8
           disk_size_gib: 100
       kafka:
         mode: msk
         msk_version: 3.7.x
         msk_brokers: 3
-        msk_instance_type: kafka.m7g.large
+        msk_instance_type: kafka.t3.small
         msk_volume_size_gib: 100
       redis:
         mode: elasticache

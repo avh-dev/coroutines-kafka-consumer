@@ -117,16 +117,17 @@ demo/infra/run-experiment.sh demo/infra/experiments/msk-elasticache-20min-10k.ya
   --skip-build-images
 ```
 
-The production-like CKC autoscaling qualification separates two fixed
-`m7i.xlarge` support workers from a dedicated application group. HPA scales the
-application from two to twelve 800m-request pods at 70% CPU, while Cluster
-Autoscaler may independently scale the tainted application group from two to eight
-`m7i.large` workers. Twelve partitions per topic make every HPA replica useful at
-the maximum scale and distribute leaders evenly across the three brokers. The
-expected packing is two pods per worker, requiring six workers and leaving two
-workers of autoscaler headroom. Three MSK brokers receive 100 GiB each for the complete
-audited workload. The load ramps from zero to 50,000 messages/s for 30 minutes,
-holds for 20 minutes, and cools down for 10 minutes:
+The CKC autoscaling qualification separates two fixed `m7i.xlarge` support
+workers from a dedicated application group. HPA starts with one 850m-request pod
+at 75% CPU and may scale to twelve, while Cluster Autoscaler independently grows
+the tainted application group from one to eight `m7i.large` workers. Twelve
+partitions per topic make every HPA replica useful at maximum scale and distribute
+leaders evenly across the three brokers. Two application pods are expected to fit
+on each worker; the qualification verifies that packing after Kubernetes and
+DaemonSet reservations. Three `kafka.t3.small` MSK brokers receive 100 GiB each,
+and the archived dashboard and report retain their minimum CPU-credit balance.
+The audited load ramps from zero to 50,000 messages/s for 20 minutes, holds for
+20 minutes, and cools down for 10 minutes:
 
 ```bash
 demo/infra/run-experiment.sh demo/infra/experiments/aws-ckc-hpa-50k-ramp.yaml \
@@ -139,6 +140,21 @@ labels, a `NoSchedule` application taint, required selectors, and the matching
 application toleration. Archived metrics retain `node_role` and `node_group`
 labels; generated reports show application pod/node scaling and separate
 application and support node-hours for every measurement window.
+
+While an AWS experiment is active, expose its runner Grafana only through the
+optilab VPN interface. The helper selects the newest active checkout-local
+session automatically, creates the SSM port forward, and stops it cleanly on
+Ctrl+C:
+
+```bash
+AWS_PROFILE=ckc-lab-operator-process \
+  demo/infra/aws/scripts/grafana-tunnel.py
+```
+
+Grafana is then available at `http://192.168.6.8:3002`. If that port is occupied
+by a restored evidence bundle, the helper selects the next free port and prints
+the resulting URL. Use `--session SESSION_ID` to select a specific live session
+or `--bind-address` and `--port` to override the VPN endpoint.
 
 Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/experiments/aws`; change the root with the global
