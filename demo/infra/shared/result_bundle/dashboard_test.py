@@ -63,6 +63,17 @@ class DashboardTest(unittest.TestCase):
         self.assertTrue(any("kafka_consumer_last_poll_seconds_ago" in expression for expression in expressions))
         self.assertTrue(any("kafka_consumer_coordinator_commit_latency_max" in expression for expression in expressions))
         self.assertTrue(any("kafka_consumer_fetch_manager_records_lag_max" in expression for expression in expressions))
+        self.assertTrue(any("kafka_consumer_coordinator_rebalance_latency_max" in expression for expression in expressions))
+
+        panels = {panel["title"]: panel for panel in rows[0]["panels"]}
+        assignments = panels["Kafka Consumer Assigned Partitions"]
+        self.assertEqual(2, len(assignments["targets"]))
+        self.assertIn("sum by (consumer_id, pod)", assignments["targets"][0]["expr"])
+        self.assertIn("sum by (pod)", assignments["targets"][1]["expr"])
+        self.assertEqual(
+            "ms",
+            panels["Kafka Consumer Rebalance Latency"]["fieldConfig"]["defaults"]["unit"],
+        )
 
     def test_dashboard_keeps_record_drops_out_of_ckc_runtime(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
@@ -157,7 +168,12 @@ class DashboardTest(unittest.TestCase):
         panels = {panel["title"]: panel for panel in row["panels"]}
 
         self.assertIn("sum(rate(container_cpu_usage_seconds_total", panels["Application Container CPU — Total"]["targets"][0]["expr"])
-        self.assertIn("avg(rate(container_cpu_usage_seconds_total", panels["Application Container CPU — Average per Pod"]["targets"][0]["expr"])
+        cpu_by_pod = panels["Application Container CPU — By Pod"]
+        self.assertIn(
+            "sum by (pod) (rate(container_cpu_usage_seconds_total",
+            cpu_by_pod["targets"][0]["expr"],
+        )
+        self.assertEqual(["min", "mean", "max", "lastNotNull"], cpu_by_pod["options"]["legend"]["calcs"])
         self.assertIn("sum(container_memory_working_set_bytes", panels["Application Container Working Set — Total"]["targets"][0]["expr"])
         self.assertIn("avg(container_memory_working_set_bytes", panels["Application Container Working Set — Average per Pod"]["targets"][0]["expr"])
         for title, panel in panels.items():

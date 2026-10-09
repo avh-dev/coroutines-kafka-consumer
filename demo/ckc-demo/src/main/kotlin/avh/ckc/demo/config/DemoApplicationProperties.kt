@@ -22,6 +22,7 @@ data class DemoApplicationProperties(
     )
 
     data class KafkaConsumer(
+        var assignmentStrategy: String? = null,
         var fetchMinBytes: Int = 1,
         var fetchMaxWaitMs: Int = 500,
         var maxPollRecords: Int = 500,

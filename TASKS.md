@@ -455,6 +455,7 @@
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [INFRA-288](#infra-288) | Qualify CKC CPU autoscaling and burstable MSK capacity before the long AWS comparison. | DONE |
 | [INFRA-289](#infra-289) | Compact the report load timeline and clarify chaos and measurement annotations. | DONE |
+| [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5336,3 +5337,14 @@ Keep card contents within compact frames, left-align the detached `Experiment ev
 Size card headers with glyph-aware text estimates and use symmetric eight-pixel margins around a sixteen-pixel title/time gap with its separator at the midpoint.
 Match the key hierarchy to the report's metric-source legend with a slightly larger semibold heading and regular-weight item labels.
 Verification: all 183 internal-lab tests pass; the latest completed AWS report timeline is regenerated in place and parses as valid SVG.
+
+<a id="infra-291"></a>
+### INFRA-291 - Compare CKC partition assignment strategies
+
+_Date: 2026-10-09_
+
+Add an internal-lab experiment comparing CKC range and round-robin assignors across ten fixed application replicas.
+Keep Kafka and workload topology fixed between sequential targets: twelve partitions per topic, 5k TPS at a 40/40/20 mix, and no audit collection.
+Run each target through a three-minute ramp and seven-minute full-load plateau with HPA and application CPU limits disabled.
+Preserve evidence for per-pod partition placement, CPU balance, and consumer-group rebalance duration comparison.
+Verification: all 63 shared orchestration tests, all 184 internal-lab tests, all CKC demo tests, and the focused dashboard tests pass; both generated target manifests are accepted by Kubernetes server-side dry-run. The installed lab, demo image, experiment definition, and dashboard are updated. The comparison experiment remains intentionally unstarted.

@@ -150,6 +150,7 @@ demo:
     bootstrap-servers: localhost:9092
     group-id: ${GROUP_ID:ckc-demo}
     consumer:
+      assignment-strategy: ${KAFKA_CONSUMER_ASSIGNMENT_STRATEGY:}
       fetch-min-bytes: ${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}
       fetch-max-wait-ms: ${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}
       max-poll-records: ${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}
