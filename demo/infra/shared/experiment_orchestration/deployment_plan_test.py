@@ -244,6 +244,63 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(12, hpa["spec"]["maxReplicas"])
         self.assertEqual(75, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
 
+    def test_materializes_per_topic_autoscaling_aws_spring_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-spring-keda-50k-ramp.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+        root = Path(self.temp.name) / "spring-autoscaling"
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
+
+        self.assertEqual("per_topic", plan["application"]["configuration"]["deployment_mode"])
+        self.assertEqual("kafka.m7g.xlarge", variables["msk_broker_instance_type"])
+        self.assertEqual((1, 1, 8), (
+            variables["application_node_desired_size"],
+            variables["application_node_min_size"],
+            variables["application_node_max_size"],
+        ))
+        self.assertEqual(
+            [(210, 42, 5), (195, 39, 5), (285, 57, 5)],
+            [
+                (topic["partitions"], topic["poll_loop_concurrency"], topic["capacity_replicas"])
+                for topic in plan["application"]["planner"]["topics"]
+            ],
+        )
+        workloads = plan["application"]["configuration"]["workloads"]
+        self.assertEqual(
+            {"order": 1500, "batch": 1500, "telemetry": 1250},
+            {name: workload["hpa"]["kafka_lag"]["lag_threshold"] for name, workload in workloads.items()},
+        )
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="spring-autoscaling-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="msk:9092",
+            redis_host="elasticache",
+            audit_host="audit",
+            application_node_selector={"ckc.dev/role": "application"},
+            application_tolerations=({
+                "key": "dedicated", "operator": "Equal", "value": "application", "effect": "NoSchedule",
+            },),
+            support_node_selector={"ckc.dev/role": "support"},
+            load_test_node_selector={"ckc.dev/role": "support"},
+        ))
+        deployments = [
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"].startswith("ckc-demo-")
+            and item["metadata"]["name"] != "ckc-demo-stubs"
+        ]
+        scaled_objects = [item for item in manifests if item["kind"] == "ScaledObject"]
+        self.assertEqual(3, len(deployments))
+        self.assertEqual(3, len(scaled_objects))
+        self.assertTrue(all(item["spec"]["maxReplicaCount"] == 5 for item in scaled_objects))
+        self.assertTrue(all(
+            item["spec"]["template"]["spec"]["nodeSelector"] == {"ckc.dev/role": "application"}
+            for item in deployments
+        ))
+
     def test_materializes_high_partition_internal_generator_heap(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/internal-generator-noop-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")

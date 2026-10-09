@@ -970,6 +970,29 @@ class AwsSessionTest(unittest.TestCase):
         self.assertTrue(config["terraform_lab_inputs"]["dedicated_node_groups"])
         self.assertEqual(8, config["terraform_lab_inputs"]["application_node_max_size"])
 
+    def test_spring_autoscaling_state_exposes_independent_topic_target(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-spring-keda-50k-ramp.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=5400,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual(
+            ["spring-kafka.per-topic-keda-1-5"],
+            [target["name"] for target in config["targets"]],
+        )
+        self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
+        self.assertEqual(8, config["eks"]["node_groups"]["application"]["max_size"])
+        self.assertEqual(3000, config["targets"][0]["duration_seconds"])
+
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"

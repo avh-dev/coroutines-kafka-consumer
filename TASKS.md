@@ -455,6 +455,7 @@
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
 | [INFRA-288](#infra-288) | Qualify CKC CPU autoscaling and burstable MSK capacity before the long AWS comparison. | DONE |
 | [INFRA-289](#infra-289) | Compact the report load timeline and clarify chaos and measurement annotations. | DONE |
+| [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5336,3 +5337,13 @@ Keep card contents within compact frames, left-align the detached `Experiment ev
 Size card headers with glyph-aware text estimates and use symmetric eight-pixel margins around a sixteen-pixel title/time gap with its separator at the midpoint.
 Match the key hierarchy to the report's metric-source legend with a slightly larger semibold heading and regular-weight item labels.
 Verification: all 183 internal-lab tests pass; the latest completed AWS report timeline is regenerated in place and parses as valid SVG.
+
+<a id="infra-290"></a>
+### INFRA-290 - Qualify Spring autoscaling at 50k TPS
+
+_Date: 2026-10-09_
+
+Prepare a Spring Kafka AWS qualification with the same 50k ramp and workload mix used for CKC.
+Keep the production baseline split by topic and scale each deployment with native KEDA Kafka lag signals.
+Size pollers, partitions, pods, application nodes, and Kafka brokers from measured capacity rather than a permanently oversized fixed cluster.
+Pre-run verification: all 64 shared orchestration tests and all 72 AWS tests pass; the experiment materializes to three KEDA workloads with broker-balanced planned capacity.
