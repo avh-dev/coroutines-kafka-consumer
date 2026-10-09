@@ -5332,4 +5332,7 @@ _Date: 2026-10-09_
 Make duration arrows and dashed event connectors visually lighter and keep plot annotations below the load-profile line.
 Remove redundant event-type wording from cards and reduce horizontal padding while preserving the connector-aware card ordering.
 Add an action-icon legend below the timeline so compact cards remain self-explanatory.
-Verification: all 181 internal-lab tests pass; the latest completed AWS report timeline is regenerated in place and parses as valid SVG.
+Keep card contents within compact frames, left-align the detached `Experiment events and stages` key, and omit all card and key spacing when the timeline has no annotations.
+Size card headers with glyph-aware text estimates and use symmetric eight-pixel margins around a sixteen-pixel title/time gap with its separator at the midpoint.
+Match the key hierarchy to the report's metric-source legend with a slightly larger semibold heading and regular-weight item labels.
+Verification: all 183 internal-lab tests pass; the latest completed AWS report timeline is regenerated in place and parses as valid SVG.

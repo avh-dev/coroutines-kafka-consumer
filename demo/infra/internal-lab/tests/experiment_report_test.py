@@ -851,13 +851,105 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("ETA tail degradation", labels)
         self.assertIn("Scale application: 2 → 3 replicas", labels)
         self.assertIn("Wait", labels)
-        self.assertIn("· 30s", labels)
+        self.assertIn("30s", labels)
         self.assertIn("Degrade downstream responses", labels)
-        self.assertIn("· 10s", labels)
+        self.assertIn("10s", labels)
         self.assertTrue(any(
             element.attrib.get("data-stubs-layout") == "vertical"
             for element in sequence_card.iter(f"{namespace}g")
         ))
+
+    def test_timeline_aligns_legend_left_and_keeps_compact_card_text_inside(self) -> None:
+        report = SimpleNamespace(test_definition={
+            "base_tps": 5000,
+            "load_phases": [{
+                "name": "steady",
+                "start_seconds": 0,
+                "duration_seconds": 600,
+                "start_percent": 100,
+                "end_percent": 100,
+            }],
+            "load_topics": [],
+            "chaos_scenarios": [],
+            "measurement_windows": [{"name": "steady", "start_seconds": 0, "duration_seconds": 600}],
+            "diagnostic_steps": [],
+        })
+
+        root = ET.fromstring(svg_renderer.load_profile_svg(report))
+        namespace = "{http://www.w3.org/2000/svg}"
+        card = next(
+            element for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-chaos-card") == "measurement"
+        )
+        frame = next(card.iter(f"{namespace}rect"))
+        action = next(
+            element for element in card.iter(f"{namespace}g")
+            if element.attrib.get("data-icon-role") == "action"
+        )
+        action_frame = next(action.iter(f"{namespace}rect"))
+        labels = list(card.iter(f"{namespace}text"))
+        self.assertAlmostEqual(
+            float(action_frame.attrib["x"]) + float(action_frame.attrib["width"]) + 8,
+            float(labels[0].attrib["x"]),
+        )
+        title_end = float(labels[0].attrib["x"]) + svg_renderer.estimated_text_width("Steady", 12)
+        self.assertAlmostEqual(8, float(labels[1].attrib["x"]) - title_end, places=1)
+        self.assertAlmostEqual(8, float(labels[2].attrib["x"]) - float(labels[1].attrib["x"]), places=1)
+        self.assertAlmostEqual(16, float(labels[2].attrib["x"]) - title_end, places=1)
+        time_end = float(labels[2].attrib["x"]) + svg_renderer.estimated_text_width("0m–10m", 11)
+        self.assertAlmostEqual(8, float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end, places=1)
+
+        legend = next(
+            element for element in root.iter(f"{namespace}g")
+            if element.attrib.get("data-icon-role") == "action-legend"
+        )
+        legend_frame = next(legend.iter(f"{namespace}rect"))
+        self.assertEqual(75, float(legend_frame.attrib["x"]))
+        self.assertGreater(float(legend_frame.attrib["y"]), float(frame.attrib["y"]) + float(frame.attrib["height"]) + 70)
+        legend_title = next(
+            text for text in root.iter(f"{namespace}text")
+            if "".join(text.itertext()) == "Experiment events and stages"
+        )
+        self.assertEqual("legend-title", legend_title.attrib["class"])
+        self.assertEqual(75, float(legend_title.attrib["x"]))
+        legend_label = next(
+            text for text in root.iter(f"{namespace}text")
+            if "".join(text.itertext()) == "Measurement window"
+        )
+        self.assertEqual("legend-label", legend_label.attrib["class"])
+
+        base = {
+            "type": "measurement", "action": "measurement", "target": "",
+            "at_seconds": 0, "duration_seconds": 600, "end_seconds": 600,
+        }
+        widths = [
+            svg_renderer.chaos_card_dimensions({**base, "title": f"Measurement window • {name}"})[0]
+            for name in ("ramp", "steady", "cool down")
+        ]
+        self.assertLess(widths[0], widths[1])
+        self.assertLess(widths[1], widths[2])
+
+    def test_timeline_without_cards_omits_legend_and_unused_card_space(self) -> None:
+        report = SimpleNamespace(test_definition={
+            "base_tps": 5000,
+            "load_phases": [{
+                "name": "steady",
+                "start_seconds": 0,
+                "duration_seconds": 600,
+                "start_percent": 100,
+                "end_percent": 100,
+            }],
+            "load_topics": [],
+            "chaos_scenarios": [],
+            "measurement_windows": [],
+            "diagnostic_steps": [],
+        })
+
+        root = ET.fromstring(svg_renderer.load_profile_svg(report))
+        namespace = "{http://www.w3.org/2000/svg}"
+        self.assertFalse(any(element.attrib.get("data-chaos-card") for element in root.iter(f"{namespace}g")))
+        self.assertFalse(any(element.attrib.get("data-icon-role") == "action-legend" for element in root.iter(f"{namespace}g")))
+        self.assertLess(int(root.attrib["height"]), 350)
 
     def test_stubs_change_table_omits_unchanged_streams(self) -> None:
         baseline = {
@@ -1342,7 +1434,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">warmup · 10s</text>", svg)
             self.assertIn(">Max load</text>", svg)
             self.assertIn(">Delete random application pod</text>", svg)
-            self.assertIn(">· 40s–50s</text>", svg)
+            self.assertIn(">40s–50s</text>", svg)
             self.assertNotIn(">HTTP downstream</text>", svg)
             self.assertIn(">Arcane ETA ML</text>", svg)
             self.assertIn(">p999, ms</text>", svg)

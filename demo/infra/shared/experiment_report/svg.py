@@ -79,6 +79,7 @@ def svg_document(width: int, height: int, body: list[str], title: str) -> str:
             ".title{font-size:18px;font-weight:600}.label{font-size:12px}.muted{font-size:11px;fill:#6b7280}",
             ".axis-label{font-size:11px;font-weight:500;fill:#374151}",
             ".card-title{font-size:12px;font-weight:600}.card-time{font-size:11px;fill:#4b5563}.icon-letter{font-size:9px;font-weight:700;fill:white}",
+            ".legend-title{font-size:13px;font-weight:600}.legend-label{font-size:12px;fill:#4b5563}",
             ".table-head{font-size:10px;font-weight:600;fill:#4b5563}.table-cell{font-size:10px;fill:#374151}",
             ".table-base{fill:#6b7280}.table-arrow{font-weight:600}.table-new{font-weight:700}",
             "</style>",
@@ -855,12 +856,38 @@ def chaos_card_time_label(scenario: dict[str, Any]) -> str:
     return f"{format_duration(at)}–{format_duration(end)}"
 
 
+CARD_TEXT_MARGIN = 8
+CARD_TEXT_GAP = CARD_TEXT_MARGIN * 2
+
+
+def estimated_text_width(value: str, font_size: float) -> float:
+    width = 0.0
+    for character in value:
+        if character in " ilIjtfr1.,:;|'":
+            factor = 0.32
+        elif character in "mwMW@%":
+            factor = 0.80
+        elif character in "–—":
+            factor = 0.70
+        elif character.isupper():
+            factor = 0.62
+        else:
+            factor = 0.55
+        width += factor * font_size
+    return width
+
+
+def chaos_card_header_width(scenario: dict[str, Any]) -> float:
+    title_width = estimated_text_width(chaos_card_title(scenario), 12)
+    time_width = estimated_text_width(chaos_card_time_label(scenario), 11)
+    title_offset = 75 if scenario.get("target") and scenario.get("type") != "sequence" else 41
+    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_TEXT_MARGIN
+
+
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     if scenario.get("type") == "sequence":
         steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
-        title = chaos_card_title(scenario)
-        time_label = chaos_card_time_label(scenario)
-        header_width = 54 + len(title) * 6.5 + len(time_label) * 5.8
+        header_width = chaos_card_header_width(scenario)
         step_widths = []
         step_heights = []
         for step in steps:
@@ -872,12 +899,8 @@ def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
     if rows:
         table = scenario.get("stubs_changes")
         columns = table.get("columns") if isinstance(table, dict) else []
-        return min(900, max(280, 20 + len(rows) * 220)), 76 + max(1, len(columns)) * 25
-    title = chaos_card_title(scenario)
-    time_label = chaos_card_time_label(scenario)
-    icon_space = 83 if scenario.get("target") else 48
-    width = icon_space + len(title) * 6.5 + 8 + len(time_label) * 5.8 + 10
-    return min(680, max(170, width)), 36
+        return min(900, max(280, 20 + len(rows) * 220, chaos_card_header_width(scenario))), 76 + max(1, len(columns)) * 25
+    return min(680, max(110, chaos_card_header_width(scenario))), 36
 
 
 def sequence_steps_svg(
@@ -914,16 +937,19 @@ def sequence_steps_svg(
         )
         if target:
             result.append(service_icon(target, card_x + 47, row_y + 4))
-            title_x = card_x + 80
+            title_x = card_x + 83
         else:
-            title_x = card_x + 45
+            title_x = card_x + 47
         result.append(f'<text class="card-title" x="{title_x:.1f}" y="{row_y+22:.1f}">{esc(title)}</text>')
         if duration is not None:
-            time_x = title_x + len(title) * 6.8 + 10
-            result.append(
+            title_end = title_x + estimated_text_width(title, 12)
+            separator_x = title_end + CARD_TEXT_MARGIN
+            time_x = title_end + CARD_TEXT_GAP
+            result.extend([
+                f'<text class="card-time" x="{separator_x:.1f}" y="{row_y+22:.1f}" text-anchor="middle">·</text>',
                 f'<text class="card-time" x="{time_x:.1f}" y="{row_y+22:.1f}">'
-                f'· {esc(format_duration(float(duration)))}</text>'
-            )
+                f'{esc(format_duration(float(duration)))}</text>',
+            ])
         result.extend(stubs_table_svg(step, card_x + 8, row_y, card_width - 16, step_color))
         result.append("</g>")
         row_y += step_height
@@ -1060,18 +1086,21 @@ def load_profile_svg(report: ExperimentReport) -> str:
             action = str(candidate.get("action") or "chaos")
             if action not in legend_actions:
                 legend_actions.append(action)
-    legend_items = []
-    legend_x = left
-    legend_row = 0
+    legend_rows: list[list[tuple[str, str, float]]] = []
+    available_legend_width = width - left - right
     for action in legend_actions:
         label = ACTION_LABELS.get(action, ACTION_LABELS["chaos"])
         item_width = 28 + 7 + len(label) * 6.2 + 20
-        if legend_x + item_width > width - right and legend_x > left:
-            legend_row += 1
-            legend_x = left
-        legend_items.append((action, label, legend_x, legend_row))
-        legend_x += item_width
-    legend_height = (legend_row + 1) * 36 + 17 if legend_items else 0
+        if not legend_rows or sum(item[2] for item in legend_rows[-1]) + item_width > available_legend_width:
+            legend_rows.append([])
+        legend_rows[-1].append((action, label, item_width))
+    legend_items = []
+    for row_index, row in enumerate(legend_rows):
+        legend_x = left
+        for action, label, item_width in row:
+            legend_items.append((action, label, legend_x, row_index))
+            legend_x += item_width
+    legend_height = 82 + len(legend_rows) * 38 if legend_items else 0
     duration_indexes = [
         index
         for index, scenario in enumerate(chaos_scenarios)
@@ -1086,7 +1115,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         axis_y + 58 + max(0, len(duration_indexes) - 1) * range_lane_gap + 14
         if duration_indexes else axis_y + 52
     )
-    cards_block_height = max(38, cards_height)
+    cards_block_height = cards_height if card_dimensions else 0
     height = cards_top + cards_block_height + legend_height + 18
     plot_width = width - left - right
     load_total = sum(float(phase["duration_seconds"]) for phase in phases)
@@ -1279,26 +1308,14 @@ def load_profile_svg(report: ExperimentReport) -> str:
         card_y = card_y_positions[index]
         time_label = chaos_card_time_label(scenario)
         table_rows = stubs_table_rows(scenario)
-        if table_rows:
-            action_x = connector_x - 14
-            card_x = min(max(5, connector_x - 19), width - estimated_width - 5)
-            service_x = action_x + 34
-            title_x = action_x + 72
-        elif connector_x + estimated_width - 19 <= width - 5:
-            card_x = max(5, connector_x - 19)
-            action_x = card_x + 5
-            service_x = card_x + 39
-            title_x = card_x + 76
-        else:
-            card_x = min(width - estimated_width - 5, connector_x - estimated_width + 19)
-            action_x = card_x + estimated_width - 33
-            service_x = action_x - 34
-            title_x = card_x + 10
-        if scenario.get("type") == "sequence" and action_x < card_x + estimated_width / 2:
-            title_x = action_x + 38
+        card_x = min(max(5, connector_x - 19), width - estimated_width - 5)
+        action_x = card_x + 5
+        service_x = card_x + 39
+        title_x = card_x + (75 if header_target else 41)
         icon_y = card_y + 4
-        title_width = len(title) * 6.5
-        time_x = title_x + title_width + 8
+        title_end = title_x + estimated_text_width(title, 12)
+        separator_x = title_end + CARD_TEXT_MARGIN
+        time_x = title_end + CARD_TEXT_GAP
         if duration is not None:
             range_y = range_y_positions[index]
             arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
@@ -1344,7 +1361,8 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 action_icon(action, action_x, icon_y),
                 *( [service_icon(header_target, service_x - 1, card_y + 4, 30)] if header_target else [] ),
                 f'<text class="card-title" x="{title_x:.1f}" y="{card_y+22:.1f}">{esc(title)}</text>',
-                f'<text class="card-time" x="{time_x:.1f}" y="{card_y+22:.1f}">· {esc(time_label)}</text>',
+                f'<text class="card-time" x="{separator_x:.1f}" y="{card_y+22:.1f}" text-anchor="middle">·</text>',
+                f'<text class="card-time" x="{time_x:.1f}" y="{card_y+22:.1f}">{esc(time_label)}</text>',
                 *sequence_steps_svg(scenario, card_x, card_y, estimated_width),
                 *stubs_table_svg(scenario, card_x, card_y, estimated_width, color),
                 "</g>",
@@ -1378,15 +1396,19 @@ def load_profile_svg(report: ExperimentReport) -> str:
     )
     body.extend(chaos_cards)
     if legend_items:
-        legend_top = cards_top + cards_block_height + 14
+        legend_base = cards_top + cards_block_height
+        legend_top = legend_base + 82
         body.append(
-            f'<line x1="{left}" y1="{legend_top-8:.1f}" x2="{width-right}" y2="{legend_top-8:.1f}" stroke="#e5e7eb"/>'
+            f'<line x1="{left}" y1="{legend_base+26:.1f}" x2="{width-right}" y2="{legend_base+26:.1f}" stroke="#e5e7eb"/>'
+        )
+        body.append(
+            f'<text class="legend-title" x="{left}" y="{legend_base+61:.1f}">Experiment events and stages</text>'
         )
         for action, label, item_x, row in legend_items:
-            item_y = legend_top + row * 36
+            item_y = legend_top + row * 38
             body.extend([
                 action_icon(action, item_x, item_y, role="action-legend"),
-                f'<text class="muted" x="{item_x+35:.1f}" y="{item_y+18:.1f}">{esc(label)}</text>',
+                f'<text class="legend-label" x="{item_x+35:.1f}" y="{item_y+18:.1f}">{esc(label)}</text>',
             ])
     return svg_document(width, height, body, "Load profile and planned chaos scenarios")
 
