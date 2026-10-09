@@ -453,6 +453,7 @@
 | [INFRA-285](#infra-285) | Refine the local Spring autoscaling qualification around feasible capacity and recoverable order saturation. | DONE |
 | [INFRA-286](#infra-286) | Split evidence-bundle Grafana restore into observable detached start and explicit stop commands. | DONE |
 | [INFRA-287](#infra-287) | Permit anonymous Grafana Explore and ad-hoc query editing in restored evidence bundles. | DONE |
+| [INFRA-288](#infra-288) | Qualify CKC CPU autoscaling and burstable MSK capacity before the long AWS comparison. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5306,3 +5307,18 @@ Retain passwordless access while granting the disposable bundle-local anonymous 
 Expose Explore and ad-hoc dashboard/query editing without granting Grafana server or data-source administration.
 Update generated bundle guidance so it describes the actual interactive access contract instead of read-only viewing.
 Verification: 17 focused result-bundle tests and Compose/whitespace checks pass. The live restored AWS Grafana reports anonymous `datasources:explore` and `datasources:query` permissions; the latest CKC bundle and all eight retained AWS bundles pass gzip and Editor-role contract checks. The active experiment's installed finalizer is updated without modifying its running workloads.
+
+<a id="infra-288"></a>
+### INFRA-288 - Qualify CKC autoscaling and burstable MSK
+
+_Date: 2026-10-09_
+
+Qualify CKC from one pod and one application node through a gradual 50k TPS ramp.
+Use 850m pod requests, native CPU HPA at 75%, twelve partitions per topic, and a 40/40/20 workload mix.
+Exercise three burstable MSK T3 brokers while preserving broker CPU-credit, latency, lag, and delivery evidence.
+Provide a checkout-local SSM helper that exposes live runner Grafana through the optilab VPN address.
+The AWS qualification scaled from one to seven pods and one to four application nodes; steady application CPU was 4.24 cores while T3 broker credits accumulated and broker executor pools remained about 99% idle.
+The audit covered 104,985,478 published records with no missing terminal outcomes; the result supports an 85% HPA target for an even six-pod final plateau.
+Correct the CloudWatch-exporter CPU-credit metric name in both the dashboard and report, then regenerate the completed report and evidence bundle with populated credit values.
+Suppress one-scrape cAdvisor gaps in replica counts so missing node samples no longer resemble HPA scale-down and immediate recovery.
+Verification: 76 orchestration, AWS session, and report-query tests pass; the focused AWS dashboard tests pass; the completed audit, regenerated report, and both canonical archives are verified.

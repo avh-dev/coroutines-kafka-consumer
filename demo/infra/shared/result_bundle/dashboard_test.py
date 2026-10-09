@@ -165,6 +165,19 @@ class DashboardTest(unittest.TestCase):
                 continue
             self.assertNotIn("${pod_grouping}", " ".join(target.get("expr", "") for target in panel.get("targets", [])))
 
+    def test_application_replica_count_tolerates_short_cadvisor_scrape_gaps(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("title") == "Application Resources")
+        panel = next(
+            panel for panel in row["panels"]
+            if panel.get("title") == "Application Replicas — Aggregate and per Topic"
+        )
+
+        for target in panel["targets"]:
+            self.assertIn("last_over_time(container_memory_working_set_bytes", target["expr"])
+            self.assertIn("[1m]", target["expr"])
+
     def test_aws_dependency_capacity_panels_cover_msk_and_elasticache(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
@@ -189,7 +202,7 @@ class DashboardTest(unittest.TestCase):
         for metric in (
             "aws_kafka_cpu_user_average",
             "aws_kafka_bytes_out_per_sec_average",
-            "aws_kafka_cpu_credit_balance_minimum",
+            "aws_kafka_cpucredit_balance_minimum",
             "aws_kafka_fetch_consumer_total_time_ms_mean_maximum",
             "aws_elasticache_engine_cpuutilization_maximum",
             "aws_elasticache_network_bytes_out_sum",

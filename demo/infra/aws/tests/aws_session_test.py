@@ -947,7 +947,8 @@ class AwsSessionTest(unittest.TestCase):
             state = session_module.new_state(args, "safe-session", Path(directory))
 
         config = state["config"]
-        self.assertEqual(["ckc.hpa-2-12"], [target["name"] for target in config["targets"]])
+        self.assertEqual(["ckc.hpa-1-12"], [target["name"] for target in config["targets"]])
+        self.assertEqual("kafka.t3.small", config["kafka"]["instance_type"])
         self.assertEqual({
             "node_groups": {
                 "support": {
@@ -959,8 +960,8 @@ class AwsSessionTest(unittest.TestCase):
                 },
                 "application": {
                     "instance_types": ["m7i.large"],
-                    "desired_size": 2,
-                    "min_size": 2,
+                    "desired_size": 1,
+                    "min_size": 1,
                     "max_size": 8,
                     "disk_size_gib": 100,
                 },
