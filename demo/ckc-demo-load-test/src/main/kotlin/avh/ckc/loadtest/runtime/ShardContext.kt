@@ -1,12 +1,14 @@
 package avh.ckc.loadtest.runtime
 
 import java.time.Instant
+import java.util.UUID
 
 data class ShardContext(
     val shardIndex: Int,
     val totalShards: Int,
     val testRunId: String?,
-    val testRunStartedAt: Instant?
+    val testRunStartedAt: Instant?,
+    val launchAttemptId: String = UUID.randomUUID().toString()
 ) {
     init {
         require(shardIndex >= 0) { "shardIndex must be non-negative" }
@@ -20,7 +22,8 @@ data class ShardContext(
                 shardIndex = environment["JOB_COMPLETION_INDEX"]?.toIntOrNull() ?: 0,
                 totalShards = environment["TOTAL_SHARDS"]?.toIntOrNull() ?: 1,
                 testRunId = environment["TEST_RUN_ID"],
-                testRunStartedAt = environment["TEST_RUN_STARTED_AT"]?.let(Instant::parse)
+                testRunStartedAt = environment["TEST_RUN_STARTED_AT"]?.let(Instant::parse),
+                launchAttemptId = environment["TEST_RUN_ATTEMPT_ID"] ?: environment["POD_UID"] ?: UUID.randomUUID().toString()
             )
     }
 }
