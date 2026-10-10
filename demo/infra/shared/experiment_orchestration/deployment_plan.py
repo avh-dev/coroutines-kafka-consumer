@@ -772,6 +772,12 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         "ports": [{"name": "metrics", "containerPort": 9405}],
         "env": _environment_entries(environment),
     }
+    # Each indexed-Job retry receives a distinct pod UID. The load generator
+    # uses it as its attempt identity when emitting lifecycle evidence.
+    container["env"].append({
+        "name": "POD_UID",
+        "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}},
+    })
     resource_values: dict[str, dict[str, Any]] = {}
     if any(load.get(key) is not None for key in ("cpu_request", "memory_request", "cpu_limit", "memory_limit")):
         resource_values = {

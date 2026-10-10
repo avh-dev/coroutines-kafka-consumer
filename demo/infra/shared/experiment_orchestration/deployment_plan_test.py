@@ -139,6 +139,7 @@ class DeploymentPlanTest(unittest.TestCase):
         application_environment = {
             item["name"]: item["value"]
             for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+            if "value" in item
         }
         self.assertEqual(12, application["spec"]["replicas"])
         self.assertEqual("500m", application_resources["requests"]["cpu"])
@@ -152,7 +153,7 @@ class DeploymentPlanTest(unittest.TestCase):
         load_job = next(item for item in manifests if item["kind"] == "Job")
         load_container = load_job["spec"]["template"]["spec"]["containers"][0]
         load_resources = load_container["resources"]
-        load_environment = {item["name"]: item["value"] for item in load_container["env"]}
+        load_environment = {item["name"]: item["value"] for item in load_container["env"] if "value" in item}
         self.assertEqual("1", load_resources["requests"]["cpu"])
         self.assertNotIn("cpu", load_resources["limits"])
         self.assertEqual(2, load_job["spec"]["completions"])
@@ -318,12 +319,12 @@ class DeploymentPlanTest(unittest.TestCase):
             audit_host="audit.internal",
         ))
         load_container = next(item for item in manifests if item["kind"] == "Job")["spec"]["template"]["spec"]["containers"][0]
-        load_environment = {item["name"]: item["value"] for item in load_container["env"]}
+        load_environment = {item["name"]: item["value"] for item in load_container["env"] if "value" in item}
         application_container = next(
             item for item in manifests
             if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
         )["spec"]["template"]["spec"]["containers"][0]
-        application_environment = {item["name"]: item["value"] for item in application_container["env"]}
+        application_environment = {item["name"]: item["value"] for item in application_container["env"] if "value" in item}
 
         self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
         self.assertEqual("1280Mi", load_container["resources"]["limits"]["memory"])
@@ -406,6 +407,7 @@ class DeploymentPlanTest(unittest.TestCase):
         load_environment = {
             item["name"]: item["value"]
             for item in load_container["env"]
+            if "value" in item
         }
         application = next(
             item for item in manifests
@@ -414,6 +416,7 @@ class DeploymentPlanTest(unittest.TestCase):
         application_environment = {
             item["name"]: item["value"]
             for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+            if "value" in item
         }
         stubs = next(
             item for item in manifests
@@ -498,6 +501,7 @@ class DeploymentPlanTest(unittest.TestCase):
         load_environment = {
             item["name"]: item["value"]
             for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"]
+            if "value" in item
         }
         self.assertEqual("2", load_environment["LOAD_TEST_DISPATCHER_THREADS"])
         self.assertEqual(plan["target"]["implementation"], load_test["spec"]["template"]["metadata"]["labels"]["ckc.dev/profile"])
@@ -531,10 +535,13 @@ class DeploymentPlanTest(unittest.TestCase):
         environment = {
             item["name"]: item["value"]
             for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"]
+            if "value" in item
         }
         self.assertLessEqual(len(name), 61)
         self.assertRegex(name, r"^ckc-load-test-[a-z0-9-]+-[0-9a-f]{8}$")
         self.assertEqual(run_id, environment["TEST_RUN_ID"])
+        attempt = next(item for item in load_test["spec"]["template"]["spec"]["containers"][0]["env"] if item["name"] == "POD_UID")
+        self.assertEqual("metadata.uid", attempt["valueFrom"]["fieldRef"]["fieldPath"])
 
         other_bindings = DeploymentBindings(
             run_id=run_id + "-other",
@@ -601,6 +608,7 @@ class DeploymentPlanTest(unittest.TestCase):
             environment = {
                 item["name"]: item["value"]
                 for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+                if "value" in item
             }
             self.assertEqual("true", environment[f"{workload.upper()}_CONSUMER_ENABLED"])
             self.assertEqual(f"spring-{workload}", environment[f"{workload.upper()}_CONSUMER_GROUP_ID"])

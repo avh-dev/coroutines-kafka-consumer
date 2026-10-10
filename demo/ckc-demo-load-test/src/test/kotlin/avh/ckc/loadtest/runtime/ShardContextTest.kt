@@ -30,4 +30,15 @@ class ShardContextTest {
         assertNull(context.testRunId)
         assertNull(context.testRunStartedAt)
     }
+
+    @Test
+    fun `uses explicit or pod attempt identity from environment`() {
+        val explicitAttempt = ShardContext.fromEnvironment(
+            mapOf("TEST_RUN_ATTEMPT_ID" to "orchestrator-attempt", "POD_UID" to "pod-uid")
+        )
+        val podAttempt = ShardContext.fromEnvironment(mapOf("POD_UID" to "pod-uid"))
+
+        assertEquals("orchestrator-attempt", explicitAttempt.launchAttemptId)
+        assertEquals("pod-uid", podAttempt.launchAttemptId)
+    }
 }

@@ -60,11 +60,11 @@ class TrafficGenerator(
 
         jobs.forEach { it.join() }
         logger.cancel()
-        println("load-test lifecycle generation_completed_at=${Instant.now()} ${identity.label()}")
+        println("load-test lifecycle generation_completed_at=${Instant.now()} ${lifecycleIdentity()}")
         producers.logSnapshot("${identity.label()} ${stats.format(state.snapshot())}")
         if (flushOnCompletion) {
             producers.flush()
-            println("load-test lifecycle producer_flush_completed_at=${Instant.now()} ${identity.label()}")
+            println("load-test lifecycle producer_flush_completed_at=${Instant.now()} ${lifecycleIdentity()}")
         }
     }
 
@@ -75,8 +75,11 @@ class TrafficGenerator(
                 "attempt_id=${shardContext.launchAttemptId} ${identity.label()} scheduled_start=$scheduledAt"
         )
         val activatedAt = scheduledStartGate.await(scheduledAt)
-        println("load-test lifecycle profile_activated_at=$activatedAt scheduled_start=$scheduledAt ${identity.label()}")
+        println("load-test lifecycle profile_activated_at=$activatedAt scheduled_start=$scheduledAt ${lifecycleIdentity()}")
         return scheduledAt
     }
+
+    private fun lifecycleIdentity(): String =
+        "run_id=${shardContext.testRunId ?: "local"} attempt_id=${shardContext.launchAttemptId} ${identity.label()}"
 
 }

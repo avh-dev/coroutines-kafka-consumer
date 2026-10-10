@@ -230,15 +230,19 @@ class LoadTestProducers(
 
     private fun logFirstSend() {
         if (firstSendLogged.compareAndSet(false, true)) {
-            println("load-test lifecycle first_send_at=${java.time.Instant.now()}")
+            println("load-test lifecycle first_send_at=${java.time.Instant.now()} ${lifecycleIdentity()}")
         }
     }
 
     private fun logFirstAcknowledgement() {
         if (firstAcknowledgementLogged.compareAndSet(false, true)) {
-            println("load-test lifecycle first_acknowledgement_at=${java.time.Instant.now()}")
+            println("load-test lifecycle first_acknowledgement_at=${java.time.Instant.now()} ${lifecycleIdentity()}")
         }
     }
+
+    private fun lifecycleIdentity(): String =
+        "run_id=${shardContext.testRunId ?: "local"} attempt_id=${shardContext.launchAttemptId} " +
+            "shard=${shardContext.shardIndex}/${shardContext.totalShards}"
 
     private fun topicName(stream: String): String =
         when (stream) {
