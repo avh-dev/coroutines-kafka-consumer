@@ -10,6 +10,7 @@ import yaml
 
 from .diagnostic_steps import normalize as normalize_diagnostic_steps
 from .definition_environment import normalized_chaos_steps, stub_settings_from_definition
+from .definition_environment import parse_duration_seconds
 from .implementation_catalog import profile_catalog
 from .workload import deep_merge, load_yaml, validate_resolved_test
 
@@ -452,7 +453,7 @@ def validate_target_workload(value: Any, context: str) -> dict[str, Any]:
 def validate_target_configuration(value: Mapping[str, Any], context: str, *, defaults: bool = False) -> None:
     allowed = {"application", "placement", "runtime"}
     if not defaults:
-        allowed |= {"id", "name", "implementation", "annotation_label", "workload"}
+        allowed |= {"id", "name", "implementation", "annotation_label", "workload", "lab", "scheduling"}
     unknown = sorted(set(value) - allowed)
     if unknown:
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
@@ -531,12 +532,33 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
         validate_runtime(value["runtime"], f"{context}.runtime")
     if "workload" in value:
         validate_target_workload(value["workload"], f"{context}.workload")
+    if "lab" in value:
+        lab = require_mapping(value["lab"], f"{context}.lab")
+        unknown_lab = sorted(set(lab) - {"kafka"})
+        if unknown_lab:
+            raise ValueError(f"{context}.lab contains unknown fields: {', '.join(unknown_lab)}")
+        kafka = require_mapping(lab.get("kafka"), f"{context}.lab.kafka")
+        unknown_kafka = sorted(set(kafka) - {"msk_instance_type"})
+        if unknown_kafka:
+            raise ValueError(f"{context}.lab.kafka contains unknown fields: {', '.join(unknown_kafka)}")
+        instance_type = str(kafka.get("msk_instance_type") or "").strip()
+        if not re.fullmatch(r"kafka\.[a-z0-9]+\.[a-z0-9]+", instance_type):
+            raise ValueError(f"{context}.lab.kafka.msk_instance_type must be an MSK broker instance type")
+    if "scheduling" in value:
+        scheduling = require_mapping(value["scheduling"], f"{context}.scheduling")
+        unknown_scheduling = sorted(set(scheduling) - {"alignment", "minimum_lead_time"})
+        if unknown_scheduling:
+            raise ValueError(f"{context}.scheduling contains unknown fields: {', '.join(unknown_scheduling)}")
+        if scheduling.get("alignment") not in {"utc_hour", "none"}:
+            raise ValueError(f"{context}.scheduling.alignment must be utc_hour or none")
+        if parse_duration_seconds(scheduling.get("minimum_lead_time"), f"{context}.scheduling.minimum_lead_time") <= 0:
+            raise ValueError(f"{context}.scheduling.minimum_lead_time must be positive")
 
 
 def target_to_runner(target: Mapping[str, Any]) -> dict[str, Any]:
     result = {
         key: copy.deepcopy(target[key])
-        for key in ("id", "name", "annotation_label", "application", "placement")
+        for key in ("id", "name", "annotation_label", "application", "placement", "lab", "scheduling")
         if key in target
     }
     if "implementation" in target:

@@ -222,6 +222,17 @@ class CanonicalExperimentContractTest(unittest.TestCase):
 
         self.assertEqual("worker", snapshot["targets"][0]["placement"]["generator"])
 
+    def test_aws_accepts_target_msk_and_scheduling_overrides(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["lab"] = {"kafka": {"msk_instance_type": "kafka.t3.small"}}
+        experiment["targets"][0]["scheduling"] = {"alignment": "utc_hour", "minimum_lead_time": "5m"}
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="aws")
+        resolved = resolve_experiment_definition(self.write(experiment), environment="aws")
+
+        self.assertEqual("kafka.t3.small", snapshot["targets"][0]["lab"]["kafka"]["msk_instance_type"])
+        self.assertEqual("utc_hour", resolved.targets[0].definition["scheduling"]["alignment"])
+
     def test_accepts_exact_per_topic_application_workloads(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["application"] = {
