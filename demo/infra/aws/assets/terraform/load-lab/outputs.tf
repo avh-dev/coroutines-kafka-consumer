@@ -102,6 +102,11 @@ output "msk_bootstrap_brokers" {
   value       = try(aws_msk_cluster.load_lab[0].bootstrap_brokers, "")
 }
 
+output "msk_cluster_arn" {
+  description = "ARN of the MSK cluster when kafka_mode=msk."
+  value       = try(aws_msk_cluster.load_lab[0].arn, "")
+}
+
 output "msk_number_of_broker_nodes" {
   description = "Broker count for the MSK cluster."
   value       = var.msk_number_of_broker_nodes

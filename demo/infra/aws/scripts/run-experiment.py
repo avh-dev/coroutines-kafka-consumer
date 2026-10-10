@@ -654,6 +654,58 @@ class SessionController:
         )
         self.phase("LAB_READY")
 
+    def transition_msk_for_target(self, target: dict[str, Any]) -> None:
+        desired_type = str(((target.get("lab") or {}).get("kafka") or {}).get("msk_instance_type") or "").strip()
+        if not desired_type:
+            return
+        if self.config["kafka"].get("mode") != "msk":
+            raise RuntimeError(f"Target {target['id']!r} requests MSK resizing but the lab does not use MSK")
+        current_type = str(self.config["kafka"].get("instance_type") or "")
+        if current_type == desired_type:
+            return
+        context_path = f"/opt/ckc-runner/config/load-lab-{self.config['aws_environment']}.json"
+        command = "\n".join([
+            "set -euo pipefail",
+            "python3 - <<'PY'",
+            "import json, subprocess, time",
+            f"context = json.load(open({context_path!r}, encoding='utf-8'))",
+            "arn = context.get('kafka', {}).get('cluster_arn')",
+            "if not arn: raise RuntimeError('MSK cluster ARN is missing from lab context')",
+            f"desired = {desired_type!r}",
+            f"region = {self.config['region']!r}",
+            "def aws(*args):",
+            "    return json.loads(subprocess.check_output(['aws', 'kafka', *args, '--region', region, '--output', 'json'], text=True))",
+            "cluster = aws('describe-cluster', '--cluster-arn', arn)['ClusterInfo']",
+            "before = cluster['BrokerNodeGroupInfo']['InstanceType']",
+            "if before == desired:",
+            "    print(json.dumps({'operation_arn': None, 'before': before, 'after': before, 'status': 'already_current'})); raise SystemExit(0)",
+            "operation = aws('update-broker-type', '--cluster-arn', arn, '--current-version', cluster['CurrentVersion'], '--target-instance-type', desired)",
+            "operation_arn = operation['ClusterOperationInfo']['OperationArn']",
+            "deadline = time.monotonic() + 7200",
+            "while time.monotonic() < deadline:",
+            "    info = aws('describe-cluster-operation', '--cluster-operation-arn', operation_arn)['ClusterOperationInfo']",
+            "    state = info['OperationState']",
+            "    if state == 'UPDATE_COMPLETE': break",
+            "    if state in {'UPDATE_FAILED', 'UPDATE_CANCELLED'}: raise RuntimeError(f'MSK resize {operation_arn} ended as {state}')",
+            "    time.sleep(30)",
+            "else: raise TimeoutError(f'MSK resize did not complete: {operation_arn}')",
+            "while time.monotonic() < deadline:",
+            "    cluster = aws('describe-cluster', '--cluster-arn', arn)['ClusterInfo']",
+            "    if cluster['State'] == 'ACTIVE' and cluster['BrokerNodeGroupInfo']['InstanceType'] == desired: break",
+            "    time.sleep(20)",
+            "else: raise TimeoutError(f'MSK cluster did not become ACTIVE as {desired}')",
+            "print(json.dumps({'operation_arn': operation_arn, 'before': before, 'after': desired, 'status': 'completed'}))",
+            "PY",
+        ])
+        self.phase("RESIZING_MSK", target_id=target["id"], target_instance_type=desired_type)
+        invocation = self.ssm(command, f"resize MSK for target {target['name']}", 7500)
+        output = str(invocation.get("StandardOutputContent", "")).strip().splitlines()
+        evidence = json.loads(output[-1]) if output else {}
+        evidence.update({"target_id": target["id"], "started_at": utc_text(), "desired_instance_type": desired_type})
+        self.state.setdefault("msk_transitions", []).append(evidence)
+        self.config["kafka"]["instance_type"] = desired_type
+        self.save()
+
     def execute_test(self) -> None:
         config = self.config
         results: list[dict[str, Any]] = []
@@ -664,6 +716,7 @@ class SessionController:
             "remote_definition": config["test_definition"],
         }]
         for index, target in enumerate(targets, start=1):
+            self.transition_msk_for_target(target)
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
             remote_phase_log = f"/opt/ckc-runner/reports/session-{run_id}.phases.jsonl"

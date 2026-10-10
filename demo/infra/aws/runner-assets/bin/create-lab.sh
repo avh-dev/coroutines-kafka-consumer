@@ -1096,6 +1096,7 @@ EOF
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
 else
   KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
+  MSK_CLUSTER_ARN="$(infra_output msk_cluster_arn)"
   MSK_BROKER_NODES="$(infra_output msk_number_of_broker_nodes)"
   MSK_KAFKA_VERSION="$(infra_output msk_kafka_version)"
   MSK_BROKER_INSTANCE_TYPE="$(infra_output msk_broker_instance_type)"
@@ -1228,7 +1229,8 @@ context = {
             "mode": "${KAFKA_MODE}",
             "brokers": ${KAFKA_BROKERS:-${MSK_BROKER_NODES:-0}},
             "kafka_version": "${MSK_KAFKA_VERSION:-}",
-            "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
+        "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
+        "cluster_arn": "${MSK_CLUSTER_ARN:-}",
             "disk_gib": ${MSK_EBS_VOLUME_SIZE:-0},
         },
         "redis": {
