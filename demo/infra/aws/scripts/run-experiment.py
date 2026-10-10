@@ -80,13 +80,21 @@ def load_profile_seconds(profile: str) -> int:
     )
 
 
+def duration_seconds(value: str) -> int:
+    match = re.fullmatch(r"(\d+)\s*([hms])", value.strip())
+    if not match:
+        raise ValueError(f"Invalid duration: {value!r}")
+    return int(match.group(1)) * {"h": 3600, "m": 60, "s": 1}[match.group(2)]
+
+
 def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: int = 0) -> int:
     def phase_seconds(name: str, default: int) -> int:
         value = target.get(name)
         return max(0, int(default if value is None else value))
 
     expected_lifecycle_seconds = (
-        phase_seconds("duration_seconds", 0)
+        phase_seconds("minimum_lead_time_seconds", 0)
+        + phase_seconds("duration_seconds", 0)
         + phase_seconds("consumer_drain_timeout_seconds", 300)
         + phase_seconds("telemetry_settle_seconds", 65)
         + TARGET_WATCHDOG_SAFETY_SECONDS
@@ -725,6 +733,8 @@ class SessionController:
                 + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
+                f"--start-alignment {shlex.quote(target.get('start_alignment', 'none'))} "
+                f"--minimum-lead-time-seconds {int(target.get('minimum_lead_time_seconds', 0))} "
                 '> "$session_log" 2>&1; status=$?; '
                 'cat "$phase_log"; exit "$status"'
             )
@@ -1834,8 +1844,17 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "telemetry_settle_seconds": int(
                 65 if load.get("telemetry_settle_seconds") is None else load["telemetry_settle_seconds"]
             ),
+            "lab": copy.deepcopy(item.target.definition.get("lab") or {}),
+            "scheduling": copy.deepcopy(item.target.definition.get("scheduling") or {}),
         })
     for target in targets:
+        scheduling = target["scheduling"]
+        if scheduling:
+            target["start_alignment"] = scheduling["alignment"]
+            target["minimum_lead_time_seconds"] = duration_seconds(scheduling["minimum_lead_time"])
+        else:
+            target["start_alignment"] = "none"
+            target["minimum_lead_time_seconds"] = 0
         target["watchdog_seconds"] = target_watchdog_seconds(target, watchdog_floor_seconds)
     mode = "experiment"
     experiment_name = resolved.name

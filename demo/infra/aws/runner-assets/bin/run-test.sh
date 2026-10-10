@@ -24,5 +24,8 @@ fi
 if [ -n "${RUN_ID}" ]; then
   COMMAND+=(--run-id "${RUN_ID}")
 fi
+if [ "$#" -gt 4 ]; then
+  COMMAND+=("${@:5}")
+fi
 
 exec "${COMMAND[@]}"

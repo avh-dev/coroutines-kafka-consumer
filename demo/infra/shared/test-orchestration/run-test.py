@@ -13,7 +13,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +91,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--definition-json")
     parser.add_argument("--test-definition-path", help="Path to the YAML test definition inside the runner repo.")
     parser.add_argument("--run-id", help="Stable run id supplied by the checkout-local AWS session controller.")
+    parser.add_argument("--start-alignment", choices=("none", "utc_hour"), default="none")
+    parser.add_argument("--minimum-lead-time-seconds", type=int, default=0)
     return parser.parse_args()
 
 
@@ -1072,6 +1074,17 @@ def cleanup_workloads(job_name: str | None, project_manifest: Path | None) -> No
         run(["kubectl", "delete", "-f", str(project_manifest), "--ignore-not-found=true"], check=False)
 
 
+def scheduled_start_at(now: datetime, alignment: str, minimum_lead_time_seconds: int) -> datetime:
+    if minimum_lead_time_seconds < 0:
+        raise ValueError("minimum-lead-time-seconds must not be negative")
+    earliest = now + timedelta(seconds=minimum_lead_time_seconds)
+    if alignment == "none":
+        return earliest
+    if alignment != "utc_hour":
+        raise ValueError(f"Unsupported start alignment: {alignment}")
+    return (earliest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+
+
 def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir)
@@ -1112,7 +1125,9 @@ def main() -> None:
             raise ValueError(
                 f"Diagnostic step {step['name']!r} ends after the load profile ({load_profile_seconds}s)."
             )
-    wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds
+    if args.minimum_lead_time_seconds < 0:
+        raise ValueError("minimum-lead-time-seconds must not be negative")
+    wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds + args.minimum_lead_time_seconds
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
         raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
@@ -1164,8 +1179,14 @@ def main() -> None:
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         metrics_url = as_str(lab_context.get("metrics_url"), "http://127.0.0.1:9090")
         telemetry_ready_at = wait_for_telemetry_ready(metrics_url, run_dir / "telemetry-readiness.json")
-        started_at = utc_now_text()
+        scheduled_start = scheduled_start_at(
+            datetime.now(timezone.utc), args.start_alignment, args.minimum_lead_time_seconds
+        )
+        started_at = scheduled_start.isoformat(timespec="seconds").replace("+00:00", "Z")
         metadata["started_at"] = started_at
+        metadata["scheduled_start_at"] = started_at
+        metadata["start_alignment"] = args.start_alignment
+        metadata["minimum_lead_time_seconds"] = args.minimum_lead_time_seconds
         metadata["telemetry_ready_at"] = telemetry_ready_at
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         annotation_label = as_str(deployment.get("annotation_label"), deployment_profile(deployment) or run_id)
