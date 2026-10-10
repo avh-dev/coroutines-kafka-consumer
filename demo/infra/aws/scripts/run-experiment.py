@@ -654,15 +654,15 @@ class SessionController:
         )
         self.phase("LAB_READY")
 
-    def transition_msk_for_target(self, target: dict[str, Any]) -> None:
+    def transition_msk_for_target(self, target: dict[str, Any]) -> bool:
         desired_type = str(((target.get("lab") or {}).get("kafka") or {}).get("msk_instance_type") or "").strip()
         if not desired_type:
-            return
+            return False
         if self.config["kafka"].get("mode") != "msk":
             raise RuntimeError(f"Target {target['id']!r} requests MSK resizing but the lab does not use MSK")
         current_type = str(self.config["kafka"].get("instance_type") or "")
         if current_type == desired_type:
-            return
+            return False
         context_path = f"/opt/ckc-runner/config/load-lab-{self.config['aws_environment']}.json"
         command = "\n".join([
             "set -euo pipefail",
@@ -705,6 +705,7 @@ class SessionController:
         self.state.setdefault("msk_transitions", []).append(evidence)
         self.config["kafka"]["instance_type"] = desired_type
         self.save()
+        return True
 
     def execute_test(self) -> None:
         config = self.config
@@ -716,7 +717,8 @@ class SessionController:
             "remote_definition": config["test_definition"],
         }]
         for index, target in enumerate(targets, start=1):
-            self.transition_msk_for_target(target)
+            if self.transition_msk_for_target(target):
+                self.warm_kafka()
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
             remote_phase_log = f"/opt/ckc-runner/reports/session-{run_id}.phases.jsonl"

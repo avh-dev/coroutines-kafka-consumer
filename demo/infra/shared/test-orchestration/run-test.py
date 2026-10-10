@@ -745,6 +745,15 @@ def wait_for_job(job_name: str, timeout_seconds: int) -> None:
 
 def delete_job(job_name: str) -> None:
     run(["kubectl", "-n", "ckc-loadtest", "delete", "job", job_name, "--ignore-not-found=true"], check=False)
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        pods = kubectl_json([
+            "kubectl", "-n", "ckc-loadtest", "get", "pods", "-l", f"job-name={job_name}", "-o", "json",
+        ])
+        if not pods.get("items"):
+            return
+        time.sleep(2)
+    raise TimeoutError(f"Generator pods for job {job_name!r} did not terminate after deletion")
 
 
 def load_lab_context(path: Path) -> dict[str, Any]:
