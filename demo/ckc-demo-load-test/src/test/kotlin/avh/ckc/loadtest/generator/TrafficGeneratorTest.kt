@@ -78,6 +78,47 @@ class TrafficGeneratorTest {
     }
 
     @Test
+    fun `fleet telemetry does not publish before scheduled start or replay waiting intervals`() = runBlocking {
+        val publisher = RecordingPublisher()
+        val scheduledAt = Instant.now()
+        var now = scheduledAt.minusSeconds(30)
+        val waiting = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val gate = ScheduledStartGate(
+            clock = { now },
+            pause = {
+                waiting.complete(Unit)
+                release.await()
+                now = scheduledAt
+            }
+        )
+        val config = scheduledStartConfig(
+            loadProfile = "100 -> (1s, steady) -> 100",
+            telemetrySourceMode = TelemetrySourceMode.FLEET,
+            orderPercent = 0,
+            telemetryPercent = 100
+        )
+
+        val job = async {
+            TrafficGenerator(
+                shardContext = ShardContext(0, 1, "test", scheduledAt),
+                config = config,
+                scenario = LoadScenario.parse(config.loadProfile),
+                producers = publisher,
+                scheduledStartGate = gate
+            ).run()
+        }
+
+        waiting.await()
+        assertEquals(0, publisher.totalSent)
+        release.complete(Unit)
+        withTimeout(2_500) { job.await() }
+
+        assertEquals(0, publisher.orderSent)
+        assertTrue(publisher.telemetrySent in 1..120, "Expected one second of telemetry, got ${publisher.telemetrySent}")
+    }
+
+    @Test
     fun `stops after load profile ends without draining generated domain state`() = runBlocking {
         val publisher = RecordingPublisher()
         val config = LoadTestConfig(
@@ -261,15 +302,20 @@ class TrafficGeneratorTest {
         override fun logSnapshot(reason: String) = Unit
     }
 
-    private fun scheduledStartConfig(loadProfile: String) = LoadTestConfig(
+    private fun scheduledStartConfig(
+        loadProfile: String,
+        telemetrySourceMode: TelemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
+        orderPercent: Int = 100,
+        telemetryPercent: Int = 0
+    ) = LoadTestConfig(
         bootstrapServers = "localhost:9092",
         orderEventsTopic = "order.events.v1",
         batchEventsTopic = "batch.events.v1",
         cauldronEventsTopic = "cauldron.events.v1",
         baseTps = 100,
-        orderEventPercent = 100,
+        orderEventPercent = orderPercent,
         batchEventPercent = 0,
-        cauldronTelemetryPercent = 0,
+        cauldronTelemetryPercent = telemetryPercent,
         loadProfile = loadProfile,
         cauldronCount = 1,
         minOrdersPerBatch = 3,
@@ -282,7 +328,8 @@ class TrafficGeneratorTest {
         maxBurst = 100,
         statsLogInterval = Duration.ofSeconds(30),
         diagnosticsBlobSize = 8,
-        telemetrySourceMode = TelemetrySourceMode.ACTIVE_BATCHES,
+        telemetrySourceMode = telemetrySourceMode,
+        telemetryPublishInterval = Duration.ofMillis(100),
         publishEnabled = true,
         auditLogEnabled = false
     )
