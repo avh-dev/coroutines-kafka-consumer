@@ -1856,6 +1856,10 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             target["start_alignment"] = "none"
             target["minimum_lead_time_seconds"] = 0
         target["watchdog_seconds"] = target_watchdog_seconds(target, watchdog_floor_seconds)
+    first_target_kafka = ((targets[0].get("lab") or {}).get("kafka") or {})
+    first_target_msk_type = first_target_kafka.get("msk_instance_type")
+    if first_target_msk_type:
+        terraform_lab_inputs["msk_broker_instance_type"] = first_target_msk_type
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
@@ -1871,7 +1875,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     kafka_lab = lab.get("kafka") or {}
     kafka_brokers = kafka_lab.get("kubernetes_brokers") or kafka_lab.get("msk_brokers")
     kafka_mode = kafka_lab.get("mode") or terraform_lab_inputs.get("kafka_mode")
-    kafka_instance_type = kafka_lab.get("msk_instance_type") or terraform_lab_inputs.get("msk_broker_instance_type")
+    kafka_instance_type = first_target_msk_type or kafka_lab.get("msk_instance_type") or terraform_lab_inputs.get("msk_broker_instance_type")
     kafka = {
         "implementation": "Amazon MSK" if kafka_mode == "msk" else "apache-kafka",
         "topology": "cluster" if kafka_brokers and int(kafka_brokers) > 1 else "single",
