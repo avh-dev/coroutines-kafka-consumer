@@ -121,6 +121,7 @@ private suspend fun runTrafficGenerators(
     }
     producers.logSnapshot("workers-complete")
     producers.flush()
+    println("load-test lifecycle producer_flush_completed_at=${Instant.now()} workers=$workerCount")
 }
 
 private fun newLoadGeneratorDispatcher(dispatcherThreads: Int) =

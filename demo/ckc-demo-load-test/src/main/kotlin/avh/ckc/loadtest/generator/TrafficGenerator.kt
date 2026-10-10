@@ -5,6 +5,7 @@ import avh.ckc.loadtest.domain.LoadTestEventFactory
 import avh.ckc.loadtest.domain.SimulationState
 import avh.ckc.loadtest.kafka.LoadTestPublisher
 import avh.ckc.loadtest.runtime.GeneratorIdentity
+import avh.ckc.loadtest.runtime.ScheduledStartGate
 import avh.ckc.loadtest.runtime.ShardContext
 import avh.ckc.loadtest.scenario.LoadScenario
 import kotlinx.coroutines.coroutineScope
@@ -18,7 +19,8 @@ class TrafficGenerator(
     private val scenario: LoadScenario,
     private val producers: LoadTestPublisher,
     workerIndex: Int = 0,
-    totalWorkers: Int = 1
+    totalWorkers: Int = 1,
+    private val scheduledStartGate: ScheduledStartGate = ScheduledStartGate()
 ) {
     private val identity = GeneratorIdentity.from(shardContext, workerIndex, totalWorkers)
     private val state = SimulationState(config.cauldronCount, identity)
@@ -26,12 +28,13 @@ class TrafficGenerator(
 
     suspend fun run(flushOnCompletion: Boolean = true) = coroutineScope {
         val factory = LoadTestEventFactory(identity)
-        val startedAt = shardContext.testRunStartedAt ?: Instant.now()
         val generators = eventGenerators(config, state, factory, producers)
         val topicWeights = generators
             .groupBy(EventGenerator::topic)
             .mapValues { (_, topicGenerators) -> topicGenerators.sumOf(EventGenerator::weight) }
 
+        producers.prepare()
+        val startedAt = awaitScheduledStart()
         val jobs = generators.map { generator ->
             launch {
                 if (generator is FleetTelemetryEventGenerator) {
@@ -57,10 +60,26 @@ class TrafficGenerator(
 
         jobs.forEach { it.join() }
         logger.cancel()
+        println("load-test lifecycle generation_completed_at=${Instant.now()} ${lifecycleIdentity()}")
         producers.logSnapshot("${identity.label()} ${stats.format(state.snapshot())}")
         if (flushOnCompletion) {
             producers.flush()
+            println("load-test lifecycle producer_flush_completed_at=${Instant.now()} ${lifecycleIdentity()}")
         }
     }
+
+    private suspend fun awaitScheduledStart(): Instant {
+        val scheduledAt = shardContext.testRunStartedAt ?: Instant.now()
+        println(
+            "load-test lifecycle armed run_id=${shardContext.testRunId ?: "local"} " +
+                "attempt_id=${shardContext.launchAttemptId} ${identity.label()} scheduled_start=$scheduledAt"
+        )
+        val activatedAt = scheduledStartGate.await(scheduledAt)
+        println("load-test lifecycle profile_activated_at=$activatedAt scheduled_start=$scheduledAt ${lifecycleIdentity()}")
+        return scheduledAt
+    }
+
+    private fun lifecycleIdentity(): String =
+        "run_id=${shardContext.testRunId ?: "local"} attempt_id=${shardContext.launchAttemptId} ${identity.label()}"
 
 }

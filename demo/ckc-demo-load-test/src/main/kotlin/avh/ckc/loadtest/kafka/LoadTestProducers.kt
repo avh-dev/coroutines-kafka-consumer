@@ -21,8 +21,11 @@ import org.apache.kafka.common.serialization.StringSerializer
 import org.apache.kafka.common.serialization.Serializer
 import java.lang.Math.floorMod
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 interface LoadTestPublisher {
+    fun prepare() = Unit
+
     fun sendOrder(key: String, event: OrderLifecycleEvent)
 
     fun sendBatch(key: String, event: BatchLifecycleEvent)
@@ -45,6 +48,8 @@ class LoadTestProducers(
     private val batchStats = ProducerTopicStats()
     private val telemetryStats = ProducerTopicStats()
     private val lastLoggedTotal = AtomicLong(0)
+    private val firstSendLogged = AtomicBoolean(false)
+    private val firstAcknowledgementLogged = AtomicBoolean(false)
 
     private val lifecycleProducerPool = lazy {
         producerPool(
@@ -77,7 +82,16 @@ class LoadTestProducers(
         metrics.registerTopicStats("telemetry", telemetryStats)
     }
 
+    override fun prepare() {
+        if (config.publishEnabled) {
+            lifecycleProducerPool.value
+            batchProducerPool.value
+            telemetryProducerPool.value
+        }
+    }
+
     override fun sendOrder(key: String, event: OrderLifecycleEvent) {
+        logFirstSend()
         val sent = lifecycleStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
             recordDryRun(config.orderEventsTopic, key, lifecycleStats.acked)
@@ -97,6 +111,7 @@ class LoadTestProducers(
     }
 
     override fun sendBatch(key: String, event: BatchLifecycleEvent) {
+        logFirstSend()
         val sent = batchStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
             recordDryRun(config.batchEventsTopic, key, batchStats.acked)
@@ -116,6 +131,7 @@ class LoadTestProducers(
     }
 
     override fun sendTelemetry(key: String, event: CauldronTelemetryEvent) {
+        logFirstSend()
         val sent = telemetryStats.sent.incrementAndGet()
         if (!config.publishEnabled) {
             recordDryRun(config.cauldronEventsTopic, key, telemetryStats.acked)
@@ -163,6 +179,7 @@ class LoadTestProducers(
 
     private fun recordDryRun(topic: String, key: String, ackedCounter: AtomicLong) {
         ackedCounter.incrementAndGet()
+        logFirstAcknowledgement()
         auditLog?.generated(topic, key)
     }
 
@@ -197,6 +214,7 @@ class LoadTestProducers(
             }
 
             ackedCounter.incrementAndGet()
+            logFirstAcknowledgement()
             val recordMetadata = metadata!!
             auditLog?.published(recordMetadata, key)
         }
@@ -209,6 +227,22 @@ class LoadTestProducers(
             }
         }
     }
+
+    private fun logFirstSend() {
+        if (firstSendLogged.compareAndSet(false, true)) {
+            println("load-test lifecycle first_send_at=${java.time.Instant.now()} ${lifecycleIdentity()}")
+        }
+    }
+
+    private fun logFirstAcknowledgement() {
+        if (firstAcknowledgementLogged.compareAndSet(false, true)) {
+            println("load-test lifecycle first_acknowledgement_at=${java.time.Instant.now()} ${lifecycleIdentity()}")
+        }
+    }
+
+    private fun lifecycleIdentity(): String =
+        "run_id=${shardContext.testRunId ?: "local"} attempt_id=${shardContext.launchAttemptId} " +
+            "shard=${shardContext.shardIndex}/${shardContext.totalShards}"
 
     private fun topicName(stream: String): String =
         when (stream) {

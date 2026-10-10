@@ -169,6 +169,7 @@
 | [DEMO-101](#demo-101) | Bound demo Redis state with a ten-minute TTL during sustained load tests. | DONE |
 | [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
+| [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5360,3 +5361,13 @@ Keep Kafka and workload topology fixed between sequential targets: twelve partit
 Run each target through a three-minute ramp and seven-minute full-load plateau with HPA and application CPU limits disabled.
 Preserve evidence for per-pod partition placement, CPU balance, and consumer-group rebalance duration comparison.
 Verification: all 63 shared orchestration tests, all 184 internal-lab tests, all CKC demo tests, and the focused dashboard tests pass; both generated target manifests are accepted by Kubernetes server-side dry-run. The installed lab, demo image, experiment definition, and dashboard are updated. The comparison experiment remains intentionally unstarted.
+
+<a id="demo-104"></a>
+### DEMO-104 - Delay load-generator publication until its scheduled start
+
+_Date: 2026-10-10_
+
+Prepared every generator shard and Kafka producer before its assigned timestamp, then activated the profile without accumulating rate permits during the wait.
+Recorded shard arming, profile activation, first send and acknowledgment, generation completion, and producer flush with run, attempt, and shard identities.
+Applied the contract to rate-controlled and fleet-telemetry generators, including already-past timestamps; indexed generator Jobs do not retry a failed shard and use the pod UID as the fallback attempt identity.
+Verification: focused shared deployment-plan tests and the complete `:ckc-demo-load-test:test` suite pass.
