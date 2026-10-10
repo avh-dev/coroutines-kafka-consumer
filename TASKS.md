@@ -458,6 +458,7 @@
 | [INFRA-289](#infra-289) | Compact the report load timeline and clarify chaos and measurement annotations. | DONE |
 | [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | DONE |
 | [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
+| [INFRA-292](#infra-292) | Run sequential AWS CKC and Spring targets with target-specific MSK sizing, scheduled starts, TLS diagnostics, and cost evidence. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5371,3 +5372,10 @@ Prepared every generator shard and Kafka producer before its assigned timestamp,
 Recorded shard arming, profile activation, first send and acknowledgment, generation completion, and producer flush with run, attempt, and shard identities.
 Applied the contract to rate-controlled and fleet-telemetry generators, including already-past timestamps; indexed generator Jobs do not retry a failed shard and use the pod UID as the fallback attempt identity.
 Verification: focused shared deployment-plan tests and the complete `:ckc-demo-load-test:test` suite pass.
+
+<a id="infra-292"></a>
+### INFRA-292 - AWS target scheduling and production-like long-run evidence
+
+_Date: 2026-10-10_
+
+In progress: implement the sequential AWS CKC and Spring targets, including target-specific MSK resizing, scheduling, reset, TLS diagnostics, evidence, and cost accounting.
