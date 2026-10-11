@@ -698,10 +698,16 @@ class SessionController:
             "PY",
         ])
         self.phase("RESIZING_MSK", target_id=target["id"], target_instance_type=desired_type)
+        transition_started_at = utc_text()
         invocation = self.ssm(command, f"resize MSK for target {target['name']}", 7500)
         output = str(invocation.get("StandardOutputContent", "")).strip().splitlines()
         evidence = json.loads(output[-1]) if output else {}
-        evidence.update({"target_id": target["id"], "started_at": utc_text(), "desired_instance_type": desired_type})
+        evidence.update({
+            "target_id": target["id"],
+            "started_at": transition_started_at,
+            "completed_at": utc_text(),
+            "desired_instance_type": desired_type,
+        })
         self.state.setdefault("msk_transitions", []).append(evidence)
         self.config["kafka"]["instance_type"] = desired_type
         self.save()
