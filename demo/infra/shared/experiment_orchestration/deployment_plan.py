@@ -218,6 +218,7 @@ def aws_terraform_variables(
         },
         "kafka": {
             "mode": "kafka_mode",
+            "transport": "kafka_transport",
             "kubernetes_brokers": "kubernetes_kafka_brokers",
             "msk_version": "msk_kafka_version",
             "msk_brokers": "msk_number_of_broker_nodes",
@@ -293,6 +294,11 @@ def aws_terraform_variables(
         for source, destination in mapping.items():
             if source in raw:
                 result[destination] = copy.deepcopy(raw[source])
+    if "kafka_transport" in result:
+        transport = str(result["kafka_transport"]).upper()
+        if transport not in {"PLAINTEXT", "TLS"}:
+            raise ValueError("AWS experiment environment.lab.kafka.transport must be plaintext or tls")
+        result["kafka_transport"] = transport
     if runtime:
         result.update(copy.deepcopy(dict(runtime)))
     return result

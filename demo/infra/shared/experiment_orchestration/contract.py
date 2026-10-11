@@ -141,7 +141,7 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
     context = "Experiment environments.internal-lab.lab.kafka"
     kafka = require_mapping(value, context)
     unknown = sorted(set(kafka) - {
-        "implementation", "topology", "brokers", "replication_factor", "min_insync_replicas", "resources"
+        "implementation", "topology", "brokers", "replication_factor", "min_insync_replicas", "resources", "transport"
     })
     if unknown:
         raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
@@ -149,6 +149,10 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
     implementation = str(kafka.get("implementation") or "apache-kafka")
     if implementation != "apache-kafka":
         raise ValueError(f"{context}.implementation must be apache-kafka")
+    transport = str(kafka.get("transport") or "plaintext").lower()
+    if transport not in {"plaintext", "tls"}:
+        raise ValueError(f"{context}.transport must be plaintext or tls")
+    kafka["transport"] = transport
     topology = str(kafka.get("topology") or "single")
     if topology not in {"single", "cluster"}:
         raise ValueError(f"{context}.topology must be single or cluster")

@@ -1945,6 +1945,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             kafka_lab.get("replication_factor") or min(3, int(kafka_brokers or 1))
         ),
         "mode": kafka_mode,
+        "transport": str(kafka_lab.get("transport") or "plaintext").lower(),
         **({"instance_type": kafka_instance_type} if kafka_instance_type else {}),
     }
     redis_lab = lab.get("redis") or {}
