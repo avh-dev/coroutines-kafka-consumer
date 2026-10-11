@@ -147,25 +147,25 @@ rpk() {
 
 apache_kafka_topics() {
   if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
   else
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
   fi
 }
 
 apache_kafka_groups() {
   if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
   else
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
   fi
 }
 
 apache_kafka_broker_api_versions() {
   if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties
   else
-    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
   fi
 }
 
@@ -179,11 +179,11 @@ wait_for_kafka_ready() {
       if timeout 15 docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" cluster health >/dev/null 2>&1; then
         return
       fi
-    elif timeout 15 apache_kafka_topics --list >/dev/null 2>&1; then
+    elif apache_kafka_topics --list >/dev/null 2>&1; then
       if [ "${LAB_KAFKA_TOPOLOGY}" != "cluster" ]; then
         return
       fi
-      broker_count="$(timeout 15 apache_kafka_broker_api_versions 2>/dev/null \
+      broker_count="$(apache_kafka_broker_api_versions 2>/dev/null \
         | grep -c 'isFenced: false' || true)"
       if [ "${broker_count}" -eq "${LAB_KAFKA_BROKER_COUNT}" ]; then
         return
