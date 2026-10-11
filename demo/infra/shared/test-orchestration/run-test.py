@@ -920,6 +920,7 @@ def reset_target_data(
         sys.executable,
         str(repo_dir / "demo/infra/shared/test-orchestration/prepare-kafka-topics.py"),
         "--bootstrap-server", as_str(lab_context.get("kafka_bootstrap"), ""),
+        "--security-protocol", as_str(lab_context.get("kafka_security_protocol"), "PLAINTEXT"),
         "--replication-factor", str(as_int(lab_context.get("kafka_topic_replication_factor"), 1)),
         "--test-definition-path", str(definition_path),
         "--repo-dir", str(repo_dir),

@@ -24,6 +24,7 @@ DEFAULT_TOPICS = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Recreate CKC Kafka topics for a lab test definition.")
     parser.add_argument("--bootstrap-server", required=True)
+    parser.add_argument("--security-protocol", choices=("PLAINTEXT", "SSL"), default="PLAINTEXT")
     parser.add_argument("--replication-factor", type=int, required=True)
     parser.add_argument("--test-definition-path", required=True)
     parser.add_argument("--repo-dir", default=os.environ.get("CKC_RUNNER_REPO_DIR", "."))
@@ -124,14 +125,16 @@ def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str, topics: list[dict[str, int | str]]) -> str:
+def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str, topics: list[dict[str, int | str]], security_protocol: str) -> str:
     lines = [
         "set -euo pipefail",
         f"BOOTSTRAP={shell_quote(bootstrap_server)}",
         f"TOPICS_BIN={shell_quote(topics_bin)}",
+        "CLIENT_CONFIG=/tmp/ckc-kafka-client.properties",
+        f"printf '%s\\n' {shell_quote(f'security.protocol={security_protocol}')} > \"${{CLIENT_CONFIG}}\"",
         "topic_exists() {",
         "  topic=\"$1\"",
-        "  if listing=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --list); then",
+        "  if listing=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --command-config \"${CLIENT_CONFIG}\" --list); then",
         "    if printf '%s\\n' \"${listing}\" | grep -Fxq \"${topic}\"; then",
         "      return 0",
         "    fi",
@@ -161,7 +164,7 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         "  partitions=\"$2\"",
         "  replication_factor=\"$3\"",
         "  for attempt in $(seq 1 60); do",
-        "    if output=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --create --topic \"${topic}\" --partitions \"${partitions}\" --replication-factor \"${replication_factor}\" 2>&1); then",
+        "    if output=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --command-config \"${CLIENT_CONFIG}\" --create --topic \"${topic}\" --partitions \"${partitions}\" --replication-factor \"${replication_factor}\" 2>&1); then",
         "      printf '%s\\n' \"${output}\"",
         "      return 0",
         "    else",
@@ -180,7 +183,7 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         "  topic=\"$1\"",
         "  expected=\"$2\"",
         "  for attempt in $(seq 1 30); do",
-        "    description=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --describe --topic \"${topic}\" 2>/dev/null || true)",
+        "    description=$(\"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --command-config \"${CLIENT_CONFIG}\" --describe --topic \"${topic}\" 2>/dev/null || true)",
         "    actual=$(printf '%s\\n' \"${description}\" | sed -n 's/.*PartitionCount: \\([0-9][0-9]*\\).*/\\1/p' | head -n 1)",
         "    if [ \"${actual}\" = \"${expected}\" ]; then",
         "      printf '%s\\n' \"${description}\"",
@@ -191,7 +194,7 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         "    sleep 2",
         "  done",
         "  echo \"Topic ${topic} does not have expected partition count ${expected}.\" >&2",
-        "  \"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --describe --topic \"${topic}\" >&2 || true",
+        "  \"${TOPICS_BIN}\" --bootstrap-server \"${BOOTSTRAP}\" --command-config \"${CLIENT_CONFIG}\" --describe --topic \"${topic}\" >&2 || true",
         "  return 1",
         "}",
     ]
@@ -202,7 +205,7 @@ def admin_script(bootstrap_server: str, replication_factor: int, topics_bin: str
         lines.extend(
             [
                 f'echo "Deleting topic {name} if it exists."',
-                f'"${{TOPICS_BIN}}" --bootstrap-server "${{BOOTSTRAP}}" --delete --if-exists --topic {quoted_name} || true',
+                f'"${{TOPICS_BIN}}" --bootstrap-server "${{BOOTSTRAP}}" --command-config "${{CLIENT_CONFIG}}" --delete --if-exists --topic {quoted_name} || true',
                 f"wait_topic_deleted {quoted_name}",
                 f'echo "Creating topic {name} with {partitions} partitions."',
                 f"create_topic {quoted_name} {partitions} {replication_factor}",
@@ -257,7 +260,7 @@ def wait_for_pod_terminal(namespace: str, pod: str, timeout_seconds: float = 600
 
 
 def recreate_topics(args: argparse.Namespace, topics: list[dict[str, int | str]]) -> list[dict[str, int | str | None]]:
-    script = admin_script(args.bootstrap_server, args.replication_factor, args.topics_bin, topics)
+    script = admin_script(args.bootstrap_server, args.replication_factor, args.topics_bin, topics, args.security_protocol)
     manifest = f"""apiVersion: v1
 kind: Pod
 metadata:
