@@ -18,6 +18,8 @@ data class DemoApplicationProperties(
         var enabled: Boolean = false,
         var bootstrapServers: String = "localhost:9092",
         var securityProtocol: String = "PLAINTEXT",
+        var sslTruststoreCertificates: String = "",
+        var sslEndpointIdentificationAlgorithm: String? = null,
         var groupId: String = "ckc-demo",
         var consumer: KafkaConsumer = KafkaConsumer()
     )

@@ -2,6 +2,7 @@ package avh.ckc.demo.config
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.CommonClientConfigs
+import org.apache.kafka.common.config.SslConfigs
 
 internal fun DemoApplicationProperties.kafkaConsumerProperties(
     runtime: DemoApplicationProperties.ConsumerRuntime
@@ -10,6 +11,12 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
     val topic = runtime.kafka
     return buildMap {
         put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
+        kafka.sslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
+            put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
+        }
+        kafka.sslEndpointIdentificationAlgorithm?.let {
+            put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)
+        }
         shared.assignmentStrategy?.trim()?.takeIf(String::isNotEmpty)?.let {
             put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG, it)
         }

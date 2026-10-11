@@ -19,6 +19,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
 import org.apache.kafka.clients.CommonClientConfigs
+import org.apache.kafka.common.config.SslConfigs
 import org.apache.kafka.common.serialization.Serializer
 import java.lang.Math.floorMod
 import java.util.concurrent.atomic.AtomicLong
@@ -187,9 +188,16 @@ class LoadTestProducers(
     private fun producerProperties(
         settings: KafkaProducerSettings,
         valueSerializerClass: Class<*>
-    ): Map<String, Any> = mapOf(
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to config.bootstrapServers,
-        CommonClientConfigs.SECURITY_PROTOCOL_CONFIG to config.kafkaSecurityProtocol,
+    ): Map<String, Any> = buildMap {
+        put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers)
+        put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, config.kafkaSecurityProtocol)
+        config.kafkaSslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
+            put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
+        }
+        config.kafkaSslEndpointIdentificationAlgorithm?.let {
+            put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)
+        }
+        putAll(mapOf(
         ProducerConfig.ACKS_CONFIG to "all",
         ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
         ProducerConfig.LINGER_MS_CONFIG to settings.lingerMs,
@@ -198,7 +206,8 @@ class LoadTestProducers(
         ProducerConfig.BUFFER_MEMORY_CONFIG to settings.bufferMemory,
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to valueSerializerClass
-    )
+        ))
+    }
 
     private fun callback(
         stream: String,

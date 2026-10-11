@@ -16,12 +16,14 @@ fi
 
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
+REQUESTED_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-}"
 REQUESTED_APPLICATION_NODE_SELECTOR="${LAB_APPLICATION_NODE_SELECTOR:-}"
 REQUESTED_CONTROLLER_NODE_SELECTOR="${LAB_CONTROLLER_NODE_SELECTOR:-}"
 # shellcheck disable=SC1090
 source "${LAB_ENV}"
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-single}}"
+LAB_KAFKA_TRANSPORT="${REQUESTED_KAFKA_TRANSPORT:-${LAB_KAFKA_TRANSPORT:-plaintext}}"
 LAB_APPLICATION_NODE_SELECTOR="${REQUESTED_APPLICATION_NODE_SELECTOR:-${LAB_APPLICATION_NODE_SELECTOR:-}}"
 LAB_CONTROLLER_NODE_SELECTOR="${REQUESTED_CONTROLLER_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR:-}}"
 
@@ -102,6 +104,15 @@ case "${LAB_KAFKA_TOPOLOGY}" in
 esac
 if [[ "${LAB_KAFKA_IMPLEMENTATION}" == "redpanda" && "${LAB_KAFKA_TOPOLOGY}" != "single" ]]; then
   echo "kafka-topology cluster requires apache-kafka." >&2
+  exit 1
+fi
+case "${LAB_KAFKA_TRANSPORT}" in
+  plaintext|PLAINTEXT) LAB_KAFKA_TRANSPORT="plaintext"; KAFKA_SECURITY_PROTOCOL="PLAINTEXT" ;;
+  tls|TLS) LAB_KAFKA_TRANSPORT="tls"; KAFKA_SECURITY_PROTOCOL="SSL" ;;
+  *) echo "kafka transport must be plaintext or tls: ${LAB_KAFKA_TRANSPORT}" >&2; exit 1 ;;
+esac
+if [[ "${LAB_KAFKA_TRANSPORT}" == "tls" && "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]]; then
+  echo "kafka transport tls requires apache-kafka." >&2
   exit 1
 fi
 if [[ "${LAB_KAFKA_TOPOLOGY}" == "cluster" ]]; then
@@ -307,6 +318,7 @@ kubectl -n ckc-perf delete deployment,service,hpa ckc-demo --ignore-not-found=tr
 LAB_ROOT="${LAB_ROOT}" \
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
 LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}" \
+LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT}" \
 LAB_KAFKA_BROKER_COUNT="${LAB_KAFKA_BROKER_COUNT:-}" \
 LAB_KAFKA_REPLICATION_FACTOR="${LAB_KAFKA_REPLICATION_FACTOR:-}" \
 LAB_KAFKA_MIN_INSYNC_REPLICAS="${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}" \
@@ -338,6 +350,7 @@ RENDER_ARGS=(
   --stubs-image docker.io/ckc-perf/demo-stubs:latest
   --load-test-image docker.io/ckc-perf/load-test:latest
   --kafka-bootstrap "${KAFKA_BOOTSTRAP_K8S}"
+  --kafka-security-protocol "${KAFKA_SECURITY_PROTOCOL}"
   --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
   --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
   --namespace ckc-perf
@@ -347,6 +360,9 @@ RENDER_ARGS=(
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --applications-only
 )
+if [[ "${LAB_KAFKA_TRANSPORT}" == "tls" ]]; then
+  RENDER_ARGS+=(--kafka-ssl-truststore-certificates-file "${LAB_ROOT}/state/kafka-tls/ca.crt" --kafka-ssl-endpoint-identification-algorithm "")
+fi
 if [[ -n "${LAB_APPLICATION_NODE_SELECTOR:-}" ]]; then
   RENDER_ARGS+=(--application-node-selector "${LAB_APPLICATION_NODE_SELECTOR}")
 fi

@@ -32,6 +32,9 @@ def main() -> int:
     parser.add_argument("--stubs-image", required=True)
     parser.add_argument("--load-test-image", required=True)
     parser.add_argument("--kafka-bootstrap", required=True)
+    parser.add_argument("--kafka-security-protocol", choices=("PLAINTEXT", "SSL"), default="PLAINTEXT")
+    parser.add_argument("--kafka-ssl-truststore-certificates-file", type=Path)
+    parser.add_argument("--kafka-ssl-endpoint-identification-algorithm")
     parser.add_argument("--redis-host", required=True)
     parser.add_argument("--audit-host", required=True)
     parser.add_argument("--audit-port", type=int, default=5170)
@@ -66,12 +69,18 @@ def main() -> int:
         if not separator or not key:
             raise ValueError(f"--load-env must use KEY=VALUE: {value}")
         load_environment[key] = configured
+    kafka_ssl_truststore_certificates = ""
+    if args.kafka_ssl_truststore_certificates_file:
+        kafka_ssl_truststore_certificates = args.kafka_ssl_truststore_certificates_file.read_text(encoding="utf-8")
     manifests = render_project_manifests(plan, DeploymentBindings(
         run_id=args.run_id,
         application_image=args.application_image,
         stubs_image=args.stubs_image,
         load_test_image=args.load_test_image,
         kafka_bootstrap=args.kafka_bootstrap,
+        kafka_security_protocol=args.kafka_security_protocol,
+        kafka_ssl_truststore_certificates=kafka_ssl_truststore_certificates,
+        kafka_ssl_endpoint_identification_algorithm=args.kafka_ssl_endpoint_identification_algorithm,
         redis_host=args.redis_host,
         audit_host=args.audit_host,
         audit_port=args.audit_port,

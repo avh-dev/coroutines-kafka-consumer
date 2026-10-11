@@ -352,6 +352,20 @@ class ExperimentRunnerTest(unittest.TestCase):
         _, legacy_environment = RUNNER.kafka_lab_environment({"kafka_topology": "single"})
         self.assertEqual({"LAB_KAFKA_TOPOLOGY": "single"}, legacy_environment)
 
+    def test_kafka_transport_becomes_fixed_runner_environment(self) -> None:
+        kafka, environment = RUNNER.kafka_lab_environment({"kafka": {
+            "implementation": "apache-kafka",
+            "topology": "single",
+            "transport": "tls",
+            "brokers": 1,
+            "replication_factor": 1,
+            "min_insync_replicas": 1,
+            "resources": {"cpu_per_broker": 2, "memory_per_broker": "4Gi", "heap_per_broker": "2Gi"},
+        }})
+
+        self.assertEqual("tls", kafka["transport"])
+        self.assertEqual("tls", environment["LAB_KAFKA_TRANSPORT"])
+
     def test_shared_application_contract_maps_to_target_runner_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/libexec/run-target.sh"),

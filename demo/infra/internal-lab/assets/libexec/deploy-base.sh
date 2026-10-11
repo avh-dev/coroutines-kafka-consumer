@@ -18,6 +18,7 @@ REDPANDA_PUBLIC_METRICS_JOB="ckc-redpanda-public-metrics"
 KAFKA_THREAD_STATS_JOB="ckc-kafka-thread-stats"
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
 LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-single}"
+LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-plaintext}"
 
 normalize_kafka_implementation() {
   case "$1" in
@@ -32,6 +33,11 @@ normalize_kafka_implementation() {
 }
 
 LAB_KAFKA_IMPLEMENTATION="$(normalize_kafka_implementation "${LAB_KAFKA_IMPLEMENTATION}")"
+case "${LAB_KAFKA_TRANSPORT}" in
+  plaintext|PLAINTEXT) LAB_KAFKA_TRANSPORT="plaintext"; LAB_KAFKA_SECURITY_PROTOCOL="PLAINTEXT" ;;
+  tls|TLS) LAB_KAFKA_TRANSPORT="tls"; LAB_KAFKA_SECURITY_PROTOCOL="SSL" ;;
+  *) echo "Unsupported LAB_KAFKA_TRANSPORT: ${LAB_KAFKA_TRANSPORT}. Expected plaintext or tls." >&2; exit 1 ;;
+esac
 case "${LAB_KAFKA_TOPOLOGY}" in
   single) ;;
   cluster|three-node) LAB_KAFKA_TOPOLOGY="cluster" ;;
@@ -45,6 +51,11 @@ if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" !
   echo "LAB_KAFKA_TOPOLOGY=cluster requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
   exit 1
 fi
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]; then
+  echo "LAB_KAFKA_TRANSPORT=tls currently requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
+  exit 1
+fi
+
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
   KAFKA_SERVICES="redpanda"
   KAFKA_CONTAINERS="ckc-perf-redpanda"
@@ -118,6 +129,10 @@ for container in ckc-perf-kafka ckc-perf-kafka-1 ckc-perf-kafka-2 ckc-perf-kafka
   fi
 done
 
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
+  sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
+fi
+
 docker rm -f ckc-perf-demo-stubs >/dev/null 2>&1 || true
 
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
@@ -135,7 +150,7 @@ else
   fi
 fi
 
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 240 --remove-orphans ${KAFKA_SERVICES} redis fluent-bit loki grafana process-exporter
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" LAB_KAFKA_SECURITY_PROTOCOL="${LAB_KAFKA_SECURITY_PROTOCOL}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 240 --remove-orphans ${KAFKA_SERVICES} redis fluent-bit loki grafana process-exporter
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ] && [ "${LAB_KAFKA_TOPOLOGY}" = "single" ]; then
   docker restart ckc-perf-kafka >/dev/null
 fi
@@ -190,6 +205,6 @@ echo "  prometheus: http://${LAB_HOST}:30090"
 echo "  autoscaling: KEDA 2.21.0"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  loki:       http://${LAB_HOST}:3100"
-echo "  kafka:      ${KAFKA_BOOTSTRAP} (${LAB_KAFKA_IMPLEMENTATION}, ${LAB_KAFKA_TOPOLOGY})"
+echo "  kafka:      ${KAFKA_BOOTSTRAP} (${LAB_KAFKA_IMPLEMENTATION}, ${LAB_KAFKA_TOPOLOGY}, ${LAB_KAFKA_TRANSPORT})"
 echo "  redis:      ${LAB_NODE_IP}:6379"
 echo "  audit-tcp:  ${LAB_NODE_IP}:5170"

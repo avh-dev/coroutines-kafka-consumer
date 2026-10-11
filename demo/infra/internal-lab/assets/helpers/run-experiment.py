@@ -62,6 +62,7 @@ KAFKA_LAB_ENV_KEYS = {
     "LAB_KAFKA_CPU_PER_BROKER",
     "LAB_KAFKA_MEMORY_PER_BROKER",
     "LAB_KAFKA_HEAP_PER_BROKER",
+    "LAB_KAFKA_TRANSPORT",
 }
 KAFKA_CHAOS_RESTART_ENV = "CKC_ALLOW_KAFKA_CHAOS_RESTART"
 STOP_REQUESTED = threading.Event()
@@ -125,6 +126,7 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             "brokers": 3 if topology == "cluster" else 1,
             "replication_factor": 3 if topology == "cluster" else 1,
             "min_insync_replicas": 2 if topology == "cluster" else 1,
+            "transport": "plaintext",
             "resources": {
                 "cpu_per_broker": 1 if topology == "cluster" else 2,
                 "memory_per_broker": "2Gi" if topology == "cluster" else "4Gi",
@@ -142,6 +144,7 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "LAB_KAFKA_CPU_PER_BROKER": str(resources["cpu_per_broker"]),
         "LAB_KAFKA_MEMORY_PER_BROKER": str(resources["memory_per_broker"]),
         "LAB_KAFKA_HEAP_PER_BROKER": str(resources["heap_per_broker"]),
+        "LAB_KAFKA_TRANSPORT": str(kafka.get("transport", "plaintext")),
     }
     return kafka, environment
 

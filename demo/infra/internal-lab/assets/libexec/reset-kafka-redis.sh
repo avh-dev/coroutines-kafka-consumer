@@ -20,6 +20,7 @@ TOPIC_SEGMENT_MS="${TOPIC_SEGMENT_MS:-60000}"
 TOPIC_RETENTION_BYTES="${TOPIC_RETENTION_BYTES:-}"
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
+REQUESTED_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-}"
 REQUESTED_KAFKA_BROKER_COUNT="${LAB_KAFKA_BROKER_COUNT:-}"
 REQUESTED_KAFKA_REPLICATION_FACTOR="${LAB_KAFKA_REPLICATION_FACTOR:-}"
 REQUESTED_KAFKA_MIN_INSYNC_REPLICAS="${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}"
@@ -36,6 +37,7 @@ if [ -f "${LAB_ENV}" ]; then
 fi
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-single}}"
+LAB_KAFKA_TRANSPORT="${REQUESTED_KAFKA_TRANSPORT:-${LAB_KAFKA_TRANSPORT:-plaintext}}"
 LAB_KAFKA_BROKER_COUNT="${REQUESTED_KAFKA_BROKER_COUNT:-${LAB_KAFKA_BROKER_COUNT:-}}"
 LAB_KAFKA_REPLICATION_FACTOR="${REQUESTED_KAFKA_REPLICATION_FACTOR:-${LAB_KAFKA_REPLICATION_FACTOR:-}}"
 LAB_KAFKA_MIN_INSYNC_REPLICAS="${REQUESTED_KAFKA_MIN_INSYNC_REPLICAS:-${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}}"
@@ -70,6 +72,20 @@ esac
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
   echo "LAB_KAFKA_TOPOLOGY=cluster requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
   exit 1
+fi
+case "${LAB_KAFKA_TRANSPORT}" in
+  plaintext|PLAINTEXT) LAB_KAFKA_TRANSPORT="plaintext" ;;
+  tls|TLS) LAB_KAFKA_TRANSPORT="tls" ;;
+  *) echo "Expected LAB_KAFKA_TRANSPORT to be plaintext or tls: ${LAB_KAFKA_TRANSPORT}" >&2; exit 1 ;;
+esac
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]; then
+  echo "LAB_KAFKA_TRANSPORT=tls requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
+  exit 1
+fi
+KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+  KAFKA_SECURITY_PROTOCOL="SSL"
+  sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
 fi
 
 kafka_runtime_memory() {
@@ -130,11 +146,27 @@ rpk() {
 }
 
 apache_kafka_topics() {
-  docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+  else
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  fi
 }
 
 apache_kafka_groups() {
-  docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+  else
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  fi
+}
+
+apache_kafka_broker_api_versions() {
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties
+  else
+    docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
+  fi
 }
 
 wait_for_kafka_ready() {
@@ -145,13 +177,11 @@ wait_for_kafka_ready() {
       if timeout 15 docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" cluster health >/dev/null 2>&1; then
         return
       fi
-    elif timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --list >/dev/null 2>&1; then
+    elif timeout 15 apache_kafka_topics --list >/dev/null 2>&1; then
       if [ "${LAB_KAFKA_TOPOLOGY}" != "cluster" ]; then
         return
       fi
-      broker_count="$(timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
-        /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" 2>/dev/null \
+      broker_count="$(timeout 15 apache_kafka_broker_api_versions 2>/dev/null \
         | grep -c 'isFenced: false' || true)"
       if [ "${broker_count}" -eq "${LAB_KAFKA_BROKER_COUNT}" ]; then
         return
@@ -379,7 +409,7 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
       docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
     fi
   fi
-  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
   LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
   LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis

@@ -50,6 +50,7 @@ PLAN_HELM_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
+LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-}"
 PROCESSING_DISPATCHER_TYPE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
@@ -322,6 +323,7 @@ fi
 
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
+REQUESTED_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT}"
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
 export LAB_HOST LAB_NODE_IP LAB_ROOT LAB_TOPOLOGY
@@ -358,6 +360,7 @@ LAB_LOAD_TEST_NODE_SELECTOR="$(node_selector_for_placement generator "${EXPERIME
 export LAB_APPLICATION_NODE_SELECTOR LAB_STUBS_NODE_SELECTOR LAB_LOAD_TEST_NODE_SELECTOR
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-}}"
+LAB_KAFKA_TRANSPORT="${REQUESTED_KAFKA_TRANSPORT:-${LAB_KAFKA_TRANSPORT:-plaintext}}"
 
 CURRENT_APP_PROFILE=""
 CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
@@ -456,6 +459,14 @@ normalize_kafka_topology() {
     single) printf "%s\n" "single" ;;
     cluster|three-node) printf "%s\n" "cluster" ;;
     *) echo "kafka-topology must be single or cluster: $1" >&2; exit 1 ;;
+  esac
+}
+
+normalize_kafka_transport() {
+  case "$1" in
+    plaintext|PLAINTEXT) printf '%s\n' plaintext ;;
+    tls|TLS) printf '%s\n' tls ;;
+    *) echo "kafka transport must be plaintext or tls: $1" >&2; exit 1 ;;
   esac
 }
 
@@ -746,9 +757,18 @@ if [ -z "${LAB_KAFKA_TOPOLOGY}" ]; then
   fi
 fi
 LAB_KAFKA_TOPOLOGY="$(normalize_kafka_topology "${LAB_KAFKA_TOPOLOGY}")"
+LAB_KAFKA_TRANSPORT="$(normalize_kafka_transport "${LAB_KAFKA_TRANSPORT}")"
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
   echo "kafka-topology cluster requires apache-kafka." >&2
   exit 1
+fi
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]; then
+  echo "kafka transport tls requires apache-kafka." >&2
+  exit 1
+fi
+KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+  KAFKA_SECURITY_PROTOCOL="SSL"
 fi
 if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
   KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
@@ -1631,6 +1651,7 @@ LOAD_RENDER_ARGS=(
   --stubs-image docker.io/ckc-perf/demo-stubs:latest
   --load-test-image docker.io/ckc-perf/load-test:latest
   --kafka-bootstrap "${KAFKA_BOOTSTRAP_K8S}"
+  --kafka-security-protocol "${KAFKA_SECURITY_PROTOCOL}"
   --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
   --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
   --audit-port "${AUDIT_TCP_PORT}"
@@ -1643,6 +1664,9 @@ LOAD_RENDER_ARGS=(
   --load-test-only
   --load-env "AUDIT_LOG_ENABLED=${AUDIT_LOG_ENABLED}"
 )
+if [[ "${LAB_KAFKA_TRANSPORT}" == "tls" ]]; then
+  LOAD_RENDER_ARGS+=(--kafka-ssl-truststore-certificates-file "${LAB_ROOT}/state/kafka-tls/ca.crt" --kafka-ssl-endpoint-identification-algorithm "")
+fi
 if [[ -n "${LOAD_TEST_WORKERS:-}" ]]; then
   LOAD_RENDER_ARGS+=(--load-env "LOAD_TEST_WORKERS=${LOAD_TEST_WORKERS}")
 fi

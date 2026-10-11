@@ -340,6 +340,7 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/grafana \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
   demo/infra/shared/grafana)"
 UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
@@ -373,6 +374,7 @@ LEGACY_BASE_DEPLOY_FINGERPRINT="$(legacy_fingerprint_paths "base-deploy" \
   demo/infra/internal-lab/assets/grafana \
   demo/infra/internal-lab/assets/k8s \
   demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
   demo/infra/shared/grafana)"
 LEGACY_UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
