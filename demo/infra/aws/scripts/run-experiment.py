@@ -1157,6 +1157,7 @@ class SessionController:
             "    'python3', '/opt/ckc-runner/assets/repo/demo/infra/shared/kafka_warmup/run.py',",
             "    '--backend', 'kubernetes',",
             "    '--bootstrap-server', str(context['kafka_bootstrap']),",
+            "    '--security-protocol', str(context.get('kafka_security_protocol', 'PLAINTEXT')),",
             "    '--replication-factor', str(context['kafka_topic_replication_factor']),",
             f"    '--reason', {reason!r},",
             f"    '--experiment', {config['experiment_name']!r},",

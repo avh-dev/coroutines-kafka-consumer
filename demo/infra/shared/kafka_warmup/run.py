@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the fixed CKC Kafka broker warm-up workload.")
     parser.add_argument("--backend", required=True, choices=("docker", "kubernetes"))
     parser.add_argument("--bootstrap-server", required=True)
+    parser.add_argument("--security-protocol", choices=("PLAINTEXT", "SSL"), default="PLAINTEXT")
     parser.add_argument("--replication-factor", type=int, required=True)
     parser.add_argument("--reason", default="Kafka runtime was redeployed")
     parser.add_argument("--experiment", default=os.environ.get("EXPERIMENT_NAME", "ckc experiment"))
@@ -90,6 +91,11 @@ class KafkaExecutor:
             "kubectl", "-n", self.args.namespace, "run", self.pod,
             f"--image={WARMUP_IMAGE}", "--restart=Never", "--command", "--", "sleep", "600",
         ], check=True, env=self.environment)
+        if getattr(self.args, "security_protocol", "PLAINTEXT") == "SSL":
+            subprocess.run([
+                "kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "sh", "-c",
+                "printf '%s\\n' 'security.protocol=SSL' > /tmp/ckc-kafka-client.properties",
+            ], check=True, env=self.environment)
         subprocess.run([
             "kubectl", "-n", self.args.namespace, "wait", "--for=condition=Ready",
             f"pod/{self.pod}", "--timeout=5m",
@@ -130,7 +136,13 @@ class KafkaExecutor:
                 "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
             ]
             binary_path = f"/opt/kafka/bin/{binary}"
-        return [*prefix, binary_path, *arguments]
+        config_arguments: list[str] = []
+        if getattr(self.args, "security_protocol", "PLAINTEXT") == "SSL":
+            if binary in {"kafka-topics.sh", "kafka-consumer-groups.sh"}:
+                config_arguments = ["--command-config", "/tmp/ckc-kafka-client.properties"]
+            elif binary == "kafka-consumer-perf-test.sh":
+                config_arguments = ["--consumer.config", "/tmp/ckc-kafka-client.properties"]
+        return [*prefix, binary_path, *arguments, *config_arguments]
 
     def run(self, binary: str, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -206,6 +218,7 @@ def run_warmup(args: argparse.Namespace) -> None:
                 "--num-records", str(messages), "--record-size", str(WARMUP_RECORD_SIZE),
                 "--throughput", str(WARMUP_RATE), "--producer-props",
                 f"bootstrap.servers={args.bootstrap_server}", "acks=all", "compression.type=lz4",
+                f"security.protocol={args.security_protocol}",
             )
             log.write(produced.stdout)
             consumer_exit = consumer.wait(timeout=120)
