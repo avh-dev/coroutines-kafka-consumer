@@ -171,7 +171,9 @@ apache_kafka_broker_api_versions() {
 
 wait_for_kafka_ready() {
   attempts=0
-  while [ "${attempts}" -lt 30 ]; do
+  # A fresh three-broker KRaft cluster can take longer than one minute to
+  # elect controllers and accept its first TLS AdminClient connection.
+  while [ "${attempts}" -lt 90 ]; do
     attempts=$((attempts + 1))
     if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
       if timeout 15 docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" cluster health >/dev/null 2>&1; then
