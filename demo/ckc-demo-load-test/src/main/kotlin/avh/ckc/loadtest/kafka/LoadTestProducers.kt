@@ -39,6 +39,14 @@ interface LoadTestPublisher {
     fun logSnapshot(reason: String)
 }
 
+internal fun kafkaPemTruststoreProperties(certificates: String): Map<String, Any> =
+    certificates.takeIf(String::isNotBlank)?.let {
+        mapOf(
+            SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG to it,
+            SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG to "PEM"
+        )
+    } ?: emptyMap()
+
 class LoadTestProducers(
     private val config: LoadTestConfig,
     private val shardContext: ShardContext,
@@ -191,9 +199,7 @@ class LoadTestProducers(
     ): Map<String, Any> = buildMap {
         put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers)
         put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, config.kafkaSecurityProtocol)
-        config.kafkaSslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
-            put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
-        }
+        putAll(kafkaPemTruststoreProperties(config.kafkaSslTruststoreCertificates))
         config.kafkaSslEndpointIdentificationAlgorithm?.let {
             put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)
         }

@@ -13,6 +13,7 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
         put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
         kafka.sslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
             put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
+            put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM")
         }
         kafka.sslEndpointIdentificationAlgorithm?.let {
             put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)

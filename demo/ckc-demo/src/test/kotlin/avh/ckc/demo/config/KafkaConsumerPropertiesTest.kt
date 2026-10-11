@@ -18,6 +18,7 @@ class KafkaConsumerPropertiesTest {
 
         assertEquals("SSL", resolved["security.protocol"])
         assertEquals(properties.kafka.sslTruststoreCertificates, resolved[SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG])
+        assertEquals("PEM", resolved[SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG])
         assertEquals("", resolved[SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG])
     }
 
