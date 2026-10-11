@@ -351,7 +351,7 @@ PY
 }
 
 kafka_runtime_signature() {
-  printf '%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}"
+  printf '%s|%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}" "${LAB_KAFKA_TRANSPORT}"
   for container in ${KAFKA_CONTAINERS}; do
     if docker inspect "${container}" >/dev/null 2>&1; then
       docker inspect --format '{{.Name}}|{{.Id}}|{{.State.Running}}|{{.State.StartedAt}}' "${container}"
@@ -409,11 +409,14 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
       docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
     fi
   fi
-  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
+  # Transport is part of the broker listener configuration.  Compose does not
+  # reliably recreate an existing service merely because an interpolated env
+  # value changed, so force replacement before checking TLS readiness.
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
   LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
   LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
   LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait --force-recreate ${KAFKA_SERVICES} redis
   wait_for_kafka_ready
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
