@@ -85,7 +85,7 @@ fi
 KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
 if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
   KAFKA_SECURITY_PROTOCOL="SSL"
-  sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
 fi
 
 kafka_runtime_memory() {
