@@ -102,6 +102,16 @@ output "msk_bootstrap_brokers" {
   value       = try(aws_msk_cluster.load_lab[0].bootstrap_brokers, "")
 }
 
+output "msk_bootstrap_brokers_tls" {
+  description = "TLS bootstrap brokers for the MSK cluster when kafka_mode=msk."
+  value       = try(aws_msk_cluster.load_lab[0].bootstrap_brokers_tls, "")
+}
+
+output "kafka_transport" {
+  description = "Configured Kafka client transport."
+  value       = var.kafka_transport
+}
+
 output "msk_cluster_arn" {
   description = "ARN of the MSK cluster when kafka_mode=msk."
   value       = try(aws_msk_cluster.load_lab[0].arn, "")
