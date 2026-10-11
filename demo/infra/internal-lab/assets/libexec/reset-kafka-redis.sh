@@ -385,6 +385,7 @@ warm_apache_kafka() {
     --backend docker \
     --docker-container "${APACHE_KAFKA_CONTAINER}" \
     --bootstrap-server "${BOOTSTRAP_SERVER}" \
+    --security-protocol "${KAFKA_SECURITY_PROTOCOL}" \
     --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
     --reason "${reason}" \
     --experiment "${EXPERIMENT_NAME:-internal-lab experiment}" \

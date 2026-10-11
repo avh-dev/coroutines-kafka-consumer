@@ -74,6 +74,15 @@ Topic: order.events.v1 Partition: 1 Leader: 2 Replicas: 2,3,1 Isr: 2,3,1
         self.assertNotIn("--grafana-url", reset)
         self.assertNotIn("api/annotations", warmup)
 
+    def test_tls_warmup_reuses_the_broker_client_configuration(self) -> None:
+        reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
+        warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
+
+        self.assertIn('--security-protocol "${KAFKA_SECURITY_PROTOCOL}"', reset)
+        self.assertIn('"--volumes-from", f"{self.args.docker_container}:ro"', warmup)
+        self.assertIn('client_config_path = "/etc/kafka/secrets/client.properties"', warmup)
+        self.assertIn('["--producer.config", client_config_path]', warmup)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -125,23 +125,28 @@ class KafkaExecutor:
             prefix = [
                 "docker", "run", "--rm", "--name", container_name,
                 "--network", f"container:{self.args.docker_container}",
+                "--volumes-from", f"{self.args.docker_container}:ro",
                 "--memory", WARMUP_CLIENT_MEMORY, "--memory-swap", WARMUP_CLIENT_MEMORY,
                 "--entrypoint", "/usr/bin/env", WARMUP_IMAGE,
                 "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
             ]
             binary_path = f"/opt/kafka/bin/{binary}"
+            client_config_path = "/etc/kafka/secrets/client.properties"
         else:
             prefix = [
                 "kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "env",
                 "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
             ]
             binary_path = f"/opt/kafka/bin/{binary}"
+            client_config_path = "/tmp/ckc-kafka-client.properties"
         config_arguments: list[str] = []
         if getattr(self.args, "security_protocol", "PLAINTEXT") == "SSL":
             if binary in {"kafka-topics.sh", "kafka-consumer-groups.sh"}:
-                config_arguments = ["--command-config", "/tmp/ckc-kafka-client.properties"]
+                config_arguments = ["--command-config", client_config_path]
             elif binary == "kafka-consumer-perf-test.sh":
-                config_arguments = ["--consumer.config", "/tmp/ckc-kafka-client.properties"]
+                config_arguments = ["--consumer.config", client_config_path]
+            elif binary == "kafka-producer-perf-test.sh":
+                config_arguments = ["--producer.config", client_config_path]
         return [*prefix, binary_path, *arguments, *config_arguments]
 
     def run(self, binary: str, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
