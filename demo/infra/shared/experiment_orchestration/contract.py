@@ -203,6 +203,7 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
     return {
         "implementation": implementation,
         "topology": topology,
+        "transport": transport,
         "brokers": brokers,
         "replication_factor": replication_factor,
         "min_insync_replicas": min_insync_replicas,

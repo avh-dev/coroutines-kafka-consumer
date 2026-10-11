@@ -437,6 +437,11 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual(3, kafka["brokers"])
         self.assertEqual(0.75, kafka["resources"]["cpu_per_broker"])
 
+        tls = copy.deepcopy(experiment)
+        tls["environments"]["internal-lab"]["lab"]["kafka"]["transport"] = "tls"
+        tls_snapshot = validate_canonical_experiment(tls, self.source, environment="internal-lab")
+        self.assertEqual("tls", tls_snapshot["environment"]["configuration"]["lab"]["kafka"]["transport"])
+
         invalid = copy.deepcopy(experiment)
         invalid["environments"]["internal-lab"]["lab"]["kafka"]["brokers"] = 2
         with self.assertRaisesRegex(ValueError, "brokers must be 3"):
