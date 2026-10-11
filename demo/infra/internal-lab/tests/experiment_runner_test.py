@@ -366,6 +366,28 @@ class ExperimentRunnerTest(unittest.TestCase):
         self.assertEqual("tls", kafka["transport"])
         self.assertEqual("tls", environment["LAB_KAFKA_TRANSPORT"])
 
+    def test_target_scheduling_becomes_runner_start_flags(self) -> None:
+        command = RUNNER.command_for_run(
+            Path("/opt/ckc-lab/libexec/run-target.sh"),
+            {
+                "profile": "ckc",
+                "scheduling": {"alignment": "utc_hour", "minimum_lead_time": "5m"},
+            },
+            "tls-smoke.yaml",
+            {},
+        )
+
+        self.assertEqual("utc_hour", command[command.index("--start-alignment") + 1])
+        self.assertEqual("300", command[command.index("--minimum-lead-time-seconds") + 1])
+
+    def test_target_executor_accepts_scheduling_flags(self) -> None:
+        executor = (HELPERS.parent / "libexec/run-target.sh").read_text(encoding="utf-8")
+
+        self.assertIn("--start-alignment)", executor)
+        self.assertIn("--minimum-lead-time-seconds)", executor)
+        self.assertIn('start-alignment must be none or utc_hour', executor)
+        self.assertIn('Waiting ${LOAD_TEST_WAIT_SECONDS}s for scheduled load-test start', executor)
+
     def test_shared_application_contract_maps_to_target_runner_planner_flags(self) -> None:
         command = RUNNER.command_for_run(
             Path("/opt/ckc-lab/libexec/run-target.sh"),

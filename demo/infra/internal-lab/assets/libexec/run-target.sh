@@ -58,6 +58,8 @@ METRICS_IMPLEMENTATION=""
 LETTUCE_METRICS_ENABLED=""
 JDK_HTTP_CLIENT_EXECUTOR=""
 WORKER_DISPATCHER_THREADS=""
+START_ALIGNMENT="none"
+MINIMUM_LEAD_TIME_SECONDS=0
 CONSUMER_GROUPS="ckc-demo"
 EXPLICIT_WORKER_DISPATCHER_THREADS=0
 ENV_OVERRIDES=()
@@ -104,6 +106,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--jdk-http-client-executor DEFAULT|VIRTUAL]
+          [--start-alignment none|utc_hour] [--minimum-lead-time-seconds seconds]
           [--env KEY=VALUE]
           [--consumer-profiles path]
           [--deployment-plan path]
@@ -285,6 +288,14 @@ while [ "$#" -gt 0 ]; do
     --worker-dispatcher-threads)
       WORKER_DISPATCHER_THREADS="${2:?--worker-dispatcher-threads requires a positive integer}"
       EXPLICIT_WORKER_DISPATCHER_THREADS=1
+      shift 2
+      ;;
+    --start-alignment)
+      START_ALIGNMENT="${2:?--start-alignment requires none or utc_hour}"
+      shift 2
+      ;;
+    --minimum-lead-time-seconds)
+      MINIMUM_LEAD_TIME_SECONDS="${2:?--minimum-lead-time-seconds requires a non-negative integer}"
       shift 2
       ;;
     --env)
@@ -1641,6 +1652,23 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
 fi
 
 progress_step "running_target" "running target workload" "mark-target-start"
+case "${START_ALIGNMENT}" in
+  none|utc_hour) ;;
+  *) echo "start-alignment must be none or utc_hour: ${START_ALIGNMENT}" >&2; exit 1 ;;
+esac
+if ! [[ "${MINIMUM_LEAD_TIME_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "minimum-lead-time-seconds must be a non-negative integer: ${MINIMUM_LEAD_TIME_SECONDS}" >&2
+  exit 1
+fi
+LOAD_TEST_STARTED_EPOCH_SECONDS="$(( $(date -u '+%s') + MINIMUM_LEAD_TIME_SECONDS ))"
+if [ "${START_ALIGNMENT}" = "utc_hour" ]; then
+  LOAD_TEST_STARTED_EPOCH_SECONDS="$(( ((LOAD_TEST_STARTED_EPOCH_SECONDS + 3599) / 3600) * 3600 ))"
+fi
+LOAD_TEST_WAIT_SECONDS="$(( LOAD_TEST_STARTED_EPOCH_SECONDS - $(date -u '+%s') ))"
+if [ "${LOAD_TEST_WAIT_SECONDS}" -gt 0 ]; then
+  echo "Waiting ${LOAD_TEST_WAIT_SECONDS}s for scheduled load-test start (${START_ALIGNMENT})."
+  sleep "${LOAD_TEST_WAIT_SECONDS}"
+fi
 LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
 mkdir -p "$(dirname "${LOAD_TEST_MANIFEST}")" "${LOAD_TEST_POD_LOG_DIR}"
 LOAD_RENDER_ARGS=(
