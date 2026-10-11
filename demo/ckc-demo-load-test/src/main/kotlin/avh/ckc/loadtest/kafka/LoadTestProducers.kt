@@ -18,6 +18,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.serialization.Serializer
 import java.lang.Math.floorMod
 import java.util.concurrent.atomic.AtomicLong
@@ -188,6 +189,7 @@ class LoadTestProducers(
         valueSerializerClass: Class<*>
     ): Map<String, Any> = mapOf(
         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to config.bootstrapServers,
+        CommonClientConfigs.SECURITY_PROTOCOL_CONFIG to config.kafkaSecurityProtocol,
         ProducerConfig.ACKS_CONFIG to "all",
         ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
         ProducerConfig.LINGER_MS_CONFIG to settings.lingerMs,

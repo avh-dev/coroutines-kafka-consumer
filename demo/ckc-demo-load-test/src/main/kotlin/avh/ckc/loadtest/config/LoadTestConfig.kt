@@ -4,6 +4,7 @@ import java.time.Duration
 
 data class LoadTestConfig(
     val bootstrapServers: String,
+    val kafkaSecurityProtocol: String = "PLAINTEXT",
     val orderEventsTopic: String,
     val batchEventsTopic: String,
     val cauldronEventsTopic: String,
@@ -39,6 +40,7 @@ data class LoadTestConfig(
 ) {
     init {
         require(baseTps > 0) { "baseTps must be positive" }
+        require(kafkaSecurityProtocol in setOf("PLAINTEXT", "SSL")) { "kafkaSecurityProtocol must be PLAINTEXT or SSL" }
         require(orderEventPercent >= 0) { "orderEventPercent must be non-negative" }
         require(batchEventPercent >= 0) { "batchEventPercent must be non-negative" }
         require(cauldronTelemetryPercent >= 0) { "cauldronTelemetryPercent must be non-negative" }
@@ -81,6 +83,7 @@ data class LoadTestConfig(
             val sharedKafkaProducer = KafkaProducerSettings.fromEnvironment(environment)
             return LoadTestConfig(
                 bootstrapServers = environment["BOOTSTRAP_SERVERS"] ?: "localhost:9092",
+                kafkaSecurityProtocol = environment["KAFKA_SECURITY_PROTOCOL"] ?: "PLAINTEXT",
                 orderEventsTopic = environment["ORDER_EVENTS_TOPIC"] ?: "order.events.v1",
                 batchEventsTopic = environment["BATCH_EVENTS_TOPIC"] ?: "batch.events.v1",
                 cauldronEventsTopic = environment["CAULDRON_EVENTS_TOPIC"] ?: "cauldron.events.v1",

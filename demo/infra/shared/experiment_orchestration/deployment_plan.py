@@ -103,6 +103,7 @@ class DeploymentBindings:
     kafka_bootstrap: str
     redis_host: str
     audit_host: str
+    kafka_security_protocol: str = "PLAINTEXT"
     audit_port: int = 5170
     image_pull_policy: str = "Always"
     application_namespace: str = "ckc-app"
@@ -570,6 +571,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "KAFKA_ENABLED": "true",
         "DEMO_KAFKA_ENABLED": "true",
         "DEMO_KAFKA_BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
+        "DEMO_KAFKA_SECURITY_PROTOCOL": bindings.kafka_security_protocol,
         "KAFKA_BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
         "GROUP_ID": "ckc-demo",
         "SPRING_DATA_REDIS_HOST": bindings.redis_host,
@@ -751,6 +753,7 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             if key in load or key in defaults
         },
         "BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
+        "KAFKA_SECURITY_PROTOCOL": bindings.kafka_security_protocol,
         "TOTAL_SHARDS": shards,
         "TEST_RUN_ID": bindings.run_id,
         "AUDIT_TCP_HOST": bindings.audit_host,

@@ -1,6 +1,7 @@
 package avh.ckc.demo.config
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.CommonClientConfigs
 
 internal fun DemoApplicationProperties.kafkaConsumerProperties(
     runtime: DemoApplicationProperties.ConsumerRuntime
@@ -8,6 +9,7 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
     val shared = kafka.consumer
     val topic = runtime.kafka
     return buildMap {
+        put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
         shared.assignmentStrategy?.trim()?.takeIf(String::isNotEmpty)?.let {
             put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG, it)
         }
