@@ -378,7 +378,7 @@ kafka_runtime_configuration_signature() {
     "${LAB_KAFKA_CPU_PER_BROKER}" \
     "${LAB_KAFKA_MEMORY_RUNTIME}" \
     "${LAB_KAFKA_HEAP_RUNTIME}" \
-     "${LAB_KAFKA_TLS_PROTOCOLS}"
+    "${LAB_KAFKA_TLS_PROTOCOLS}"
 }
 
 kafka_runtime_identity() {
@@ -395,6 +395,14 @@ record_kafka_runtime_signature() {
   temporary_signature="${KAFKA_RUNTIME_SIGNATURE_FILE}.tmp.$$"
   printf '%s\n' "${signature}" > "${temporary_signature}"
   mv "${temporary_signature}" "${KAFKA_RUNTIME_SIGNATURE_FILE}"
+}
+
+record_kafka_runtime_configuration_signature() {
+  signature="$1"
+  mkdir -p "$(dirname "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}")"
+  temporary_signature="${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}.tmp.$$"
+  printf '%s\n' "${signature}" > "${temporary_signature}"
+  mv "${temporary_signature}" "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}"
 }
 
 warm_apache_kafka() {
@@ -416,9 +424,16 @@ warm_apache_kafka() {
 }
 
 KAFKA_RUNTIME_SIGNATURE_FILE="${LAB_ROOT}/state/kafka-runtime.signature"
+KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE="${LAB_ROOT}/state/kafka-runtime-configuration.signature"
 if [ "${MODE}" = "--ensure-runtime" ]; then
   KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"
   KAFKA_RUNTIME_PREVIOUS="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
+  KAFKA_RUNTIME_CONFIGURATION="$(kafka_runtime_configuration_signature)"
+  KAFKA_RUNTIME_CONFIGURATION_PREVIOUS="$(cat "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}" 2>/dev/null || true)"
+  KAFKA_FORCE_RECREATE_FLAG=""
+  if [ -z "${KAFKA_RUNTIME_CONFIGURATION_PREVIOUS}" ] || [ "${KAFKA_RUNTIME_CONFIGURATION_PREVIOUS}" != "${KAFKA_RUNTIME_CONFIGURATION}" ]; then
+    KAFKA_FORCE_RECREATE_FLAG="--force-recreate"
+  fi
 
   if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
@@ -438,7 +453,7 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
   LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
   LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS}" \
   LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait "${KAFKA_FORCE_RECREATE[@]}" ${KAFKA_SERVICES} redis
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_FORCE_RECREATE_FLAG} ${KAFKA_SERVICES} redis
   wait_for_kafka_ready
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
@@ -461,6 +476,7 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
     fi
   fi
   record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"
+  record_kafka_runtime_configuration_signature "${KAFKA_RUNTIME_CONFIGURATION}"
   echo "Kafka and Redis runtime is ready for the experiment."
   exit 0
 fi

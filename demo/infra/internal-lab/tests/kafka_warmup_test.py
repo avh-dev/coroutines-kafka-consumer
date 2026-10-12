@@ -16,6 +16,11 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
         self.assertIn('KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"', script)
         self.assertIn('KAFKA_RUNTIME_PREVIOUS="$(cat', script)
         self.assertIn('record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"', script)
+        self.assertIn("kafka_runtime_configuration_signature()", script)
+        self.assertIn('KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE=', script)
+        self.assertIn('KAFKA_FORCE_RECREATE_FLAG="--force-recreate"', script)
+        self.assertIn('${KAFKA_FORCE_RECREATE_FLAG} ${KAFKA_SERVICES} redis', script)
+        self.assertIn('record_kafka_runtime_configuration_signature "${KAFKA_RUNTIME_CONFIGURATION}"', script)
 
     def test_warmup_is_apache_only_and_not_unconditionally_run_per_target(self) -> None:
         script = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
