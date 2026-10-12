@@ -133,6 +133,8 @@ class NotifyTelegramTest(unittest.TestCase):
                 "kafka_warmup_started",
                 "kafka_warmup_completed",
                 "target_started",
+                "target_generator_preparing",
+                "target_waiting_for_start",
                 "target_workload_finished",
                 "target_drain_waiting",
                 "target_audit_waiting",
@@ -207,6 +209,20 @@ class NotifyTelegramTest(unittest.TestCase):
                 "replicas": 1,
                 "base_tps": 5000,
                 "expected_duration_seconds": 780,
+            }),
+        )
+
+    def test_generator_preparation_and_scheduled_start_are_reported(self) -> None:
+        self.assertEqual(
+            "⚙️ Preparing load generator: ckc-tls-pcap\nDeploying workload pods and initializing Kafka clients",
+            NOTIFY.message_for("target_generator_preparing", {"name": "ckc-tls-pcap"}),
+        )
+        self.assertEqual(
+            "⏳ Load generator ready: ckc-tls-pcap\nScheduled start: 2026-10-12T08:00:00Z\nWaiting: 1m 00s",
+            NOTIFY.message_for("target_waiting_for_start", {
+                "name": "ckc-tls-pcap",
+                "scheduled_start": "2026-10-12T08:00:00Z",
+                "wait_seconds": 60,
             }),
         )
 

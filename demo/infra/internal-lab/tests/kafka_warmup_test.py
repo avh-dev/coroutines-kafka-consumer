@@ -79,9 +79,12 @@ Topic: order.events.v1 Partition: 1 Leader: 2 Replicas: 2,3,1 Isr: 2,3,1
 
     def test_tls_warmup_reuses_the_broker_client_configuration(self) -> None:
         reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
+        compose = (ROOT / "assets/compose/docker-compose.host-services.yml").read_text(encoding="utf-8")
         warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
 
         self.assertIn('--security-protocol "${KAFKA_SECURITY_PROTOCOL}"', reset)
+        self.assertIn('LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"', reset)
+        self.assertIn('KAFKA_SSL_ENABLED_PROTOCOLS: "${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"', compose)
         self.assertIn('"--volumes-from", f"{self.args.docker_container}:ro"', warmup)
         self.assertIn('client_config_path = "/etc/kafka/secrets/client.properties"', warmup)
         self.assertIn('["--producer.config", client_config_path]', warmup)

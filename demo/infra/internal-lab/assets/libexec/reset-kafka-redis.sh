@@ -109,6 +109,7 @@ else
 fi
 LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-$(kafka_runtime_memory "${LAB_KAFKA_MEMORY_PER_BROKER}")}"
 LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-$(kafka_runtime_memory "${LAB_KAFKA_HEAP_PER_BROKER}")}"
+LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
   KAFKA_SERVICES="redpanda"
   KAFKA_CONTAINERS="${REDPANDA_CONTAINER}"
@@ -363,6 +364,23 @@ kafka_runtime_signature() {
   done
 }
 
+# This signature contains the compose inputs which require a broker replacement.
+# Container IDs intentionally do not participate: they change on every recreate
+# and previously caused every otherwise identical experiment to recreate Kafka
+# and consequently re-run the broker warm-up.
+kafka_runtime_configuration_signature() {
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    "${LAB_KAFKA_IMPLEMENTATION}" \
+    "${LAB_KAFKA_TOPOLOGY}" \
+    "${LAB_KAFKA_TRANSPORT}" \
+    "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+    "${KAFKA_TOPIC_MIN_ISR}" \
+    "${LAB_KAFKA_CPU_PER_BROKER}" \
+    "${LAB_KAFKA_MEMORY_RUNTIME}" \
+    "${LAB_KAFKA_HEAP_RUNTIME}" \
+     "${LAB_KAFKA_TLS_PROTOCOLS}"
+}
+
 kafka_runtime_identity() {
   printf '%s\n' "$1" | awk -F '|' '
     NF == 2 { print $1 "|" $2; next }
@@ -414,12 +432,13 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
   fi
   # Transport is part of the broker listener configuration.  Compose does not
   # reliably recreate an existing service merely because an interpolated env
-  # value changed, so force replacement before checking TLS readiness.
+  # value changed, so force replacement when the configuration signature changes.
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
   LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
   LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
+  LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS}" \
   LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait --force-recreate ${KAFKA_SERVICES} redis
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait "${KAFKA_FORCE_RECREATE[@]}" ${KAFKA_SERVICES} redis
   wait_for_kafka_ready
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true

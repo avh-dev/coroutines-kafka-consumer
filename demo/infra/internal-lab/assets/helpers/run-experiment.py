@@ -889,6 +889,12 @@ def run_one(
         },
         details=None,
     )
+    notify(hook, "target_generator_preparing", {
+        "experiment": experiment_name,
+        "index": index,
+        "total": total,
+        "name": name,
+    }, log_dir)
     env["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
     env["CKC_EXPERIMENT_INTERNAL"] = "1"
     if expected_seconds is not None:
@@ -909,6 +915,7 @@ def run_one(
     reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
     reader.start()
     stop_requested = False
+    generator_wait_notified = False
     stop_deadline: float | None = None
     last_progress_at = 0.0
     if sys.stdin.isatty():
@@ -922,6 +929,24 @@ def run_one(
                     break
                 print(line, end="")
                 log_file.write(line)
+                if not generator_wait_notified:
+                    scheduled = re.search(r"Scheduling load-test start at ([^ ]+)", line)
+                    if scheduled:
+                        scheduled_start = scheduled.group(1)
+                        try:
+                            scheduled_at = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
+                            wait_seconds = max(0, int((scheduled_at - datetime.now(timezone.utc)).total_seconds()))
+                        except ValueError:
+                            wait_seconds = None
+                        notify(hook, "target_waiting_for_start", {
+                            "experiment": experiment_name,
+                            "index": index,
+                            "total": total,
+                            "name": name,
+                            "scheduled_start": scheduled_start,
+                            "wait_seconds": wait_seconds,
+                        }, log_dir)
+                        generator_wait_notified = True
             now = time.monotonic()
             if now - last_progress_at >= 30:
                 elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()

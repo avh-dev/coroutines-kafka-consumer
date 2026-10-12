@@ -150,7 +150,7 @@ else
   fi
 fi
 
-LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" LAB_KAFKA_SECURITY_PROTOCOL="${LAB_KAFKA_SECURITY_PROTOCOL}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 240 --remove-orphans ${KAFKA_SERVICES} redis fluent-bit loki grafana process-exporter
+LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST}" LAB_KAFKA_SECURITY_PROTOCOL="${LAB_KAFKA_SECURITY_PROTOCOL}" LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}" docker compose -p ckc-internal-lab -f "${COMPOSE_DIR}/docker-compose.host-services.yml" up -d --wait --wait-timeout 240 --remove-orphans ${KAFKA_SERVICES} redis fluent-bit loki grafana process-exporter
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ] && [ "${LAB_KAFKA_TOPOLOGY}" = "single" ]; then
   docker restart ckc-perf-kafka >/dev/null
 fi
