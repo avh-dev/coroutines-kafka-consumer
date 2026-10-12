@@ -1119,6 +1119,21 @@ def analyze_one(
         exit_code = process.wait()
     if exit_code == 0 and input_file.suffix != ".gz":
         subprocess.run(["gzip", "-1", str(input_file)], check=False)
+    counters = run_dir / "diagnostics" / "tcpdump" / "network-counters"
+    if exit_code == 0 and counters.is_dir():
+        counter_summary = counters / "summary.json"
+        counter = subprocess.run(
+            [
+                sys.executable,
+                str(lab_root / "helpers" / "network-counters" / "analyze-network-counters.py"),
+                "--snapshots-dir", str(counters), "--audit-dir", str(audit_dir), "--output", str(counter_summary),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if counter.returncode != 0:
+            progress_file.write_text(progress_file.read_text(encoding="utf-8") + counter.stdout + counter.stderr, encoding="utf-8")
     result = {
         "audit_dir": str(audit_dir),
         "run_dir": str(run_dir),
