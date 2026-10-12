@@ -1045,7 +1045,7 @@ def render_markdown(report: ExperimentReport) -> str:
     if any(value.get("status") != "unavailable" for value in counter_values):
         section("Kafka network counters")
         row("Status", [str(value.get("status") or "unavailable") for value in counter_values], "audit")
-        row("Successful messages", formatted([value.get("successful_messages") for value in counter_values], 0), "audit")
+        row("Successful messages", formatted([value.get("successful_messages") for value in counter_values], 0, ""), "audit")
         row("RX bytes per message", compared([value.get("rx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
         row("TX bytes per message", compared([value.get("tx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
         row("Total bytes per message", compared([value.get("bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")

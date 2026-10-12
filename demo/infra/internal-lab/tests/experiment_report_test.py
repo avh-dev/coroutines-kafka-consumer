@@ -2300,6 +2300,29 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">Baseline</text>", timeline)
             self.assertIn(">Degraded</text>", timeline)
 
+    def test_report_renders_kafka_network_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            self.write_json(
+                root / "results/runs/run-a/diagnostics/network-counters/summary.json",
+                {
+                    "status": "success",
+                    "successful_messages": 268_695,
+                    "rx_bytes_per_message": 191.6076,
+                    "tx_bytes_per_message": 194.4741,
+                    "bytes_per_message": 386.0817,
+                },
+            )
+
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Kafka network counters", markdown)
+            self.assertIn("268,695", markdown)
+            self.assertIn("386 bytes/msg", markdown)
+
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
