@@ -59,8 +59,9 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             raise ValueError(f"{context} must be an object: {definition_path}")
         if "at" not in raw_step:
             raise ValueError(f"{context} must define at: {definition_path}")
-        if str(raw_step.get("type", "")).strip() != "tcpdump":
-            raise ValueError(f"{context}.type must be 'tcpdump': {definition_path}")
+        step_type = str(raw_step.get("type", "")).strip()
+        if step_type not in {"tcpdump", "kafka-network-counters"}:
+            raise ValueError(f"{context}.type must be 'tcpdump' or 'kafka-network-counters': {definition_path}")
 
         at_seconds = duration_seconds(raw_step["at"], f"{context}.at")
         if at_seconds < previous_at:
@@ -74,7 +75,7 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
         names.add(name)
 
         capture_duration = duration_seconds(raw_step.get("duration"), f"{context}.duration", required=True)
-        if capture_duration > 300:
+        if step_type == "tcpdump" and capture_duration > 300:
             raise ValueError(f"{context}.duration must not exceed 5m: {definition_path}")
         targets = raw_step.get("targets")
         if not isinstance(targets, list) or not targets:
@@ -93,18 +94,34 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             params = {}
         if not isinstance(params, dict):
             raise ValueError(f"{context}.params must be an object: {definition_path}")
-        interface = str(params.get("interface", "auto")).strip()
-        if not re.fullmatch(r"[A-Za-z0-9_.:@-]{1,64}", interface):
-            raise ValueError(f"{context}.params.interface is invalid: {definition_path}")
-        snaplen = int(params.get("snaplen", 0))
-        if snaplen < 0 or snaplen > 262144:
-            raise ValueError(f"{context}.params.snaplen must be between 0 and 262144: {definition_path}")
-        capture_filter = str(params.get("filter", "tcp port 9092")).strip()
-        if not capture_filter or len(capture_filter) > 512 or any(char in capture_filter for char in "\r\n\0"):
-            raise ValueError(f"{context}.params.filter is invalid: {definition_path}")
-        max_size = size_bytes(params.get("max_file_size", "256Mi"), f"{context}.params.max_file_size")
-        if max_size > 256 * 1024 * 1024:
-            raise ValueError(f"{context}.params.max_file_size must not exceed 256Mi: {definition_path}")
+        if step_type == "tcpdump":
+            interface = str(params.get("interface", "auto")).strip()
+            if not re.fullmatch(r"[A-Za-z0-9_.:@-]{1,64}", interface):
+                raise ValueError(f"{context}.params.interface is invalid: {definition_path}")
+            snaplen = int(params.get("snaplen", 0))
+            if snaplen < 0 or snaplen > 262144:
+                raise ValueError(f"{context}.params.snaplen must be between 0 and 262144: {definition_path}")
+            capture_filter = str(params.get("filter", "tcp port 9092")).strip()
+            if not capture_filter or len(capture_filter) > 512 or any(char in capture_filter for char in "\r\n\0"):
+                raise ValueError(f"{context}.params.filter is invalid: {definition_path}")
+            max_size = size_bytes(params.get("max_file_size", "256Mi"), f"{context}.params.max_file_size")
+            if max_size > 256 * 1024 * 1024:
+                raise ValueError(f"{context}.params.max_file_size must not exceed 256Mi: {definition_path}")
+            normalized_params = {"interface": interface, "snaplen": snaplen, "filter": capture_filter, "maxFileSizeBytes": max_size}
+        else:
+            unknown = sorted(set(params) - {"ports", "sample_interval"})
+            if unknown:
+                raise ValueError(f"{context}.params contains unsupported fields {unknown}: {definition_path}")
+            ports = params.get("ports")
+            if not isinstance(ports, list) or not ports:
+                raise ValueError(f"{context}.params.ports must be a non-empty list: {definition_path}")
+            normalized_ports = sorted({int(port) for port in ports})
+            if len(normalized_ports) != len(ports) or any(port < 1 or port > 65535 for port in normalized_ports):
+                raise ValueError(f"{context}.params.ports must contain unique TCP ports from 1 to 65535: {definition_path}")
+            interval = duration_seconds(params.get("sample_interval", "5s"), f"{context}.params.sample_interval", required=True)
+            if interval != 5:
+                raise ValueError(f"{context}.params.sample_interval must be 5s: {definition_path}")
+            normalized_params = {"ports": normalized_ports, "sampleIntervalSeconds": interval}
 
         end_seconds = at_seconds + capture_duration
         for target in normalized_targets:
@@ -114,9 +131,9 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             intervals_by_target.setdefault(target, []).append((at_seconds, end_seconds, index))
         result.append(
             {
-                "atSeconds": at_seconds, "durationSeconds": capture_duration, "type": "tcpdump", "name": name,
+                "atSeconds": at_seconds, "durationSeconds": capture_duration, "type": step_type, "name": name,
                 "targets": normalized_targets, "required": required,
-                "params": {"interface": interface, "snaplen": snaplen, "filter": capture_filter, "maxFileSizeBytes": max_size},
+                "params": normalized_params,
             }
         )
     return result

@@ -111,6 +111,7 @@ class DeploymentBindings:
     application_namespace: str = "ckc-app"
     load_test_namespace: str = "ckc-loadtest"
     packet_capture_enabled: bool = False
+    network_counters_enabled: bool = False
     active_deadline_seconds: int = 3600
     application_service_type: str = "ClusterIP"
     application_node_port: int | None = None
@@ -482,6 +483,7 @@ def _deployment(
     environment: Mapping[str, Any],
     resources: Mapping[str, Any] | None = None,
     packet_capture: bool = False,
+    network_counters: bool = False,
     probes: Mapping[str, Any] | None = None,
     test_definition: str = "canonical",
     node_selector: Mapping[str, str] | None = None,
@@ -537,11 +539,12 @@ def _deployment(
         pod_spec["nodeSelector"] = dict(node_selector)
     if tolerations:
         pod_spec["tolerations"] = [dict(item) for item in tolerations]
-    if packet_capture:
+    if packet_capture or network_counters:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
-            "capabilities": {"add": ["NET_RAW"], "drop": ["ALL"]},
+            "capabilities": {"add": (["NET_RAW"] if packet_capture else []) + (["NET_ADMIN"] if network_counters else []), "drop": ["ALL"]},
         }
+    if packet_capture:
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
     return {
@@ -637,7 +640,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 name="ckc-demo", namespace=bindings.application_namespace, container_name="demo",
                 image=bindings.application_image, pull_policy=bindings.image_pull_policy, replicas=replicas,
                 run_id=bindings.run_id, profile=profile, environment=computed_env, resources=resources,
-                packet_capture=bindings.packet_capture_enabled, probes=probes,
+                packet_capture=bindings.packet_capture_enabled, network_counters=bindings.network_counters_enabled, probes=probes,
                 test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
                 tolerations=bindings.application_tolerations,
                 extra_labels={"ckc.dev/component": "application", "ckc.dev/workload": "combined"},
@@ -687,7 +690,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                     image=bindings.application_image, pull_policy=bindings.image_pull_policy,
                     replicas=int(workload.get("replicas", 1)), run_id=bindings.run_id, profile=profile,
                     environment=workload_environment, resources=workload.get("resources") or resources,
-                    packet_capture=bindings.packet_capture_enabled, probes=probes,
+                    packet_capture=bindings.packet_capture_enabled, network_counters=bindings.network_counters_enabled, probes=probes,
                     test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
                     tolerations=bindings.application_tolerations, extra_labels=workload_labels,
                 ),
@@ -814,11 +817,12 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
     resources = {group: entries for group, entries in resources.items() if entries}
     if resources:
         container["resources"] = resources
-    if bindings.packet_capture_enabled:
+    if bindings.packet_capture_enabled or bindings.network_counters_enabled:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
-            "capabilities": {"add": ["NET_RAW"], "drop": ["ALL"]},
+            "capabilities": {"add": (["NET_RAW"] if bindings.packet_capture_enabled else []) + (["NET_ADMIN"] if bindings.network_counters_enabled else []), "drop": ["ALL"]},
         }
+    if bindings.packet_capture_enabled:
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
     workload_labels = {
         "app.kubernetes.io/name": "ckc-load-test",

@@ -33,6 +33,7 @@ DEFAULT_STUB_DEPLOYMENT = {
 KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "internal-lab": frozenset({
         "diagnostics.tcpdump",
+        "diagnostics.kafka-network-counters",
         "chaos.network_degradation",
         "chaos.deployment_scale",
         "chaos.pod_crash",
@@ -43,7 +44,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.stubs_degradation",
         "chaos.sequence",
     }),
-    "aws": frozenset({"diagnostics.tcpdump"}),
+    "aws": frozenset({"diagnostics.tcpdump", "diagnostics.kafka-network-counters"}),
 }
 
 

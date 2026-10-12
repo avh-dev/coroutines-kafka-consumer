@@ -67,8 +67,8 @@ def load_steps(raw: str) -> list[dict[str, Any]]:
     if not isinstance(steps, list):
         raise ValueError("Diagnostic steps JSON must be a list.")
     for index, step in enumerate(steps, start=1):
-        if not isinstance(step, dict) or step.get("type") != "tcpdump":
-            raise ValueError(f"Diagnostic step {index} is not a normalized tcpdump step.")
+        if not isinstance(step, dict) or step.get("type") not in {"tcpdump", "kafka-network-counters"}:
+            raise ValueError(f"Diagnostic step {index} has an unsupported normalized type.")
         required_keys = {"atSeconds", "durationSeconds", "name", "targets", "required", "params"}
         if not required_keys.issubset(step):
             raise ValueError(f"Diagnostic step {index} is missing normalized fields.")
