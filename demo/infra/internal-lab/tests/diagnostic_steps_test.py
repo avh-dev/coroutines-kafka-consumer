@@ -156,6 +156,10 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertNotIn("-Z", command)
         self.assertIn("%s", command[command.index("-w") + 1])
 
+    def test_nft_counter_parser_reads_named_counter(self) -> None:
+        raw = json.dumps({"nftables": [{"counter": {"family": "inet", "name": "rx", "packets": 7, "bytes": 321}}]})
+        self.assertEqual((321, 7), diagnostic_runner.nft_counter_values(raw))
+
     def test_pod_tcpdump_keeps_root_identity_without_extra_capabilities(self) -> None:
         step = self.normalize(
             [{"at": 0, "duration": "5s", "type": "tcpdump", "name": "consumer", "targets": ["application"]}]
