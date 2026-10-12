@@ -151,7 +151,7 @@ def write_metadata(directory: Path, base_name: str, metadata: dict[str, Any], st
 
 def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) -> dict[str, Any]:
     identity = "optilab"
-    directory = Path(args.output_dir) / step["name"] / target / identity
+    directory = Path(args.output_dir) / "tcpdump" / step["name"] / target / identity
     directory.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     base_name = timestamp(started)
@@ -216,7 +216,7 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
 def capture_pod(
     step: dict[str, Any], target: str, namespace: str, pod: str, container: str, args: argparse.Namespace
 ) -> dict[str, Any]:
-    directory = Path(args.output_dir) / step["name"] / target / pod
+    directory = Path(args.output_dir) / "tcpdump" / step["name"] / target / pod
     directory.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     base_name = timestamp(started)

@@ -119,7 +119,7 @@ class DiagnosticStepsTest(unittest.TestCase):
                 text=True,
             )
             summary = json.loads((Path(directory) / "summary.json").read_text(encoding="utf-8"))
-            metadata_files = list((Path(directory) / "dry-run" / "load-test" / "optilab").glob("*.json"))
+            metadata_files = list((Path(directory) / "tcpdump" / "dry-run" / "load-test" / "optilab").glob("*.json"))
             self.assertEqual(1, summary["captures_attempted"])
             self.assertEqual(1, len(metadata_files))
             self.assertIn("\n  ", metadata_files[0].read_text(encoding="utf-8"))

@@ -1119,7 +1119,7 @@ def analyze_one(
         exit_code = process.wait()
     if exit_code == 0 and input_file.suffix != ".gz":
         subprocess.run(["gzip", "-1", str(input_file)], check=False)
-    counters = run_dir / "diagnostics" / "tcpdump" / "network-counters"
+    counters = run_dir / "diagnostics" / "network-counters"
     if exit_code == 0 and counters.is_dir():
         counter_summary = counters / "summary.json"
         counter = subprocess.run(

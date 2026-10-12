@@ -1230,7 +1230,7 @@ def main() -> None:
         metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         if diagnostic_steps:
-            diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
+            diagnostics_dir = reports_dir / run_id / "diagnostics"
             diagnostics_dir.mkdir(parents=True, exist_ok=True)
             diagnostics_log = (diagnostics_dir / "executor.log").open("w", encoding="utf-8")
             diagnostics_process = subprocess.Popen(

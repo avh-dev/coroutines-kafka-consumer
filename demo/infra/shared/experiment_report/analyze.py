@@ -812,6 +812,14 @@ def thread_stats_coverage(
     }
 
 
+def network_counter_summary(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "diagnostics" / "network-counters" / "summary.json"
+    if not path.is_file():
+        return {"status": "unavailable"}
+    value = load_json(path)
+    return value if isinstance(value, dict) else {"status": "unusable", "reason": "invalid summary"}
+
+
 def packet_capture_coverage(run_dir: Path, metadata: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
     configured = metadata.get("packet_captures")
     configured = configured if isinstance(configured, dict) else {}
@@ -1171,6 +1179,7 @@ def analyze_experiment(
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
+                network_counters=network_counter_summary(run_dir),
                 events=events,
                 criteria=criteria,
                 latency_sla=latency_results,

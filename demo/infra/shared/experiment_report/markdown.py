@@ -1041,6 +1041,16 @@ def render_markdown(report: ExperimentReport) -> str:
             }
         return {}
 
+    counter_values = [target.network_counters for target in targets]
+    if any(value.get("status") != "unavailable" for value in counter_values):
+        section("Kafka network counters")
+        row("Status", [str(value.get("status") or "unavailable") for value in counter_values], "audit")
+        row("Successful messages", formatted([value.get("successful_messages") for value in counter_values], 0), "audit")
+        row("RX bytes per message", compared([value.get("rx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
+        row("TX bytes per message", compared([value.get("tx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
+        row("Total bytes per message", compared([value.get("bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
+        row("Unusable reason", [str(value.get("reason") or "—") for value in counter_values], "audit")
+
     lines.extend([
         "</tbody></table>",
         "",
