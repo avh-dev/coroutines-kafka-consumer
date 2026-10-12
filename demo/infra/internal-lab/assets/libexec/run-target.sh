@@ -1664,12 +1664,8 @@ LOAD_TEST_STARTED_EPOCH_SECONDS="$(( $(date -u '+%s') + MINIMUM_LEAD_TIME_SECOND
 if [ "${START_ALIGNMENT}" = "utc_hour" ]; then
   LOAD_TEST_STARTED_EPOCH_SECONDS="$(( ((LOAD_TEST_STARTED_EPOCH_SECONDS + 3599) / 3600) * 3600 ))"
 fi
-LOAD_TEST_WAIT_SECONDS="$(( LOAD_TEST_STARTED_EPOCH_SECONDS - $(date -u '+%s') ))"
-if [ "${LOAD_TEST_WAIT_SECONDS}" -gt 0 ]; then
-  echo "Waiting ${LOAD_TEST_WAIT_SECONDS}s for scheduled load-test start (${START_ALIGNMENT})."
-  sleep "${LOAD_TEST_WAIT_SECONDS}"
-fi
-LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
+LOAD_TEST_STARTED_AT="$(date -u -d "@${LOAD_TEST_STARTED_EPOCH_SECONDS}" '+%Y-%m-%dT%H:%M:%SZ')"
+echo "Creating load-test Job for scheduled start at ${LOAD_TEST_STARTED_AT} (${START_ALIGNMENT})."
 mkdir -p "$(dirname "${LOAD_TEST_MANIFEST}")" "${LOAD_TEST_POD_LOG_DIR}"
 LOAD_RENDER_ARGS=(
   "${DEPLOYMENT_PLAN_PATH}"
@@ -1737,6 +1733,7 @@ if [ "${LOAD_TEST_PODS_READY}" -ne 1 ] || ! kubectl -n ckc-perf wait \
   rm -f "${LOAD_TEST_JOB_PATH}"
   exit 1
 fi
+echo "Load-test generator ready; waiting for scheduled start at ${LOAD_TEST_STARTED_AT}."
 
 if ! TEST_RUN_ID="${RUN_ID}" \
   EXPERIMENT_EVENTS_FILE="${RUN_EVENTS_FILE}" \

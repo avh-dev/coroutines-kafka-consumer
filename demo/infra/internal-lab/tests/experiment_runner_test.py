@@ -386,7 +386,9 @@ class ExperimentRunnerTest(unittest.TestCase):
         self.assertIn("--start-alignment)", executor)
         self.assertIn("--minimum-lead-time-seconds)", executor)
         self.assertIn('start-alignment must be none or utc_hour', executor)
-        self.assertIn('Waiting ${LOAD_TEST_WAIT_SECONDS}s for scheduled load-test start', executor)
+        self.assertIn('Creating load-test Job for scheduled start at ${LOAD_TEST_STARTED_AT}', executor)
+        self.assertIn('Load-test generator ready; waiting for scheduled start at ${LOAD_TEST_STARTED_AT}', executor)
+        self.assertNotIn('sleep "${LOAD_TEST_WAIT_SECONDS}"', executor)
 
     def test_shared_application_contract_maps_to_target_runner_planner_flags(self) -> None:
         command = RUNNER.command_for_run(

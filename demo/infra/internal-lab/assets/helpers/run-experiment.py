@@ -930,7 +930,7 @@ def run_one(
                 print(line, end="")
                 log_file.write(line)
                 if not generator_wait_notified:
-                    scheduled = re.search(r"Scheduling load-test start at ([^ ]+)", line)
+                    scheduled = re.search(r"Load-test generator ready; waiting for scheduled start at ([^.]+)", line)
                     if scheduled:
                         scheduled_start = scheduled.group(1)
                         try:
