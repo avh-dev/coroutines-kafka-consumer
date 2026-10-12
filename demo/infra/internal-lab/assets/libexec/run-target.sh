@@ -1355,6 +1355,7 @@ RUN_THREAD_STATS_INDEX_FILE="${RUN_THREAD_STATS_DIR}/index.jsonl"
 RUN_THREAD_STATS_SUMMARY_FILE="${RUN_THREAD_STATS_DIR}/summary.json"
 RUN_THREAD_STATS_LOG_FILE="${RUN_THREAD_STATS_DIR}/collector.log"
 RUN_PACKET_CAPTURE_DIR="${RUN_DIAGNOSTICS_DIR}/tcpdump"
+RUN_NETWORK_COUNTERS_DIR="${RUN_DIAGNOSTICS_DIR}/network-counters"
 RUN_EVENTS_FILE="${RUN_DIR}/experiment-events.jsonl"
 LOAD_TEST_LOG_FILE="${RUN_LOG_DIR}/load-test.log"
 LOAD_TEST_POD_LOG_DIR="${RUN_LOG_DIR}/load-test-pods"
@@ -1700,8 +1701,11 @@ fi
 if [[ -n "${LAB_LOAD_TEST_NODE_SELECTOR:-}" ]]; then
   LOAD_RENDER_ARGS+=(--load-test-node-selector "${LAB_LOAD_TEST_NODE_SELECTOR}")
 fi
-if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON}" | grep -q '"type":"tcpdump"'; then
   LOAD_RENDER_ARGS+=(--packet-capture)
+fi
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON}" | grep -q '"type":"kafka-network-counters"'; then
+  LOAD_RENDER_ARGS+=(--network-counters)
 fi
 
 cancel_starting_load_test_job() {
@@ -1759,7 +1763,7 @@ if [ "${CHAOS_STEPS_JSON}" != "[]" ]; then
   echo "${CHAOS_PID}" > "${CHAOS_PID_PATH}"
 fi
 
-DIAGNOSTICS_LOG_PATH="${RUN_PACKET_CAPTURE_DIR}/executor.log"
+DIAGNOSTICS_LOG_PATH="${RUN_DIAGNOSTICS_DIR}/diagnostics-executor.log"
 DIAGNOSTICS_PID=""
 if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
   resolve_kafka_capture_interface() {
@@ -1784,14 +1788,14 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     printf '%s\n' "${bridge_name}"
   }
   KAFKA_CAPTURE_INTERFACE="$(resolve_kafka_capture_interface)"
-  mkdir -p "${RUN_PACKET_CAPTURE_DIR}"
+  mkdir -p "${RUN_DIAGNOSTICS_DIR}"
   TEST_RUN_ID="${RUN_ID}" EXPERIMENT_EVENTS_FILE="${RUN_EVENTS_FILE}" \
   EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED="${EXPERIMENT_GRAFANA_ANNOTATIONS_ENABLED}" \
   EXPERIMENT_GRAFANA_URL="${EXPERIMENT_GRAFANA_URL:-http://127.0.0.1:3000}" \
   nohup python3 "${LAB_ROOT}/helpers/run-diagnostic-steps.py" \
     --steps-json "${DIAGNOSTIC_STEPS_JSON}" \
     --start-epoch-seconds "${LOAD_TEST_STARTED_EPOCH_SECONDS}" \
-    --output-dir "${RUN_PACKET_CAPTURE_DIR}" \
+    --output-dir "${RUN_DIAGNOSTICS_DIR}" \
     --load-test-backend kubernetes \
     --load-test-namespace ckc-perf \
     --load-test-selector "app.kubernetes.io/name=ckc-load-test,ckc.dev/test-run-id=${RUN_ID}" \
@@ -2101,7 +2105,7 @@ else
   echo "Audit logging disabled; skipping audit analysis."
 fi
 
-if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON}" | grep -q '"type":"tcpdump"'; then
   echo "Running Kafka packet-capture analysis."
   RUN_PCAP_ANALYSIS_DIR="${RUN_DIAGNOSTICS_DIR}/pcap-analysis"
   mkdir -p "${RUN_PCAP_ANALYSIS_DIR}"
@@ -2117,6 +2121,17 @@ if [ "${DIAGNOSTIC_STEPS_JSON}" != "[]" ]; then
     exit 1
   fi
   cat "${RUN_PCAP_ANALYSIS_DIR}/summary.txt"
+fi
+
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON}" | grep -q '"type":"kafka-network-counters"'; then
+  echo "Running Kafka network-counter analysis."
+  if ! python3 "${LAB_ROOT}/helpers/network-counters/analyze-network-counters.py" \
+    --snapshots-dir "${RUN_NETWORK_COUNTERS_DIR}" --audit-dir "${RUN_AUDIT_DIR}" \
+    --output "${RUN_NETWORK_COUNTERS_DIR}/summary.json"; then
+    echo "Kafka network-counter analysis failed." >&2
+    write_run_status "failed" 1
+    exit 1
+  fi
 fi
 
 if [ "${RUN_INTERRUPTED}" -eq 1 ]; then
