@@ -35,8 +35,11 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
 
     def test_runner_propagates_notification_hook_to_warmup(self) -> None:
         runner = (ROOT / "assets/helpers/run-experiment.py").read_text(encoding="utf-8")
+        warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
         self.assertIn('environment.setdefault("CKC_NOTIFY_HOOK", str(hook))', runner)
         self.assertIn('environment.setdefault("CKC_NOTIFICATION_DIR"', runner)
+        self.assertIn('"kafka_warmup_completed"', warmup)
+        self.assertIn("notify_completed(args, messages", warmup)
 
     def test_experiment_prepares_runtime_once_and_targets_only_reset_data(self) -> None:
         runner = (ROOT / "assets/helpers/run-experiment.py").read_text(encoding="utf-8")

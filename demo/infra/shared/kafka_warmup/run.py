@@ -73,6 +73,26 @@ def notify_started(args: argparse.Namespace) -> None:
     )
 
 
+def notify_completed(args: argparse.Namespace, records: int, elapsed_seconds: float) -> None:
+    if args.notify_hook is None:
+        return
+    shared_root = Path(__file__).resolve().parents[1]
+    if str(shared_root) not in sys.path:
+        sys.path.insert(0, str(shared_root))
+    from experiment_notifications import notify
+
+    notify(
+        args.notify_hook,
+        "kafka_warmup_completed",
+        {
+            **notification_payload(args),
+            "records": records,
+            "elapsed_seconds": elapsed_seconds,
+        },
+        args.notification_dir or args.log_file.parent,
+    )
+
+
 class KafkaExecutor:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -192,6 +212,7 @@ def run_warmup(args: argparse.Namespace) -> None:
     messages = warmup_record_count()
     executor = KafkaExecutor(args)
     consumer: subprocess.Popen[str] | None = None
+    started_at = time.monotonic()
     with args.log_file.open("a", encoding="utf-8") as log:
         log.write(f"{datetime.now(timezone.utc).isoformat()} warm-up start topic={topic} reason={args.reason}\n")
         try:
@@ -230,6 +251,7 @@ def run_warmup(args: argparse.Namespace) -> None:
             if consumer_exit != 0:
                 raise RuntimeError(f"Kafka warm-up consumer exited with status {consumer_exit}")
             log.write(f"{datetime.now(timezone.utc).isoformat()} warm-up completed records={messages}\n")
+            notify_completed(args, messages, time.monotonic() - started_at)
         finally:
             if consumer is not None and consumer.poll() is None:
                 consumer.send_signal(signal.SIGTERM)

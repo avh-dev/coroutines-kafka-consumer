@@ -15,6 +15,7 @@ DEFAULT_EVENTS = {
     "runner_bootstrap_finished",
     "lab_creation_started",
     "kafka_warmup_started",
+    "kafka_warmup_completed",
     "target_started",
     "target_workload_finished",
     "target_drain_waiting",
@@ -235,6 +236,11 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             f"🔥 Kafka warm-up started: {format_duration(payload.get('duration_seconds'))}"
             f"\nReason: {payload.get('reason', 'Kafka runtime was redeployed')}"
         )
+    if event == "kafka_warmup_completed":
+        return "\n".join([
+            f"✅ Kafka warm-up finished: {format_duration(payload.get('elapsed_seconds'))}",
+            f"Records: {payload.get('records', 'unknown')}",
+        ])
     if event == "target_started":
         index = payload.get("index")
         total = payload.get("total")
