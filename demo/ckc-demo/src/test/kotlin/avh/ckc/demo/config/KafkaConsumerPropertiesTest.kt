@@ -1,10 +1,27 @@
 package avh.ckc.demo.config
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.config.SslConfigs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class KafkaConsumerPropertiesTest {
+    @Test
+    fun `TLS trust certificates and endpoint policy are passed to Kafka`() {
+        val properties = DemoApplicationProperties().apply {
+            kafka.securityProtocol = "SSL"
+            kafka.sslTruststoreCertificates = "-----BEGIN CERTIFICATE-----\\nca\\n-----END CERTIFICATE-----"
+            kafka.sslEndpointIdentificationAlgorithm = ""
+        }
+
+        val resolved = properties.kafkaConsumerProperties(properties.consumers.order)
+
+        assertEquals("SSL", resolved["security.protocol"])
+        assertEquals(properties.kafka.sslTruststoreCertificates, resolved[SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG])
+        assertEquals("PEM", resolved[SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG])
+        assertEquals("", resolved[SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG])
+    }
+
     @Test
     fun `shared assignment strategy is passed to Kafka`() {
         val properties = DemoApplicationProperties().apply {

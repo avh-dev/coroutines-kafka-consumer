@@ -20,6 +20,7 @@ TOPIC_SEGMENT_MS="${TOPIC_SEGMENT_MS:-60000}"
 TOPIC_RETENTION_BYTES="${TOPIC_RETENTION_BYTES:-}"
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
+REQUESTED_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-}"
 REQUESTED_KAFKA_BROKER_COUNT="${LAB_KAFKA_BROKER_COUNT:-}"
 REQUESTED_KAFKA_REPLICATION_FACTOR="${LAB_KAFKA_REPLICATION_FACTOR:-}"
 REQUESTED_KAFKA_MIN_INSYNC_REPLICAS="${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}"
@@ -36,6 +37,7 @@ if [ -f "${LAB_ENV}" ]; then
 fi
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-single}}"
+LAB_KAFKA_TRANSPORT="${REQUESTED_KAFKA_TRANSPORT:-${LAB_KAFKA_TRANSPORT:-plaintext}}"
 LAB_KAFKA_BROKER_COUNT="${REQUESTED_KAFKA_BROKER_COUNT:-${LAB_KAFKA_BROKER_COUNT:-}}"
 LAB_KAFKA_REPLICATION_FACTOR="${REQUESTED_KAFKA_REPLICATION_FACTOR:-${LAB_KAFKA_REPLICATION_FACTOR:-}}"
 LAB_KAFKA_MIN_INSYNC_REPLICAS="${REQUESTED_KAFKA_MIN_INSYNC_REPLICAS:-${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}}"
@@ -71,6 +73,20 @@ if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" !
   echo "LAB_KAFKA_TOPOLOGY=cluster requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
   exit 1
 fi
+case "${LAB_KAFKA_TRANSPORT}" in
+  plaintext|PLAINTEXT) LAB_KAFKA_TRANSPORT="plaintext" ;;
+  tls|TLS) LAB_KAFKA_TRANSPORT="tls" ;;
+  *) echo "Expected LAB_KAFKA_TRANSPORT to be plaintext or tls: ${LAB_KAFKA_TRANSPORT}" >&2; exit 1 ;;
+esac
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]; then
+  echo "LAB_KAFKA_TRANSPORT=tls requires LAB_KAFKA_IMPLEMENTATION=apache-kafka." >&2
+  exit 1
+fi
+KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+  KAFKA_SECURITY_PROTOCOL="SSL"
+  LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
+fi
 
 kafka_runtime_memory() {
   case "$1" in
@@ -93,6 +109,7 @@ else
 fi
 LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-$(kafka_runtime_memory "${LAB_KAFKA_MEMORY_PER_BROKER}")}"
 LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-$(kafka_runtime_memory "${LAB_KAFKA_HEAP_PER_BROKER}")}"
+LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
   KAFKA_SERVICES="redpanda"
   KAFKA_CONTAINERS="${REDPANDA_CONTAINER}"
@@ -130,28 +147,44 @@ rpk() {
 }
 
 apache_kafka_topics() {
-  docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+  else
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  fi
 }
 
 apache_kafka_groups() {
-  docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
+  else
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
+  fi
+}
+
+apache_kafka_broker_api_versions() {
+  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties
+  else
+    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
+  fi
 }
 
 wait_for_kafka_ready() {
   attempts=0
-  while [ "${attempts}" -lt 30 ]; do
+  # A fresh three-broker KRaft cluster can take longer than one minute to
+  # elect controllers and accept its first TLS AdminClient connection.
+  while [ "${attempts}" -lt 90 ]; do
     attempts=$((attempts + 1))
     if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
       if timeout 15 docker exec "${REDPANDA_CONTAINER}" rpk -X "brokers=${BOOTSTRAP_SERVER}" cluster health >/dev/null 2>&1; then
         return
       fi
-    elif timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --list >/dev/null 2>&1; then
+    elif apache_kafka_topics --list >/dev/null 2>&1; then
       if [ "${LAB_KAFKA_TOPOLOGY}" != "cluster" ]; then
         return
       fi
-      broker_count="$(timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= \
-        /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" 2>/dev/null \
+      broker_count="$(apache_kafka_broker_api_versions 2>/dev/null \
         | grep -c 'isFenced: false' || true)"
       if [ "${broker_count}" -eq "${LAB_KAFKA_BROKER_COUNT}" ]; then
         return
@@ -321,7 +354,7 @@ PY
 }
 
 kafka_runtime_signature() {
-  printf '%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}"
+  printf '%s|%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}" "${LAB_KAFKA_TRANSPORT}"
   for container in ${KAFKA_CONTAINERS}; do
     if docker inspect "${container}" >/dev/null 2>&1; then
       docker inspect --format '{{.Name}}|{{.Id}}|{{.State.Running}}|{{.State.StartedAt}}' "${container}"
@@ -329,6 +362,23 @@ kafka_runtime_signature() {
       printf '/%s|missing\n' "${container}"
     fi
   done
+}
+
+# This signature contains the compose inputs which require a broker replacement.
+# Container IDs intentionally do not participate: they change on every recreate
+# and previously caused every otherwise identical experiment to recreate Kafka
+# and consequently re-run the broker warm-up.
+kafka_runtime_configuration_signature() {
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    "${LAB_KAFKA_IMPLEMENTATION}" \
+    "${LAB_KAFKA_TOPOLOGY}" \
+    "${LAB_KAFKA_TRANSPORT}" \
+    "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
+    "${KAFKA_TOPIC_MIN_ISR}" \
+    "${LAB_KAFKA_CPU_PER_BROKER}" \
+    "${LAB_KAFKA_MEMORY_RUNTIME}" \
+    "${LAB_KAFKA_HEAP_RUNTIME}" \
+    "${LAB_KAFKA_TLS_PROTOCOLS}"
 }
 
 kafka_runtime_identity() {
@@ -347,12 +397,21 @@ record_kafka_runtime_signature() {
   mv "${temporary_signature}" "${KAFKA_RUNTIME_SIGNATURE_FILE}"
 }
 
+record_kafka_runtime_configuration_signature() {
+  signature="$1"
+  mkdir -p "$(dirname "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}")"
+  temporary_signature="${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}.tmp.$$"
+  printf '%s\n' "${signature}" > "${temporary_signature}"
+  mv "${temporary_signature}" "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}"
+}
+
 warm_apache_kafka() {
   reason="$1"
   set -- \
     --backend docker \
     --docker-container "${APACHE_KAFKA_CONTAINER}" \
     --bootstrap-server "${BOOTSTRAP_SERVER}" \
+    --security-protocol "${KAFKA_SECURITY_PROTOCOL}" \
     --replication-factor "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
     --reason "${reason}" \
     --experiment "${EXPERIMENT_NAME:-internal-lab experiment}" \
@@ -365,9 +424,16 @@ warm_apache_kafka() {
 }
 
 KAFKA_RUNTIME_SIGNATURE_FILE="${LAB_ROOT}/state/kafka-runtime.signature"
+KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE="${LAB_ROOT}/state/kafka-runtime-configuration.signature"
 if [ "${MODE}" = "--ensure-runtime" ]; then
   KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"
   KAFKA_RUNTIME_PREVIOUS="$(cat "${KAFKA_RUNTIME_SIGNATURE_FILE}" 2>/dev/null || true)"
+  KAFKA_RUNTIME_CONFIGURATION="$(kafka_runtime_configuration_signature)"
+  KAFKA_RUNTIME_CONFIGURATION_PREVIOUS="$(cat "${KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE}" 2>/dev/null || true)"
+  KAFKA_FORCE_RECREATE_FLAG=""
+  if [ -z "${KAFKA_RUNTIME_CONFIGURATION_PREVIOUS}" ] || [ "${KAFKA_RUNTIME_CONFIGURATION_PREVIOUS}" != "${KAFKA_RUNTIME_CONFIGURATION}" ]; then
+    KAFKA_FORCE_RECREATE_FLAG="--force-recreate"
+  fi
 
   if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ]; then
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
@@ -379,10 +445,15 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
       docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
     fi
   fi
+  # Transport is part of the broker listener configuration.  Compose does not
+  # reliably recreate an existing service merely because an interpolated env
+  # value changed, so force replacement when the configuration signature changes.
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
   LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
+  LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \
+  LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS}" \
   LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER}" LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME}" LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME}" \
-    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_SERVICES} redis
+    docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --wait ${KAFKA_FORCE_RECREATE_FLAG} ${KAFKA_SERVICES} redis
   wait_for_kafka_ready
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
     docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" up -d --no-deps --force-recreate kafka-exporter process-exporter >/dev/null 2>&1 || true
@@ -405,6 +476,7 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
     fi
   fi
   record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"
+  record_kafka_runtime_configuration_signature "${KAFKA_RUNTIME_CONFIGURATION}"
   echo "Kafka and Redis runtime is ready for the experiment."
   exit 0
 fi

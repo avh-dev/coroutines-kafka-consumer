@@ -103,6 +103,9 @@ class DeploymentBindings:
     kafka_bootstrap: str
     redis_host: str
     audit_host: str
+    kafka_security_protocol: str = "PLAINTEXT"
+    kafka_ssl_truststore_certificates: str = ""
+    kafka_ssl_endpoint_identification_algorithm: str | None = None
     audit_port: int = 5170
     image_pull_policy: str = "Always"
     application_namespace: str = "ckc-app"
@@ -217,6 +220,7 @@ def aws_terraform_variables(
         },
         "kafka": {
             "mode": "kafka_mode",
+            "transport": "kafka_transport",
             "kubernetes_brokers": "kubernetes_kafka_brokers",
             "msk_version": "msk_kafka_version",
             "msk_brokers": "msk_number_of_broker_nodes",
@@ -292,6 +296,11 @@ def aws_terraform_variables(
         for source, destination in mapping.items():
             if source in raw:
                 result[destination] = copy.deepcopy(raw[source])
+    if "kafka_transport" in result:
+        transport = str(result["kafka_transport"]).upper()
+        if transport not in {"PLAINTEXT", "TLS"}:
+            raise ValueError("AWS experiment environment.lab.kafka.transport must be plaintext or tls")
+        result["kafka_transport"] = transport
     if runtime:
         result.update(copy.deepcopy(dict(runtime)))
     return result
@@ -570,6 +579,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "KAFKA_ENABLED": "true",
         "DEMO_KAFKA_ENABLED": "true",
         "DEMO_KAFKA_BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
+        "DEMO_KAFKA_SECURITY_PROTOCOL": bindings.kafka_security_protocol,
+        "DEMO_KAFKA_SSL_TRUSTSTORE_CERTIFICATES": bindings.kafka_ssl_truststore_certificates,
         "KAFKA_BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
         "GROUP_ID": "ckc-demo",
         "SPRING_DATA_REDIS_HOST": bindings.redis_host,
@@ -585,6 +596,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
+    if bindings.kafka_ssl_endpoint_identification_algorithm is not None:
+        computed_env["DEMO_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"] = bindings.kafka_ssl_endpoint_identification_algorithm
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))
     resources = values.get("resources") or configuration.get("resources") or {}
     manifests: list[dict[str, Any]] = [
@@ -751,6 +764,8 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
             if key in load or key in defaults
         },
         "BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
+        "KAFKA_SECURITY_PROTOCOL": bindings.kafka_security_protocol,
+        "KAFKA_SSL_TRUSTSTORE_CERTIFICATES": bindings.kafka_ssl_truststore_certificates,
         "TOTAL_SHARDS": shards,
         "TEST_RUN_ID": bindings.run_id,
         "AUDIT_TCP_HOST": bindings.audit_host,
@@ -763,6 +778,8 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         "CAULDRON_TELEMETRY_TPS_PER_PRODUCER": producer_capacity.get("telemetry", 1000),
     })
     environment.update(copy.deepcopy(dict(bindings.load_test_environment or {})))
+    if bindings.kafka_ssl_endpoint_identification_algorithm is not None:
+        environment["KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"] = bindings.kafka_ssl_endpoint_identification_algorithm
     if bindings.started_at:
         environment["TEST_RUN_STARTED_AT"] = bindings.started_at
     container: dict[str, Any] = {

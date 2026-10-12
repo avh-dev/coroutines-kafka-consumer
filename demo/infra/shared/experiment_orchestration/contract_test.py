@@ -222,6 +222,25 @@ class CanonicalExperimentContractTest(unittest.TestCase):
 
         self.assertEqual("worker", snapshot["targets"][0]["placement"]["generator"])
 
+    def test_aws_accepts_target_msk_and_scheduling_overrides(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["lab"] = {"kafka": {"msk_instance_type": "kafka.t3.small"}}
+        experiment["targets"][0]["scheduling"] = {"alignment": "utc_hour", "minimum_lead_time": "5m"}
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="aws")
+        resolved = resolve_experiment_definition(self.write(experiment), environment="aws")
+
+        self.assertEqual("kafka.t3.small", snapshot["targets"][0]["lab"]["kafka"]["msk_instance_type"])
+        self.assertEqual("utc_hour", resolved.targets[0].definition["scheduling"]["alignment"])
+
+    def test_kafka_transport_is_an_environment_property(self) -> None:
+        experiment = canonical_experiment()
+        experiment["environments"]["aws"]["lab"]["kafka"] = {"mode": "msk", "transport": "tls"}
+
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="aws")
+
+        self.assertEqual("tls", snapshot["environment"]["configuration"]["lab"]["kafka"]["transport"])
+
     def test_accepts_exact_per_topic_application_workloads(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["application"] = {
@@ -417,6 +436,11 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual("apache-kafka", kafka["implementation"])
         self.assertEqual(3, kafka["brokers"])
         self.assertEqual(0.75, kafka["resources"]["cpu_per_broker"])
+
+        tls = copy.deepcopy(experiment)
+        tls["environments"]["internal-lab"]["lab"]["kafka"]["transport"] = "tls"
+        tls_snapshot = validate_canonical_experiment(tls, self.source, environment="internal-lab")
+        self.assertEqual("tls", tls_snapshot["environment"]["configuration"]["lab"]["kafka"]["transport"])
 
         invalid = copy.deepcopy(experiment)
         invalid["environments"]["internal-lab"]["lab"]["kafka"]["brokers"] = 2

@@ -1028,6 +1028,7 @@ helm repo add kedacore https://kedacore.github.io/charts --force-update
 helm repo update
 
 KAFKA_MODE="$(infra_output kafka_mode)"
+KAFKA_TRANSPORT="$(infra_output kafka_transport)"
 python3 "${REPO_DIR}/demo/infra/shared/result_bundle/dashboard.py" \
   "${REPO_DIR}/demo/infra/shared/grafana/dashboards/ckc-overview.json" \
   "${RUNNER_HOME}/observability/grafana/dashboards/ckc-overview.json" \
@@ -1095,7 +1096,12 @@ EOF
   KAFKA_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
 else
-  KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
+  if [ "${KAFKA_TRANSPORT}" = "TLS" ]; then
+    KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers_tls)"
+  else
+    KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
+  fi
+  MSK_CLUSTER_ARN="$(infra_output msk_cluster_arn)"
   MSK_BROKER_NODES="$(infra_output msk_number_of_broker_nodes)"
   MSK_KAFKA_VERSION="$(infra_output msk_kafka_version)"
   MSK_BROKER_INSTANCE_TYPE="$(infra_output msk_broker_instance_type)"
@@ -1226,9 +1232,12 @@ context = {
         },
         "kafka": {
             "mode": "${KAFKA_MODE}",
+            "transport": "${KAFKA_TRANSPORT}",
+            "security_protocol": "$( [ "${KAFKA_TRANSPORT}" = "TLS" ] && printf SSL || printf PLAINTEXT )",
             "brokers": ${KAFKA_BROKERS:-${MSK_BROKER_NODES:-0}},
             "kafka_version": "${MSK_KAFKA_VERSION:-}",
-            "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
+        "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",
+        "cluster_arn": "${MSK_CLUSTER_ARN:-}",
             "disk_gib": ${MSK_EBS_VOLUME_SIZE:-0},
         },
         "redis": {

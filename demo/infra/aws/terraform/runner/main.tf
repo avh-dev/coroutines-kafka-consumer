@@ -167,6 +167,16 @@ data "aws_iam_policy_document" "runner_session" {
   }
 
   statement {
+    sid = "MskBrokerResize"
+    actions = [
+      "kafka:DescribeCluster",
+      "kafka:DescribeClusterOperation",
+      "kafka:UpdateBrokerType",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
     sid = "ImagePull"
     actions = [
       "ecr:GetAuthorizationToken",

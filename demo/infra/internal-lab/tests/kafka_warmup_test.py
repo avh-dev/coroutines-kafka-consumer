@@ -16,6 +16,11 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
         self.assertIn('KAFKA_RUNTIME_BEFORE="$(kafka_runtime_signature)"', script)
         self.assertIn('KAFKA_RUNTIME_PREVIOUS="$(cat', script)
         self.assertIn('record_kafka_runtime_signature "${KAFKA_RUNTIME_AFTER}"', script)
+        self.assertIn("kafka_runtime_configuration_signature()", script)
+        self.assertIn('KAFKA_RUNTIME_CONFIGURATION_SIGNATURE_FILE=', script)
+        self.assertIn('KAFKA_FORCE_RECREATE_FLAG="--force-recreate"', script)
+        self.assertIn('${KAFKA_FORCE_RECREATE_FLAG} ${KAFKA_SERVICES} redis', script)
+        self.assertIn('record_kafka_runtime_configuration_signature "${KAFKA_RUNTIME_CONFIGURATION}"', script)
 
     def test_warmup_is_apache_only_and_not_unconditionally_run_per_target(self) -> None:
         script = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
@@ -35,8 +40,11 @@ class KafkaWarmupIntegrationTest(unittest.TestCase):
 
     def test_runner_propagates_notification_hook_to_warmup(self) -> None:
         runner = (ROOT / "assets/helpers/run-experiment.py").read_text(encoding="utf-8")
+        warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
         self.assertIn('environment.setdefault("CKC_NOTIFY_HOOK", str(hook))', runner)
         self.assertIn('environment.setdefault("CKC_NOTIFICATION_DIR"', runner)
+        self.assertIn('"kafka_warmup_completed"', warmup)
+        self.assertIn("notify_completed(args, messages", warmup)
 
     def test_experiment_prepares_runtime_once_and_targets_only_reset_data(self) -> None:
         runner = (ROOT / "assets/helpers/run-experiment.py").read_text(encoding="utf-8")
@@ -73,6 +81,18 @@ Topic: order.events.v1 Partition: 1 Leader: 2 Replicas: 2,3,1 Isr: 2,3,1
         warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
         self.assertNotIn("--grafana-url", reset)
         self.assertNotIn("api/annotations", warmup)
+
+    def test_tls_warmup_reuses_the_broker_client_configuration(self) -> None:
+        reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
+        compose = (ROOT / "assets/compose/docker-compose.host-services.yml").read_text(encoding="utf-8")
+        warmup = (ROOT.parent / "shared/kafka_warmup/run.py").read_text(encoding="utf-8")
+
+        self.assertIn('--security-protocol "${KAFKA_SECURITY_PROTOCOL}"', reset)
+        self.assertIn('LAB_KAFKA_TLS_PROTOCOLS="${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"', reset)
+        self.assertIn('KAFKA_SSL_ENABLED_PROTOCOLS: "${LAB_KAFKA_TLS_PROTOCOLS:-TLSv1.3}"', compose)
+        self.assertIn('"--volumes-from", f"{self.args.docker_container}:ro"', warmup)
+        self.assertIn('client_config_path = "/etc/kafka/secrets/client.properties"', warmup)
+        self.assertIn('["--producer.config", client_config_path]', warmup)
 
 
 if __name__ == "__main__":

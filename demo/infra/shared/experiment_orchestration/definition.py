@@ -127,7 +127,7 @@ def _build_resolved_experiment(
     for index, raw_target in enumerate(raw_targets, start=1):
         if not isinstance(raw_target, dict):
             raise ValueError(f"Experiment targets[{index}] must be an object")
-        if "lab" in raw_target or "lab_profile" in raw_target:
+        if "lab_profile" in raw_target:
             raise ValueError(
                 f"Experiment targets[{index}] cannot override the experiment lab profile; start another experiment"
             )

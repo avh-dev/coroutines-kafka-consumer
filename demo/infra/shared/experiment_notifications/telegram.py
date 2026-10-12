@@ -15,7 +15,10 @@ DEFAULT_EVENTS = {
     "runner_bootstrap_finished",
     "lab_creation_started",
     "kafka_warmup_started",
+    "kafka_warmup_completed",
     "target_started",
+    "target_generator_preparing",
+    "target_waiting_for_start",
     "target_workload_finished",
     "target_drain_waiting",
     "target_audit_waiting",
@@ -235,6 +238,11 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
             f"🔥 Kafka warm-up started: {format_duration(payload.get('duration_seconds'))}"
             f"\nReason: {payload.get('reason', 'Kafka runtime was redeployed')}"
         )
+    if event == "kafka_warmup_completed":
+        return "\n".join([
+            f"✅ Kafka warm-up finished: {format_duration(payload.get('elapsed_seconds'))}",
+            f"Records: {payload.get('records', 'unknown')}",
+        ])
     if event == "target_started":
         index = payload.get("index")
         total = payload.get("total")
@@ -253,6 +261,19 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         if details:
             lines.append("Profile: " + " · ".join(details))
         lines.append(f"Expected workload: {format_duration(payload.get('expected_duration_seconds'))}")
+        return "\n".join(lines)
+    if event == "target_generator_preparing":
+        return "\n".join([
+            f"⚙️ Preparing load generator: {payload.get('name') or 'unknown'}",
+            "Deploying workload pods and initializing Kafka clients",
+        ])
+    if event == "target_waiting_for_start":
+        lines = [
+            f"⏳ Load generator ready: {payload.get('name') or 'unknown'}",
+            f"Scheduled start: {payload.get('scheduled_start') or 'unknown'}",
+        ]
+        if payload.get("wait_seconds") not in (None, ""):
+            lines.append(f"Waiting: {format_duration(payload['wait_seconds'])}")
         return "\n".join(lines)
     if event == "target_workload_finished":
         index = payload.get("index")

@@ -80,13 +80,21 @@ def load_profile_seconds(profile: str) -> int:
     )
 
 
+def duration_seconds(value: str) -> int:
+    match = re.fullmatch(r"(\d+)\s*([hms])", value.strip())
+    if not match:
+        raise ValueError(f"Invalid duration: {value!r}")
+    return int(match.group(1)) * {"h": 3600, "m": 60, "s": 1}[match.group(2)]
+
+
 def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: int = 0) -> int:
     def phase_seconds(name: str, default: int) -> int:
         value = target.get(name)
         return max(0, int(default if value is None else value))
 
     expected_lifecycle_seconds = (
-        phase_seconds("duration_seconds", 0)
+        phase_seconds("minimum_lead_time_seconds", 0)
+        + phase_seconds("duration_seconds", 0)
         + phase_seconds("consumer_drain_timeout_seconds", 300)
         + phase_seconds("telemetry_settle_seconds", 65)
         + TARGET_WATCHDOG_SAFETY_SECONDS
@@ -646,6 +654,65 @@ class SessionController:
         )
         self.phase("LAB_READY")
 
+    def transition_msk_for_target(self, target: dict[str, Any]) -> bool:
+        desired_type = str(((target.get("lab") or {}).get("kafka") or {}).get("msk_instance_type") or "").strip()
+        if not desired_type:
+            return False
+        if self.config["kafka"].get("mode") != "msk":
+            raise RuntimeError(f"Target {target['id']!r} requests MSK resizing but the lab does not use MSK")
+        current_type = str(self.config["kafka"].get("instance_type") or "")
+        if current_type == desired_type:
+            return False
+        context_path = f"/opt/ckc-runner/config/load-lab-{self.config['aws_environment']}.json"
+        command = "\n".join([
+            "set -euo pipefail",
+            "python3 - <<'PY'",
+            "import json, subprocess, time",
+            f"context = json.load(open({context_path!r}, encoding='utf-8'))",
+            "arn = context.get('kafka', {}).get('cluster_arn')",
+            "if not arn: raise RuntimeError('MSK cluster ARN is missing from lab context')",
+            f"desired = {desired_type!r}",
+            f"region = {self.config['region']!r}",
+            "def aws(*args):",
+            "    return json.loads(subprocess.check_output(['aws', 'kafka', *args, '--region', region, '--output', 'json'], text=True))",
+            "cluster = aws('describe-cluster', '--cluster-arn', arn)['ClusterInfo']",
+            "before = cluster['BrokerNodeGroupInfo']['InstanceType']",
+            "if before == desired:",
+            "    print(json.dumps({'operation_arn': None, 'before': before, 'after': before, 'status': 'already_current'})); raise SystemExit(0)",
+            "operation = aws('update-broker-type', '--cluster-arn', arn, '--current-version', cluster['CurrentVersion'], '--target-instance-type', desired)",
+            "operation_arn = operation['ClusterOperationInfo']['OperationArn']",
+            "deadline = time.monotonic() + 7200",
+            "while time.monotonic() < deadline:",
+            "    info = aws('describe-cluster-operation', '--cluster-operation-arn', operation_arn)['ClusterOperationInfo']",
+            "    state = info['OperationState']",
+            "    if state == 'UPDATE_COMPLETE': break",
+            "    if state in {'UPDATE_FAILED', 'UPDATE_CANCELLED'}: raise RuntimeError(f'MSK resize {operation_arn} ended as {state}')",
+            "    time.sleep(30)",
+            "else: raise TimeoutError(f'MSK resize did not complete: {operation_arn}')",
+            "while time.monotonic() < deadline:",
+            "    cluster = aws('describe-cluster', '--cluster-arn', arn)['ClusterInfo']",
+            "    if cluster['State'] == 'ACTIVE' and cluster['BrokerNodeGroupInfo']['InstanceType'] == desired: break",
+            "    time.sleep(20)",
+            "else: raise TimeoutError(f'MSK cluster did not become ACTIVE as {desired}')",
+            "print(json.dumps({'operation_arn': operation_arn, 'before': before, 'after': desired, 'status': 'completed'}))",
+            "PY",
+        ])
+        self.phase("RESIZING_MSK", target_id=target["id"], target_instance_type=desired_type)
+        transition_started_at = utc_text()
+        invocation = self.ssm(command, f"resize MSK for target {target['name']}", 7500)
+        output = str(invocation.get("StandardOutputContent", "")).strip().splitlines()
+        evidence = json.loads(output[-1]) if output else {}
+        evidence.update({
+            "target_id": target["id"],
+            "started_at": transition_started_at,
+            "completed_at": utc_text(),
+            "desired_instance_type": desired_type,
+        })
+        self.state.setdefault("msk_transitions", []).append(evidence)
+        self.config["kafka"]["instance_type"] = desired_type
+        self.save()
+        return True
+
     def execute_test(self) -> None:
         config = self.config
         results: list[dict[str, Any]] = []
@@ -656,6 +723,8 @@ class SessionController:
             "remote_definition": config["test_definition"],
         }]
         for index, target in enumerate(targets, start=1):
+            if self.transition_msk_for_target(target):
+                self.warm_kafka()
             run_id = target["run_id"]
             remote_log = f"/opt/ckc-runner/reports/session-{run_id}.log"
             remote_phase_log = f"/opt/ckc-runner/reports/session-{run_id}.phases.jsonl"
@@ -725,6 +794,8 @@ class SessionController:
                 + "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/run-test.sh "
                 f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])} "
                 f"{shlex.quote(target['remote_definition'])} {shlex.quote(run_id)} "
+                f"--start-alignment {shlex.quote(target.get('start_alignment', 'none'))} "
+                f"--minimum-lead-time-seconds {int(target.get('minimum_lead_time_seconds', 0))} "
                 '> "$session_log" 2>&1; status=$?; '
                 'cat "$phase_log"; exit "$status"'
             )
@@ -1086,6 +1157,7 @@ class SessionController:
             "    'python3', '/opt/ckc-runner/assets/repo/demo/infra/shared/kafka_warmup/run.py',",
             "    '--backend', 'kubernetes',",
             "    '--bootstrap-server', str(context['kafka_bootstrap']),",
+            "    '--security-protocol', str(context.get('kafka_security_protocol', 'PLAINTEXT')),",
             "    '--replication-factor', str(context['kafka_topic_replication_factor']),",
             f"    '--reason', {reason!r},",
             f"    '--experiment', {config['experiment_name']!r},",
@@ -1834,9 +1906,22 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             "telemetry_settle_seconds": int(
                 65 if load.get("telemetry_settle_seconds") is None else load["telemetry_settle_seconds"]
             ),
+            "lab": copy.deepcopy(item.target.definition.get("lab") or {}),
+            "scheduling": copy.deepcopy(item.target.definition.get("scheduling") or {}),
         })
     for target in targets:
+        scheduling = target["scheduling"]
+        if scheduling:
+            target["start_alignment"] = scheduling["alignment"]
+            target["minimum_lead_time_seconds"] = duration_seconds(scheduling["minimum_lead_time"])
+        else:
+            target["start_alignment"] = "none"
+            target["minimum_lead_time_seconds"] = 0
         target["watchdog_seconds"] = target_watchdog_seconds(target, watchdog_floor_seconds)
+    first_target_kafka = ((targets[0].get("lab") or {}).get("kafka") or {})
+    first_target_msk_type = first_target_kafka.get("msk_instance_type")
+    if first_target_msk_type:
+        terraform_lab_inputs["msk_broker_instance_type"] = first_target_msk_type
     mode = "experiment"
     experiment_name = resolved.name
     experiment_description = resolved.description
@@ -1852,7 +1937,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
     kafka_lab = lab.get("kafka") or {}
     kafka_brokers = kafka_lab.get("kubernetes_brokers") or kafka_lab.get("msk_brokers")
     kafka_mode = kafka_lab.get("mode") or terraform_lab_inputs.get("kafka_mode")
-    kafka_instance_type = kafka_lab.get("msk_instance_type") or terraform_lab_inputs.get("msk_broker_instance_type")
+    kafka_instance_type = first_target_msk_type or kafka_lab.get("msk_instance_type") or terraform_lab_inputs.get("msk_broker_instance_type")
     kafka = {
         "implementation": "Amazon MSK" if kafka_mode == "msk" else "apache-kafka",
         "topology": "cluster" if kafka_brokers and int(kafka_brokers) > 1 else "single",
@@ -1861,6 +1946,7 @@ def new_state(args: argparse.Namespace, session_id: str, session_dir: Path) -> d
             kafka_lab.get("replication_factor") or min(3, int(kafka_brokers or 1))
         ),
         "mode": kafka_mode,
+        "transport": str(kafka_lab.get("transport") or "plaintext").lower(),
         **({"instance_type": kafka_instance_type} if kafka_instance_type else {}),
     }
     redis_lab = lab.get("redis") or {}

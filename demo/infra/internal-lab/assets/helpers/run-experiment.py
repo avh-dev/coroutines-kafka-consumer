@@ -62,6 +62,7 @@ KAFKA_LAB_ENV_KEYS = {
     "LAB_KAFKA_CPU_PER_BROKER",
     "LAB_KAFKA_MEMORY_PER_BROKER",
     "LAB_KAFKA_HEAP_PER_BROKER",
+    "LAB_KAFKA_TRANSPORT",
 }
 KAFKA_CHAOS_RESTART_ENV = "CKC_ALLOW_KAFKA_CHAOS_RESTART"
 STOP_REQUESTED = threading.Event()
@@ -125,6 +126,7 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             "brokers": 3 if topology == "cluster" else 1,
             "replication_factor": 3 if topology == "cluster" else 1,
             "min_insync_replicas": 2 if topology == "cluster" else 1,
+            "transport": "plaintext",
             "resources": {
                 "cpu_per_broker": 1 if topology == "cluster" else 2,
                 "memory_per_broker": "2Gi" if topology == "cluster" else "4Gi",
@@ -142,6 +144,7 @@ def kafka_lab_environment(lab: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "LAB_KAFKA_CPU_PER_BROKER": str(resources["cpu_per_broker"]),
         "LAB_KAFKA_MEMORY_PER_BROKER": str(resources["memory_per_broker"]),
         "LAB_KAFKA_HEAP_PER_BROKER": str(resources["heap_per_broker"]),
+        "LAB_KAFKA_TRANSPORT": str(kafka.get("transport", "plaintext")),
     }
     return kafka, environment
 
@@ -717,6 +720,14 @@ def notify_hook_path(lab_root: Path, configured: str) -> Path | None:
 
 def command_for_run(target_runner: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
     command = [str(target_runner), "--skip-analysis"]
+    scheduling = test.get("scheduling") or {}
+    if scheduling:
+        alignment = str(scheduling["alignment"])
+        minimum_lead_time = duration_seconds(str(scheduling["minimum_lead_time"]))
+        command.extend([
+            "--start-alignment", alignment,
+            "--minimum-lead-time-seconds", str(minimum_lead_time),
+        ])
     if test.get("consumer_profiles_path"):
         command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
     if test.get("deployment_plan_path"):
@@ -886,6 +897,12 @@ def run_one(
         },
         details=None,
     )
+    notify(hook, "target_generator_preparing", {
+        "experiment": experiment_name,
+        "index": index,
+        "total": total,
+        "name": name,
+    }, log_dir)
     env["EXPERIMENT_PROGRESS_FILE"] = str(lab_root / "state/experiment/progress.json")
     env["CKC_EXPERIMENT_INTERNAL"] = "1"
     if expected_seconds is not None:
@@ -906,6 +923,7 @@ def run_one(
     reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
     reader.start()
     stop_requested = False
+    generator_wait_notified = False
     stop_deadline: float | None = None
     last_progress_at = 0.0
     if sys.stdin.isatty():
@@ -919,6 +937,24 @@ def run_one(
                     break
                 print(line, end="")
                 log_file.write(line)
+                if not generator_wait_notified:
+                    scheduled = re.search(r"Load-test generator ready; waiting for scheduled start at ([^.]+)", line)
+                    if scheduled:
+                        scheduled_start = scheduled.group(1)
+                        try:
+                            scheduled_at = datetime.fromisoformat(scheduled_start.replace("Z", "+00:00"))
+                            wait_seconds = max(0, int((scheduled_at - datetime.now(timezone.utc)).total_seconds()))
+                        except ValueError:
+                            wait_seconds = None
+                        notify(hook, "target_waiting_for_start", {
+                            "experiment": experiment_name,
+                            "index": index,
+                            "total": total,
+                            "name": name,
+                            "scheduled_start": scheduled_start,
+                            "wait_seconds": wait_seconds,
+                        }, log_dir)
+                        generator_wait_notified = True
             now = time.monotonic()
             if now - last_progress_at >= 30:
                 elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()

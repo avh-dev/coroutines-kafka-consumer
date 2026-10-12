@@ -219,6 +219,17 @@ variable "kafka_mode" {
   }
 }
 
+variable "kafka_transport" {
+  description = "Kafka client transport for the load lab."
+  type        = string
+  default     = "PLAINTEXT"
+
+  validation {
+    condition     = contains(["PLAINTEXT", "TLS"], var.kafka_transport)
+    error_message = "kafka_transport must be PLAINTEXT or TLS."
+  }
+}
+
 variable "kubernetes_kafka_brokers" {
   description = "Broker count for the in-cluster Kafka deployment when kafka_mode=kubernetes."
   type        = number

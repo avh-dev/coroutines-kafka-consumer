@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the fixed CKC Kafka broker warm-up workload.")
     parser.add_argument("--backend", required=True, choices=("docker", "kubernetes"))
     parser.add_argument("--bootstrap-server", required=True)
+    parser.add_argument("--security-protocol", choices=("PLAINTEXT", "SSL"), default="PLAINTEXT")
     parser.add_argument("--replication-factor", type=int, required=True)
     parser.add_argument("--reason", default="Kafka runtime was redeployed")
     parser.add_argument("--experiment", default=os.environ.get("EXPERIMENT_NAME", "ckc experiment"))
@@ -72,6 +73,26 @@ def notify_started(args: argparse.Namespace) -> None:
     )
 
 
+def notify_completed(args: argparse.Namespace, records: int, elapsed_seconds: float) -> None:
+    if args.notify_hook is None:
+        return
+    shared_root = Path(__file__).resolve().parents[1]
+    if str(shared_root) not in sys.path:
+        sys.path.insert(0, str(shared_root))
+    from experiment_notifications import notify
+
+    notify(
+        args.notify_hook,
+        "kafka_warmup_completed",
+        {
+            **notification_payload(args),
+            "records": records,
+            "elapsed_seconds": elapsed_seconds,
+        },
+        args.notification_dir or args.log_file.parent,
+    )
+
+
 class KafkaExecutor:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -90,6 +111,11 @@ class KafkaExecutor:
             "kubectl", "-n", self.args.namespace, "run", self.pod,
             f"--image={WARMUP_IMAGE}", "--restart=Never", "--command", "--", "sleep", "600",
         ], check=True, env=self.environment)
+        if getattr(self.args, "security_protocol", "PLAINTEXT") == "SSL":
+            subprocess.run([
+                "kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "sh", "-c",
+                "printf '%s\\n' 'security.protocol=SSL' > /tmp/ckc-kafka-client.properties",
+            ], check=True, env=self.environment)
         subprocess.run([
             "kubectl", "-n", self.args.namespace, "wait", "--for=condition=Ready",
             f"pod/{self.pod}", "--timeout=5m",
@@ -119,18 +145,29 @@ class KafkaExecutor:
             prefix = [
                 "docker", "run", "--rm", "--name", container_name,
                 "--network", f"container:{self.args.docker_container}",
+                "--volumes-from", f"{self.args.docker_container}:ro",
                 "--memory", WARMUP_CLIENT_MEMORY, "--memory-swap", WARMUP_CLIENT_MEMORY,
                 "--entrypoint", "/usr/bin/env", WARMUP_IMAGE,
                 "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
             ]
             binary_path = f"/opt/kafka/bin/{binary}"
+            client_config_path = "/etc/kafka/secrets/client.properties"
         else:
             prefix = [
                 "kubectl", "-n", self.args.namespace, "exec", self.pod, "--", "env",
                 "KAFKA_OPTS=", f"KAFKA_HEAP_OPTS={WARMUP_CLIENT_HEAP}",
             ]
             binary_path = f"/opt/kafka/bin/{binary}"
-        return [*prefix, binary_path, *arguments]
+            client_config_path = "/tmp/ckc-kafka-client.properties"
+        config_arguments: list[str] = []
+        if getattr(self.args, "security_protocol", "PLAINTEXT") == "SSL":
+            if binary in {"kafka-topics.sh", "kafka-consumer-groups.sh"}:
+                config_arguments = ["--command-config", client_config_path]
+            elif binary == "kafka-consumer-perf-test.sh":
+                config_arguments = ["--consumer.config", client_config_path]
+            elif binary == "kafka-producer-perf-test.sh":
+                config_arguments = ["--producer.config", client_config_path]
+        return [*prefix, binary_path, *arguments, *config_arguments]
 
     def run(self, binary: str, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -175,6 +212,7 @@ def run_warmup(args: argparse.Namespace) -> None:
     messages = warmup_record_count()
     executor = KafkaExecutor(args)
     consumer: subprocess.Popen[str] | None = None
+    started_at = time.monotonic()
     with args.log_file.open("a", encoding="utf-8") as log:
         log.write(f"{datetime.now(timezone.utc).isoformat()} warm-up start topic={topic} reason={args.reason}\n")
         try:
@@ -206,12 +244,14 @@ def run_warmup(args: argparse.Namespace) -> None:
                 "--num-records", str(messages), "--record-size", str(WARMUP_RECORD_SIZE),
                 "--throughput", str(WARMUP_RATE), "--producer-props",
                 f"bootstrap.servers={args.bootstrap_server}", "acks=all", "compression.type=lz4",
+                f"security.protocol={args.security_protocol}",
             )
             log.write(produced.stdout)
             consumer_exit = consumer.wait(timeout=120)
             if consumer_exit != 0:
                 raise RuntimeError(f"Kafka warm-up consumer exited with status {consumer_exit}")
             log.write(f"{datetime.now(timezone.utc).isoformat()} warm-up completed records={messages}\n")
+            notify_completed(args, messages, time.monotonic() - started_at)
         finally:
             if consumer is not None and consumer.poll() is None:
                 consumer.send_signal(signal.SIGTERM)

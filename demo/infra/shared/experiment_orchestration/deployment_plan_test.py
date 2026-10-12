@@ -51,6 +51,31 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertNotIn("profile", variables)
         self.assertEqual("32.4.3", plan["third_party"][0]["version"])
 
+    def test_tls_bindings_pass_ca_to_application_and_generator(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="tls-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka:9092",
+            kafka_security_protocol="SSL",
+            kafka_ssl_truststore_certificates="-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n",
+            kafka_ssl_endpoint_identification_algorithm="",
+            redis_host="redis",
+            audit_host="audit",
+        ))
+        application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+        load_job = next(item for item in manifests if item["kind"] == "Job")
+        application_env = {item["name"]: item["value"] for item in application["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in item}
+        load_env = {item["name"]: item["value"] for item in load_job["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in item}
+        self.assertEqual("SSL", application_env["DEMO_KAFKA_SECURITY_PROTOCOL"])
+        self.assertIn("BEGIN CERTIFICATE", application_env["DEMO_KAFKA_SSL_TRUSTSTORE_CERTIFICATES"])
+        self.assertEqual("", application_env["DEMO_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"])
+        self.assertEqual("SSL", load_env["KAFKA_SECURITY_PROTOCOL"])
+        self.assertIn("BEGIN CERTIFICATE", load_env["KAFKA_SSL_TRUSTSTORE_CERTIFICATES"])
+        self.assertEqual("", load_env["KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"])
+
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")

@@ -50,6 +50,7 @@ PLAN_HELM_ARGS=()
 DRY_RUN_PLAN=0
 LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-}"
 LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY:-}"
+LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT:-}"
 PROCESSING_DISPATCHER_TYPE=""
 PROCESSING_ENABLED=""
 AUDIT_LOG_ENABLED=""
@@ -57,6 +58,8 @@ METRICS_IMPLEMENTATION=""
 LETTUCE_METRICS_ENABLED=""
 JDK_HTTP_CLIENT_EXECUTOR=""
 WORKER_DISPATCHER_THREADS=""
+START_ALIGNMENT="none"
+MINIMUM_LEAD_TIME_SECONDS=0
 CONSUMER_GROUPS="ckc-demo"
 EXPLICIT_WORKER_DISPATCHER_THREADS=0
 ENV_OVERRIDES=()
@@ -103,6 +106,7 @@ Usage: $0 [--skip-prepare] [--skip-drain-wait] [--skip-analysis] [--deployment p
           [--processing-enabled true|false] [--audit-log-enabled true|false]
           [--metrics-implementation MICROMETER|NOOP] [--lettuce-metrics true|false]
           [--jdk-http-client-executor DEFAULT|VIRTUAL]
+          [--start-alignment none|utc_hour] [--minimum-lead-time-seconds seconds]
           [--env KEY=VALUE]
           [--consumer-profiles path]
           [--deployment-plan path]
@@ -286,6 +290,14 @@ while [ "$#" -gt 0 ]; do
       EXPLICIT_WORKER_DISPATCHER_THREADS=1
       shift 2
       ;;
+    --start-alignment)
+      START_ALIGNMENT="${2:?--start-alignment requires none or utc_hour}"
+      shift 2
+      ;;
+    --minimum-lead-time-seconds)
+      MINIMUM_LEAD_TIME_SECONDS="${2:?--minimum-lead-time-seconds requires a non-negative integer}"
+      shift 2
+      ;;
     --env)
       ENV_OVERRIDES+=("${2:?--env requires KEY=VALUE}")
       shift 2
@@ -322,6 +334,7 @@ fi
 
 REQUESTED_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}"
 REQUESTED_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}"
+REQUESTED_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT}"
 # shellcheck disable=SC1090
 . "${LAB_ENV}"
 export LAB_HOST LAB_NODE_IP LAB_ROOT LAB_TOPOLOGY
@@ -358,6 +371,7 @@ LAB_LOAD_TEST_NODE_SELECTOR="$(node_selector_for_placement generator "${EXPERIME
 export LAB_APPLICATION_NODE_SELECTOR LAB_STUBS_NODE_SELECTOR LAB_LOAD_TEST_NODE_SELECTOR
 LAB_KAFKA_IMPLEMENTATION="${REQUESTED_KAFKA_IMPLEMENTATION:-${LAB_KAFKA_IMPLEMENTATION:-}}"
 LAB_KAFKA_TOPOLOGY="${REQUESTED_KAFKA_TOPOLOGY:-${LAB_KAFKA_TOPOLOGY:-}}"
+LAB_KAFKA_TRANSPORT="${REQUESTED_KAFKA_TRANSPORT:-${LAB_KAFKA_TRANSPORT:-plaintext}}"
 
 CURRENT_APP_PROFILE=""
 CURRENT_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION:-apache-kafka}"
@@ -456,6 +470,14 @@ normalize_kafka_topology() {
     single) printf "%s\n" "single" ;;
     cluster|three-node) printf "%s\n" "cluster" ;;
     *) echo "kafka-topology must be single or cluster: $1" >&2; exit 1 ;;
+  esac
+}
+
+normalize_kafka_transport() {
+  case "$1" in
+    plaintext|PLAINTEXT) printf '%s\n' plaintext ;;
+    tls|TLS) printf '%s\n' tls ;;
+    *) echo "kafka transport must be plaintext or tls: $1" >&2; exit 1 ;;
   esac
 }
 
@@ -746,9 +768,18 @@ if [ -z "${LAB_KAFKA_TOPOLOGY}" ]; then
   fi
 fi
 LAB_KAFKA_TOPOLOGY="$(normalize_kafka_topology "${LAB_KAFKA_TOPOLOGY}")"
+LAB_KAFKA_TRANSPORT="$(normalize_kafka_transport "${LAB_KAFKA_TRANSPORT}")"
 if [ "${LAB_KAFKA_IMPLEMENTATION}" = "redpanda" ] && [ "${LAB_KAFKA_TOPOLOGY}" != "single" ]; then
   echo "kafka-topology cluster requires apache-kafka." >&2
   exit 1
+fi
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "apache-kafka" ]; then
+  echo "kafka transport tls requires apache-kafka." >&2
+  exit 1
+fi
+KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+  KAFKA_SECURITY_PROTOCOL="SSL"
 fi
 if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
   KAFKA_BOOTSTRAP_HOST="127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
@@ -1621,7 +1652,20 @@ if [ "${AUDIT_LOG_ENABLED}" = "true" ]; then
 fi
 
 progress_step "running_target" "running target workload" "mark-target-start"
-LOAD_TEST_STARTED_EPOCH_SECONDS="$(date -u '+%s')"
+case "${START_ALIGNMENT}" in
+  none|utc_hour) ;;
+  *) echo "start-alignment must be none or utc_hour: ${START_ALIGNMENT}" >&2; exit 1 ;;
+esac
+if ! [[ "${MINIMUM_LEAD_TIME_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "minimum-lead-time-seconds must be a non-negative integer: ${MINIMUM_LEAD_TIME_SECONDS}" >&2
+  exit 1
+fi
+LOAD_TEST_STARTED_EPOCH_SECONDS="$(( $(date -u '+%s') + MINIMUM_LEAD_TIME_SECONDS ))"
+if [ "${START_ALIGNMENT}" = "utc_hour" ]; then
+  LOAD_TEST_STARTED_EPOCH_SECONDS="$(( ((LOAD_TEST_STARTED_EPOCH_SECONDS + 3599) / 3600) * 3600 ))"
+fi
+LOAD_TEST_STARTED_AT="$(date -u -d "@${LOAD_TEST_STARTED_EPOCH_SECONDS}" '+%Y-%m-%dT%H:%M:%SZ')"
+echo "Creating load-test Job for scheduled start at ${LOAD_TEST_STARTED_AT} (${START_ALIGNMENT})."
 mkdir -p "$(dirname "${LOAD_TEST_MANIFEST}")" "${LOAD_TEST_POD_LOG_DIR}"
 LOAD_RENDER_ARGS=(
   "${DEPLOYMENT_PLAN_PATH}"
@@ -1631,6 +1675,7 @@ LOAD_RENDER_ARGS=(
   --stubs-image docker.io/ckc-perf/demo-stubs:latest
   --load-test-image docker.io/ckc-perf/load-test:latest
   --kafka-bootstrap "${KAFKA_BOOTSTRAP_K8S}"
+  --kafka-security-protocol "${KAFKA_SECURITY_PROTOCOL}"
   --redis-host ckc-external-redis.ckc-perf.svc.cluster.local
   --audit-host ckc-external-audit.ckc-perf.svc.cluster.local
   --audit-port "${AUDIT_TCP_PORT}"
@@ -1643,6 +1688,9 @@ LOAD_RENDER_ARGS=(
   --load-test-only
   --load-env "AUDIT_LOG_ENABLED=${AUDIT_LOG_ENABLED}"
 )
+if [[ "${LAB_KAFKA_TRANSPORT}" == "tls" ]]; then
+  LOAD_RENDER_ARGS+=(--kafka-ssl-truststore-certificates-file "${LAB_ROOT}/state/kafka-tls/ca.crt" --kafka-ssl-endpoint-identification-algorithm "")
+fi
 if [[ -n "${LOAD_TEST_WORKERS:-}" ]]; then
   LOAD_RENDER_ARGS+=(--load-env "LOAD_TEST_WORKERS=${LOAD_TEST_WORKERS}")
 fi
@@ -1685,6 +1733,7 @@ if [ "${LOAD_TEST_PODS_READY}" -ne 1 ] || ! kubectl -n ckc-perf wait \
   rm -f "${LOAD_TEST_JOB_PATH}"
   exit 1
 fi
+echo "Load-test generator ready; waiting for scheduled start at ${LOAD_TEST_STARTED_AT}."
 
 if ! TEST_RUN_ID="${RUN_ID}" \
   EXPERIMENT_EVENTS_FILE="${RUN_EVENTS_FILE}" \

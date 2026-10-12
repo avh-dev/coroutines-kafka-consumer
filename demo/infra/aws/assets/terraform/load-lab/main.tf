@@ -232,7 +232,7 @@ resource "aws_msk_cluster" "load_lab" {
 
   encryption_info {
     encryption_in_transit {
-      client_broker = "PLAINTEXT"
+      client_broker = var.kafka_transport
       in_cluster    = true
     }
   }

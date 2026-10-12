@@ -51,6 +51,9 @@ class LoadTestConfigTest {
                 "TEST_RUN_ID" to "run-12",
                 "LOAD_TEST_WORKERS" to "4",
                 "LOAD_TEST_DISPATCHER_THREADS" to "2",
+                "KAFKA_SECURITY_PROTOCOL" to "SSL",
+                "KAFKA_SSL_TRUSTSTORE_CERTIFICATES" to "-----BEGIN CERTIFICATE-----\\nca\\n-----END CERTIFICATE-----",
+                "KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM" to "",
                 "KAFKA_PRODUCER_LINGER_MS" to "75",
                 "KAFKA_PRODUCER_BATCH_SIZE" to "131072",
                 "KAFKA_PRODUCER_COMPRESSION_TYPE" to "zstd",
@@ -64,6 +67,9 @@ class LoadTestConfigTest {
 
         assertEquals(250, config.baseTps)
         assertEquals(4, config.generatorWorkers)
+        assertEquals("SSL", config.kafkaSecurityProtocol)
+        assertTrue(config.kafkaSslTruststoreCertificates.contains("BEGIN CERTIFICATE"))
+        assertEquals("", config.kafkaSslEndpointIdentificationAlgorithm)
         assertEquals(2, config.generatorDispatcherThreads)
         assertEquals(45, config.orderEventPercent)
         assertEquals(15, config.batchEventPercent)
