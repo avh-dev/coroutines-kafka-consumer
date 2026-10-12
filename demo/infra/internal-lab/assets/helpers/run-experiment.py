@@ -720,6 +720,14 @@ def notify_hook_path(lab_root: Path, configured: str) -> Path | None:
 
 def command_for_run(target_runner: Path, test: dict[str, Any], test_definition: str, env: dict[str, str]) -> list[str]:
     command = [str(target_runner), "--skip-analysis"]
+    scheduling = test.get("scheduling") or {}
+    if scheduling:
+        alignment = str(scheduling["alignment"])
+        minimum_lead_time = duration_seconds(str(scheduling["minimum_lead_time"]))
+        command.extend([
+            "--start-alignment", alignment,
+            "--minimum-lead-time-seconds", str(minimum_lead_time),
+        ])
     if test.get("consumer_profiles_path"):
         command.extend(["--consumer-profiles", str(test["consumer_profiles_path"])])
     if test.get("deployment_plan_path"):
