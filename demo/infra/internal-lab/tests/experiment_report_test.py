@@ -2174,7 +2174,7 @@ class ExperimentReportTest(unittest.TestCase):
                 'Actual producer sent rate<span class="metric-source source-p" title="Prometheus time series">P</span></th><td>38 msg/s</td>',
                 markdown,
             )
-            self.assertIn("Producer acknowledged rate", markdown)
+            self.assertIn("Actual producer acknowledged rate", markdown)
             self.assertIn("Producer failures", markdown)
             self.assertIn(
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
@@ -2197,14 +2197,10 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("PASS ·", markdown)
             self.assertNotIn("FAIL ·", markdown)
             self.assertIn('class="champion"', markdown)
-            self.assertIn(
-                'Host Kafka CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
-                markdown,
-            )
             self.assertNotIn("MSK CPU average", markdown)
             self.assertNotIn("ElastiCache engine CPU maximum", markdown)
             self.assertIn(
-                'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
+                'Application CPU average (all pods)<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
                 markdown,
             )
             self.assertNotIn('<th scope="row">Execution</th>', markdown)
@@ -2219,6 +2215,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("### Measurement-window highlights", markdown)
             highlights = markdown.split("### Measurement-window highlights", 1)[1].split("### Detailed results", 1)[0]
             self.assertNotIn("context switches", highlights)
+            self.assertIn("Processed throughput", highlights)
+            self.assertNotIn("Producer acknowledged rate", highlights)
+            self.assertNotIn("Kafka broker metrics", markdown)
             self.assertIn("Application network receive average¹", markdown)
             self.assertEqual(1, markdown.count("¹ **Network metrics.**"))
             self.assertIn("Producer sent rate", markdown)
@@ -2242,11 +2241,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
             steady_start = markdown.index("steady-state window · 20–50 s")
             full_start = markdown.index("Full run · 80 s")
-            broker_start = markdown.index("Kafka broker metrics")
             wire_start = markdown.index("Network diagnostics")
             self.assertLess(steady_start, full_start)
-            self.assertLess(full_start, broker_start)
-            self.assertLess(broker_start, wire_start)
+            self.assertLess(full_start, wire_start)
             self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
             self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application scaling</th></tr>'))
             self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application resources</th></tr>'))

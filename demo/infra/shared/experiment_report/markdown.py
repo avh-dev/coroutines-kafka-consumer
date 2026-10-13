@@ -1177,19 +1177,7 @@ def render_markdown(report: ExperimentReport) -> str:
             ),
             "prometheus",
         )
-        row(
-            "Producer acknowledged rate",
-            formatted(
-                [
-                    value.get("producer_records_acked_total") / window_duration
-                    if window_duration and value.get("producer_records_acked_total") is not None else None
-                    for value in measurements
-                ],
-                0,
-                " msg/s",
-            ),
-            "prometheus",
-        )
+        row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
         latency_start = len(lines)
         subsection("Latency")
         highlighted_topics = {
@@ -1260,7 +1248,7 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         lines.extend(latency_rows)
         subsection("Resources and scaling")
-        row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application CPU average (all pods)", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
         row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
         row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
@@ -1381,7 +1369,7 @@ def render_markdown(report: ExperimentReport) -> str:
             row("Support node-hours", compared([value.get("support_node_hours") for value in measurements], 3, " h"), "prometheus")
 
         subsection("Application resources")
-        row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application CPU average (all pods)", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
 
         subsection("JVM thread context switches")
@@ -1514,37 +1502,6 @@ def render_markdown(report: ExperimentReport) -> str:
         [target.measurements for target in targets],
         [target.topic_evidence for target in targets],
     )
-
-    def broker_capacity_rows(label: str, measurements: list[dict[str, Any]]) -> None:
-        suffix = f" · {label}"
-        if show_host_kafka_metrics:
-            row("Host Kafka CPU average" + suffix, compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
-        if show_msk_metrics:
-            row("MSK CPU average" + suffix, compared([value.get("msk_cpu_average_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK CPU maximum" + suffix, compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK network processor utilization maximum" + suffix, compared([value.get("msk_network_processor_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK request handler utilization maximum" + suffix, compared([value.get("msk_request_handler_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK produce latency maximum" + suffix, compared([value.get("msk_produce_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
-            row("MSK consumer fetch latency maximum" + suffix, compared([value.get("msk_fetch_latency_max_ms") for value in measurements], 1, " ms"), "prometheus")
-            row("MSK produce throttle maximum" + suffix, compared([value.get("msk_produce_throttle_max_ms") for value in measurements], 1, " ms"), "prometheus")
-            row("MSK consumer fetch throttle maximum" + suffix, compared([value.get("msk_fetch_throttle_max_ms") for value in measurements], 1, " ms"), "prometheus")
-            row("MSK storage I/O average" + suffix, compared([value.get("msk_storage_io_average_mib_per_second") for value in measurements], 2, " MiB/s"), "prometheus")
-            row("MSK data disk used maximum" + suffix, compared([value.get("msk_disk_used_max_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK CPU credit balance minimum" + suffix, compared([value.get("msk_cpu_credit_balance_min") for value in measurements], 1, ""), "prometheus")
-            row("MSK under-replicated partitions maximum" + suffix, counts([value.get("msk_under_replicated_partitions_max") for value in measurements]), "prometheus")
-            row("MSK offline partitions maximum" + suffix, counts([value.get("msk_offline_partitions_max") for value in measurements]), "prometheus")
-
-    if show_host_kafka_metrics or show_msk_metrics:
-        section("Kafka broker metrics")
-        for window_index, window in enumerate(measurement_windows):
-            if not isinstance(window, dict):
-                continue
-            window_results = [target_window(target, window_index) for target in targets]
-            broker_capacity_rows(
-                f"{escaped(window.get('name') or 'measurement')} window",
-                [result.get("measurements") or {} for result in window_results],
-            )
-        broker_capacity_rows("full run", [target.measurements for target in targets])
 
     has_network_counters = bool(network_counter_rows)
     if has_network_counters or diagnostic_steps:
