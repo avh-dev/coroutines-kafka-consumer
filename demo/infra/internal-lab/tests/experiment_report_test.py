@@ -1289,9 +1289,12 @@ class ExperimentReportTest(unittest.TestCase):
 
             report.environment["kafka"]["mode"] = "msk"
             report.environment["redis"]["mode"] = "elasticache"
+            report.environment["environment"] = "aws"
             aws_markdown = render_markdown(report)
             self.assertIn("MSK CPU average", aws_markdown)
             self.assertIn("ElastiCache engine CPU maximum", aws_markdown)
+            self.assertIn("Application nodes minimum", aws_markdown)
+            self.assertIn("Application node-hours", aws_markdown)
             self.assertNotIn("Host Kafka CPU average", aws_markdown)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
@@ -1404,6 +1407,9 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("## Results", markdown)
             self.assertIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
+            self.assertNotIn("Application nodes minimum", markdown)
+            self.assertNotIn("Configured application node range", markdown)
+            self.assertNotIn("Application node-hours", markdown)
 
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
@@ -2237,7 +2243,7 @@ class ExperimentReportTest(unittest.TestCase):
             steady_start = markdown.index("steady-state window · 20–50 s")
             full_start = markdown.index("Full run · 80 s")
             broker_start = markdown.index("Kafka broker metrics")
-            wire_start = markdown.index("Kafka network traffic analysis • Max load")
+            wire_start = markdown.index("Network diagnostics")
             self.assertLess(steady_start, full_start)
             self.assertLess(full_start, broker_start)
             self.assertLess(broker_start, wire_start)
@@ -2353,7 +2359,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
             highlights = markdown.index("### Measurement-window highlights")
             detailed = markdown.index("### Detailed results")
-            network_in_highlights = markdown.index("Kafka network counters", highlights)
+            network_in_highlights = markdown.index("Kafka network efficiency", highlights)
             network_in_details = markdown.index("Kafka network counters", detailed)
             self.assertLess(highlights, network_in_highlights)
             self.assertLess(network_in_highlights, detailed)
@@ -2446,16 +2452,16 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Kafka record average before compression", markdown)
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
-            self.assertIn("Kafka network traffic analysis • Max load", markdown)
+            self.assertIn("Packet capture · Max load", markdown)
             self.assertIn("1.60 requests/s", markdown)
             self.assertIn("1.25 records", markdown)
             self.assertIn("0.60 requests/s", markdown)
             self.assertIn("3.33 records", markdown)
             self.assertNotIn("Request efficiency ·", markdown)
             self.assertNotIn('<tr class="detail-subsection">', markdown)
-            network_start = markdown.index("Kafka network traffic analysis • Max load")
+            network_start = markdown.index("Packet capture · Max load")
             self.assertIn(
-                '<tr class="subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
+                '<tr class="nested-subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
                 markdown[network_start:],
             )
             self.assertNotIn("Produce requests", markdown[network_start:])
@@ -2579,9 +2585,9 @@ class ExperimentReportTest(unittest.TestCase):
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertEqual(2, markdown.count("Kafka network traffic analysis •"))
-            self.assertIn("Kafka network traffic analysis • Max load", markdown)
-            self.assertIn("Kafka network traffic analysis • After load", markdown)
+            self.assertEqual(2, markdown.count("Packet capture ·"))
+            self.assertIn("Packet capture · Max load", markdown)
+            self.assertIn("Packet capture · After load", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

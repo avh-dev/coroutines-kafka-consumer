@@ -215,6 +215,7 @@ def render_markdown(report: ExperimentReport) -> str:
     show_host_kafka_metrics = kafka_mode == "docker"
     show_msk_metrics = kafka_mode == "msk"
     show_elasticache_metrics = redis_mode == "elasticache"
+    is_internal_lab = environment.get("environment") == "internal-lab"
     node_groups = environment.get("node_groups") if isinstance(environment.get("node_groups"), dict) else {}
     application_node_group = (
         node_groups.get("application") if isinstance(node_groups.get("application"), dict) else {}
@@ -777,6 +778,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:650}'
+            'table.comparison tr.nested-subsection th{background:#f6f8fa;color:#424a53;text-align:left;padding:6px 8px 6px 18px;font-weight:600;font-size:.94em}'
             'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
             'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
@@ -816,6 +818,9 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def subsection(title: str) -> None:
         lines.append(f'<tr class="subsection"><th colspan="{column_count}">{escaped(title)}</th></tr>')
+
+    def nested_subsection(title: str) -> None:
+        lines.append(f'<tr class="nested-subsection"><th colspan="{column_count}">{escaped(title)}</th></tr>')
 
     def topic_heading(topic: str, suffix: str = "") -> str:
         limits = {
@@ -1069,7 +1074,7 @@ def render_markdown(report: ExperimentReport) -> str:
         def counter_packets(role: str, field: str) -> list[str]:
             return formatted(counter(role, field), 0, " packets")
 
-        subsection("Producer")
+        nested_subsection("Producer")
         row("Published messages", formatted(counter("producer", "published_messages"), 0, ""), "audit")
         row("RX bytes", counter_bytes("producer", "rx_bytes"), "network")
         row("TX bytes", counter_bytes("producer", "tx_bytes"), "network")
@@ -1081,7 +1086,7 @@ def render_markdown(report: ExperimentReport) -> str:
         row("TX bytes per published message", compared(counter("producer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Total bytes per published message", compared(counter("producer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
 
-        subsection("Consumer")
+        nested_subsection("Consumer")
         row("Successfully processed messages", formatted(counter("consumer", "successful_messages"), 0, ""), "audit")
         row("RX bytes", counter_bytes("consumer", "rx_bytes"), "network")
         row("TX bytes", counter_bytes("consumer", "tx_bytes"), "network")
@@ -1093,7 +1098,7 @@ def render_markdown(report: ExperimentReport) -> str:
         row("TX bytes per processed message", compared(counter("consumer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Total bytes per processed message", compared(counter("consumer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
 
-        subsection("Total")
+        nested_subsection("Total")
         row("Published messages", formatted(counter("total", "published_messages"), 0, ""), "audit")
         row("Successfully processed messages", formatted(counter("total", "successful_messages"), 0, ""), "audit")
         row("RX bytes", counter_bytes("total", "rx_bytes"), "network")
@@ -1119,7 +1124,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 for value in values
             ]
 
-        subsection("Kafka network counters")
+        subsection("Kafka network efficiency")
         row("Producer total bytes per published message", compared(per_message("producer"), 0, " bytes/msg"), "audit-network")
         row("Consumer total bytes per processed message", compared(per_message("consumer"), 0, " bytes/msg"), "audit-network")
         row("Total bytes per processed message", compared(per_message("total"), 0, " bytes/msg"), "audit-network")
@@ -1158,10 +1163,7 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{escaped(window.get('name') or 'Steady-state')} · "
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
         )
-        render_network_counter_highlight([
-            result.get("network_counters", {}) if isinstance(result.get("network_counters"), dict) else {}
-            for result in window_results
-        ])
+        subsection("Load and throughput")
         row(
             "Producer sent rate",
             formatted(
@@ -1188,22 +1190,8 @@ def render_markdown(report: ExperimentReport) -> str:
             ),
             "prometheus",
         )
-        row(
-            "Producer failures",
-            counts([value.get("producer_records_failed_total") for value in measurements]),
-            "prometheus",
-        )
-        row("Application CPU", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
-        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
-        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
-        row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
-        row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
-        if show_host_kafka_metrics:
-            row("Kafka broker CPU average", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
-        if show_msk_metrics:
-            row("MSK CPU average", compared([value.get("msk_cpu_average_percent") for value in measurements], 1, "%"), "prometheus")
-            row("MSK CPU maximum", compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
-        row("Application memory", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        latency_start = len(lines)
+        subsection("Latency")
         highlighted_topics = {
             topic
             for evidence in topic_evidence
@@ -1228,6 +1216,14 @@ def render_markdown(report: ExperimentReport) -> str:
                     ], 0, " ms"),
                     "audit",
                 )
+        latency_rows = lines[latency_start:]
+        del lines[latency_start:]
+        subsection("Delivery correctness")
+        row(
+            "Producer failures",
+            counts([value.get("producer_records_failed_total") for value in measurements]),
+            "prometheus",
+        )
         row("Lost messages", counts([delivery.get("missing_terminal") for delivery in deliveries]), "audit")
         row("Failed processing", counts([delivery.get("failed") for delivery in deliveries]), "audit")
         if freshness_first_topics:
@@ -1262,6 +1258,24 @@ def render_markdown(report: ExperimentReport) -> str:
             counts([required_key_order_violations(evidence) for evidence in topic_evidence]),
             "audit",
         )
+        lines.extend(latency_rows)
+        subsection("Resources and scaling")
+        row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
+        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        if not is_internal_lab:
+            row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
+            row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
+        if show_host_kafka_metrics:
+            row("Kafka broker CPU average", compared([value.get("broker_cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
+        if show_msk_metrics:
+            row("MSK CPU average", compared([value.get("msk_cpu_average_percent") for value in measurements], 1, "%"), "prometheus")
+            row("MSK CPU maximum", compared([value.get("msk_cpu_max_percent") for value in measurements], 1, "%"), "prometheus")
+        render_network_counter_highlight([
+            result.get("network_counters", {}) if isinstance(result.get("network_counters"), dict) else {}
+            for result in window_results
+        ])
 
     if measurement_windows:
         lines.extend([
@@ -1290,11 +1304,8 @@ def render_markdown(report: ExperimentReport) -> str:
         deliveries: list[dict[str, Any]],
         measurements: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
-        network_counter_rows: list[str] | None = None,
     ) -> None:
         section(title)
-        if network_counter_rows:
-            lines.extend(network_counter_rows)
         subsection("Run summary")
         row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
         row(
@@ -1352,10 +1363,11 @@ def render_markdown(report: ExperimentReport) -> str:
             "Configured HPA range",
             [hpa_configuration(target) for target in targets],
         )
-        row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
-        row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")
-        row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
-        if application_node_group:
+        if not is_internal_lab:
+            row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
+            row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")
+            row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
+        if not is_internal_lab and application_node_group:
             row(
                 "Configured application node range",
                 [
@@ -1364,8 +1376,9 @@ def render_markdown(report: ExperimentReport) -> str:
                     for _target in targets
                 ],
             )
-        row("Application node-hours", compared([value.get("application_node_hours") for value in measurements], 3, " h"), "prometheus")
-        row("Support node-hours", compared([value.get("support_node_hours") for value in measurements], 3, " h"), "prometheus")
+        if not is_internal_lab:
+            row("Application node-hours", compared([value.get("application_node_hours") for value in measurements], 3, " h"), "prometheus")
+            row("Support node-hours", compared([value.get("support_node_hours") for value in measurements], 3, " h"), "prometheus")
 
         subsection("Application resources")
         row("Application CPU average", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
@@ -1492,11 +1505,6 @@ def render_markdown(report: ExperimentReport) -> str:
             [result.get("delivery", {}) for result in window_results],
             [result.get("measurements", {}) for result in window_results],
             [result.get("topic_evidence", {}) for result in window_results],
-            network_counter_rows if any(
-                isinstance(result.get("network_counters"), dict)
-                and result["network_counters"].get("status") == "success"
-                for result in window_results
-            ) else None,
         )
     render_interval(
         f"Full run · {number(load_duration, 0)} s",
@@ -1538,6 +1546,27 @@ def render_markdown(report: ExperimentReport) -> str:
             )
         broker_capacity_rows("full run", [target.measurements for target in targets])
 
+    has_network_counters = bool(network_counter_rows)
+    if has_network_counters or diagnostic_steps:
+        section("Network diagnostics")
+    if has_network_counters:
+        rendered_network_counter_window = False
+        for window_index, window in enumerate(measurement_windows):
+            if not isinstance(window, dict):
+                continue
+            window_results = [target_window(target, window_index) for target in targets]
+            if any(
+                isinstance(result.get("network_counters"), dict)
+                and result["network_counters"].get("status") == "success"
+                for result in window_results
+            ):
+                nested_subsection(f"Kafka network counters · {window.get('name') or 'measurement'} window")
+                lines.extend(network_counter_rows)
+                rendered_network_counter_window = True
+        if not rendered_network_counter_window:
+            nested_subsection("Kafka network counters")
+            lines.extend(network_counter_rows)
+
     def request_metrics(capture_name: str, topic: str, role: str, api_name: str, record_direction: str | None) -> None:
         label = "Consumer fetch" if role == "consumer" else "Producer"
         if record_direction is not None:
@@ -1561,13 +1590,13 @@ def render_markdown(report: ExperimentReport) -> str:
 
     def network_topic_subsection(topic: str) -> None:
         lines.append(
-            f'<tr class="subsection"><th colspan="{column_count}">'
+            f'<tr class="nested-subsection"><th colspan="{column_count}">'
             f'<span class="topic-name">{escaped(topic)}</span></th></tr>'
         )
 
     for step in diagnostic_steps:
         capture_name = str(step["name"])
-        section(f"Kafka network traffic analysis • {capture_title(capture_name)}")
+        nested_subsection(f"Packet capture · {capture_title(capture_name)}")
         for topic in capture_topics(capture_name):
             network_topic_subsection(topic)
             row(
@@ -1624,10 +1653,10 @@ def render_markdown(report: ExperimentReport) -> str:
             ("__unattributed__", "Unattributed / capture boundary"),
         ):
             if has_topic_bucket(capture_name, bucket):
-                subsection(label)
+                nested_subsection(label)
                 request_metrics(capture_name, bucket, "producer", "Produce", None)
                 request_metrics(capture_name, bucket, "consumer", "Fetch", None)
-        subsection("All topics")
+        nested_subsection("All topics")
         row(
             "Producer wire bytes per message",
             compared([all_topic_bytes_per_message(target, capture_name, "producer") for target in targets], 0, " bytes/msg"),
