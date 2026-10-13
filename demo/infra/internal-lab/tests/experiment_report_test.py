@@ -2319,6 +2319,7 @@ class ExperimentReportTest(unittest.TestCase):
                 root / "results/runs/run-a/diagnostics/network-counters/summary.json",
                 {
                     "status": "success",
+                    "window": {"start_epoch_ms": 1786096825000, "end_epoch_ms": 1786096850000},
                     "producer": {
                         "published_messages": 100, "rx_bytes": 1000, "tx_bytes": 2000,
                         "total_bytes": 3000, "rx_packets": 10, "tx_packets": 20, "total_packets": 30,
@@ -2350,8 +2351,16 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("133 bytes/msg", markdown)
             self.assertIn("Kafka network counters (nftables)", markdown)
             self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
-            self.assertLess(markdown.index("Metric sources"), markdown.index("Kafka network counters"))
-            self.assertLess(markdown.index("Load producer compression.type"), markdown.index("Kafka network counters"))
+            highlights = markdown.index("### Measurement-window highlights")
+            detailed = markdown.index("### Detailed results")
+            network_in_highlights = markdown.index("Kafka network counters", highlights)
+            network_in_details = markdown.index("Kafka network counters", detailed)
+            self.assertLess(highlights, network_in_highlights)
+            self.assertLess(network_in_highlights, detailed)
+            self.assertLess(detailed, network_in_details)
+            self.assertIn("Producer total bytes per published message", markdown[network_in_highlights:detailed])
+            self.assertNotIn("RX packets", markdown[network_in_highlights:detailed])
+            self.assertIn("RX packets", markdown[network_in_details:])
             timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
             self.assertIn(">Tls network</text>", timeline)
             self.assertIn("Kafka network counters", timeline)

@@ -776,7 +776,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison tbody th[scope=row]{font-weight:400}'
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
-            'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:400}'
+            'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:650}'
             'table.comparison .delta{font-size:.82em;color:#57606a;font-weight:400}'
             'table.comparison .champion{color:#15803d;font-weight:600}'
             'table.comparison .champion .delta{color:#3f6212}'
@@ -1054,7 +1054,7 @@ def render_markdown(report: ExperimentReport) -> str:
     network_counter_start = len(lines)
     counter_values = [target.network_counters for target in targets]
     if any(value.get("status") != "unavailable" for value in counter_values):
-        section("Kafka network counters")
+        subsection("Kafka network counters")
         row("Status", [str(value.get("status") or "unavailable") for value in counter_values])
 
         def counter(role: str, field: str) -> list[Any]:
@@ -1109,6 +1109,21 @@ def render_markdown(report: ExperimentReport) -> str:
     network_counter_rows = lines[network_counter_start:]
     del lines[network_counter_start:]
 
+    def render_network_counter_highlight(values: list[dict[str, Any]]) -> None:
+        if not any(value.get("status") == "success" for value in values):
+            return
+
+        def per_message(role: str) -> list[float | None]:
+            return [
+                value.get(role, {}).get("bytes_per_message") if isinstance(value.get(role), dict) else None
+                for value in values
+            ]
+
+        subsection("Kafka network counters")
+        row("Producer total bytes per published message", compared(per_message("producer"), 0, " bytes/msg"), "audit-network")
+        row("Consumer total bytes per processed message", compared(per_message("consumer"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per processed message", compared(per_message("total"), 0, " bytes/msg"), "audit-network")
+
     lines.extend([
         "</tbody></table>",
         "",
@@ -1130,7 +1145,6 @@ def render_markdown(report: ExperimentReport) -> str:
         ) + "</tr></thead>",
         "<tbody>",
     ])
-    lines.extend(network_counter_rows)
 
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):
@@ -1144,6 +1158,10 @@ def render_markdown(report: ExperimentReport) -> str:
             f"{escaped(window.get('name') or 'Steady-state')} · "
             f"{number(window.get('start_seconds'), 0)}–{number((window.get('start_seconds') or 0) + window_duration, 0)} s"
         )
+        render_network_counter_highlight([
+            result.get("network_counters", {}) if isinstance(result.get("network_counters"), dict) else {}
+            for result in window_results
+        ])
         row(
             "Producer sent rate",
             formatted(
@@ -1272,8 +1290,11 @@ def render_markdown(report: ExperimentReport) -> str:
         deliveries: list[dict[str, Any]],
         measurements: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
+        network_counter_rows: list[str] | None = None,
     ) -> None:
         section(title)
+        if network_counter_rows:
+            lines.extend(network_counter_rows)
         subsection("Run summary")
         row("Planned average publish rate", [number(planned_rate(report, start, duration), 0) + " msg/s" for _target in targets])
         row(
@@ -1471,6 +1492,11 @@ def render_markdown(report: ExperimentReport) -> str:
             [result.get("delivery", {}) for result in window_results],
             [result.get("measurements", {}) for result in window_results],
             [result.get("topic_evidence", {}) for result in window_results],
+            network_counter_rows if any(
+                isinstance(result.get("network_counters"), dict)
+                and result["network_counters"].get("status") == "success"
+                for result in window_results
+            ) else None,
         )
     render_interval(
         f"Full run · {number(load_duration, 0)} s",

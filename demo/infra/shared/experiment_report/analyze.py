@@ -820,6 +820,27 @@ def network_counter_summary(run_dir: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"status": "unusable", "reason": "invalid summary"}
 
 
+def network_counters_in_window(
+    summary: dict[str, Any],
+    run_start: datetime | None,
+    window: dict[str, Any],
+) -> dict[str, Any]:
+    """Return counters only when their entire measured interval belongs to a report window."""
+    if summary.get("status") != "success" or run_start is None:
+        return {"status": "unavailable"}
+    interval = summary.get("window")
+    if not isinstance(interval, dict):
+        return {"status": "unavailable"}
+    start_ms = interval.get("start_epoch_ms")
+    end_ms = interval.get("end_epoch_ms")
+    duration = float(window.get("duration_seconds") or 0)
+    if not isinstance(start_ms, (int, float)) or not isinstance(end_ms, (int, float)) or duration <= 0:
+        return {"status": "unavailable"}
+    window_start = run_start.timestamp() * 1000 + float(window.get("start_seconds") or 0) * 1000
+    window_end = window_start + duration * 1000
+    return summary if window_start <= start_ms and end_ms <= window_end else {"status": "unavailable"}
+
+
 def packet_capture_coverage(run_dir: Path, metadata: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
     configured = metadata.get("packet_captures")
     configured = configured if isinstance(configured, dict) else {}
@@ -1018,6 +1039,7 @@ def analyze_experiment(
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
         warnings: list[str] = []
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
+        network_counters = network_counter_summary(run_dir)
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
         measurement_window_results: list[dict[str, Any]] = []
         if start is not None:
@@ -1031,6 +1053,7 @@ def analyze_experiment(
                     "delivery": {},
                     "topic_evidence": {},
                     "measurements": {name: None for name in STANDARD_MEASUREMENTS},
+                    "network_counters": network_counters_in_window(network_counters, start, window),
                 }
                 window_start = float(window.get("start_seconds") or 0)
                 window_duration = float(window.get("duration_seconds") or 0)
@@ -1067,6 +1090,7 @@ def analyze_experiment(
                 "delivery": {},
                 "topic_evidence": {},
                 "measurements": {name: None for name in STANDARD_MEASUREMENTS},
+                "network_counters": {"status": "unavailable"},
             } for window in configured_measurement_windows(target_load_test, target_load_duration)]
         first_window = measurement_window_results[0] if measurement_window_results else {}
         window_measurements = first_window.get("measurements", {})
@@ -1179,7 +1203,7 @@ def analyze_experiment(
                 thread_stats=thread_stats_coverage(run_dir, metadata, warnings),
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
-                network_counters=network_counter_summary(run_dir),
+                network_counters=network_counters,
                 events=events,
                 criteria=criteria,
                 latency_sla=latency_results,
