@@ -26,7 +26,7 @@ def samples(root: Path) -> dict[str, list[list[dict]]]:
     for path in root.glob("*/*/*/samples.json"):
         values = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(values, list) and values:
-            grouped.setdefault(path.parents[2].name, []).append(values)
+            grouped.setdefault(path.parents[1].name, []).append(values)
     return grouped
 
 
@@ -46,16 +46,33 @@ def stable(values: list[dict]) -> tuple[list[dict], str | None]:
     return values, None
 
 
-def completed(audit_dir: Path, start: int, end: int) -> int:
-    total = 0
+def audit_counts(audit_dir: Path, start: int, end: int) -> dict[str, int]:
+    counts = {"published": 0, "successful": 0}
     for path in [*audit_dir.glob("audit-*.log"), *audit_dir.glob("audit-*.log.gz")]:
         opener = gzip.open if path.suffix == ".gz" else open
         with opener(path, "rt", encoding="utf-8") as source:
             for line in source:
                 parts = line.rstrip("\n").split("|")
-                if len(parts) == 6 and parts[0] == "C" and start <= int(parts[4]) <= end:
-                    total += 1
-    return total
+                if len(parts) == 7 and parts[0] == "P" and start <= int(parts[5]) <= end:
+                    counts["published"] += 1
+                elif len(parts) == 6 and parts[0] == "C" and start <= int(parts[4]) <= end:
+                    counts["successful"] += 1
+    return counts
+
+
+def counter_delta(values: list[list[dict]]) -> dict[str, int]:
+    return {
+        field: sum(int(samples[-1][field]) - int(samples[0][field]) for samples in values)
+        for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets")
+    }
+
+
+def with_totals(values: dict[str, int]) -> dict[str, int]:
+    return {
+        **values,
+        "total_bytes": values["rx_bytes"] + values["tx_bytes"],
+        "total_packets": values["rx_packets"] + values["tx_packets"],
+    }
 
 
 def main() -> None:
@@ -80,13 +97,44 @@ def main() -> None:
         if end <= start or any(len(values) < 2 for values in selected):
             output["reason"] = "no common stable interval"
         else:
-            rx = sum(values[-1]["rx_bytes"] - values[0]["rx_bytes"] for values in selected)
-            tx = sum(values[-1]["tx_bytes"] - values[0]["tx_bytes"] for values in selected)
-            count = completed(Path(options.audit_dir), start, end)
-            if count <= 0:
+            by_target: dict[str, list[list[dict]]] = {}
+            for target, target_values in groups.items():
+                by_target[target] = [
+                    [value for value in values if start <= epoch_ms(value["timestamp"]) <= end]
+                    for values in target_values
+                ]
+            counts = audit_counts(Path(options.audit_dir), start, end)
+            if counts["successful"] <= 0:
                 output["reason"] = "no successful audit completions in interval"
             else:
-                output = {"status": "success", "window": {"start_epoch_ms": start, "end_epoch_ms": end}, "successful_messages": count, "rx_bytes": rx, "tx_bytes": tx, "total_bytes": rx + tx, "rx_bytes_per_message": rx / count, "tx_bytes_per_message": tx / count, "bytes_per_message": (rx + tx) / count}
+                roles: dict[str, dict[str, int | float]] = {}
+                if by_target.get("load-test"):
+                    roles["producer"] = with_totals(counter_delta(by_target["load-test"]))
+                    roles["producer"]["published_messages"] = counts["published"]
+                if by_target.get("application"):
+                    roles["consumer"] = with_totals(counter_delta(by_target["application"]))
+                    roles["consumer"]["successful_messages"] = counts["successful"]
+                total = with_totals({
+                    field: sum(int(role[field]) for role in roles.values())
+                    for field in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets")
+                })
+                total["successful_messages"] = counts["successful"]
+                total["published_messages"] = counts["published"]
+                roles["total"] = total
+                for role, denominator in (("producer", counts["published"]), ("consumer", counts["successful"]), ("total", counts["successful"])):
+                    if role in roles and denominator > 0:
+                        roles[role]["rx_bytes_per_message"] = roles[role]["rx_bytes"] / denominator
+                        roles[role]["tx_bytes_per_message"] = roles[role]["tx_bytes"] / denominator
+                        roles[role]["bytes_per_message"] = roles[role]["total_bytes"] / denominator
+                output = {
+                    "status": "success",
+                    "window": {"start_epoch_ms": start, "end_epoch_ms": end},
+                    "producer": roles.get("producer", {}),
+                    "consumer": roles.get("consumer", {}),
+                    "total": total,
+                    # Compatibility for existing consumers of the initial artifact schema.
+                    **total,
+                }
     Path(options.output).parent.mkdir(parents=True, exist_ok=True)
     Path(options.output).write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
 

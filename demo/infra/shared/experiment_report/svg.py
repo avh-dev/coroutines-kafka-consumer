@@ -25,6 +25,7 @@ ACTION_COLORS = {
     "outage": "#b91c1c",
     "measurement": "#16a34a",
     "diagnostic": "#0891b2",
+    "network-counters": "#059669",
     "chaos": "#64748b",
 }
 ACTION_LABELS = {
@@ -39,6 +40,7 @@ ACTION_LABELS = {
     "outage": "Service outage",
     "measurement": "Measurement window",
     "diagnostic": "Diagnostic capture",
+    "network-counters": "Kafka network counters",
     "chaos": "Chaos action",
 }
 SERVICE_BADGES = {
@@ -789,6 +791,8 @@ def action_icon(action: str, x: float, y: float, size: float = 28, role: str = "
             f'<circle cx="{x+14:.1f}" cy="{y+15:.1f}" r="2.5" {common}/>'
             f'<path d="M {x+10:.1f} {y+10:.1f} L {x+12:.1f} {y+7:.1f} H {x+16:.1f} L {x+18:.1f} {y+10:.1f}" {common}/>'
         )
+    elif action == "network-counters":
+        symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">N</text>'
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
@@ -1065,10 +1069,16 @@ def load_profile_svg(report: ExperimentReport) -> str:
         factor = {"h": 3600, "m": 60, "s": 1}
         at = int(at_match.group(1)) * factor[at_match.group(2)]
         duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
+        step_type = str(step.get("type") or "")
         step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
-        title = f"Kafka network packet capture • {step_title}" if step.get("type") == "tcpdump" else step_title
+        if step_type == "tcpdump":
+            title, action = f"Kafka network packet capture • {step_title}", "diagnostic"
+        elif step_type == "kafka-network-counters":
+            title, action = f"Kafka network counters • {step_title}", "network-counters"
+        else:
+            title, action = step_title, "diagnostic"
         chaos_scenarios.append({
-            "type": "diagnostic", "action": "diagnostic", "title": title,
+            "type": step_type or "diagnostic", "action": action, "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
         })
     chaos_scenarios.sort(key=lambda scenario: float(scenario.get("at_seconds") or 0))

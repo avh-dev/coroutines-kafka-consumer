@@ -1480,7 +1480,7 @@ class ExperimentReportTest(unittest.TestCase):
                 if element.attrib.get("data-chaos-card")
             ]
             self.assertEqual(
-                ["pod_delete", "measurement", "diagnostic", "service_outage", "service_restart", "stubs_degradation"],
+                ["pod_delete", "measurement", "tcpdump", "service_outage", "service_restart", "stubs_degradation"],
                 [element.attrib["data-chaos-card"] for element in chronological_cards],
             )
             chronological_card_y = [
@@ -2304,14 +2304,32 @@ class ExperimentReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
+            resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
+            resolved_test["diagnostic_steps"] = [{
+                "at": "20s", "duration": "30s", "type": "kafka-network-counters", "name": "tls-network",
+                "targets": ["application", "load-test"], "params": {"ports": [9094]},
+            }]
+            self.write_yaml(resolved_test_path, resolved_test)
             self.write_json(
                 root / "results/runs/run-a/diagnostics/network-counters/summary.json",
                 {
                     "status": "success",
-                    "successful_messages": 268_695,
-                    "rx_bytes_per_message": 191.6076,
-                    "tx_bytes_per_message": 194.4741,
-                    "bytes_per_message": 386.0817,
+                    "producer": {
+                        "published_messages": 100, "rx_bytes": 1000, "tx_bytes": 2000,
+                        "total_bytes": 3000, "rx_packets": 10, "tx_packets": 20, "total_packets": 30,
+                        "rx_bytes_per_message": 10, "tx_bytes_per_message": 20, "bytes_per_message": 30,
+                    },
+                    "consumer": {
+                        "successful_messages": 90, "rx_bytes": 4000, "tx_bytes": 5000,
+                        "total_bytes": 9000, "rx_packets": 40, "tx_packets": 50, "total_packets": 90,
+                        "rx_bytes_per_message": 44.4, "tx_bytes_per_message": 55.6, "bytes_per_message": 100,
+                    },
+                    "total": {
+                        "published_messages": 100, "successful_messages": 90, "rx_bytes": 5000, "tx_bytes": 7000,
+                        "total_bytes": 12000, "rx_packets": 50, "tx_packets": 70, "total_packets": 120,
+                        "rx_bytes_per_message": 55.6, "tx_bytes_per_message": 77.8, "bytes_per_message": 133.3,
+                    },
                 },
             )
 
@@ -2320,8 +2338,17 @@ class ExperimentReportTest(unittest.TestCase):
 
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("Kafka network counters", markdown)
-            self.assertIn("268,695", markdown)
-            self.assertIn("386 bytes/msg", markdown)
+            self.assertIn("<th colspan=\"2\">Producer</th>", markdown)
+            self.assertIn("<th colspan=\"2\">Consumer</th>", markdown)
+            self.assertIn("<th colspan=\"2\">Total</th>", markdown)
+            self.assertIn("12,000 bytes", markdown)
+            self.assertIn("120 packets", markdown)
+            self.assertIn("133 bytes/msg", markdown)
+            self.assertIn("Kafka network counters (nftables)", markdown)
+            self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
+            timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
+            self.assertIn("Kafka network counters • Tls network", timeline)
+            self.assertIn("Kafka network counters", timeline)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

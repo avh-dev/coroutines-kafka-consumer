@@ -241,6 +241,8 @@ def render_markdown(report: ExperimentReport) -> str:
         '<div><span class="metric-source source-a">A</span>Audit records</div>'
         '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
         '<div><span class="metric-source source-c">C</span>Network packet capture</div>'
+        '<div><span class="metric-source source-n">N</span>Kafka network counters (nftables)</div>'
+        '<div><span class="metric-source source-a">A</span> + <span class="metric-source source-n">N</span>Audit-normalized network counters</div>'
         '</div>'
     )
 
@@ -796,6 +798,7 @@ def render_markdown(report: ExperimentReport) -> str:
             '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
             '.source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'
             '.source-c{color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd}'
+            '.source-n{color:#047857;background:#ecfdf5;border-color:#6ee7b7}'
             '.metric-source-legend{margin:.45em 0;color:#57606a}'
             '.metric-source-legend div{margin:.18em 0}'
             '.metric-source-legend .metric-source{margin-left:0;margin-right:.45em}</style>'
@@ -848,7 +851,14 @@ def render_markdown(report: ExperimentReport) -> str:
             "audit": ("A", "Audit records"),
             "prometheus": ("P", "Prometheus time series"),
             "capture": ("C", "Network packet capture"),
+            "network": ("N", "Kafka network counters (nftables)"),
         }
+        if source == "audit-network":
+            return (
+                '<span class="metric-source source-a" title="Audit records">A</span>'
+                ' + '
+                '<span class="metric-source source-n" title="Kafka network counters (nftables)">N</span>'
+            )
         if source not in definitions:
             return ""
         letter, title = definitions[source]
@@ -1044,11 +1054,56 @@ def render_markdown(report: ExperimentReport) -> str:
     counter_values = [target.network_counters for target in targets]
     if any(value.get("status") != "unavailable" for value in counter_values):
         section("Kafka network counters")
-        row("Status", [str(value.get("status") or "unavailable") for value in counter_values], "audit")
-        row("Successful messages", formatted([value.get("successful_messages") for value in counter_values], 0, ""), "audit")
-        row("RX bytes per message", compared([value.get("rx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
-        row("TX bytes per message", compared([value.get("tx_bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
-        row("Total bytes per message", compared([value.get("bytes_per_message") for value in counter_values], 0, " bytes/msg"), "audit")
+        row("Status", [str(value.get("status") or "unavailable") for value in counter_values])
+
+        def counter(role: str, field: str) -> list[Any]:
+            return [
+                value.get(role, {}).get(field) if isinstance(value.get(role), dict) else None
+                for value in counter_values
+            ]
+
+        def counter_bytes(role: str, field: str) -> list[str]:
+            return formatted(counter(role, field), 0, " bytes")
+
+        def counter_packets(role: str, field: str) -> list[str]:
+            return formatted(counter(role, field), 0, " packets")
+
+        subsection("Producer")
+        row("Published messages", formatted(counter("producer", "published_messages"), 0, ""), "audit")
+        row("RX bytes", counter_bytes("producer", "rx_bytes"), "network")
+        row("TX bytes", counter_bytes("producer", "tx_bytes"), "network")
+        row("Total bytes", counter_bytes("producer", "total_bytes"), "network")
+        row("RX packets", counter_packets("producer", "rx_packets"), "network")
+        row("TX packets", counter_packets("producer", "tx_packets"), "network")
+        row("Total packets", counter_packets("producer", "total_packets"), "network")
+        row("RX bytes per published message", compared(counter("producer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("TX bytes per published message", compared(counter("producer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per published message", compared(counter("producer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+
+        subsection("Consumer")
+        row("Successfully processed messages", formatted(counter("consumer", "successful_messages"), 0, ""), "audit")
+        row("RX bytes", counter_bytes("consumer", "rx_bytes"), "network")
+        row("TX bytes", counter_bytes("consumer", "tx_bytes"), "network")
+        row("Total bytes", counter_bytes("consumer", "total_bytes"), "network")
+        row("RX packets", counter_packets("consumer", "rx_packets"), "network")
+        row("TX packets", counter_packets("consumer", "tx_packets"), "network")
+        row("Total packets", counter_packets("consumer", "total_packets"), "network")
+        row("RX bytes per processed message", compared(counter("consumer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("TX bytes per processed message", compared(counter("consumer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per processed message", compared(counter("consumer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+
+        subsection("Total")
+        row("Published messages", formatted(counter("total", "published_messages"), 0, ""), "audit")
+        row("Successfully processed messages", formatted(counter("total", "successful_messages"), 0, ""), "audit")
+        row("RX bytes", counter_bytes("total", "rx_bytes"), "network")
+        row("TX bytes", counter_bytes("total", "tx_bytes"), "network")
+        row("Total bytes", counter_bytes("total", "total_bytes"), "network")
+        row("RX packets", counter_packets("total", "rx_packets"), "network")
+        row("TX packets", counter_packets("total", "tx_packets"), "network")
+        row("Total packets", counter_packets("total", "total_packets"), "network")
+        row("RX bytes per processed message", compared(counter("total", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("TX bytes per processed message", compared(counter("total", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per processed message", compared(counter("total", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Unusable reason", [str(value.get("reason") or "—") for value in counter_values], "audit")
 
     lines.extend([
