@@ -792,7 +792,12 @@ def action_icon(action: str, x: float, y: float, size: float = 28, role: str = "
             f'<path d="M {x+10:.1f} {y+10:.1f} L {x+12:.1f} {y+7:.1f} H {x+16:.1f} L {x+18:.1f} {y+10:.1f}" {common}/>'
         )
     elif action == "network-counters":
-        symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">N</text>'
+        symbol = (
+            f'<path d="M {x+7:.1f} {y+10:.1f} H {x+20:.1f}" {common}/>'
+            f'<path d="M {x+17:.1f} {y+7:.1f} L {x+21:.1f} {y+10:.1f} L {x+17:.1f} {y+13:.1f}" {common}/>'
+            f'<path d="M {x+21:.1f} {y+18:.1f} H {x+8:.1f}" {common}/>'
+            f'<path d="M {x+11:.1f} {y+15:.1f} L {x+7:.1f} {y+18:.1f} L {x+11:.1f} {y+21:.1f}" {common}/>'
+        )
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
@@ -862,6 +867,7 @@ def chaos_card_time_label(scenario: dict[str, Any]) -> str:
 
 CARD_TEXT_MARGIN = 8
 CARD_TEXT_GAP = CARD_TEXT_MARGIN * 2
+CARD_RIGHT_PADDING = 20
 
 
 def estimated_text_width(value: str, font_size: float) -> float:
@@ -885,7 +891,7 @@ def chaos_card_header_width(scenario: dict[str, Any]) -> float:
     title_width = estimated_text_width(chaos_card_title(scenario), 12)
     time_width = estimated_text_width(chaos_card_time_label(scenario), 11)
     title_offset = 75 if scenario.get("target") and scenario.get("type") != "sequence" else 41
-    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_TEXT_MARGIN
+    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_RIGHT_PADDING
 
 
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
@@ -1074,7 +1080,7 @@ def load_profile_svg(report: ExperimentReport) -> str:
         if step_type == "tcpdump":
             title, action = f"Kafka network packet capture • {step_title}", "diagnostic"
         elif step_type == "kafka-network-counters":
-            title, action = f"Kafka network counters • {step_title}", "network-counters"
+            title, action = step_title, "network-counters"
         else:
             title, action = step_title, "diagnostic"
         chaos_scenarios.append({

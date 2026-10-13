@@ -1051,6 +1051,7 @@ def render_markdown(report: ExperimentReport) -> str:
             }
         return {}
 
+    network_counter_start = len(lines)
     counter_values = [target.network_counters for target in targets]
     if any(value.get("status") != "unavailable" for value in counter_values):
         section("Kafka network counters")
@@ -1105,6 +1106,8 @@ def render_markdown(report: ExperimentReport) -> str:
         row("TX bytes per processed message", compared(counter("total", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Total bytes per processed message", compared(counter("total", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Unusable reason", [str(value.get("reason") or "—") for value in counter_values], "audit")
+    network_counter_rows = lines[network_counter_start:]
+    del lines[network_counter_start:]
 
     lines.extend([
         "</tbody></table>",
@@ -1127,6 +1130,7 @@ def render_markdown(report: ExperimentReport) -> str:
         ) + "</tr></thead>",
         "<tbody>",
     ])
+    lines.extend(network_counter_rows)
 
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):

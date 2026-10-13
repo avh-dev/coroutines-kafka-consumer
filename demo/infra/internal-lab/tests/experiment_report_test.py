@@ -897,7 +897,11 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertAlmostEqual(8, float(labels[2].attrib["x"]) - float(labels[1].attrib["x"]), places=1)
         self.assertAlmostEqual(16, float(labels[2].attrib["x"]) - title_end, places=1)
         time_end = float(labels[2].attrib["x"]) + svg_renderer.estimated_text_width("0m–10m", 11)
-        self.assertAlmostEqual(8, float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end, places=1)
+        self.assertAlmostEqual(
+            svg_renderer.CARD_RIGHT_PADDING,
+            float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end,
+            places=1,
+        )
 
         legend = next(
             element for element in root.iter(f"{namespace}g")
@@ -2346,9 +2350,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("133 bytes/msg", markdown)
             self.assertIn("Kafka network counters (nftables)", markdown)
             self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
+            self.assertLess(markdown.index("Metric sources"), markdown.index("Kafka network counters"))
+            self.assertLess(markdown.index("Load producer compression.type"), markdown.index("Kafka network counters"))
             timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
-            self.assertIn("Kafka network counters • Tls network", timeline)
+            self.assertIn(">Tls network</text>", timeline)
             self.assertIn("Kafka network counters", timeline)
+            self.assertIn('data-action="network-counters"', timeline)
 
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
