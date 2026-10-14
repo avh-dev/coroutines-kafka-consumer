@@ -60,6 +60,7 @@ class TargetReport:
     packet_captures: dict[str, Any]
     pcap_analysis: dict[str, Any]
     network_counters: dict[str, Any]
+    time_series: dict[str, list[dict[str, float]]]
     events: list[dict[str, Any]] = field(default_factory=list)
     criteria: list[CriterionResult] = field(default_factory=list)
     latency_sla: list[LatencySlaResult] = field(default_factory=list)

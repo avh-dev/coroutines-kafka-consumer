@@ -5387,9 +5387,11 @@ Telegram announces generator preparation and, once its pods are ready, the sched
 <a id="infra-293"></a>
 ### INFRA-293 - Kafka network counters
 
-_Date: 2026-10-12_
+_Date: 2026-10-13_
 
-In progress: add a `kafka-network-counters` diagnostic step for internal-lab and AWS EKS on EC2.
+Done: add a `kafka-network-counters` diagnostic step for internal-lab and AWS EKS on EC2.
 It will collect nftables RX/TX counters for configured Kafka TCP ports from producer and consumer pod network namespaces every five seconds, without packet capture or TLS decryption.
 The measurement selects a continuous window with unchanged pod UIDs and restart counts, then divides aggregate client bytes by successful audit completions within the same bounds.
-The experiment report will expose this as a dedicated section, independent from `tcpdump` diagnostics, and mark the result unusable when no valid window exists.
+The shared internal-lab/AWS report now leads with goal, compact measurement-window outcomes, load and topology, target differences, detailed evidence, diagnostics, and methodology; repeated full-run and Kafka-client detail is collapsed.
+Freshness-first topics report completed per-key temporal gaps with shared adaptive tail thresholds derived from the compared targets, while unfinished gaps and empty threshold rows are excluded.
+Detailed evidence adds processing and saturation signals plus input/output, latency, lag/queue, and conditional HPA time-series panels; generated reports carry generator time/version and discard obsolete SVG assets before export.

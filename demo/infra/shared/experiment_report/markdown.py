@@ -8,6 +8,8 @@ from typing import Any
 from .model import ExperimentReport, TargetReport
 from .theme import topic_palette
 
+REPORT_GENERATOR_VERSION = "3"
+
 
 def number(value: Any, digits: int = 2) -> str:
     if value is None:
@@ -85,34 +87,64 @@ def normalized_histogram(raw: Any) -> dict[int, int]:
     return {int(bucket): int(count or 0) for bucket, count in raw.items()}
 
 
-def is_freshness_zero_tail(histogram: dict[int, int], bucket: int) -> bool:
-    return (
-        bool(histogram)
-        and histogram.get(bucket, 0) == 0
-        and not any(count > 0 for key, count in histogram.items() if key > bucket)
-    )
+def histogram_quantile_ms(histogram: dict[int, int], quantile: float) -> float | None:
+    items = [(value, count) for value, count in sorted(histogram.items()) if count > 0]
+    total = sum(count for _, count in items)
+    if total == 0:
+        return None
+    rank = max(0, min(total - 1, math.ceil(total * quantile) - 1))
+    seen = 0
+    for value, count in items:
+        seen += count
+        if seen > rank:
+            return float(value)
+    return float(items[-1][0])
 
 
-def shared_freshness_cutoff(histograms: list[dict[int, int]]) -> int | None:
-    """Choose one outer-tail boundary shared by all comparison series."""
-    cutoffs: list[int] = []
-    for histogram in histograms:
-        non_zero = [bucket for bucket, count in histogram.items() if bucket > 0 and count > 0]
-        if not non_zero:
-            if histogram.get(0, 0) > 0:
-                cutoffs.append(0)
+def freshness_threshold_granularity(seconds: float) -> int:
+    if seconds <= 10:
+        return 1
+    if seconds <= 120:
+        return 5
+    if seconds <= 600:
+        return 10
+    if seconds <= 3600:
+        return 30
+    return 60
+
+
+def freshness_count_over(histogram: dict[int, int], threshold_seconds: int) -> int:
+    return sum(count for gap_ms, count in histogram.items() if gap_ms > threshold_seconds * 1000)
+
+
+def adaptive_freshness_thresholds(
+    histograms: list[dict[int, int]],
+    publication_period_seconds: float | None,
+) -> list[int]:
+    """Choose readable shared boundaries from the worst comparison envelope."""
+    available = [histogram for histogram in histograms if sum(histogram.values()) > 0]
+    if not available:
+        return []
+    minimum = max(1, math.ceil(float(publication_period_seconds or 0)))
+    candidates: list[int] = []
+    for quantile in (0.50, 0.80, 0.95, 0.99):
+        values = [histogram_quantile_ms(histogram, quantile) for histogram in available]
+        raw_seconds = max(value for value in values if value is not None) / 1000
+        granularity = freshness_threshold_granularity(raw_seconds)
+        threshold = max(minimum, int(round(raw_seconds / granularity)) * granularity)
+        while threshold > minimum and all(freshness_count_over(histogram, threshold) == 0 for histogram in available):
+            threshold = max(minimum, threshold - granularity)
+        candidates.append(threshold)
+
+    result: list[int] = []
+    previous_counts: tuple[int, ...] | None = None
+    for threshold in sorted(set(candidates)):
+        counts = tuple(freshness_count_over(histogram, threshold) for histogram in histograms)
+        if not any(counts) or counts == previous_counts:
             continue
-        maximum = max(non_zero)
-        cutoff = maximum
-        # Search from the outer edge. A zero tail is not a useful boundary: the
-        # final row should retain the rare observations beyond the cutoff.
-        for candidate in range(maximum - 1, 0, -1):
-            tail = sum(count for bucket, count in histogram.items() if bucket > candidate)
-            if tail > 0 and tail < histogram.get(candidate, 0):
-                cutoff = candidate
-                break
-        cutoffs.append(cutoff)
-    return min(30, max(cutoffs)) if cutoffs else None
+        result.append(threshold)
+        previous_counts = counts
+    return result
 
 
 def planned_rate(report: ExperimentReport, start: float, duration: float) -> float | None:
@@ -162,9 +194,10 @@ def e2e_compliance_cells(
     complement_label: str,
     comparison_noun: str,
     zero_note: str,
+    compare: bool = True,
 ) -> list[str]:
     stats = [e2e_compliance_stats(value, denominator) for value in data]
-    baseline = stats[0] if stats else None
+    baseline = stats[0] if compare and stats else None
     available = [float(value["outside_percent"]) for value in stats if value is not None]
     best = min(available) if available else None
     cells = []
@@ -198,7 +231,7 @@ def e2e_compliance_cells(
                 note = f"{outside_percent / baseline_outside:.2f}× more {comparison_noun}"
         detail = complement + (f" · {note}" if note else "")
         content = f'{primary}<br><span class="delta">{detail}</span>'
-        if best is not None and math.isclose(outside_percent, best, rel_tol=0.0, abs_tol=1e-12):
+        if compare and best is not None and math.isclose(outside_percent, best, rel_tol=0.0, abs_tol=1e-12):
             content = f'<span class="champion">{content}</span>'
         cells.append(content)
     return cells
@@ -399,7 +432,7 @@ def render_markdown(report: ExperimentReport) -> str:
         best_rel_tol: float = 0.005,
         primary_values: list[str] | None = None,
     ) -> list[str]:
-        baseline = values[0] if values else None
+        baseline = values[0] if len(targets) > 1 and values else None
         available = [float(value) for value in values if value is not None]
         best = (min(available) if lower_is_better else max(available)) if available else None
         cells = []
@@ -422,7 +455,7 @@ def render_markdown(report: ExperimentReport) -> str:
             else:
                 note = f"{value / baseline:.2f}× higher"
             content = primary + (f'<br><span class="delta">{note}</span>' if note else "")
-            if value is not None and best is not None and math.isclose(float(value), best, rel_tol=best_rel_tol):
+            if len(targets) > 1 and value is not None and best is not None and math.isclose(float(value), best, rel_tol=best_rel_tol):
                 content = f'<span class="champion">{content}</span>'
             cells.append(content)
         return cells
@@ -479,7 +512,7 @@ def render_markdown(report: ExperimentReport) -> str:
             primary_values=displays,
         )
 
-    def e2e_compliance_rows(data: list[dict[str, Any]], *, freshness_first: bool) -> None:
+    def e2e_compliance_rows(data: list[dict[str, Any]]) -> None:
         if not any(
             isinstance(value.get("e2e_latency"), dict)
             and value["e2e_latency"].get("limit_ms") is not None
@@ -495,23 +528,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 complement_label="outside SLA",
                 comparison_noun="SLA misses",
                 zero_note="no observed SLA misses",
+                compare=len(targets) > 1,
             ),
             "audit",
         )
-        if freshness_first:
-            row(
-                "Published with on-time processed outcome",
-                e2e_compliance_cells(
-                    data,
-                    denominator="published",
-                    primary_label="with on-time outcome",
-                    complement_label="without on-time outcome",
-                    comparison_noun="missing on-time outcomes",
-                    zero_note="no missing on-time outcomes",
-                ),
-                "audit",
-            )
-
     def drop_reason(data: dict[str, Any], reason: str) -> int:
         reasons = data.get("dropped_by_reason")
         return int(reasons.get(reason) or 0) if isinstance(reasons, dict) else 0
@@ -655,7 +675,7 @@ def render_markdown(report: ExperimentReport) -> str:
             '</dl></article>'
         )
     downstream_table = [
-        "### Planned HTTP stub behavior",
+        "### Initial HTTP stub behavior",
         "",
         '<div class="stub-cards">',
         *downstream_cards,
@@ -745,30 +765,9 @@ def render_markdown(report: ExperimentReport) -> str:
         environment_block.append("")
     if not topologies:
         environment_block = ["**Environment evidence is unavailable for this run.**"]
+    configuration_rendering = True
     lines = [
-        "# CKC Lab Experiment Report",
-        "",
-        f"## {escaped(report.name)}",
-        "",
-        f'<p class="report-execution-time">{escaped(execution_time(report))}</p>',
-        "",
-        "## Experiment goal",
-        "",
-        escaped(report.description),
-        "",
-        "## Environment",
-        "",
-        *environment_block,
-        "",
-        "## Experiment setup",
-        "",
-        *downstream_table,
-        "",
-        "### Planned load and experiment stages",
-        "",
-        "![Load profile](load-profile.svg)",
-        "",
-        "## Target configuration",
+        "### Application target configurations",
         "",
         (
             '<style>table.comparison{border-collapse:collapse;width:100%}'
@@ -807,12 +806,11 @@ def render_markdown(report: ExperimentReport) -> str:
         ),
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
-            f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+            f'<th>{"Baseline<br>" if len(targets) > 1 and index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
             for index, target in enumerate(targets)
         ) + "</tr></thead>",
         "<tbody>",
     ]
-
     def section(title: str) -> None:
         lines.append(f'<tr class="section"><th colspan="{column_count}">{escaped(title)}</th></tr>')
 
@@ -870,6 +868,14 @@ def render_markdown(report: ExperimentReport) -> str:
         return f'<span class="metric-source source-{letter.lower()}" title="{title}">{letter}</span>'
 
     def row(label: str, values: list[str], source: str | None = None) -> None:
+        if values and all(value == "—" for value in values):
+            return
+        if configuration_rendering and len(targets) > 1 and values and len(set(values)) == 1:
+            lines.append(
+                f'<tr><th scope="row">{escaped(label)}{source_badge(source)}</th>'
+                f'<td colspan="{len(targets)}">{values[0]}</td></tr>'
+            )
+            return
         lines.append(
             f'<tr><th scope="row">{escaped(label)}{source_badge(source)}</th>'
             + "".join(f"<td>{value}</td>" for value in values)
@@ -920,8 +926,24 @@ def render_markdown(report: ExperimentReport) -> str:
             if hpa.get("enabled") else "Disabled"
         )
 
+    def target_uses_hpa(target: TargetReport) -> bool:
+        workloads = target.configuration.get("workloads")
+        if target.configuration.get("deployment_mode") == "per_topic" and isinstance(workloads, dict):
+            return any(bool(((workloads.get(name) or {}).get("hpa") or {}).get("enabled")) for name in workloads)
+        return bool((target.configuration.get("hpa") or {}).get("enabled"))
+
+    section("Target differences and shared settings")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
-    row("Application placement", [escaped(target.configuration.get("placement")) for target in targets])
+    row("Requested application placement", [escaped(target.configuration.get("placement")) for target in targets])
+    row(
+        "Actual application nodes",
+        [
+            escaped(target.configuration.get("actual_placement"))
+            if target.configuration.get("actual_placement")
+            else "unavailable"
+            for target in targets
+        ],
+    )
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     row("Replicas", [replica_configuration(target) for target in targets])
     row("HPA replicas", [hpa_configuration(target) for target in targets])
@@ -950,21 +972,61 @@ def render_markdown(report: ExperimentReport) -> str:
         for topic in target.configuration.get("topics", []):
             if isinstance(topic, dict) and topic.get("name") not in configured_topics:
                 configured_topics.append(topic.get("name"))
+
+    def configured_topic(target: TargetReport, topic_name: str) -> dict[str, Any]:
+        return next(
+            (value for value in target.configuration.get("topics", []) if value.get("name") == topic_name),
+            {},
+        )
+
+    kafka_setting_rows = (
+        ("Consumer fetch.min.bytes", lambda topic: bytes_value((topic.get("consumer") or {}).get("fetch_min_bytes"))),
+        (
+            "Consumer fetch.max.wait.ms",
+            lambda topic: (
+                "—" if (topic.get("consumer") or {}).get("fetch_max_wait_ms") is None
+                else number((topic.get("consumer") or {}).get("fetch_max_wait_ms"), 0) + " ms"
+            ),
+        ),
+        ("Consumer max.poll.records", lambda topic: number((topic.get("consumer") or {}).get("max_poll_records"), 0)),
+        (
+            "Load producer linger.ms",
+            lambda topic: (
+                "—" if (topic.get("producer") or {}).get("linger_ms") is None
+                else number((topic.get("producer") or {}).get("linger_ms"), 0) + " ms"
+            ),
+        ),
+        ("Load producer batch.size", lambda topic: bytes_value((topic.get("producer") or {}).get("batch_size"))),
+        ("Load producer compression.type", lambda topic: escaped((topic.get("producer") or {}).get("compression_type"))),
+        ("Load producer buffer.memory", lambda topic: bytes_value((topic.get("producer") or {}).get("buffer_memory"))),
+    )
+    shared_kafka_settings: set[str] = set()
+    if configured_topics:
+        for label, formatter in kafka_setting_rows:
+            per_target = [
+                [formatter(configured_topic(target, topic_name)) for topic_name in configured_topics]
+                for target in targets
+            ]
+            if all(values and len(set(values)) == 1 for values in per_target):
+                shared_kafka_settings.add(label)
+        if shared_kafka_settings:
+            subsection("Shared Kafka client settings")
+            for label, formatter in kafka_setting_rows:
+                if label in shared_kafka_settings:
+                    row(label, [formatter(configured_topic(target, configured_topics[0])) for target in targets])
+
     def key_order_value(data: dict[str, Any]) -> Any:
         ordering = data.get("ordering") if isinstance(data.get("ordering"), dict) else {}
         by_key = ordering.get("by_key") if isinstance(ordering.get("by_key"), dict) else {}
         return by_key.get("out_of_order")
 
     for topic_name in configured_topics:
-
-        def configured_topic(target: TargetReport) -> dict[str, Any]:
-            return next(
-                (value for value in target.configuration.get("topics", []) if value.get("name") == topic_name),
-                {},
-            )
-
         kafka_topic = next(
-            (configured_topic(target).get("kafka_topic") for target in targets if configured_topic(target).get("kafka_topic")),
+            (
+                configured_topic(target, topic_name).get("kafka_topic")
+                for target in targets
+                if configured_topic(target, topic_name).get("kafka_topic")
+            ),
             topic_name,
         )
         topic_subsection(str(kafka_topic))
@@ -972,16 +1034,16 @@ def render_markdown(report: ExperimentReport) -> str:
         row(
             "Processing mode",
             [
-                escaped(str(configured_topic(target).get("processing_mode") or "").lower().replace("_", "-"))
+                escaped(str(configured_topic(target, topic_name).get("processing_mode") or "").lower().replace("_", "-"))
                 for target in targets
             ],
         )
-        row("Partitions", [number(configured_topic(target).get("partitions"), 0) for target in targets])
-        row("Poll/listener concurrency", [number(configured_topic(target).get("pollers"), 0) for target in targets])
+        row("Partitions", [number(configured_topic(target, topic_name).get("partitions"), 0) for target in targets])
+        row("Poll/listener concurrency", [number(configured_topic(target, topic_name).get("pollers"), 0) for target in targets])
         row(
             "Dedicated processing workers",
             [
-                number(configured_topic(target).get("workers"), 0)
+                number(configured_topic(target, topic_name).get("workers"), 0)
                 if target.configuration.get("dedicated_processing_workers")
                 else "—"
                 for target in targets
@@ -990,7 +1052,7 @@ def render_markdown(report: ExperimentReport) -> str:
         row(
             "Processing queue capacity",
             [
-                number(configured_topic(target).get("queue_capacity"), 0)
+                number(configured_topic(target, topic_name).get("queue_capacity"), 0)
                 if target.configuration.get("dedicated_processing_workers")
                 else "—"
                 for target in targets
@@ -999,47 +1061,14 @@ def render_markdown(report: ExperimentReport) -> str:
         row(
             "Planned average handling time",
             [
-                "—" if configured_topic(target).get("planning_latency_ms") is None
-                else number(configured_topic(target).get("planning_latency_ms"), 0) + " ms"
+                "—" if configured_topic(target, topic_name).get("planning_latency_ms") is None
+                else number(configured_topic(target, topic_name).get("planning_latency_ms"), 0) + " ms"
                 for target in targets
             ],
         )
-        row(
-            "Consumer fetch.min.bytes",
-            [bytes_value((configured_topic(target).get("consumer") or {}).get("fetch_min_bytes")) for target in targets],
-        )
-        row(
-            "Consumer fetch.max.wait.ms",
-            [
-                "—" if (configured_topic(target).get("consumer") or {}).get("fetch_max_wait_ms") is None
-                else number((configured_topic(target).get("consumer") or {}).get("fetch_max_wait_ms"), 0) + " ms"
-                for target in targets
-            ],
-        )
-        row(
-            "Consumer max.poll.records",
-            [number((configured_topic(target).get("consumer") or {}).get("max_poll_records"), 0) for target in targets],
-        )
-        row(
-            "Load producer linger.ms",
-            [
-                "—" if (configured_topic(target).get("producer") or {}).get("linger_ms") is None
-                else number((configured_topic(target).get("producer") or {}).get("linger_ms"), 0) + " ms"
-                for target in targets
-            ],
-        )
-        row(
-            "Load producer batch.size",
-            [bytes_value((configured_topic(target).get("producer") or {}).get("batch_size")) for target in targets],
-        )
-        row(
-            "Load producer compression.type",
-            [escaped((configured_topic(target).get("producer") or {}).get("compression_type")) for target in targets],
-        )
-        row(
-            "Load producer buffer.memory",
-            [bytes_value((configured_topic(target).get("producer") or {}).get("buffer_memory")) for target in targets],
-        )
+        for label, formatter in kafka_setting_rows:
+            if label not in shared_kafka_settings:
+                row(label, [formatter(configured_topic(target, topic_name)) for target in targets])
 
     measurement_windows = report.test_definition.get("measurement_windows")
     if not isinstance(measurement_windows, list):
@@ -1134,6 +1163,36 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         "Kafka client settings show effective values after shared defaults and per-topic overrides.",
         "",
+    ])
+    configuration_block = list(lines)
+    configuration_rendering = False
+    lines = [
+        "# CKC Lab Experiment Report",
+        "",
+        f"## {escaped(report.name)}",
+        "",
+        f'<p class="report-execution-time">{escaped(execution_time(report))}</p>',
+        "",
+        f"**Execution:** `{escaped(report.execution_status)}` · **Requirements:** `{escaped(report.evaluation_status)}`",
+        "",
+        f"Generated {escaped(report.generated_at)} · report generator v{REPORT_GENERATOR_VERSION}",
+        "",
+        "## Experiment goal",
+        "",
+        escaped(report.description),
+        "",
+        "## Experiment conditions",
+        "",
+        "### Environment",
+        "",
+        *environment_block,
+        "",
+        *configuration_block,
+        *downstream_table,
+        "### Planned load and experiment stages",
+        "",
+        "![Load profile](load-profile.svg)",
+        "",
         "## Results",
         "",
         metric_source_legend,
@@ -1145,11 +1204,16 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         '<table class="comparison">',
         "<thead><tr><th></th>" + "".join(
-            f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+            f'<th>{"Baseline<br>" if len(targets) > 1 and index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
             for index, target in enumerate(targets)
         ) + "</tr></thead>",
         "<tbody>",
-    ])
+    ]
+    section("Outcome")
+    row("Execution status", [escaped(target.execution_status) for target in targets])
+    row("Requirements status", [escaped(target.evaluation_status) for target in targets])
+    row("Delivery requirements", [escaped(target.delivery_evaluation_status) for target in targets])
+    row("Latency requirements", [escaped(target.latency_evaluation_status) for target in targets])
 
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):
@@ -1250,8 +1314,9 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection("Resources and scaling")
         row("Application CPU average (all pods)", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
-        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
-        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        if any(target_uses_hpa(target) for target in targets):
+            row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
+            row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
         if not is_internal_lab:
             row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
             row("Application nodes maximum", compared([value.get("application_nodes_max") for value in measurements], 0, " nodes"), "prometheus")
@@ -1265,25 +1330,66 @@ def render_markdown(report: ExperimentReport) -> str:
             for result in window_results
         ])
 
-    if measurement_windows:
+    lines.extend(["</tbody></table>", ""])
+    if len(targets) > 1:
         lines.extend([
-            "</tbody></table>",
+            "Multipliers compare each metric with the first target in the same measurement window. Green marks the best comparable value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
+            "SLA-compliance rows show the successful share first, but their multipliers and highlighting compare the complementary share outside the limit. Requirement status is independent from comparative highlighting.",
             "",
-            "Multipliers compare each metric with the first target in the same measurement window. Green marks the best value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
-            "SLA-compliance rows show the successful share first, but their multipliers and highlighting compare the complementary share outside the limit.",
-            "Latency limits in the detailed tables are reference thresholds from the resolved profile; they are not acceptance results when the target status is `NOT_EVALUATED`.",
-            "",
-            "### Detailed results",
-            "",
-            '<table class="comparison">',
-            "<thead><tr><th></th>" + "".join(
-                f'<th>{"Baseline<br>" if index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
-                for index, target in enumerate(targets)
-            ) + "</tr></thead>",
-            "<tbody>",
         ])
+    load_duration = sum(
+        float(phase.get("duration_seconds") or 0)
+        for phase in report.test_definition.get("load_phases", [])
+    )
 
-    load_duration = sum(float(phase.get("duration_seconds") or 0) for phase in report.test_definition.get("load_phases", []))
+    def render_temporal_freshness_rows(values: list[dict[str, Any]]) -> None:
+        gap_summaries = [
+            (value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}
+            for value in values
+        ]
+        if not any(summary.get("count") is not None for summary in gap_summaries):
+            return
+        histograms = [
+            normalized_histogram(summary.get("histogram_ms", {}))
+            for summary in gap_summaries
+        ]
+        periods = [
+            target.test_definition.get("telemetry_publish_interval_seconds")
+            for target in targets
+        ]
+        shared_period = next(
+            (float(value) for value in periods if value not in (None, "")),
+            None,
+        )
+        thresholds = adaptive_freshness_thresholds(histograms, shared_period)
+        nested_subsection("Temporal freshness")
+        row(
+            "Publication period",
+            ["unavailable" if value in (None, "") else number(value, 0) + " s" for value in periods],
+        )
+        row("Total keys", [number((value.get("key_fairness") or {}).get("keys"), 0) for value in values])
+        row("Keys with completed gaps", [number(summary.get("count"), 0) for summary in gap_summaries])
+        if thresholds:
+            for threshold in thresholds:
+                row(
+                    f"Maximum completed gap > {threshold} s",
+                    [number(freshness_count_over(histogram, threshold), 0) for histogram in histograms],
+                )
+        else:
+            row("Adaptive thresholds", ["unavailable" for _target in targets])
+
+    lines.extend([
+        "## Detailed results",
+        "",
+        "### Window and full-run tables",
+        "",
+        '<table class="comparison">',
+        "<thead><tr><th></th>" + "".join(
+            f'<th>{"Baseline<br>" if len(targets) > 1 and index == 0 else ""}<span class="target-name">{escaped(target.name)}</span></th>'
+            for index, target in enumerate(targets)
+        ) + "</tr></thead>",
+        "<tbody>",
+    ])
 
     def render_interval(
         title: str,
@@ -1329,9 +1435,12 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         row("Processed throughput", compared([value.get("throughput_average_rps") for value in measurements], 0, " msg/s", lower_is_better=False), "prometheus")
         subsection("Application scaling")
-        row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
-        row("Application replicas average", compared([value.get("application_replicas_average") for value in measurements], 2, " pods"), "prometheus")
-        row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        if any(target_uses_hpa(target) for target in targets):
+            row("Application replicas minimum", compared([value.get("application_replicas_min") for value in measurements], 0, " pods"), "prometheus")
+            row("Application replicas average", compared([value.get("application_replicas_average") for value in measurements], 2, " pods"), "prometheus")
+            row("Application replicas maximum", compared([value.get("application_replicas_max") for value in measurements], 0, " pods"), "prometheus")
+        else:
+            row("Application replicas", [replica_configuration(target) for target in targets])
         if any(target.configuration.get("deployment_mode") == "per_topic" for target in targets):
             for workload in ("order", "batch", "telemetry"):
                 label = workload.capitalize()
@@ -1347,10 +1456,8 @@ def render_markdown(report: ExperimentReport) -> str:
                     ],
                     "prometheus",
                 )
-        row(
-            "Configured HPA range",
-            [hpa_configuration(target) for target in targets],
-        )
+        if any(target_uses_hpa(target) for target in targets):
+            row("Configured HPA range", [hpa_configuration(target) for target in targets])
         if not is_internal_lab:
             row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
             row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")
@@ -1371,6 +1478,13 @@ def render_markdown(report: ExperimentReport) -> str:
         subsection("Application resources")
         row("Application CPU average (all pods)", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
+        row("Measured processing time average", compared([value.get("processing_duration_average_ms") for value in measurements], 1, " ms"), "prometheus")
+
+        subsection("Saturation signals")
+        row("Consumer lag maximum", compared([value.get("consumer_lag_max_records") for value in measurements], 0, " records"), "prometheus")
+        row("Processing queue utilization maximum", compared([value.get("work_queue_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("Worker utilization maximum", compared([value.get("worker_utilization_max_percent") for value in measurements], 1, "%"), "prometheus")
+        row("Application CPU throttling", compared([value.get("cpu_throttling_seconds_total") for value in measurements], 2, " s"), "prometheus")
 
         subsection("JVM thread context switches")
         row("Voluntary", compared([value.get("voluntary_context_switches_average_per_second") for value in measurements], 0, " /s"), "prometheus")
@@ -1401,6 +1515,18 @@ def render_markdown(report: ExperimentReport) -> str:
             row("ElastiCache connections maximum", compared([value.get("redis_connections_max") for value in measurements], 0, ""), "prometheus")
             row("ElastiCache evictions", counts([value.get("redis_evictions_total") for value in measurements]), "prometheus")
         available = {name for target_evidence in evidence for name in target_evidence}
+        available = {
+            topic
+            for topic in available
+            if any(
+                any(
+                    (target_evidence.get(topic, {}) or {}).get(field)
+                    for field in ("published", "processed", "dropped", "failed", "missing_terminal")
+                )
+                or bool((target_evidence.get(topic, {}) or {}).get("e2e_latency"))
+                for target_evidence in evidence
+            )
+        }
         interval_topics = [topic for topic in preferred_topics if topic in available]
         interval_topics.extend(sorted(available - set(interval_topics)))
         for topic in interval_topics:
@@ -1435,51 +1561,8 @@ def render_markdown(report: ExperimentReport) -> str:
                 row("Per-key ordering violations", counts([key_order_value(value) for value in values]), "audit")
             for percentile in ("p50", "p95", "p99", "max"):
                 row(f"E2E latency {percentile}", compared([(value.get("e2e_latency") or {}).get(percentile) for value in values], 0, " ms"), "audit")
-            e2e_compliance_rows(values, freshness_first=freshness_first)
-            histograms = [
-                normalized_histogram((value.get("key_fairness") or {}).get("freshness_gap", {}).get("dropped_before_processed_histogram", {}))
-                for value in values
-            ]
-            cutoff = shared_freshness_cutoff(histograms)
-            has_skips = any(
-                count > 0
-                for histogram in histograms
-                for bucket, count in histogram.items()
-                if bucket > 0
-            )
-            has_processed_gaps = any((value.get("key_fairness") or {}).get("processed_max_gap_ms") for value in values)
-            if has_skips or has_processed_gaps:
-                subsection(f"{topic} · consecutive freshness skips")
-                if has_skips and cutoff is not None:
-                    for bucket in range(cutoff + 1):
-                        cells = []
-                        for histogram in histograms:
-                            count = histogram.get(bucket, 0)
-                            trailing_zero = is_freshness_zero_tail(histogram, bucket)
-                            value = number(count, 0)
-                            cells.append(f'<span class="freshness-zero-tail">{value}</span>' if trailing_zero else value)
-                        row(f"Skipped {bucket}", cells, "audit")
-                    tail_cells = []
-                    for histogram in histograms:
-                        count = sum(value for bucket, value in histogram.items() if bucket > cutoff)
-                        value = number(count, 0)
-                        tail_cells.append(
-                            f'<span class="freshness-zero-tail">{value}</span>'
-                            if histogram and count == 0 else value
-                        )
-                    row(f"Skipped >{cutoff}", tail_cells, "audit")
-                for percentile in ("p95", "p99", "max"):
-                    row(
-                        f"Maximum actual interval between processed updates {percentile}",
-                        [
-                            milliseconds(
-                                ((value.get("key_fairness") or {}).get("processed_max_gap_ms") or {}).get(percentile)
-                            )
-                            for value in values
-                        ],
-                        "audit",
-                    )
-
+            e2e_compliance_rows(values)
+            render_temporal_freshness_rows(values)
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):
             continue
@@ -1494,14 +1577,40 @@ def render_markdown(report: ExperimentReport) -> str:
             [result.get("measurements", {}) for result in window_results],
             [result.get("topic_evidence", {}) for result in window_results],
         )
-    render_interval(
-        f"Full run · {number(load_duration, 0)} s",
-        0,
-        load_duration,
-        [target.delivery for target in targets],
-        [target.measurements for target in targets],
-        [target.topic_evidence for target in targets],
-    )
+    if not measurement_windows:
+        render_interval(
+            f"Full run · {number(load_duration, 0)} s",
+            0,
+            load_duration,
+            [target.delivery for target in targets],
+            [target.measurements for target in targets],
+            [target.topic_evidence for target in targets],
+        )
+    else:
+        section(f"Full run completion · {number(load_duration, 0)} s")
+        subsection("Delivery balance")
+        row("Published", [number(target.delivery.get("published"), 0) for target in targets], "audit")
+        row("Successfully processed", successfully_processed_values([target.delivery for target in targets]), "audit")
+        row("Intentionally dropped", dropped_values([target.delivery for target in targets]), "audit")
+        drop_reason_rows([target.delivery for target in targets])
+        row("Failed processing", counts([target.delivery.get("failed") for target in targets]), "audit")
+        row("Lost messages", counts([target.delivery.get("missing_terminal") for target in targets]), "audit")
+        optional_plain_count_row(
+            "Replay dropped · already processed",
+            [replay_drop_reason(target.delivery, "already_processed") for target in targets],
+        )
+        optional_plain_count_row(
+            "Replay dropped · freshness policy",
+            [freshness_replay_drops(target.delivery) for target in targets],
+        )
+        integrity_row(
+            "Terminal outcomes without publish",
+            [without_publish_count(target.delivery) for target in targets],
+        )
+        integrity_row(
+            "Conflicting terminal outcomes",
+            [unexpected_terminal_conflicts(target.delivery) for target in targets],
+        )
 
     has_network_counters = bool(network_counter_rows)
     if has_network_counters or diagnostic_steps:
@@ -1517,7 +1626,12 @@ def render_markdown(report: ExperimentReport) -> str:
                 and result["network_counters"].get("status") == "success"
                 for result in window_results
             ):
-                nested_subsection(f"Kafka network counters · {window.get('name') or 'measurement'} window")
+                counter_start = float(window.get("start_seconds") or 0)
+                counter_end = counter_start + float(window.get("duration_seconds") or 0)
+                nested_subsection(
+                    f"Kafka network counters · {window.get('name') or 'measurement'} window · "
+                    f"{number(counter_start, 0)}–{number(counter_end, 0)} s"
+                )
                 lines.extend(network_counter_rows)
                 rendered_network_counter_window = True
         if not rendered_network_counter_window:
@@ -1553,7 +1667,10 @@ def render_markdown(report: ExperimentReport) -> str:
 
     for step in diagnostic_steps:
         capture_name = str(step["name"])
-        nested_subsection(f"Packet capture · {capture_title(capture_name)}")
+        step_start = float(step.get("start_seconds") or 0)
+        step_duration = float(step.get("duration_seconds") or 0)
+        bounds = f" · {number(step_start, 0)}–{number(step_start + step_duration, 0)} s" if step_duration else ""
+        nested_subsection(f"Packet capture · {capture_title(capture_name)}{bounds}")
         for topic in capture_topics(capture_name):
             network_topic_subsection(topic)
             row(
@@ -1651,9 +1768,41 @@ def render_markdown(report: ExperimentReport) -> str:
             "",
         ])
     lines.extend([
-        "## Full evidence",
+        "## Methodology and artifacts",
+        "",
+        "### Calculation notes",
+        "",
+        "Percentages use the population named in each row: delivery percentages use uniquely published messages, while processed-latency compliance uses successfully processed messages with an audit latency measurement.",
+        "",
+        "Measurement-window audit results are publication cohorts: a message belongs to a window by its Kafka publication timestamp, and its later terminal outcome remains attached to that cohort. Prometheus rows use the corresponding wall-clock interval.",
+        "",
+        "Temporal freshness is calculated per key from consecutive successful terminal outcomes whose publications belong to the same audit cohort. Leading and trailing unfinished gaps are excluded. Shared thresholds are selected automatically from the worst normalized target envelope at the 50th, 80th, 95th, and 99th percentiles, rounded to readable seconds; empty and duplicate rows are omitted.",
+        "",
+        "A dash means the setting is not applicable or was not configured. `unavailable` means the report expected measured evidence but the required samples or audit distribution were absent.",
+        "",
+        "Metric-source badges identify audit records (A), Prometheus samples (P), packet captures (C), and nftables Kafka counters (N). Every diagnostic subsection states or inherits its own named measurement window; diagnostic totals must not be combined across different windows.",
+        "",
+        "### Full evidence",
         "",
         "Evidence bundle and audit archive links are added when the result is finalized.",
         "",
     ])
+    def has_rows_before_next_subsection(index: int) -> bool:
+        for candidate in lines[index + 1:]:
+            if candidate.startswith('<tr class="section"') or candidate.startswith('<tr class="subsection"'):
+                return False
+            if candidate == "</tbody></table>":
+                return False
+            if candidate.startswith('<tr><th scope="row"'):
+                return True
+        return False
+
+    lines = [
+        line
+        for index, line in enumerate(lines)
+        if not (
+            line.startswith('<tr class="subsection"')
+            and not has_rows_before_next_subsection(index)
+        )
+    ]
     return "\n".join(lines)

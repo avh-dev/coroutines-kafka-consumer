@@ -16,7 +16,7 @@ from audit_windows import write_measurement_windows
 
 from .analyze import analyze_experiment, load_json, load_sla_profile, load_yaml
 from .markdown import render_markdown
-from .svg import comparison_bar_svg, comparison_values_svg, environment_topology_svg, kafka_wire_breakdown_svg, load_profile_svg
+from .svg import environment_topology_svg, load_profile_svg
 
 
 def slugify(value: str) -> str:
@@ -26,13 +26,13 @@ def slugify(value: str) -> str:
 
 def write_report(report_dir: Path, report: Any) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
+    for stale in report_dir.glob("*.svg"):
+        stale.unlink()
     model = report.to_dict()
     (report_dir / "report-model.yaml").write_text(
         yaml.safe_dump(model, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    for stale in report_dir.glob("environment-topology*.svg"):
-        stale.unlink()
     topologies = report.environment_topologies or (
         [{"targets": [target.name for target in report.targets], "environment": report.environment}]
         if report.environment else []
@@ -47,96 +47,7 @@ def write_report(report_dir: Path, report: Any) -> None:
             ),
             encoding="utf-8",
         )
-    (report_dir / "stub-latency.svg").unlink(missing_ok=True)
     (report_dir / "load-profile.svg").write_text(load_profile_svg(report), encoding="utf-8")
-    (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
-    return
-    latency_misses = []
-    for target in report.targets:
-        measured = sum(rule.measured for rule in target.latency_sla)
-        exceeded = sum(rule.exceeded for rule in target.latency_sla)
-        latency_misses.append((target.name, 100 * exceeded / measured if measured else None))
-    (report_dir / "latency-sla-misses.svg").write_text(
-        comparison_values_svg(latency_misses, "Processed records above latency SLA", "%"),
-        encoding="utf-8",
-    )
-    (report_dir / "latency-p95.svg").write_text(
-        comparison_bar_svg(report, "latency_p95_ms", "End-to-end latency p95", "ms"), encoding="utf-8"
-    )
-    (report_dir / "cpu-average.svg").write_text(
-        comparison_bar_svg(report, "cpu_average_cores", "Average application CPU", "cores"), encoding="utf-8"
-    )
-    (report_dir / "application-memory-average.svg").write_text(
-        comparison_bar_svg(report, "application_memory_average_mib", "Average application working set", "MiB"),
-        encoding="utf-8",
-    )
-    (report_dir / "broker-cpu-average.svg").write_text(
-        comparison_bar_svg(report, "broker_cpu_average_cores", "Average Kafka broker CPU", "cores"),
-        encoding="utf-8",
-    )
-    (report_dir / "broker-memory-average.svg").write_text(
-        comparison_bar_svg(report, "broker_memory_average_mib", "Average Kafka broker RSS", "MiB"),
-        encoding="utf-8",
-    )
-    (report_dir / "producer-cpu-average.svg").write_text(
-        comparison_bar_svg(report, "producer_cpu_average_cores", "Average load generator CPU", "cores"),
-        encoding="utf-8",
-    )
-    (report_dir / "producer-memory-average.svg").write_text(
-        comparison_bar_svg(report, "producer_memory_average_mib", "Average load generator RSS", "MiB"),
-        encoding="utf-8",
-    )
-    (report_dir / "throughput-average.svg").write_text(
-        comparison_bar_svg(report, "throughput_average_rps", "Average processed throughput", "records/s"), encoding="utf-8"
-    )
-    (report_dir / "poll-batch-average.svg").write_text(
-        comparison_bar_svg(
-            report,
-            "telemetry_poll_batch_average_records",
-            "Average telemetry poll batch",
-            "records",
-        ),
-        encoding="utf-8",
-    )
-    (report_dir / "active-workers-max.svg").write_text(
-        comparison_bar_svg(
-            report,
-            "telemetry_active_workers_max",
-            "Maximum sampled active telemetry workers",
-            "workers",
-        ),
-        encoding="utf-8",
-    )
-    (report_dir / "worker-allocation-average.svg").write_text(
-        comparison_bar_svg(
-            report,
-            "processing_worker_allocation_average_bytes_per_second",
-            "Average processing-worker allocation",
-            "bytes/s",
-        ),
-        encoding="utf-8",
-    )
-    (report_dir / "worker-cpu-average.svg").write_text(
-        comparison_bar_svg(
-            report,
-            "processing_worker_cpu_average_cores",
-            "Average processing-worker CPU",
-            "cores",
-        ),
-        encoding="utf-8",
-    )
-    (report_dir / "context-switches-average.svg").write_text(
-        comparison_bar_svg(
-            report,
-            "voluntary_context_switches_average_per_second",
-            "Average voluntary JVM thread context switches",
-            "switches/s",
-        ),
-        encoding="utf-8",
-    )
-    (report_dir / "kafka-wire-breakdown.svg").write_text(
-        kafka_wire_breakdown_svg(report), encoding="utf-8"
-    )
     (report_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
 
 

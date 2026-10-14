@@ -1463,6 +1463,81 @@ def comparison_bar_svg(report: ExperimentReport, measurement: str, title: str, u
     return comparison_values_svg(values, title, unit)
 
 
+def runtime_time_series_svg(report: ExperimentReport) -> str:
+    def uses_hpa(target: Any) -> bool:
+        if target.configuration.get("deployment_mode") == "per_topic":
+            workloads = target.configuration.get("workloads") or {}
+            return any(
+                bool((workload.get("hpa") or {}).get("enabled"))
+                for workload in workloads.values()
+                if isinstance(workload, dict)
+            )
+        return bool((target.configuration.get("hpa") or {}).get("enabled"))
+
+    panels = [
+        ("Input and processed throughput", "records/s", ("published_rps", "processed_rps")),
+        ("End-to-end latency p99", "ms", ("latency_p99_ms",)),
+        ("Consumer lag", "records", ("consumer_lag_records",)),
+        ("Processing queue utilization", "%", ("queue_utilization_percent",)),
+    ]
+    if any(uses_hpa(target) for target in report.targets):
+        panels.append(("Application replicas", "pods", ("application_replicas",)))
+    width, left, right, top, panel_height = 1100, 74, 26, 70, 190
+    available_panels = [
+        panel for panel in panels
+        if any(target.time_series.get(name) for target in report.targets for name in panel[2])
+    ]
+    height = max(180, top + len(available_panels) * panel_height + 30)
+    body = [f'<text class="title" x="24" y="30">Runtime time series</text>']
+    if not available_panels:
+        body.append('<text class="muted" x="24" y="88">Time-series evidence is unavailable.</text>')
+        return svg_document(width, height, body, "Runtime time series")
+    legend_x = 24
+    for index, target in enumerate(report.targets):
+        color = PALETTE[index % len(PALETTE)]
+        body.extend([
+            f'<line x1="{legend_x}" y1="50" x2="{legend_x+20}" y2="50" stroke="{color}" stroke-width="3"/>',
+            f'<text class="muted" x="{legend_x+26}" y="54">{esc(target.name)}</text>',
+        ])
+        legend_x += 54 + len(target.name) * 7
+    plot_width = width - left - right
+    for panel_index, (title, unit, names) in enumerate(available_panels):
+        y = top + panel_index * panel_height
+        series = [
+            (target_index, name_index, target.time_series.get(name, []))
+            for target_index, target in enumerate(report.targets)
+            for name_index, name in enumerate(names)
+            if target.time_series.get(name)
+        ]
+        max_time = max((point["at_seconds"] for _, _, points in series for point in points), default=1.0) or 1.0
+        max_value = max((point["value"] for _, _, points in series for point in points), default=1.0) or 1.0
+        plot_top, plot_height = y + 30, 120
+        body.extend([
+            f'<text class="label" x="24" y="{y+18}">{esc(title)}</text>',
+            f'<line x1="{left}" y1="{plot_top}" x2="{left}" y2="{plot_top+plot_height}" stroke="#cbd5e1"/>',
+            f'<line x1="{left}" y1="{plot_top+plot_height}" x2="{left+plot_width}" y2="{plot_top+plot_height}" stroke="#cbd5e1"/>',
+            f'<text class="muted" x="{left-8}" y="{plot_top+5}" text-anchor="end">{max_value:,.1f} {esc(unit)}</text>',
+            f'<text class="muted" x="{left-8}" y="{plot_top+plot_height+4}" text-anchor="end">0</text>',
+            f'<text class="muted" x="{left+plot_width}" y="{plot_top+plot_height+18}" text-anchor="end">{max_time:,.0f} s</text>',
+        ])
+        for target_index, name_index, points in series:
+            color = PALETTE[target_index % len(PALETTE)]
+            coordinates = " ".join(
+                f'{left + plot_width * point["at_seconds"] / max_time:.1f},'
+                f'{plot_top + plot_height * (1 - point["value"] / max_value):.1f}'
+                for point in points
+            )
+            dash = ' stroke-dasharray="7 5"' if name_index else ""
+            body.append(
+                f'<polyline points="{coordinates}" fill="none" stroke="{color}" stroke-width="2.2"{dash}/>'
+            )
+        if len(names) > 1:
+            body.append(
+                f'<text class="muted" x="{left+8}" y="{plot_top+16}">solid: input · dashed: processed</text>'
+            )
+    return svg_document(width, height, body, "Runtime time series")
+
+
 def kafka_wire_breakdown_svg(report: ExperimentReport) -> str:
     segments = [
         ("Network headers", "#64748b"),

@@ -13,7 +13,12 @@ from typing import Any
 import yaml
 
 from .model import CriterionResult, ExperimentReport, LatencySlaResult, TargetReport
-from .prometheus import STANDARD_MEASUREMENTS, PrometheusClient, collect_standard_measurements
+from .prometheus import (
+    STANDARD_MEASUREMENTS,
+    PrometheusClient,
+    collect_report_time_series,
+    collect_standard_measurements,
+)
 
 
 OPERATORS = {
@@ -1041,12 +1046,17 @@ def analyze_experiment(
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
         network_counters = network_counter_summary(run_dir)
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
+        time_series: dict[str, list[dict[str, float]]] = {}
         measurement_window_results: list[dict[str, Any]] = []
         if start is not None:
             try:
                 measurements = collect_standard_measurements(prometheus, start, target_load_duration)
             except Exception as error:
                 warnings.append(f"Prometheus measurements are unavailable: {error}")
+            try:
+                time_series = collect_report_time_series(prometheus, start, target_load_duration)
+            except Exception as error:
+                warnings.append(f"Prometheus time series are unavailable: {error}")
             for window in configured_measurement_windows(target_load_test, target_load_duration):
                 result = {
                     **window,
@@ -1150,6 +1160,21 @@ def analyze_experiment(
                 events.append(event)
                 observed_events.append(event)
         target_configuration = configuration(metadata)
+        environment_evidence = (
+            metadata.get("environment_evidence")
+            if isinstance(metadata.get("environment_evidence"), dict)
+            else {}
+        )
+        resolved_workloads = (
+            environment_evidence.get("workloads")
+            if isinstance(environment_evidence.get("workloads"), dict)
+            else {}
+        )
+        application_nodes = resolved_workloads.get("application")
+        if isinstance(application_nodes, list):
+            target_configuration["actual_placement"] = ", ".join(
+                sorted(str(node) for node in application_nodes)
+            ) or None
         configured_target = configured_targets.get(report_target_name)
         configured_application = (
             configured_target.get("application")
@@ -1204,6 +1229,7 @@ def analyze_experiment(
                 packet_captures=packet_captures,
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
                 network_counters=network_counters,
+                time_series=time_series,
                 events=events,
                 criteria=criteria,
                 latency_sla=latency_results,

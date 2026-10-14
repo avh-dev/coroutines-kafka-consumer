@@ -27,6 +27,29 @@ STANDARD_MEASUREMENTS = {
         "sum(increase(demo_ckc_record_process_duration_seconds_count"
         '{{pod=~"ckc-demo-.+"}}[{window}])) / {seconds}'
     ),
+    "processing_duration_average_ms": (
+        "1000 * sum(increase(demo_ckc_record_process_duration_seconds_sum"
+        '{{pod=~"ckc-demo-.+"}}[{window}])) / clamp_min(sum(increase('
+        "demo_ckc_record_process_duration_seconds_count"
+        '{{pod=~"ckc-demo-.+"}}[{window}])), 1)'
+    ),
+    "consumer_lag_max_records": (
+        "max(max_over_time(kafka_consumergroup_lag[{window}]))"
+    ),
+    "work_queue_utilization_max_percent": (
+        "100 * max(max_over_time((sum(demo_ckc_work_queue_size"
+        '{{pod=~"ckc-demo-.+"}}) / clamp_min(sum(demo_ckc_work_queue_capacity'
+        '{{pod=~"ckc-demo-.+"}}), 1))[{window}:15s]))'
+    ),
+    "worker_utilization_max_percent": (
+        "100 * max(max_over_time((sum(demo_ckc_workers_active"
+        '{{pod=~"ckc-demo-.+"}}) / clamp_min(sum(demo_ckc_workers'
+        '{{pod=~"ckc-demo-.+"}}), 1))[{window}:15s]))'
+    ),
+    "cpu_throttling_seconds_total": (
+        "sum(increase(container_cpu_cfs_throttled_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
     "cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
@@ -234,6 +257,24 @@ STANDARD_MEASUREMENTS = {
     ),
 }
 
+REPORT_TIME_SERIES = {
+    "published_rps": 'sum(rate(ckc_load_test_producer_records_acked_total{job="ckc-load-test"}[1m]))',
+    "processed_rps": 'sum(rate(demo_ckc_record_process_duration_seconds_count{pod=~"ckc-demo-.+"}[1m]))',
+    "latency_p99_ms": (
+        '1000 * histogram_quantile(0.99, sum by (le) (rate('
+        'demo_ckc_record_end_to_end_duration_seconds_bucket{pod=~"ckc-demo-.+"}[1m])))'
+    ),
+    "consumer_lag_records": "max(kafka_consumergroup_lag)",
+    "queue_utilization_percent": (
+        '100 * sum(demo_ckc_work_queue_size{pod=~"ckc-demo-.+"}) / '
+        'clamp_min(sum(demo_ckc_work_queue_capacity{pod=~"ckc-demo-.+"}), 1)'
+    ),
+    "application_replicas": (
+        'count(last_over_time(container_memory_working_set_bytes{namespace=~"ckc-perf|ckc-app", '
+        'container="demo", pod=~"ckc-demo-.+"}[1m]))'
+    ),
+}
+
 for _workload in ("order", "batch", "telemetry"):
     for _aggregate in ("average", "min", "max"):
         _function = {"average": "avg_over_time", "min": "min_over_time", "max": "max_over_time"}[_aggregate]
@@ -269,6 +310,31 @@ class PrometheusClient:
                     values.append(parsed)
         return sum(values) if values else None
 
+    def query_range(self, query: str, start: datetime, end: datetime, step_seconds: int) -> list[tuple[float, float]]:
+        params = urllib.parse.urlencode({
+            "query": query,
+            "start": start.timestamp(),
+            "end": end.timestamp(),
+            "step": max(1, step_seconds),
+        })
+        url = f"{self.base_url}/api/v1/query_range?{params}"
+        with urllib.request.urlopen(url, timeout=self.timeout_seconds) as response:
+            document = json.loads(response.read().decode("utf-8"))
+        if document.get("status") != "success":
+            raise ValueError(f"Prometheus range query failed: {document.get('error', 'unknown error')}")
+        points: dict[float, float] = {}
+        for series in document.get("data", {}).get("result", []):
+            for value in series.get("values", []):
+                if not isinstance(value, list) or len(value) != 2:
+                    continue
+                try:
+                    timestamp, parsed = float(value[0]), float(value[1])
+                except (TypeError, ValueError):
+                    continue
+                if parsed == parsed and parsed not in (float("inf"), float("-inf")):
+                    points[timestamp] = points.get(timestamp, 0.0) + parsed
+        return sorted(points.items())
+
 
 def collect_standard_measurements(
     client: PrometheusClient,
@@ -283,3 +349,19 @@ def collect_standard_measurements(
         query = template.format(window=window, seconds=seconds)
         measurements[name] = client.query_scalar(query, end)
     return measurements
+
+
+def collect_report_time_series(
+    client: PrometheusClient,
+    start: datetime,
+    duration_seconds: float,
+) -> dict[str, list[dict[str, float]]]:
+    end = start + timedelta(seconds=max(1, duration_seconds))
+    step = max(5, min(60, int(max(1, duration_seconds) / 240)))
+    return {
+        name: [
+            {"at_seconds": max(0.0, timestamp - start.timestamp()), "value": value}
+            for timestamp, value in client.query_range(query, start, end, step)
+        ]
+        for name, query in REPORT_TIME_SERIES.items()
+    }
