@@ -105,6 +105,23 @@ class AnalyzePcapTest(unittest.TestCase):
             rows = analyze_pcap.tshark_rows(Path("large.pcap"), "tshark")
         self.assertEqual(raw, rows[0]["tcp.reassembled.data"])
 
+    def test_tshark_rows_forces_kafka_decode_on_each_plaintext_broker_port(self) -> None:
+        stdout = "\t".join(analyze_pcap.FIELDS) + "\n"
+        completed = analyze_pcap.subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+        with patch.object(analyze_pcap.subprocess, "run", return_value=completed) as run:
+            analyze_pcap.tshark_rows(Path("capture.pcap"), "tshark", [9092, 9093, 9094])
+        command = run.call_args.args[0]
+        self.assertIn(["-d", "tcp.port==9092,kafka"], [command[index : index + 2] for index in range(len(command) - 1)])
+        self.assertIn(["-d", "tcp.port==9093,kafka"], [command[index : index + 2] for index in range(len(command) - 1)])
+        self.assertIn(["-d", "tcp.port==9094,kafka"], [command[index : index + 2] for index in range(len(command) - 1)])
+
+    def test_capture_kafka_ports_excludes_ports_with_tls_traffic(self) -> None:
+        metadata = {"filter": "tcp port 9092 or tcp port 9093 or tcp port 19092"}
+        rows = [
+            {**{field: "" for field in analyze_pcap.FIELDS}, "frame.protocols": "eth:ip:tcp:tls", "tcp.dstport": "19092"},
+        ]
+        self.assertEqual([9092, 9093], analyze_pcap.capture_kafka_ports(metadata, rows))
+
     def test_record_breakdown_is_exhaustive(self) -> None:
         encoded = record(b"key", b"value", b"trace", b"abc")
         sizes = analyze_pcap.record_sizes(encoded)

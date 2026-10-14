@@ -63,6 +63,7 @@ def materialize_target(
         "target_id": target.id,
         "target_name": target.name,
         "annotation_label": str(target.definition.get("annotation_label") or target.name),
+        "kafka_transport": ((target.definition.get("lab") or {}).get("kafka") or {}).get("transport"),
         "values": values,
         "run_plan": plan,
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),

@@ -85,8 +85,10 @@ def tshark_version(executable: str) -> str:
     return result.stdout.splitlines()[0].strip()
 
 
-def tshark_rows(path: Path, executable: str) -> list[dict[str, str]]:
+def tshark_rows(path: Path, executable: str, kafka_ports: list[int] | None = None) -> list[dict[str, str]]:
     command = [executable, "-r", str(path), "-T", "fields", "-E", "header=y", "-E", "separator=/t", "-E", "quote=d", "-E", "occurrence=a"]
+    for port in kafka_ports or []:
+        command.extend(["-d", f"tcp.port=={port},kafka"])
     for field in FIELDS:
         command.extend(["-e", field])
     result = subprocess.run(command, check=False, text=True, capture_output=True)
@@ -97,6 +99,25 @@ def tshark_rows(path: Path, executable: str) -> list[dict[str, str]]:
         {field: row.get(field) or "" for field in FIELDS}
         for row in csv.DictReader(result.stdout.splitlines(), delimiter="\t", quotechar='"')
     ]
+
+
+def capture_kafka_ports(metadata: dict[str, Any], rows: list[dict[str, str]]) -> list[int]:
+    """Return captured plaintext Kafka ports that need an explicit TShark decode-as rule."""
+    configured = {
+        int(value)
+        for value in re.findall(r"\btcp\s+port\s+(\d+)\b", str(metadata.get("filter") or ""), re.IGNORECASE)
+        if 0 < int(value) <= 65535
+    }
+    tls_ports: set[int] = set()
+    for row in rows:
+        if "tls" not in row["frame.protocols"].split(":"):
+            continue
+        tls_ports.update(
+            port
+            for port in (integer(row["tcp.srcport"], -1), integer(row["tcp.dstport"], -1))
+            if port in configured
+        )
+    return sorted(configured - tls_ports)
 
 
 class NativeCompression:
@@ -539,9 +560,12 @@ def analyze_capture(
     compression: NativeCompression,
     topic_names_by_id: dict[str, str],
 ) -> dict[str, Any]:
-    rows = tshark_rows(path, executable)
     role = expected_role(path)
     metadata = capture_metadata(path)
+    rows = tshark_rows(path, executable)
+    kafka_ports = capture_kafka_ports(metadata, rows)
+    if kafka_ports:
+        rows = tshark_rows(path, executable, kafka_ports)
     connections: dict[int, dict[str, Any]] = defaultdict(lambda: {"request_apis": set(), "syn": False, "fin": False, "reset": False})
     request_by_correlation: dict[tuple[int, int], tuple[int, int]] = {}
     messages: list[dict[str, Any]] = []

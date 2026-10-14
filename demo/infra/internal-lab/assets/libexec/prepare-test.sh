@@ -120,6 +120,13 @@ if [[ "${LAB_KAFKA_TOPOLOGY}" == "cluster" ]]; then
 else
   KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092"
 fi
+if [[ "${LAB_KAFKA_TRANSPORT}" == "tls" ]]; then
+  if [[ "${LAB_KAFKA_TOPOLOGY}" == "cluster" ]]; then
+    KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:19092,ckc-external-kafka.ckc-perf.svc.cluster.local:19093,ckc-external-kafka.ckc-perf.svc.cluster.local:19094"
+  else
+    KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:19092"
+  fi
+fi
 if [[ "${AUDIT_LOG_ENABLED}" != "true" && "${AUDIT_LOG_ENABLED}" != "false" ]]; then
   echo "audit-log-enabled must be true or false: ${AUDIT_LOG_ENABLED}" >&2
   exit 1

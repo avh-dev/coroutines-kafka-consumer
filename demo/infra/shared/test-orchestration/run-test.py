@@ -765,6 +765,24 @@ def load_lab_context(path: Path) -> dict[str, Any]:
     return data
 
 
+def select_target_kafka_transport(definition: dict[str, Any], lab_context: dict[str, Any]) -> None:
+    """Bind a materialized target to one listener of a dual-transport MSK lab."""
+    deployment = definition.get("deployment") or {}
+    transport = str(deployment.get("kafka_transport") or "").strip().lower()
+    if not transport:
+        return
+    if transport not in {"plaintext", "tls"}:
+        raise ValueError(f"Target Kafka transport must be plaintext or tls, got {transport!r}")
+    if str(lab_context.get("kafka_mode") or "") != "msk":
+        return
+    key = f"kafka_bootstrap_{transport}"
+    bootstrap = as_str(lab_context.get(key), "")
+    if not bootstrap:
+        raise ValueError(f"AWS dual-transport lab context does not define {key}")
+    lab_context["kafka_bootstrap"] = bootstrap
+    lab_context["kafka_security_protocol"] = "SSL" if transport == "tls" else "PLAINTEXT"
+
+
 def kubectl_json(command: list[str]) -> dict[str, Any]:
     output = run(command, capture_output=True, check=False)
     try:
@@ -1115,6 +1133,7 @@ def main() -> None:
     validate_aws_chaos_capabilities(definition, definition_path)
     lab_context_path = runner_home / "config" / f"load-lab-{args.environment}.json"
     lab_context = load_lab_context(lab_context_path)
+    select_target_kafka_transport(definition, lab_context)
     registry = as_str(lab_context.get("registry"), "")
     if not registry:
         if bool(lab_context.get("aws_registry_fallback", True)):

@@ -14,6 +14,15 @@ spec:
     - name: kafka-3
       port: 9094
       targetPort: 9094
+    - name: kafka-tls
+      port: 19092
+      targetPort: 19092
+    - name: kafka-tls-2
+      port: 19093
+      targetPort: 19093
+    - name: kafka-tls-3
+      port: 19094
+      targetPort: 19094
 ---
 apiVersion: v1
 kind: Endpoints
@@ -30,6 +39,12 @@ subsets:
         port: 9093
       - name: kafka-3
         port: 9094
+      - name: kafka-tls
+        port: 19092
+      - name: kafka-tls-2
+        port: 19093
+      - name: kafka-tls-3
+        port: 19094
 ---
 apiVersion: v1
 kind: Service

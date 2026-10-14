@@ -1096,11 +1096,9 @@ EOF
   KAFKA_SERVICE="$(discover_service_name ckc-app app.kubernetes.io/instance=ckc-kafka 9092 bootstrap kafka)"
   KAFKA_BOOTSTRAP="${KAFKA_SERVICE}.ckc-app.svc.cluster.local:9092"
 else
-  if [ "${KAFKA_TRANSPORT}" = "TLS" ]; then
-    KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers_tls)"
-  else
-    KAFKA_BOOTSTRAP="$(infra_output msk_bootstrap_brokers)"
-  fi
+  KAFKA_BOOTSTRAP_PLAINTEXT="$(infra_output msk_bootstrap_brokers)"
+  KAFKA_BOOTSTRAP_TLS="$(infra_output msk_bootstrap_brokers_tls)"
+  KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP_PLAINTEXT}"
   MSK_CLUSTER_ARN="$(infra_output msk_cluster_arn)"
   MSK_BROKER_NODES="$(infra_output msk_number_of_broker_nodes)"
   MSK_KAFKA_VERSION="$(infra_output msk_kafka_version)"
@@ -1191,6 +1189,8 @@ context = {
     "kubeconfig_path": "${KUBECONFIG_PATH}",
     "kafka_mode": "${KAFKA_MODE}",
     "kafka_bootstrap": "${KAFKA_BOOTSTRAP}",
+    "kafka_bootstrap_plaintext": "${KAFKA_BOOTSTRAP_PLAINTEXT:-${KAFKA_BOOTSTRAP}}",
+    "kafka_bootstrap_tls": "${KAFKA_BOOTSTRAP_TLS:-${KAFKA_BOOTSTRAP}}",
     "kafka_topic_replication_factor": ${KAFKA_TOPIC_REPLICATION_FACTOR},
     "redis_mode": "${REDIS_MODE}",
     "redis_host": "${REDIS_HOST}",
@@ -1233,7 +1233,7 @@ context = {
         "kafka": {
             "mode": "${KAFKA_MODE}",
             "transport": "${KAFKA_TRANSPORT}",
-            "security_protocol": "$( [ "${KAFKA_TRANSPORT}" = "TLS" ] && printf SSL || printf PLAINTEXT )",
+            "security_protocol": "PLAINTEXT",
             "brokers": ${KAFKA_BROKERS:-${MSK_BROKER_NODES:-0}},
             "kafka_version": "${MSK_KAFKA_VERSION:-}",
         "instance_type": "${MSK_BROKER_INSTANCE_TYPE:-}",

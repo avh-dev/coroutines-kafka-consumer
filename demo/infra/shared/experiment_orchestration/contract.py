@@ -544,12 +544,18 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
         if unknown_lab:
             raise ValueError(f"{context}.lab contains unknown fields: {', '.join(unknown_lab)}")
         kafka = require_mapping(lab.get("kafka"), f"{context}.lab.kafka")
-        unknown_kafka = sorted(set(kafka) - {"msk_instance_type"})
+        unknown_kafka = sorted(set(kafka) - {"msk_instance_type", "transport"})
         if unknown_kafka:
             raise ValueError(f"{context}.lab.kafka contains unknown fields: {', '.join(unknown_kafka)}")
-        instance_type = str(kafka.get("msk_instance_type") or "").strip()
-        if not re.fullmatch(r"kafka\.[a-z0-9]+\.[a-z0-9]+", instance_type):
-            raise ValueError(f"{context}.lab.kafka.msk_instance_type must be an MSK broker instance type")
+        if "msk_instance_type" in kafka:
+            instance_type = str(kafka["msk_instance_type"] or "").strip()
+            if not re.fullmatch(r"kafka\.[a-z0-9]+\.[a-z0-9]+", instance_type):
+                raise ValueError(f"{context}.lab.kafka.msk_instance_type must be an MSK broker instance type")
+        if "transport" in kafka:
+            transport = str(kafka["transport"]).lower()
+            if transport not in {"plaintext", "tls"}:
+                raise ValueError(f"{context}.lab.kafka.transport must be plaintext or tls")
+            kafka["transport"] = transport
     if "scheduling" in value:
         scheduling = require_mapping(value["scheduling"], f"{context}.scheduling")
         unknown_scheduling = sorted(set(scheduling) - {"alignment", "minimum_lead_time"})
