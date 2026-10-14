@@ -25,6 +25,7 @@ ACTION_COLORS = {
     "outage": "#b91c1c",
     "measurement": "#16a34a",
     "diagnostic": "#0891b2",
+    "network-counters": "#059669",
     "chaos": "#64748b",
 }
 ACTION_LABELS = {
@@ -39,6 +40,7 @@ ACTION_LABELS = {
     "outage": "Service outage",
     "measurement": "Measurement window",
     "diagnostic": "Diagnostic capture",
+    "network-counters": "Kafka network counters",
     "chaos": "Chaos action",
 }
 SERVICE_BADGES = {
@@ -789,6 +791,13 @@ def action_icon(action: str, x: float, y: float, size: float = 28, role: str = "
             f'<circle cx="{x+14:.1f}" cy="{y+15:.1f}" r="2.5" {common}/>'
             f'<path d="M {x+10:.1f} {y+10:.1f} L {x+12:.1f} {y+7:.1f} H {x+16:.1f} L {x+18:.1f} {y+10:.1f}" {common}/>'
         )
+    elif action == "network-counters":
+        symbol = (
+            f'<path d="M {x+7:.1f} {y+10:.1f} H {x+20:.1f}" {common}/>'
+            f'<path d="M {x+17:.1f} {y+7:.1f} L {x+21:.1f} {y+10:.1f} L {x+17:.1f} {y+13:.1f}" {common}/>'
+            f'<path d="M {x+21:.1f} {y+18:.1f} H {x+8:.1f}" {common}/>'
+            f'<path d="M {x+11:.1f} {y+15:.1f} L {x+7:.1f} {y+18:.1f} L {x+11:.1f} {y+21:.1f}" {common}/>'
+        )
     else:
         symbol = f'<text class="icon-letter" x="{center_x:.1f}" y="{center_y+3:.1f}" text-anchor="middle">!</text>'
     return (
@@ -858,6 +867,7 @@ def chaos_card_time_label(scenario: dict[str, Any]) -> str:
 
 CARD_TEXT_MARGIN = 8
 CARD_TEXT_GAP = CARD_TEXT_MARGIN * 2
+CARD_RIGHT_PADDING = 20
 
 
 def estimated_text_width(value: str, font_size: float) -> float:
@@ -881,7 +891,7 @@ def chaos_card_header_width(scenario: dict[str, Any]) -> float:
     title_width = estimated_text_width(chaos_card_title(scenario), 12)
     time_width = estimated_text_width(chaos_card_time_label(scenario), 11)
     title_offset = 75 if scenario.get("target") and scenario.get("type") != "sequence" else 41
-    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_TEXT_MARGIN
+    return title_offset + title_width + CARD_TEXT_GAP + time_width + CARD_RIGHT_PADDING
 
 
 def chaos_card_dimensions(scenario: dict[str, Any]) -> tuple[float, float]:
@@ -1065,10 +1075,16 @@ def load_profile_svg(report: ExperimentReport) -> str:
         factor = {"h": 3600, "m": 60, "s": 1}
         at = int(at_match.group(1)) * factor[at_match.group(2)]
         duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
+        step_type = str(step.get("type") or "")
         step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
-        title = f"Kafka network packet capture • {step_title}" if step.get("type") == "tcpdump" else step_title
+        if step_type == "tcpdump":
+            title, action = f"Kafka network packet capture • {step_title}", "diagnostic"
+        elif step_type == "kafka-network-counters":
+            title, action = step_title, "network-counters"
+        else:
+            title, action = step_title, "diagnostic"
         chaos_scenarios.append({
-            "type": "diagnostic", "action": "diagnostic", "title": title,
+            "type": step_type or "diagnostic", "action": action, "title": title,
             "target": "", "at_seconds": at, "duration_seconds": duration, "end_seconds": at + duration,
         })
     chaos_scenarios.sort(key=lambda scenario: float(scenario.get("at_seconds") or 0))
@@ -1445,6 +1461,81 @@ def comparison_values_svg(
 def comparison_bar_svg(report: ExperimentReport, measurement: str, title: str, unit: str) -> str:
     values = [(target.name, target.measurements.get(measurement)) for target in report.targets]
     return comparison_values_svg(values, title, unit)
+
+
+def runtime_time_series_svg(report: ExperimentReport) -> str:
+    def uses_hpa(target: Any) -> bool:
+        if target.configuration.get("deployment_mode") == "per_topic":
+            workloads = target.configuration.get("workloads") or {}
+            return any(
+                bool((workload.get("hpa") or {}).get("enabled"))
+                for workload in workloads.values()
+                if isinstance(workload, dict)
+            )
+        return bool((target.configuration.get("hpa") or {}).get("enabled"))
+
+    panels = [
+        ("Input and processed throughput", "records/s", ("published_rps", "processed_rps")),
+        ("End-to-end latency p99", "ms", ("latency_p99_ms",)),
+        ("Consumer lag", "records", ("consumer_lag_records",)),
+        ("Processing queue utilization", "%", ("queue_utilization_percent",)),
+    ]
+    if any(uses_hpa(target) for target in report.targets):
+        panels.append(("Application replicas", "pods", ("application_replicas",)))
+    width, left, right, top, panel_height = 1100, 74, 26, 70, 190
+    available_panels = [
+        panel for panel in panels
+        if any(target.time_series.get(name) for target in report.targets for name in panel[2])
+    ]
+    height = max(180, top + len(available_panels) * panel_height + 30)
+    body = [f'<text class="title" x="24" y="30">Runtime time series</text>']
+    if not available_panels:
+        body.append('<text class="muted" x="24" y="88">Time-series evidence is unavailable.</text>')
+        return svg_document(width, height, body, "Runtime time series")
+    legend_x = 24
+    for index, target in enumerate(report.targets):
+        color = PALETTE[index % len(PALETTE)]
+        body.extend([
+            f'<line x1="{legend_x}" y1="50" x2="{legend_x+20}" y2="50" stroke="{color}" stroke-width="3"/>',
+            f'<text class="muted" x="{legend_x+26}" y="54">{esc(target.name)}</text>',
+        ])
+        legend_x += 54 + len(target.name) * 7
+    plot_width = width - left - right
+    for panel_index, (title, unit, names) in enumerate(available_panels):
+        y = top + panel_index * panel_height
+        series = [
+            (target_index, name_index, target.time_series.get(name, []))
+            for target_index, target in enumerate(report.targets)
+            for name_index, name in enumerate(names)
+            if target.time_series.get(name)
+        ]
+        max_time = max((point["at_seconds"] for _, _, points in series for point in points), default=1.0) or 1.0
+        max_value = max((point["value"] for _, _, points in series for point in points), default=1.0) or 1.0
+        plot_top, plot_height = y + 30, 120
+        body.extend([
+            f'<text class="label" x="24" y="{y+18}">{esc(title)}</text>',
+            f'<line x1="{left}" y1="{plot_top}" x2="{left}" y2="{plot_top+plot_height}" stroke="#cbd5e1"/>',
+            f'<line x1="{left}" y1="{plot_top+plot_height}" x2="{left+plot_width}" y2="{plot_top+plot_height}" stroke="#cbd5e1"/>',
+            f'<text class="muted" x="{left-8}" y="{plot_top+5}" text-anchor="end">{max_value:,.1f} {esc(unit)}</text>',
+            f'<text class="muted" x="{left-8}" y="{plot_top+plot_height+4}" text-anchor="end">0</text>',
+            f'<text class="muted" x="{left+plot_width}" y="{plot_top+plot_height+18}" text-anchor="end">{max_time:,.0f} s</text>',
+        ])
+        for target_index, name_index, points in series:
+            color = PALETTE[target_index % len(PALETTE)]
+            coordinates = " ".join(
+                f'{left + plot_width * point["at_seconds"] / max_time:.1f},'
+                f'{plot_top + plot_height * (1 - point["value"] / max_value):.1f}'
+                for point in points
+            )
+            dash = ' stroke-dasharray="7 5"' if name_index else ""
+            body.append(
+                f'<polyline points="{coordinates}" fill="none" stroke="{color}" stroke-width="2.2"{dash}/>'
+            )
+        if len(names) > 1:
+            body.append(
+                f'<text class="muted" x="{left+8}" y="{plot_top+16}">solid: input · dashed: processed</text>'
+            )
+    return svg_document(width, height, body, "Runtime time series")
 
 
 def kafka_wire_breakdown_svg(report: ExperimentReport) -> str:

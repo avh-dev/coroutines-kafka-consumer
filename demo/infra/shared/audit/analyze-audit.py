@@ -494,6 +494,10 @@ def histogram_distribution_summary(histogram: dict[int, int]) -> dict[str, int |
 
 def gap_summary(values: list[int]) -> dict[str, object]:
     summary = distribution_summary(values)
+    histogram: dict[int, int] = {}
+    for value in values:
+        histogram[value] = histogram.get(value, 0) + 1
+    summary["histogram_ms"] = dict(sorted(histogram.items()))
     summary["keys_over_1s"] = sum(1 for value in values if value > 1_000)
     summary["keys_over_5s"] = sum(1 for value in values if value > 5_000)
     summary["keys_over_10s"] = sum(1 for value in values if value > 10_000)

@@ -48,6 +48,7 @@ def main() -> int:
     parser.add_argument("--support-node-selector")
     parser.add_argument("--load-test-node-selector")
     parser.add_argument("--packet-capture", action="store_true")
+    parser.add_argument("--network-counters", action="store_true")
     resource_filter = parser.add_mutually_exclusive_group()
     resource_filter.add_argument("--applications-only", action="store_true")
     resource_filter.add_argument("--load-test-only", action="store_true")
@@ -88,6 +89,7 @@ def main() -> int:
         application_namespace=args.namespace,
         load_test_namespace=args.load_test_namespace,
         packet_capture_enabled=args.packet_capture,
+        network_counters_enabled=args.network_counters,
         active_deadline_seconds=args.active_deadline_seconds,
         application_service_type="NodePort" if args.application_node_port else "ClusterIP",
         application_node_port=args.application_node_port,

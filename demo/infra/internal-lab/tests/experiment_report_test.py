@@ -28,10 +28,10 @@ from experiment_report.analyze import (  # noqa: E402
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
+    adaptive_freshness_thresholds,
     e2e_compliance_cells,
-    is_freshness_zero_tail,
+    freshness_count_over,
     render_markdown,
-    shared_freshness_cutoff,
 )
 from experiment_report.model import LatencySlaResult  # noqa: E402
 from experiment_report.prometheus import STANDARD_MEASUREMENTS  # noqa: E402
@@ -148,6 +148,31 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertIn("))[{window}:15s]", memory_query)
         self.assertNotIn("sum(avg_over_time", memory_query)
 
+    def test_runtime_time_series_renders_lag_and_per_topic_hpa_replicas(self) -> None:
+        target = SimpleNamespace(
+            name="ckc",
+            configuration={
+                "deployment_mode": "per_topic",
+                "workloads": {
+                    "order": {"hpa": {"enabled": True}},
+                    "batch": {"hpa": {"enabled": False}},
+                },
+            },
+            time_series={
+                "published_rps": [{"at_seconds": 0, "value": 100}, {"at_seconds": 60, "value": 200}],
+                "processed_rps": [{"at_seconds": 0, "value": 90}, {"at_seconds": 60, "value": 195}],
+                "consumer_lag_records": [{"at_seconds": 0, "value": 0}, {"at_seconds": 60, "value": 25}],
+                "application_replicas": [{"at_seconds": 0, "value": 2}, {"at_seconds": 60, "value": 4}],
+            },
+        )
+
+        rendered = svg_renderer.runtime_time_series_svg(SimpleNamespace(targets=[target]))
+
+        self.assertIn("Input and processed throughput", rendered)
+        self.assertIn("Consumer lag", rendered)
+        self.assertIn("Application replicas", rendered)
+        self.assertIn('stroke-dasharray="7 5"', rendered)
+
     def test_aws_capacity_measurements_cover_managed_dependencies_and_workload_pods(self) -> None:
         self.assertIn(
             "aws_kafka_cpu_user_average",
@@ -214,27 +239,20 @@ class ExperimentReportTest(unittest.TestCase):
             ),
         )
 
-    def test_freshness_cutoff_uses_the_longest_outer_tail_boundary(self) -> None:
-        self.assertEqual(
-            11,
-            shared_freshness_cutoff(
-                [
-                    {0: 1000, 1: 100, 10: 3, 11: 5, 13: 2},
-                    {0: 1000, 1: 50, 10: 2, 11: 1},
-                    {0: 1000, 1: 20, 2: 3},
-                ]
-            ),
-        )
+    def test_freshness_thresholds_follow_the_worst_shared_tail(self) -> None:
+        histograms = [
+            {1_000: 50, 8_000: 30, 25_000: 15, 65_000: 4, 125_000: 1},
+            {1_000: 50, 12_000: 30, 35_000: 15, 75_000: 4, 180_000: 1},
+        ]
+        thresholds = adaptive_freshness_thresholds(histograms, 1)
+        self.assertEqual(sorted(set(thresholds)), thresholds)
+        self.assertGreaterEqual(thresholds[0], 1)
+        self.assertTrue(all(any(freshness_count_over(histogram, value) for histogram in histograms) for value in thresholds))
+        self.assertLessEqual(len(thresholds), 4)
 
-    def test_freshness_cutoff_caps_the_visible_histogram_at_thirty(self) -> None:
-        self.assertEqual(30, shared_freshness_cutoff([{0: 1000, 30: 20, 80: 1}]))
-
-    def test_freshness_zero_tail_starts_after_the_last_nonzero_bucket(self) -> None:
-        histogram = {0: 100, 1: 0, 2: 4, 3: 0, 4: 0}
-        self.assertFalse(is_freshness_zero_tail(histogram, 1))
-        self.assertTrue(is_freshness_zero_tail(histogram, 3))
-        self.assertTrue(is_freshness_zero_tail(histogram, 4))
-        self.assertFalse(is_freshness_zero_tail({}, 0))
+    def test_freshness_thresholds_omit_empty_or_duplicate_rows(self) -> None:
+        self.assertEqual([], adaptive_freshness_thresholds([{}], 1))
+        self.assertEqual([1], adaptive_freshness_thresholds([{2_000: 10}], 1))
 
     def test_latency_result_must_match_resolved_profile(self) -> None:
         result = LatencySlaResult(
@@ -897,7 +915,11 @@ class ExperimentReportTest(unittest.TestCase):
         self.assertAlmostEqual(8, float(labels[2].attrib["x"]) - float(labels[1].attrib["x"]), places=1)
         self.assertAlmostEqual(16, float(labels[2].attrib["x"]) - title_end, places=1)
         time_end = float(labels[2].attrib["x"]) + svg_renderer.estimated_text_width("0m–10m", 11)
-        self.assertAlmostEqual(8, float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end, places=1)
+        self.assertAlmostEqual(
+            svg_renderer.CARD_RIGHT_PADDING,
+            float(frame.attrib["x"]) + float(frame.attrib["width"]) - time_end,
+            places=1,
+        )
 
         legend = next(
             element for element in root.iter(f"{namespace}g")
@@ -1285,9 +1307,12 @@ class ExperimentReportTest(unittest.TestCase):
 
             report.environment["kafka"]["mode"] = "msk"
             report.environment["redis"]["mode"] = "elasticache"
+            report.environment["environment"] = "aws"
             aws_markdown = render_markdown(report)
-            self.assertIn("MSK CPU average", aws_markdown)
-            self.assertIn("ElastiCache engine CPU maximum", aws_markdown)
+            self.assertNotIn("MSK CPU average", aws_markdown)
+            self.assertNotIn("ElastiCache engine CPU maximum", aws_markdown)
+            self.assertNotIn("Application nodes minimum", aws_markdown)
+            self.assertNotIn("Application node-hours", aws_markdown)
             self.assertNotIn("Host Kafka CPU average", aws_markdown)
 
     def test_generate_failed_report_and_svg_assets(self) -> None:
@@ -1370,12 +1395,17 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("process-exporter", environment_svg)
             self.assertIn("data:image/svg+xml;base64,", environment_svg)
             self.assertNotRegex(environment_svg, r'<path d="M[^"]* C')
-            self.assertIn("## Environment", markdown)
+            self.assertIn("## Experiment conditions", markdown)
             self.assertIn("environment-topology.svg", markdown)
             self.assertTrue(markdown.startswith("# CKC Lab Experiment Report\n\n## comparison\n"))
             self.assertIn('<p class="report-execution-time">2026-08-07 10:00–10:02 UTC · Duration 2m</p>', markdown)
             self.assertIn("## Experiment goal\n\nCompare &lt;one&gt; &amp; two.", markdown)
-            self.assertIn("### Planned HTTP stub behavior", markdown)
+            self.assertIn("### Initial HTTP stub behavior", markdown)
+            self.assertLess(markdown.index("## Experiment goal"), markdown.index("## Experiment conditions"))
+            self.assertLess(markdown.index("### Environment"), markdown.index("### Application target configurations"))
+            self.assertLess(markdown.index("### Application target configurations"), markdown.index("### Initial HTTP stub behavior"))
+            self.assertLess(markdown.index("### Initial HTTP stub behavior"), markdown.index("### Planned load and experiment stages"))
+            self.assertLess(markdown.index("### Planned load and experiment stages"), markdown.index("## Results"))
             self.assertIn('<div class="stub-cards">', markdown)
             self.assertEqual(3, markdown.count('<article class="stub-card"'))
             self.assertIn('<h4>Arcane ETA ML</h4>', markdown)
@@ -1397,15 +1427,21 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertNotIn("ORDER_CREATED", markdown)
             self.assertNotIn("BATCH_BREWING_STEP_COMPLETED", markdown)
             self.assertFalse((report_dir / "stub-latency.svg").exists())
+            self.assertFalse((report_dir / "runtime-time-series.svg").exists())
             self.assertIn("## Results", markdown)
-            self.assertIn("Baseline<br>", markdown)
+            self.assertLess(markdown.index("### Measurement-window highlights"), markdown.index("## Detailed results"))
+            self.assertNotIn("Runtime time series", markdown)
+            self.assertNotIn("Baseline<br>", markdown)
             self.assertIn("Application CPU average", markdown)
+            self.assertNotIn("Application nodes minimum", markdown)
+            self.assertNotIn("Configured application node range", markdown)
+            self.assertNotIn("Application node-hours", markdown)
 
             self.assertIn("Kafka buffer utilization maximum", markdown)
             self.assertIn("42.5%", markdown)
             self.assertNotIn('class="status-fail"', markdown)
             self.assertIn("<thead><tr><th></th>", markdown)
-            self.assertIn("<th scope=\"row\">HTTP client</th>", markdown)
+            self.assertNotIn("<th scope=\"row\">HTTP client</th>", markdown)
             self.assertNotIn("Sync HTTP client", markdown)
             self.assertIn("<th scope=\"row\">Business logic</th><td>Non-blocking</td>", markdown)
             self.assertNotIn("Processing architecture", markdown)
@@ -1419,7 +1455,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertFalse((report_dir / "kafka-wire-breakdown.svg").exists())
             self.assertNotIn("### Total captured traffic and logical record payload", markdown)
             self.assertNotIn("](raw/", markdown)
-            self.assertIn("## Full evidence", markdown)
+            self.assertIn("### Full evidence", markdown)
             self.assertIn("Evidence bundle", markdown)
             self.assertIn("audit archive", markdown)
             self.assertNotIn("- Definition:", markdown)
@@ -1480,7 +1516,7 @@ class ExperimentReportTest(unittest.TestCase):
                 if element.attrib.get("data-chaos-card")
             ]
             self.assertEqual(
-                ["pod_delete", "measurement", "diagnostic", "service_outage", "service_restart", "stubs_degradation"],
+                ["pod_delete", "measurement", "tcpdump", "service_outage", "service_restart", "stubs_degradation"],
                 [element.attrib["data-chaos-card"] for element in chronological_cards],
             )
             chronological_card_y = [
@@ -2160,12 +2196,8 @@ class ExperimentReportTest(unittest.TestCase):
                 markdown,
             )
 
-            self.assertIn(
-                'Actual producer sent rate<span class="metric-source source-p" title="Prometheus time series">P</span></th><td>38 msg/s</td>',
-                markdown,
-            )
-            self.assertIn("Producer acknowledged rate", markdown)
-            self.assertIn("Producer failures", markdown)
+            self.assertNotIn("38 msg/s", markdown)
+            self.assertIn("Full run completion", markdown)
             self.assertIn(
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
                 markdown,
@@ -2181,20 +2213,16 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("order.events.v1 E2E latency p99", markdown)
             self.assertNotIn("Order E2E latency p99", markdown)
             self.assertNotIn("E2E latency p95 · all topics", markdown)
-            self.assertNotIn("Intentionally dropped", markdown)
+            self.assertIn("Intentionally dropped", markdown)
             self.assertNotIn("Skipped 0", markdown)
             self.assertNotIn("Delivery outcome", markdown)
             self.assertNotIn("PASS ·", markdown)
             self.assertNotIn("FAIL ·", markdown)
-            self.assertIn('class="champion"', markdown)
-            self.assertIn(
-                'Host Kafka CPU average · steady-state window<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">0.250 cores',
-                markdown,
-            )
+            self.assertNotIn('<span class="champion">', markdown)
             self.assertNotIn("MSK CPU average", markdown)
             self.assertNotIn("ElastiCache engine CPU maximum", markdown)
             self.assertIn(
-                'Application CPU average<span class="metric-source source-p" title="Prometheus time series">P</span></th><td><span class="champion">1.000 cores',
+                'Application CPU average (all pods)<span class="metric-source source-p" title="Prometheus time series">P</span></th><td>1.000 cores',
                 markdown,
             )
             self.assertNotIn('<th scope="row">Execution</th>', markdown)
@@ -2207,9 +2235,12 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Voluntary", markdown)
             self.assertIn("Involuntary", markdown)
             self.assertIn("### Measurement-window highlights", markdown)
-            highlights = markdown.split("### Measurement-window highlights", 1)[1].split("### Detailed results", 1)[0]
+            highlights = markdown.split("### Measurement-window highlights", 1)[1].split("## Detailed results", 1)[0]
             self.assertNotIn("context switches", highlights)
-            self.assertIn("Application network receive average¹", markdown)
+            self.assertIn("Processed throughput", highlights)
+            self.assertNotIn("Producer acknowledged rate", highlights)
+            self.assertNotIn("Kafka broker metrics", markdown)
+            self.assertNotIn("Application network receive average¹", markdown)
             self.assertEqual(1, markdown.count("¹ **Network metrics.**"))
             self.assertIn("Producer sent rate", markdown)
             self.assertNotIn("Audit published rate", markdown)
@@ -2225,21 +2256,20 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('<div><span class="metric-source source-c">C</span>Network packet capture</div>', markdown)
             self.assertIn('title="Network packet capture">C</span>', markdown)
             self.assertNotIn('<th scope="row">Kafka traffic<span class="metric-source source-c"', markdown)
-            self.assertLess(markdown.index("## Target configuration"), markdown.index("## Results"))
-            configuration_start = markdown.index("## Target configuration")
-            results_start = markdown.index("## Results")
+            self.assertLess(markdown.index("## Experiment conditions"), markdown.index("## Results"))
+            configuration_start = markdown.index("### Application target configurations")
             self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
-            self.assertLess(markdown.index('<th scope="row">Application</th>'), results_start)
+            self.assertIn("Actual application nodes", markdown)
+            self.assertIn("optilab", markdown)
+            self.assertLess(markdown.index('<th scope="row">Application</th>'), markdown.index("## Detailed results"))
             steady_start = markdown.index("steady-state window · 20–50 s")
-            full_start = markdown.index("Full run · 80 s")
-            broker_start = markdown.index("Kafka broker metrics")
-            wire_start = markdown.index("Kafka network traffic analysis • Max load")
+            full_start = markdown.index("Full run completion · 80 s")
+            wire_start = markdown.index("Network diagnostics")
             self.assertLess(steady_start, full_start)
-            self.assertLess(full_start, broker_start)
-            self.assertLess(broker_start, wire_start)
-            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
-            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application scaling</th></tr>'))
-            self.assertEqual(2, markdown.count('<tr class="subsection"><th colspan="2">Application resources</th></tr>'))
+            self.assertLess(full_start, wire_start)
+            self.assertEqual(1, markdown.count('<tr class="subsection"><th colspan="2">Run summary</th></tr>'))
+            self.assertEqual(1, markdown.count('<tr class="subsection"><th colspan="2">Application scaling</th></tr>'))
+            self.assertEqual(1, markdown.count('<tr class="subsection"><th colspan="2">Application resources</th></tr>'))
             self.assertNotIn("Kafka broker memory", markdown)
             self.assertIn("Load producer linger.ms", markdown)
             self.assertIn("Load producer batch.size", markdown)
@@ -2300,6 +2330,68 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">Baseline</text>", timeline)
             self.assertIn(">Degraded</text>", timeline)
 
+    def test_report_renders_kafka_network_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
+            resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
+            resolved_test["diagnostic_steps"] = [{
+                "at": "20s", "duration": "30s", "type": "kafka-network-counters", "name": "tls-network",
+                "targets": ["application", "load-test"], "params": {"ports": [9094]},
+            }]
+            self.write_yaml(resolved_test_path, resolved_test)
+            self.write_json(
+                root / "results/runs/run-a/diagnostics/network-counters/summary.json",
+                {
+                    "status": "success",
+                    "window": {"start_epoch_ms": 1786096825000, "end_epoch_ms": 1786096850000},
+                    "producer": {
+                        "published_messages": 100, "rx_bytes": 1000, "tx_bytes": 2000,
+                        "total_bytes": 3000, "rx_packets": 10, "tx_packets": 20, "total_packets": 30,
+                        "rx_bytes_per_message": 10, "tx_bytes_per_message": 20, "bytes_per_message": 30,
+                    },
+                    "consumer": {
+                        "successful_messages": 90, "rx_bytes": 4000, "tx_bytes": 5000,
+                        "total_bytes": 9000, "rx_packets": 40, "tx_packets": 50, "total_packets": 90,
+                        "rx_bytes_per_message": 44.4, "tx_bytes_per_message": 55.6, "bytes_per_message": 100,
+                    },
+                    "total": {
+                        "published_messages": 100, "successful_messages": 90, "rx_bytes": 5000, "tx_bytes": 7000,
+                        "total_bytes": 12000, "rx_packets": 50, "tx_packets": 70, "total_packets": 120,
+                        "rx_bytes_per_message": 55.6, "tx_bytes_per_message": 77.8, "bytes_per_message": 133.3,
+                    },
+                },
+            )
+
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Kafka network counters", markdown)
+            self.assertIn("<th colspan=\"2\">Producer</th>", markdown)
+            self.assertIn("<th colspan=\"2\">Consumer</th>", markdown)
+            self.assertIn("<th colspan=\"2\">Total</th>", markdown)
+            self.assertIn("12,000 bytes", markdown)
+            self.assertIn("120 packets", markdown)
+            self.assertIn("133 bytes/msg", markdown)
+            self.assertIn("Kafka network counters (nftables)", markdown)
+            self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
+            highlights = markdown.index("### Measurement-window highlights")
+            detailed = markdown.index("## Detailed results")
+            network_in_highlights = markdown.index("Kafka network efficiency", highlights)
+            network_in_details = markdown.index("Kafka network counters", detailed)
+            self.assertLess(highlights, network_in_highlights)
+            self.assertLess(network_in_highlights, detailed)
+            self.assertLess(detailed, network_in_details)
+            self.assertIn("Producer total bytes per published message", markdown[network_in_highlights:detailed])
+            self.assertNotIn("RX packets", markdown[network_in_highlights:detailed])
+            self.assertIn("RX packets", markdown[network_in_details:])
+            timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
+            self.assertIn(">Tls network</text>", timeline)
+            self.assertIn("Kafka network counters", timeline)
+            self.assertIn('data-action="network-counters"', timeline)
+
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2343,12 +2435,24 @@ class ExperimentReportTest(unittest.TestCase):
                         "max": 400,
                     },
                     "key_fairness": {
+                        "keys": 1000,
+                        "processed_max_gap_ms": {
+                            "count": 1000,
+                            "histogram_ms": {1000: 990, 3000: 10},
+                        },
                         "freshness_gap": {
                             "dropped_before_processed_histogram": {0: 990, 1: 0, 2: 4},
                         }
                     },
                 },
             }
+            audit["audit"]["measurement_windows"] = [{
+                "name": "max-load",
+                "published_from_ms": 1,
+                "published_until_ms": 2,
+                "totals": dict(audit["audit"]["totals"]),
+                "topics": dict(audit["audit"]["topics"]),
+            }]
             self.write_yaml(audit_path, audit)
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
@@ -2367,29 +2471,30 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertIn("Successfully processed", markdown)
             self.assertIn("994 · 99.400% of published", markdown)
-            self.assertIn("Published with on-time processed outcome", markdown)
-            self.assertIn("99.00% with on-time outcome", markdown)
-            self.assertIn("1.00% without on-time outcome · 10 messages · baseline", markdown)
-            self.assertIn("Skipped 1", markdown)
-            self.assertNotIn('Skipped 1<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
-            self.assertIn('Skipped &gt;2<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="freshness-zero-tail">0</span>', markdown)
-            self.assertNotIn('Skipped 1<span class="metric-source source-a" title="Audit records">A</span></th><td><span class="champion">', markdown)
+            self.assertNotIn("Published with on-time processed outcome", markdown)
+            topic_start = markdown.index('class="topic-name">cauldron.events.v1</span>')
+            freshness_start = markdown.index("Temporal freshness", topic_start)
+            self.assertLess(topic_start, freshness_start)
+            self.assertIn("Temporal freshness", markdown)
+            self.assertIn("Maximum completed gap &gt; 1 s", markdown)
+            self.assertNotIn('class="comparison freshness-comparison"', markdown)
+            self.assertNotIn("consecutive freshness skips", markdown)
             self.assertNotIn("FAIL ·", markdown)
             self.assertIn("Message payload average", markdown)
             self.assertIn("200 bytes/msg", markdown)
             self.assertIn("Kafka record average before compression", markdown)
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
-            self.assertIn("Kafka network traffic analysis • Max load", markdown)
+            self.assertIn("Packet capture · Max load", markdown)
             self.assertIn("1.60 requests/s", markdown)
             self.assertIn("1.25 records", markdown)
             self.assertIn("0.60 requests/s", markdown)
             self.assertIn("3.33 records", markdown)
             self.assertNotIn("Request efficiency ·", markdown)
             self.assertNotIn('<tr class="detail-subsection">', markdown)
-            network_start = markdown.index("Kafka network traffic analysis • Max load")
+            network_start = markdown.index("Packet capture · Max load")
             self.assertIn(
-                '<tr class="subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
+                '<tr class="nested-subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
                 markdown[network_start:],
             )
             self.assertNotIn("Produce requests", markdown[network_start:])
@@ -2426,7 +2531,7 @@ class ExperimentReportTest(unittest.TestCase):
                 markdown,
             )
             self.assertIn(
-                'Messages per Kafka record batch<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">5.00 messages/batch',
+                'Messages per Kafka record batch<span class="metric-source source-c" title="Network packet capture">C</span></th><td>5.00 messages/batch',
                 markdown,
             )
             self.assertIn("Multiple topics", markdown)
@@ -2434,11 +2539,11 @@ class ExperimentReportTest(unittest.TestCase):
             all_topics_start = markdown.index("All topics", network_start)
             self.assertGreater(all_topics_start, markdown.index("Unattributed / capture boundary", network_start))
             self.assertIn(
-                'Producer wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">400 bytes/msg',
+                'Producer wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td>400 bytes/msg',
                 markdown[all_topics_start:],
             )
             self.assertIn(
-                'Total wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td><span class="champion">800 bytes/msg',
+                'Total wire bytes per message<span class="metric-source source-c" title="Network packet capture">C</span></th><td>800 bytes/msg',
                 markdown[all_topics_start:],
             )
             self.assertNotIn("Request and response sizes exclude TCP/IP and link-layer headers", markdown)
@@ -2513,9 +2618,9 @@ class ExperimentReportTest(unittest.TestCase):
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertEqual(2, markdown.count("Kafka network traffic analysis •"))
-            self.assertIn("Kafka network traffic analysis • Max load", markdown)
-            self.assertIn("Kafka network traffic analysis • After load", markdown)
+            self.assertEqual(2, markdown.count("Packet capture ·"))
+            self.assertIn("Packet capture · Max load", markdown)
+            self.assertIn("Packet capture · After load", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2528,9 +2633,11 @@ class ExperimentReportTest(unittest.TestCase):
             report_dir = root / "results/experiments/set-a/reports/comparison"
             report_dir.mkdir(parents=True)
             (report_dir / "environment-topology.svg").write_text("stale", encoding="utf-8")
+            (report_dir / "throughput-average.svg").write_text("stale", encoding="utf-8")
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             self.assertFalse((report_dir / "environment-topology.svg").exists())
+            self.assertFalse((report_dir / "throughput-average.svg").exists())
             self.assertIn(
                 "Environment evidence is unavailable for this run.",
                 outputs[0].read_text(encoding="utf-8"),

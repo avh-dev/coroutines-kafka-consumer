@@ -1000,6 +1000,7 @@ def deploy_workloads(
     lab_context: dict[str, Any],
     registry: str,
     packet_capture_enabled: bool,
+    network_counters_enabled: bool,
     run_id: str,
     definition_path: Path,
     generated_dir: Path,
@@ -1023,6 +1024,7 @@ def deploy_workloads(
         audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
         image_pull_policy=image_pull_policy,
         packet_capture_enabled=packet_capture_enabled,
+        network_counters_enabled=network_counters_enabled,
         application_node_selector=lab_context.get("application_node_selector"),
         application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
         support_node_selector=lab_context.get("support_node_selector"),
@@ -1041,6 +1043,7 @@ def deploy_load_workload(
     lab_context: dict[str, Any],
     registry: str,
     packet_capture_enabled: bool,
+    network_counters_enabled: bool,
     run_id: str,
     started_at: str,
     active_deadline_seconds: int,
@@ -1062,6 +1065,7 @@ def deploy_load_workload(
         audit_port=as_int(lab_context.get("audit_tcp_port"), 5170),
         image_pull_policy=as_str(lab_context.get("image_pull_policy"), "Always"),
         packet_capture_enabled=packet_capture_enabled,
+        network_counters_enabled=network_counters_enabled,
         active_deadline_seconds=active_deadline_seconds,
         started_at=started_at,
         application_node_selector=lab_context.get("application_node_selector"),
@@ -1180,8 +1184,10 @@ def main() -> None:
 
     try:
         reset_target_data(repo_dir, definition_path, lab_context, kafka_metadata_output)
+        packet_capture_enabled = any(step["type"] == "tcpdump" for step in diagnostic_steps)
+        network_counters_enabled = any(step["type"] == "kafka-network-counters" for step in diagnostic_steps)
         project_manifest = deploy_workloads(
-            repo_dir, definition, lab_context, registry, bool(diagnostic_steps), run_id,
+            repo_dir, definition, lab_context, registry, packet_capture_enabled, network_counters_enabled, run_id,
             definition_path, run_dir / "generated",
         )
         wait_for_demo_rollout()
@@ -1214,7 +1220,8 @@ def main() -> None:
             definition_path,
             lab_context,
             registry,
-            bool(diagnostic_steps),
+            packet_capture_enabled,
+            network_counters_enabled,
             run_id,
             started_at,
             wait_timeout_seconds,
@@ -1223,7 +1230,7 @@ def main() -> None:
         metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         if diagnostic_steps:
-            diagnostics_dir = reports_dir / run_id / "diagnostics" / "tcpdump"
+            diagnostics_dir = reports_dir / run_id / "diagnostics"
             diagnostics_dir.mkdir(parents=True, exist_ok=True)
             diagnostics_log = (diagnostics_dir / "executor.log").open("w", encoding="utf-8")
             diagnostics_process = subprocess.Popen(

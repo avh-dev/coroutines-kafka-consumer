@@ -369,8 +369,11 @@ fi
 if [[ -n "${LAB_STUBS_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR:-}}" ]]; then
   RENDER_ARGS+=(--support-node-selector "${LAB_STUBS_NODE_SELECTOR:-${LAB_CONTROLLER_NODE_SELECTOR}}")
 fi
-if [[ "${PACKET_CAPTURE_ENABLED:-false}" == "true" ]]; then
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON:-[]}" | grep -q '"type":"tcpdump"'; then
   RENDER_ARGS+=(--packet-capture)
+fi
+if printf '%s' "${DIAGNOSTIC_STEPS_JSON:-[]}" | grep -q '"type":"kafka-network-counters"'; then
+  RENDER_ARGS+=(--network-counters)
 fi
 for override in "${ENV_OVERRIDES[@]}"; do
   RENDER_ARGS+=(--env "${override}")

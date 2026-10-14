@@ -67,8 +67,8 @@ def load_steps(raw: str) -> list[dict[str, Any]]:
     if not isinstance(steps, list):
         raise ValueError("Diagnostic steps JSON must be a list.")
     for index, step in enumerate(steps, start=1):
-        if not isinstance(step, dict) or step.get("type") != "tcpdump":
-            raise ValueError(f"Diagnostic step {index} is not a normalized tcpdump step.")
+        if not isinstance(step, dict) or step.get("type") not in {"tcpdump", "kafka-network-counters"}:
+            raise ValueError(f"Diagnostic step {index} has an unsupported normalized type.")
         required_keys = {"atSeconds", "durationSeconds", "name", "targets", "required", "params"}
         if not required_keys.issubset(step):
             raise ValueError(f"Diagnostic step {index} is missing normalized fields.")
@@ -151,7 +151,7 @@ def write_metadata(directory: Path, base_name: str, metadata: dict[str, Any], st
 
 def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) -> dict[str, Any]:
     identity = "optilab"
-    directory = Path(args.output_dir) / step["name"] / target / identity
+    directory = Path(args.output_dir) / "tcpdump" / step["name"] / target / identity
     directory.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     base_name = timestamp(started)
@@ -216,7 +216,7 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
 def capture_pod(
     step: dict[str, Any], target: str, namespace: str, pod: str, container: str, args: argparse.Namespace
 ) -> dict[str, Any]:
-    directory = Path(args.output_dir) / step["name"] / target / pod
+    directory = Path(args.output_dir) / "tcpdump" / step["name"] / target / pod
     directory.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     base_name = timestamp(started)
@@ -310,6 +310,85 @@ def capture_pod(
     return metadata
 
 
+def pod_state(namespace: str, pod: str) -> dict[str, Any]:
+    result = run(["kubectl", "-n", namespace, "get", "pod", pod, "-o", "json"], capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"Could not read pod {pod}")
+    item = json.loads(result.stdout)
+    restarts = sum(int(status.get("restartCount", 0)) for status in item.get("status", {}).get("containerStatuses", []))
+    return {"pod_uid": str(item.get("metadata", {}).get("uid", "")), "restart_count": restarts}
+
+
+def nft_counter_values(raw: str) -> tuple[int, int]:
+    document = json.loads(raw)
+    stack: list[Any] = [document]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            counter = value.get("counter")
+            if isinstance(counter, dict) and "bytes" in counter:
+                return int(counter.get("bytes", 0)), int(counter.get("packets", 0))
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+    raise ValueError("nft did not return a counter value")
+
+
+def network_counter_pod(
+    step: dict[str, Any], target: str, namespace: str, pod: str, container: str, args: argparse.Namespace
+) -> dict[str, Any]:
+    directory = Path(args.output_dir) / "network-counters" / step["name"] / target / pod
+    directory.mkdir(parents=True, exist_ok=True)
+    started = utc_now()
+    token = hashlib.sha256(f"{step['name']}:{pod}:{timestamp(started)}".encode()).hexdigest()[:12]
+    table = f"ckcdiag{token}"
+    ports = ", ".join(str(port) for port in step["params"]["ports"])
+    script = (
+        f"nft add table inet {table}; nft add counter inet {table} rx; nft add counter inet {table} tx; "
+        f"nft add chain inet {table} input '{{ type filter hook input priority filter; policy accept; }}'; "
+        f"nft add chain inet {table} output '{{ type filter hook output priority filter; policy accept; }}'; "
+        f"nft add rule inet {table} input tcp sport '{{ {ports} }}' counter name rx; "
+        f"nft add rule inet {table} output tcp dport '{{ {ports} }}' counter name tx"
+    )
+    metadata: dict[str, Any] = {
+        "step": step["name"], "type": step["type"], "target": target, "identity": pod,
+        "namespace": namespace, "container": container, "required": step["required"], "started_at": iso(started),
+        "ports": step["params"]["ports"], "sample_interval_seconds": step["params"]["sampleIntervalSeconds"],
+        "nft_table": table,
+    }
+    samples: list[dict[str, Any]] = []
+    try:
+        if args.dry_run:
+            metadata.update(status="dry-run", finished_at=iso())
+            return metadata
+        setup = run(["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "sh", "-ec", script], capture_output=True)
+        if setup.returncode != 0:
+            raise RuntimeError(setup.stderr.strip() or "Could not create nft counters")
+        deadline = time.monotonic() + step["durationSeconds"]
+        while True:
+            state = pod_state(namespace, pod)
+            counters: dict[str, tuple[int, int]] = {}
+            for direction in ("rx", "tx"):
+                value = run(["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "nft", "-j", "list", "counter", "inet", table, direction], capture_output=True)
+                if value.returncode != 0:
+                    raise RuntimeError(value.stderr.strip() or f"Could not read nft {direction} counter")
+                counters[direction] = nft_counter_values(value.stdout)
+            samples.append({"timestamp": iso(), **state, "rx_bytes": counters["rx"][0], "rx_packets": counters["rx"][1], "tx_bytes": counters["tx"][0], "tx_packets": counters["tx"][1]})
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or STOP.wait(min(step["params"]["sampleIntervalSeconds"], remaining)):
+                break
+        artifact = directory / "samples.json"
+        artifact.write_text(json.dumps(samples, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        metadata.update(status="success", finished_at=iso(), artifact=artifact.name, samples=len(samples))
+    except Exception as error:
+        metadata.update(status="failed", finished_at=iso(), error=str(error))
+    finally:
+        if not args.dry_run:
+            run(["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "nft", "delete", "table", "inet", table], capture_output=True)
+    (directory / "metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return metadata
+
+
 def target_captures(step: dict[str, Any], target: str, args: argparse.Namespace) -> list[dict[str, Any]]:
     unavailable = getattr(args, "unavailable_targets", {})
     if target in unavailable:
@@ -321,6 +400,9 @@ def target_captures(step: dict[str, Any], target: str, args: argparse.Namespace)
     else:
         namespace, selector, container = args.load_test_namespace, args.load_test_selector, args.load_test_container
     pods = ready_pods(namespace, selector)
+    if step["type"] == "kafka-network-counters":
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(pods)) as executor:
+            return list(executor.map(lambda pod: network_counter_pod(step, target, namespace, pod, container, args), pods))
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(pods)) as executor:
         return list(executor.map(lambda pod: capture_pod(step, target, namespace, pod, container, args), pods))
 

@@ -459,6 +459,7 @@
 | [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | DONE |
 | [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
 | [INFRA-292](#infra-292) | Run sequential AWS CKC and Spring targets with target-specific MSK sizing, scheduled starts, TLS transport, and cost evidence. | DONE |
+| [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5382,3 +5383,15 @@ Implemented sequential AWS CKC and Spring target orchestration, including target
 Kafka transport is a lab property: AWS selects MSK plaintext or TLS endpoints, while internal Apache Kafka provisions a lab-local CA and TLS listener and passes the CA to workload clients. TLS remains explicitly unsupported for the Redpanda internal-lab implementation.
 The lab preserves Kafka containers for an identical runtime configuration, so warm-up runs only after a genuine broker change. Internal Apache Kafka TLS is pinned to TLS 1.3.
 Telegram announces generator preparation and, once its pods are ready, the scheduled workload start and remaining wait. TLS network accounting is intentionally deferred to a dedicated diagnostic step rather than TLS packet decryption.
+
+<a id="infra-293"></a>
+### INFRA-293 - Kafka network counters
+
+_Date: 2026-10-13_
+
+Done: add a `kafka-network-counters` diagnostic step for internal-lab and AWS EKS on EC2.
+It will collect nftables RX/TX counters for configured Kafka TCP ports from producer and consumer pod network namespaces every five seconds, without packet capture or TLS decryption.
+The measurement selects a continuous window with unchanged pod UIDs and restart counts, then divides aggregate client bytes by successful audit completions within the same bounds.
+The shared internal-lab/AWS report now leads with goal, compact measurement-window outcomes, load and topology, target differences, detailed evidence, diagnostics, and methodology; repeated full-run and Kafka-client detail is collapsed.
+Freshness-first topics report completed per-key temporal gaps with shared adaptive tail thresholds derived from the compared targets, while unfinished gaps and empty threshold rows are excluded.
+Detailed evidence adds processing and saturation signals plus input/output, latency, lag/queue, and conditional HPA time-series panels; generated reports carry generator time/version and discard obsolete SVG assets before export.

@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 HELPERS = Path(__file__).resolve().parents[1] / "assets" / "helpers"
+NETWORK_COUNTER_ANALYZER = Path(__file__).resolve().parents[2] / "shared" / "network_counters" / "analyze-network-counters.py"
 
 
 def load_helper(name: str, filename: str):
@@ -29,6 +30,10 @@ diagnostic_runner = load_helper("diagnostic_runner_for_test", "run-diagnostic-st
 
 
 class DiagnosticStepsTest(unittest.TestCase):
+    def write_json(self, path: Path, value: object) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value), encoding="utf-8")
+
     def normalize(self, steps: list[dict[str, object]]) -> list[dict[str, object]]:
         with tempfile.TemporaryDirectory() as directory:
             return definition_env.normalized_diagnostic_steps(
@@ -54,6 +59,62 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertEqual(10, steps[0]["durationSeconds"])
         self.assertEqual(64 * 1024 * 1024, steps[0]["params"]["maxFileSizeBytes"])
         self.assertTrue(steps[0]["required"])
+
+    def test_kafka_network_counters_step_is_normalized(self) -> None:
+        steps = self.normalize(
+            [{
+                "at": "2m", "duration": "10m", "type": "kafka-network-counters", "name": "tls-network",
+                "targets": ["application", "load-test"], "required": True,
+                "params": {"ports": [9094]},
+            }]
+        )
+        self.assertEqual([9094], steps[0]["params"]["ports"])
+        self.assertEqual(5, steps[0]["params"]["sampleIntervalSeconds"])
+
+    def test_network_counter_analysis_keeps_producer_consumer_and_total_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshots = root / "snapshots"
+            for target, initial in (("load-test", 0), ("application", 100)):
+                path = snapshots / "tls-network" / target / "pod-a"
+                path.mkdir(parents=True)
+                self.write_json(
+                    path / "samples.json",
+                    [
+                        {
+                            "timestamp": "2026-10-13T10:00:00Z", "pod_uid": target, "restart_count": 0,
+                            "rx_bytes": initial, "tx_bytes": initial, "rx_packets": 0, "tx_packets": 0,
+                        },
+                        {
+                            "timestamp": "2026-10-13T10:00:05Z", "pod_uid": target, "restart_count": 0,
+                            "rx_bytes": initial + 100, "tx_bytes": initial + 200, "rx_packets": 10, "tx_packets": 20,
+                        },
+                    ],
+                )
+            audit = root / "audit"
+            audit.mkdir()
+            (audit / "audit-check.log").write_text(
+                "P|1|0|1|1791885600000|1791885601000|key-a\n"
+                "C|1|0|1|1791885602000|key-a\n",
+                encoding="utf-8",
+            )
+            output = root / "summary.json"
+            subprocess.run(
+                [
+                    sys.executable, str(NETWORK_COUNTER_ANALYZER),
+                    "--snapshots-dir", str(snapshots), "--audit-dir", str(audit), "--output", str(output),
+                ],
+                check=True,
+            )
+
+            summary = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual("success", summary["status"])
+            self.assertEqual(1, summary["producer"]["published_messages"])
+            self.assertEqual(1, summary["consumer"]["successful_messages"])
+            self.assertEqual(300, summary["producer"]["total_bytes"])
+            self.assertEqual(300, summary["consumer"]["total_bytes"])
+            self.assertEqual(600, summary["total"]["total_bytes"])
+            self.assertEqual(60, summary["total"]["total_packets"])
 
     def test_overlapping_captures_for_same_target_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "overlaps"):
@@ -108,7 +169,7 @@ class DiagnosticStepsTest(unittest.TestCase):
                 text=True,
             )
             summary = json.loads((Path(directory) / "summary.json").read_text(encoding="utf-8"))
-            metadata_files = list((Path(directory) / "dry-run" / "load-test" / "optilab").glob("*.json"))
+            metadata_files = list((Path(directory) / "tcpdump" / "dry-run" / "load-test" / "optilab").glob("*.json"))
             self.assertEqual(1, summary["captures_attempted"])
             self.assertEqual(1, len(metadata_files))
             self.assertIn("\n  ", metadata_files[0].read_text(encoding="utf-8"))
@@ -144,6 +205,10 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertEqual("11s", command[command.index("--kill-after") + 2])
         self.assertNotIn("-Z", command)
         self.assertIn("%s", command[command.index("-w") + 1])
+
+    def test_nft_counter_parser_reads_named_counter(self) -> None:
+        raw = json.dumps({"nftables": [{"counter": {"family": "inet", "name": "rx", "packets": 7, "bytes": 321}}]})
+        self.assertEqual((321, 7), diagnostic_runner.nft_counter_values(raw))
 
     def test_pod_tcpdump_keeps_root_identity_without_extra_capabilities(self) -> None:
         step = self.normalize(
