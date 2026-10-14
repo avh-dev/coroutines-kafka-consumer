@@ -54,9 +54,9 @@ services:
       KAFKA_NODE_ID: "0"
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 0@apache-kafka:29093
-      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:29093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${LAB_NODE_IP}:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:${LAB_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT},CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,TLS://:19092,CONTROLLER://:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${LAB_NODE_IP}:9092,TLS://${LAB_NODE_IP}:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,TLS:SSL,CONTROLLER:PLAINTEXT
       KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.p12
       KAFKA_SSL_KEYSTORE_PASSWORD: changeit
       KAFKA_SSL_KEY_PASSWORD: changeit
@@ -80,6 +80,7 @@ services:
       KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
     ports:
       - "0.0.0.0:9092:9092"
+      - "0.0.0.0:19092:19092"
       - "0.0.0.0:9414:9404"
     volumes:
       - ${LAB_ROOT}/state/kafka-tls:/etc/kafka/secrets:ro
@@ -116,8 +117,8 @@ services:
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@apache-kafka-1:29093,2@apache-kafka-2:29093,3@apache-kafka-3:29093
-      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:29093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:${LAB_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT},CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,TLS://:19092,CONTROLLER://:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,TLS:SSL,CONTROLLER:PLAINTEXT
       KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.p12
       KAFKA_SSL_KEYSTORE_PASSWORD: changeit
       KAFKA_SSL_KEY_PASSWORD: changeit
@@ -141,9 +142,10 @@ services:
       KAFKA_HEAP_OPTS: "-Xms${LAB_KAFKA_HEAP_RUNTIME:-1g} -Xmx${LAB_KAFKA_HEAP_RUNTIME:-1g}"
       KAFKA_OPTS: "-javaagent:/opt/thread-stats/thread-stats-agent.jar=config=/opt/thread-stats/kafka-agent.properties"
       KAFKA_NODE_ID: "1"
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-1:29092,EXTERNAL://${LAB_NODE_IP}:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-1:29092,EXTERNAL://${LAB_NODE_IP}:9092,TLS://${LAB_NODE_IP}:19092
     ports:
       - "0.0.0.0:9092:9092"
+      - "0.0.0.0:19092:19092"
       - "0.0.0.0:9414:9404"
     volumes:
       - ${LAB_ROOT}/state/kafka-tls:/etc/kafka/secrets:ro
@@ -177,9 +179,10 @@ services:
     environment:
       <<: *apache-kafka-cluster-environment
       KAFKA_NODE_ID: "2"
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-2:29092,EXTERNAL://${LAB_NODE_IP}:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-2:29092,EXTERNAL://${LAB_NODE_IP}:9093,TLS://${LAB_NODE_IP}:19093
     ports:
       - "0.0.0.0:9093:9092"
+      - "0.0.0.0:19093:19092"
       - "0.0.0.0:9415:9404"
     volumes:
       - ${LAB_ROOT}/state/kafka-tls:/etc/kafka/secrets:ro
@@ -205,9 +208,10 @@ services:
     environment:
       <<: *apache-kafka-cluster-environment
       KAFKA_NODE_ID: "3"
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-3:29092,EXTERNAL://${LAB_NODE_IP}:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://apache-kafka-3:29092,EXTERNAL://${LAB_NODE_IP}:9094,TLS://${LAB_NODE_IP}:19094
     ports:
       - "0.0.0.0:9094:9092"
+      - "0.0.0.0:19094:19092"
       - "0.0.0.0:9416:9404"
     volumes:
       - ${LAB_ROOT}/state/kafka-tls:/etc/kafka/secrets:ro

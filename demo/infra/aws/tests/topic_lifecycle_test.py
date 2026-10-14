@@ -42,6 +42,7 @@ class TopicLifecycleTest(unittest.TestCase):
             3,
             "/opt/kafka-topics.sh",
             [{"name": "order.events.v1", "partitions": 12}],
+            "PLAINTEXT",
         )
 
         self.assertIn('--list', script)
@@ -91,6 +92,7 @@ esac
                     3,
                     str(topics_bin),
                     [{"name": "order.events.v1", "partitions": 12}],
+                    "PLAINTEXT",
                 ).replace("sleep 2", "sleep 0"),
                 encoding="utf-8",
             )

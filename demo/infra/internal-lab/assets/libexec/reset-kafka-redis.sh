@@ -83,8 +83,7 @@ if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ] && [ "${LAB_KAFKA_IMPLEMENTATION}" != "a
   exit 1
 fi
 KAFKA_SECURITY_PROTOCOL="PLAINTEXT"
-if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-  KAFKA_SECURITY_PROTOCOL="SSL"
+if [ "${LAB_KAFKA_IMPLEMENTATION}" = "apache-kafka" ]; then
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" sh "${LAB_ROOT}/libexec/ensure-kafka-tls.sh"
 fi
 
@@ -147,27 +146,15 @@ rpk() {
 }
 
 apache_kafka_topics() {
-  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
-  else
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
-  fi
+  timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
 }
 
 apache_kafka_groups() {
-  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties "$@"
-  else
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
-  fi
+  timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP_SERVER}" "$@"
 }
 
 apache_kafka_broker_api_versions() {
-  if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}" --command-config /etc/kafka/secrets/client.properties
-  else
-    timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
-  fi
+  timeout 15 docker exec "${APACHE_KAFKA_CONTAINER}" env KAFKA_OPTS= /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "${BOOTSTRAP_SERVER}"
 }
 
 wait_for_kafka_ready() {
@@ -354,7 +341,8 @@ PY
 }
 
 kafka_runtime_signature() {
-  printf '%s|%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}" "${LAB_KAFKA_TRANSPORT}"
+  # Client transport is target-scoped; the broker runtime is shared and dual-listener.
+  printf '%s|%s\n' "${LAB_KAFKA_IMPLEMENTATION}" "${LAB_KAFKA_TOPOLOGY}"
   for container in ${KAFKA_CONTAINERS}; do
     if docker inspect "${container}" >/dev/null 2>&1; then
       docker inspect --format '{{.Name}}|{{.Id}}|{{.State.Running}}|{{.State.StartedAt}}' "${container}"
@@ -369,10 +357,9 @@ kafka_runtime_signature() {
 # and previously caused every otherwise identical experiment to recreate Kafka
 # and consequently re-run the broker warm-up.
 kafka_runtime_configuration_signature() {
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "${LAB_KAFKA_IMPLEMENTATION}" \
     "${LAB_KAFKA_TOPOLOGY}" \
-    "${LAB_KAFKA_TRANSPORT}" \
     "${KAFKA_TOPIC_REPLICATION_FACTOR}" \
     "${KAFKA_TOPIC_MIN_ISR}" \
     "${LAB_KAFKA_CPU_PER_BROKER}" \
@@ -445,9 +432,8 @@ if [ "${MODE}" = "--ensure-runtime" ]; then
       docker compose -p ckc-internal-lab -f "${LAB_ROOT}/docker/compose/docker-compose.host-services.yml" rm -f -s apache-kafka-1 apache-kafka-2 apache-kafka-3 >/dev/null 2>&1 || true
     fi
   fi
-  # Transport is part of the broker listener configuration.  Compose does not
-  # reliably recreate an existing service merely because an interpolated env
-  # value changed, so force replacement when the configuration signature changes.
+  # Apache Kafka exposes both client listeners permanently; target transport is
+  # selected by clients and must not recreate brokers between targets.
   LAB_ROOT="${LAB_ROOT}" LAB_NODE_IP="${LAB_NODE_IP}" LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}" \
   LAB_KAFKA_REPLICATION_FACTOR="${KAFKA_TOPIC_REPLICATION_FACTOR}" LAB_KAFKA_MIN_INSYNC_REPLICAS="${KAFKA_TOPIC_MIN_ISR}" \
   LAB_KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL}" \

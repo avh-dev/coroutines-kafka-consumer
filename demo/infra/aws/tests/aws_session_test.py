@@ -1466,6 +1466,7 @@ class AwsSessionTest(unittest.TestCase):
                     },
                     "example",
                     False,
+                    False,
                     "s-20260829-120000-abcdef",
                     "2026-08-29T12:00:00Z",
                     120,

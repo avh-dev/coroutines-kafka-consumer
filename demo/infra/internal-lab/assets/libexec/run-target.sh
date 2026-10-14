@@ -790,6 +790,15 @@ else
   KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:9092"
   APACHE_KAFKA_ADMIN_CONTAINER="ckc-perf-kafka"
 fi
+if [ "${LAB_KAFKA_TRANSPORT}" = "tls" ]; then
+  if [ "${LAB_KAFKA_TOPOLOGY}" = "cluster" ]; then
+    KAFKA_BOOTSTRAP_HOST="127.0.0.1:19092,127.0.0.1:19093,127.0.0.1:19094"
+    KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:19092,ckc-external-kafka.ckc-perf.svc.cluster.local:19093,ckc-external-kafka.ckc-perf.svc.cluster.local:19094"
+  else
+    KAFKA_BOOTSTRAP_HOST="127.0.0.1:19092"
+    KAFKA_BOOTSTRAP_K8S="ckc-external-kafka.ckc-perf.svc.cluster.local:19092"
+  fi
+fi
 
 if [ -z "${PROCESSING_ENABLED}" ]; then
   if [ ! -t 0 ]; then

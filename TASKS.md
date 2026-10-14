@@ -460,6 +460,7 @@
 | [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
 | [INFRA-292](#infra-292) | Run sequential AWS CKC and Spring targets with target-specific MSK sizing, scheduled starts, TLS transport, and cost evidence. | DONE |
 | [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | IN_PROGRESS |
+| [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5395,3 +5396,13 @@ The measurement selects a continuous window with unchanged pod UIDs and restart 
 The shared internal-lab/AWS report now leads with goal, compact measurement-window outcomes, load and topology, target differences, detailed evidence, diagnostics, and methodology; repeated full-run and Kafka-client detail is collapsed.
 Freshness-first topics report completed per-key temporal gaps with shared adaptive tail thresholds derived from the compared targets, while unfinished gaps and empty threshold rows are excluded.
 Detailed evidence adds processing and saturation signals plus input/output, latency, lag/queue, and conditional HPA time-series panels; generated reports carry generator time/version and discard obsolete SVG assets before export.
+
+<a id="infra-294"></a>
+### INFRA-294 - Make Kafka transport target-specific
+
+_Date: 2026-10-14_
+
+Made AWS MSK and internal-lab Kafka expose plaintext and TLS concurrently, with transport and port selected per target.
+Bound network counters and tcpdump capture filters to the resolved target transport, and added the sequential CKC 5k plaintext-versus-TLS internal-lab experiment.
+Forced TShark to decode every captured plaintext broker port as Kafka; it previously counted wire bytes from all brokers but decoded records only from port 9092, inflating packet-capture bytes per message.
+Reanalyzed the preserved TLS A/B run and regenerated its report: plaintext pcap now reports 308 bytes per message versus 283 from nftables, with the remaining link-layer accounting difference expected.

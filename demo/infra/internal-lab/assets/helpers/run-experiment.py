@@ -1294,6 +1294,10 @@ def run_experiment(
                 }
             )
             target_experiment_env = dict(experiment_env)
+            target_kafka = (target.get("lab") or {}).get("kafka") or {}
+            target_transport = target_kafka.get("transport")
+            if target_transport:
+                target_experiment_env["LAB_KAFKA_TRANSPORT"] = str(target_transport)
             target_experiment_env.pop(KAFKA_CHAOS_RESTART_ENV, None)
             if kafka_restart_expected:
                 target_experiment_env[KAFKA_CHAOS_RESTART_ENV] = "true"

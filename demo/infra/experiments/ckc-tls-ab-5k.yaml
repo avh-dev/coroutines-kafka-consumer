@@ -1,0 +1,71 @@
+schema_version: 2
+name: ckc-tls-ab-5k
+description: Sequential CKC 5k/s plaintext versus TLS comparison on one dual-transport internal Kafka lab.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    flavour: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    workers: 100
+    base_tps: 5000
+    producer_capacity_tps: {order: 2500, batch: 2000, telemetry: 3000}
+    load_profile: 0 -> (1m, ramp) -> 100 -> (8m, steady) -> 100 -> (1m, cool-down) -> 0
+    java_options: -Xms512m -Xmx512m -Xss256k -XX:+UseSerialGC
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    consumer_drain_required: false
+    telemetry_settle_seconds: 30
+  measurement_windows: [{name: plateau, start: 3m, duration: 3m}]
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 35, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
+targets:
+- name: ckc-plaintext
+  implementation: ckc
+  lab: {kafka: {transport: plaintext}}
+  application: {replicas: 2, hpa: {enabled: false}, java_options: -Xms512m -Xmx512m -Xss256k -XX:+UseSerialGC}
+  runtime:
+    env: {DEMO_CONSUMER_PROCESSING_ENABLED: true, AUDIT_LOG_ENABLED: true, METRICS_IMPLEMENTATION: MICROMETER, PROCESSING_DISPATCHER_TYPE: FIXED, WORKER_DISPATCHER_THREADS: 1}
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    topics:
+      order: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
+  workload:
+    diagnostics:
+    - {at: 4m, duration: 2m, type: kafka-network-counters, name: plaintext-network, targets: [application, load-test], required: true, params: {ports: [9092, 9093, 9094], sample_interval: 5s}}
+    - {at: 6m, duration: 30s, type: tcpdump, name: plaintext-capture, targets: [application, load-test], required: true, params: {interface: auto, snaplen: 0, filter: tcp port 9092 or tcp port 9093 or tcp port 9094, max_file_size: 256Mi}}
+- name: ckc-tls
+  implementation: ckc
+  lab: {kafka: {transport: tls}}
+  application: {replicas: 2, hpa: {enabled: false}, java_options: -Xms512m -Xmx512m -Xss256k -XX:+UseSerialGC}
+  runtime:
+    env: {DEMO_CONSUMER_PROCESSING_ENABLED: true, AUDIT_LOG_ENABLED: true, METRICS_IMPLEMENTATION: MICROMETER, PROCESSING_DISPATCHER_TYPE: FIXED, WORKER_DISPATCHER_THREADS: 1}
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    topics:
+      order: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
+  workload:
+    diagnostics:
+    - {at: 4m, duration: 2m, type: kafka-network-counters, name: tls-network, targets: [application, load-test], required: true, params: {ports: [19092, 19093, 19094], sample_interval: 5s}}
+    - {at: 6m, duration: 30s, type: tcpdump, name: tls-capture, targets: [application, load-test], required: true, params: {interface: auto, snaplen: 0, filter: tcp port 19092 or tcp port 19093 or tcp port 19094, max_file_size: 256Mi}}
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        resources: {cpu_per_broker: 1, memory_per_broker: 2Gi, heap_per_broker: 1Gi}
