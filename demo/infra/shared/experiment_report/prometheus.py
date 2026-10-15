@@ -8,6 +8,16 @@ from typing import Any
 
 
 STANDARD_MEASUREMENTS = {
+    "kafka_network_receive_bytes_per_message": (
+        "sum(increase(ckc_kafka_client_network_bytes_total{{direction=\"receive\"}}[{window}])) / "
+        "clamp_min(sum(increase(demo_ckc_record_process_duration_seconds_count[{window}])), 1)"
+    ),
+    "kafka_network_transmit_bytes_per_message": (
+        "sum(increase(ckc_kafka_client_network_bytes_total{{direction=\"transmit\"}}[{window}])) / "
+        "clamp_min(sum(increase(demo_ckc_record_process_duration_seconds_count[{window}])), 1)"
+    ),
+    "kafka_network_counter_read_success": "min_over_time(ckc_kafka_network_counter_read_success[{window}])",
+    "kafka_network_rules_present": "min_over_time(ckc_kafka_network_rules_present[{window}])",
     "latency_p95_ms": (
         "1000 * histogram_quantile(0.95, sum by (le) "
         "(increase(demo_ckc_record_end_to_end_duration_seconds_bucket"
@@ -349,6 +359,62 @@ def collect_standard_measurements(
         query = template.format(window=window, seconds=seconds)
         measurements[name] = client.query_scalar(query, end)
     return measurements
+
+
+def collect_kafka_network_counters(
+    client: PrometheusClient,
+    start: datetime,
+    duration_seconds: float,
+    run_id: str,
+    implementation: str | None = None,
+) -> dict[str, Any]:
+    """Read sidecar counters for one run without relying on legacy snapshots."""
+    seconds = max(1, int(round(duration_seconds)))
+    end = start + timedelta(seconds=seconds)
+    selector = f'run_id="{run_id}"'
+    def value(metric: str, role: str, direction: str | None = None) -> float | None:
+        labels = f'{selector},role="{role}"' + (f',direction="{direction}"' if direction else "")
+        return client.query_scalar(f"sum(increase({metric}{{{labels}}}[{seconds}s]))", end)
+    def gauge(metric: str) -> float | None:
+        return client.query_scalar(f"min(min_over_time({metric}{{{selector}}}[{seconds}s]))", end)
+    rules, reads = gauge("ckc_kafka_network_rules_present"), gauge("ckc_kafka_network_counter_read_success")
+    if rules is None and reads is None:
+        return {"status": "unavailable", "source": "nftables via Prometheus"}
+    result: dict[str, Any] = {"status": "available" if rules == 1 and reads == 1 else "unavailable", "source": "nftables via Prometheus", "rules_present": rules, "read_success": reads}
+    def denominator(role: str) -> tuple[float | None, str]:
+        if role == "producer":
+            query = f'sum(increase(ckc_load_test_producer_records_acked_total{{run_id="{run_id}"}}[{seconds}s]))'
+            source = "acknowledged_published"
+        elif implementation in {"ckc", "ckc-sync"}:
+            # CKC exposes the exact count returned from Kafka poll, which is
+            # the closest denominator for consumer-side Kafka network traffic.
+            query = f'sum(increase(demo_ckc_poll_records_sum{{pod=~"ckc-demo-.+"}}[{seconds}s]))'
+            source = "ckc_polled"
+        else:
+            # Spring-based implementations do not expose CKC's poll summary.
+            # Count both terminal outcomes; a drop is still a record received
+            # from Kafka and must not inflate bytes per record.
+            query = (
+                f'(sum(increase(demo_ckc_record_process_duration_seconds_count{{pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0)) + '
+                f'(sum(increase(demo_ckc_record_dropped_total{{pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0))'
+            )
+            source = "processed_plus_dropped"
+        return client.query_scalar(query, end), source
+    total_rx = total_tx = total_rx_packets = total_tx_packets = 0.0
+    for role, result_key in (("producer", "published_messages"), ("consumer", "consumer_records")):
+        rx = value("ckc_kafka_client_network_bytes_total", role, "receive") or 0.0
+        tx = value("ckc_kafka_client_network_bytes_total", role, "transmit") or 0.0
+        rx_packets = value("ckc_kafka_client_network_packets_total", role, "receive") or 0.0
+        tx_packets = value("ckc_kafka_client_network_packets_total", role, "transmit") or 0.0
+        count, denominator_source = denominator(role)
+        result[role] = {result_key: count, "denominator_source": denominator_source, "rx_bytes": rx, "tx_bytes": tx, "total_bytes": rx + tx, "rx_packets": rx_packets, "tx_packets": tx_packets, "total_packets": rx_packets + tx_packets,
+                        "rx_bytes_per_message": rx / count if count else None, "tx_bytes_per_message": tx / count if count else None, "bytes_per_message": (rx + tx) / count if count else None}
+        total_rx += rx; total_tx += tx; total_rx_packets += rx_packets; total_tx_packets += tx_packets
+    producer = result["producer"]
+    consumer = result["consumer"]
+    result["total"] = {"published_messages": producer["published_messages"], "consumer_records": consumer["consumer_records"], "consumer_denominator_source": consumer["denominator_source"], "rx_bytes": total_rx, "tx_bytes": total_tx, "total_bytes": total_rx + total_tx, "rx_packets": total_rx_packets, "tx_packets": total_tx_packets, "total_packets": total_rx_packets + total_tx_packets,
+                       "rx_bytes_per_message": sum(value or 0 for value in (producer["rx_bytes_per_message"], consumer["rx_bytes_per_message"])), "tx_bytes_per_message": sum(value or 0 for value in (producer["tx_bytes_per_message"], consumer["tx_bytes_per_message"])), "bytes_per_message": sum(value or 0 for value in (producer["bytes_per_message"], consumer["bytes_per_message"]))}
+    return result
 
 
 def collect_report_time_series(

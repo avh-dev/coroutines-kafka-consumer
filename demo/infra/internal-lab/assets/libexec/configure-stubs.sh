@@ -11,7 +11,7 @@ if [[ -z "${STUB_SETTINGS_JSON}" ]]; then
   exit 1
 fi
 
-kubectl -n ckc-perf port-forward service/ckc-demo-stubs "${PORT}:8080" >/dev/null 2>&1 &
+kubectl -n ckc-perf port-forward service/ckc-demo-stubs "${PORT}:8085" >/dev/null 2>&1 &
 PORT_FORWARD_PID="$!"
 trap 'kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
 

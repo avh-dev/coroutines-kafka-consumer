@@ -19,7 +19,7 @@ for request in "$@"; do
   runtime_name="ckc-${service}"
 
   case "${service}" in
-    demo|demo-stubs|load-test)
+    demo|demo-stubs|load-test|kafka-network-exporter)
       ;;
     *)
       echo "Unknown image service: ${service}" >&2
@@ -38,7 +38,7 @@ for request in "$@"; do
     echo "Dockerfile is missing for ${service}." >&2
     exit 1
   fi
-  if [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/${runtime_name}" ]; then
+  if [ "${service}" != "kafka-network-exporter" ] && [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/${runtime_name}" ]; then
     echo "Runtime dist is missing for ${service}." >&2
     exit 1
   fi

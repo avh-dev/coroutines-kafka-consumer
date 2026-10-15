@@ -459,8 +459,9 @@
 | [INFRA-290](#infra-290) | Prepare a production-like Spring Kafka autoscaling qualification at 50k TPS. | DONE |
 | [INFRA-291](#infra-291) | Compare CKC range and round-robin partition assignment across ten fixed replicas on the internal lab. | DONE |
 | [INFRA-292](#infra-292) | Run sequential AWS CKC and Spring targets with target-specific MSK sizing, scheduled starts, TLS transport, and cost evidence. | DONE |
-| [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | IN_PROGRESS |
+| [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | DONE |
 | [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
+| [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5406,3 +5407,11 @@ Made AWS MSK and internal-lab Kafka expose plaintext and TLS concurrently, with 
 Bound network counters and tcpdump capture filters to the resolved target transport, and added the sequential CKC 5k plaintext-versus-TLS internal-lab experiment.
 Forced TShark to decode every captured plaintext broker port as Kafka; it previously counted wire bytes from all brokers but decoded records only from port 9092, inflating packet-capture bytes per message.
 Reanalyzed the preserved TLS A/B run and regenerated its report: plaintext pcap now reports 308 bytes per message versus 283 from nftables, with the remaining link-layer accounting difference expected.
+
+<a id="infra-295"></a>
+### INFRA-295 - Always-on Kafka network metrics
+
+_Date: 2026-10-14_
+
+In progress: replace the scheduled nftables diagnostic with a target-owned Prometheus exporter sidecar for application and load-test pods.
+The feature defaults to enabled, supports an explicit target opt-out, and uses the resolved Kafka transport ports without exposing a port setting in experiment definitions.

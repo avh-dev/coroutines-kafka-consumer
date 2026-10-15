@@ -45,3 +45,11 @@ resource "aws_ecr_repository" "load_test" {
 
   tags = local.tags
 }
+
+resource "aws_ecr_repository" "kafka_network_exporter" {
+  name                 = "${local.name}/kafka-network-exporter"
+  force_delete         = true
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+  tags = local.tags
+}

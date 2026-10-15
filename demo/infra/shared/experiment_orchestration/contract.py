@@ -33,7 +33,7 @@ DEFAULT_STUB_DEPLOYMENT = {
 KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "internal-lab": frozenset({
         "diagnostics.tcpdump",
-        "diagnostics.kafka-network-counters",
+        "observability.kafka-network-counters",
         "chaos.network_degradation",
         "chaos.deployment_scale",
         "chaos.pod_crash",
@@ -44,7 +44,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.stubs_degradation",
         "chaos.sequence",
     }),
-    "aws": frozenset({"diagnostics.tcpdump", "diagnostics.kafka-network-counters"}),
+    "aws": frozenset({"diagnostics.tcpdump", "observability.kafka-network-counters"}),
 }
 
 
@@ -457,7 +457,7 @@ def validate_target_workload(value: Any, context: str) -> dict[str, Any]:
 
 
 def validate_target_configuration(value: Mapping[str, Any], context: str, *, defaults: bool = False) -> None:
-    allowed = {"application", "placement", "runtime"}
+    allowed = {"application", "placement", "runtime", "observability"}
     if not defaults:
         allowed |= {"id", "name", "implementation", "annotation_label", "workload", "lab", "scheduling"}
     unknown = sorted(set(value) - allowed)
@@ -536,6 +536,13 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
             )
     if "runtime" in value:
         validate_runtime(value["runtime"], f"{context}.runtime")
+    if "observability" in value:
+        observability = require_mapping(value["observability"], f"{context}.observability")
+        if set(observability) != {"kafka_network_counters"}:
+            raise ValueError(f"{context}.observability only supports kafka_network_counters")
+        counters = require_mapping(observability["kafka_network_counters"], f"{context}.observability.kafka_network_counters")
+        if set(counters) != {"enabled"} or not isinstance(counters["enabled"], bool):
+            raise ValueError(f"{context}.observability.kafka_network_counters.enabled must be boolean")
     if "workload" in value:
         validate_target_workload(value["workload"], f"{context}.workload")
     if "lab" in value:
@@ -729,6 +736,9 @@ def validate_canonical_experiment(
         if "diagnostic_steps" in target_definition:
             normalize_diagnostic_steps(target_definition, source)
         needed.update(required_capabilities(target_workload))
+        counters = ((target.get("observability") or {}).get("kafka_network_counters") or {})
+        if counters.get("enabled", True):
+            needed.add("observability.kafka-network-counters")
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
