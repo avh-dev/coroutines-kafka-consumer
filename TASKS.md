@@ -462,6 +462,7 @@
 | [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | DONE |
 | [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
 | [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | DONE |
+| [INFRA-296](#infra-296) | Collect attributable AWS cost evidence for each experiment session. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5418,3 +5419,12 @@ The feature defaults to enabled, supports an explicit target opt-out, and uses t
 Made exporter initialization and collection mandatory telemetry readiness and coverage checks for the current run; successful report output no longer renders a redundant network-counter status row.
 Report aggregation now reads continuous counters at the exact boundaries of each measurement window and isolates every numerator and denominator by run ID.
 The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape, Grafana Kafka/Redis/HTTP panels, and per-window report rendering.
+
+<a id="infra-296"></a>
+### INFRA-296 - Collect AWS cost evidence
+
+_Date: 2026-10-15_
+
+Record Cost Explorer evidence for the exact session tags and experiment time range, including the service-level cost breakdown and data-availability state.
+Keep raw API responses and collection metadata in the evidence bundle so delayed AWS billing data remains auditable rather than being reported as a false zero.
+Use the pre-existing `SessionId` resource tag as the attribution key, verify that it is an active cost-allocation tag, and provide a post-teardown refresh command that does not recreate infrastructure.

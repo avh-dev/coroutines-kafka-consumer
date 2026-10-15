@@ -72,6 +72,52 @@ class AwsSessionTest(unittest.TestCase):
         self.assertRegex(value, r"^s-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
         self.assertLessEqual(len(value), 35)
 
+    def test_cost_evidence_uses_active_session_tag_and_preserves_raw_cost_explorer_responses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["created_at"] = "2026-10-15T10:15:00Z"
+            calls: list[list[str]] = []
+
+            def aws_json(arguments: list[str], **_kwargs: object) -> dict[str, object]:
+                calls.append(arguments)
+                if arguments[1] == "list-cost-allocation-tags":
+                    return {"CostAllocationTags": [{"TagKey": "SessionId", "Type": "User", "Status": "Active"}]}
+                return {
+                    "ResultsByTime": [{
+                        "TimePeriod": {"Start": "2026-10-15", "End": "2026-10-16"},
+                        "Groups": [{
+                            "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                            "Metrics": {"UnblendedCost": {"Amount": "1.250000", "Unit": "USD"}},
+                        }],
+                    }],
+                }
+
+            with patch.object(controller, "aws_json", side_effect=aws_json):
+                evidence = controller.collect_cost_evidence()
+
+            self.assertEqual("available", evidence["status"])
+            self.assertEqual("1.250000", evidence["summary"]["total_unblended_cost"])
+            self.assertEqual("2026-10-15", evidence["cost_explorer_time_period"]["start"])
+            self.assertTrue((Path(directory) / "cost-evidence/cost-allocation-tags.json").is_file())
+            self.assertTrue((Path(directory) / "cost-evidence/cost-and-usage.json").is_file())
+            cost_call = next(call for call in calls if call[1] == "get-cost-and-usage")
+            self.assertIn('"SessionId"', cost_call[cost_call.index("--filter") + 1])
+            self.assertIn("s-20260829-120000-abcdef", cost_call[cost_call.index("--filter") + 1])
+
+    def test_cost_evidence_does_not_query_costs_until_session_tag_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            with patch.object(
+                controller,
+                "aws_json",
+                return_value={"CostAllocationTags": [{"TagKey": "SessionId", "Status": "Inactive"}]},
+            ) as aws_json:
+                evidence = controller.collect_cost_evidence()
+
+            self.assertEqual("tag_not_active", evidence["status"])
+            self.assertIn("not active", evidence["reason"])
+            self.assertEqual(1, aws_json.call_count)
+
     def test_target_watchdog_covers_full_lifecycle_with_one_hour_minimum(self) -> None:
         self.assertEqual(3600, session_module.target_watchdog_seconds({
             "duration_seconds": 1380,
