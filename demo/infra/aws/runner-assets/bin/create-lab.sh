@@ -262,6 +262,25 @@ data:
       forward_to   = [prometheus.remote_write.runner.receiver]
     }
 
+    discovery.kubernetes "ckc_kafka_network_pods" {
+      role = "pod"
+    }
+    discovery.relabel "ckc_kafka_network" {
+      targets = discovery.kubernetes.ckc_kafka_network_pods.targets
+      rule { source_labels = ["__meta_kubernetes_pod_container_port_number"]; regex = "9406"; action = "keep" }
+      rule { source_labels = ["__meta_kubernetes_pod_name"]; target_label = "pod" }
+      rule { source_labels = ["__meta_kubernetes_namespace"]; target_label = "namespace" }
+      rule { source_labels = ["__meta_kubernetes_pod_node_name"]; target_label = "node" }
+      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]; target_label = "run_id" }
+      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]; target_label = "profile" }
+      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_workload"]; target_label = "workload" }
+    }
+    prometheus.scrape "ckc_kafka_network" {
+      targets = discovery.relabel.ckc_kafka_network.output
+      scrape_interval = "5s"
+      forward_to = [prometheus.remote_write.runner.receiver]
+    }
+
     discovery.kubernetes "kubernetes_nodes" {
       role = "node"
     }

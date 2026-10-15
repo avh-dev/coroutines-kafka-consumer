@@ -60,8 +60,8 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
         if "at" not in raw_step:
             raise ValueError(f"{context} must define at: {definition_path}")
         step_type = str(raw_step.get("type", "")).strip()
-        if step_type not in {"tcpdump", "kafka-network-counters"}:
-            raise ValueError(f"{context}.type must be 'tcpdump' or 'kafka-network-counters': {definition_path}")
+        if step_type != "tcpdump":
+            raise ValueError(f"{context}.type must be 'tcpdump': {definition_path}")
 
         at_seconds = duration_seconds(raw_step["at"], f"{context}.at")
         if at_seconds < previous_at:
@@ -108,20 +108,6 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             if max_size > 256 * 1024 * 1024:
                 raise ValueError(f"{context}.params.max_file_size must not exceed 256Mi: {definition_path}")
             normalized_params = {"interface": interface, "snaplen": snaplen, "filter": capture_filter, "maxFileSizeBytes": max_size}
-        else:
-            unknown = sorted(set(params) - {"ports", "sample_interval"})
-            if unknown:
-                raise ValueError(f"{context}.params contains unsupported fields {unknown}: {definition_path}")
-            ports = params.get("ports")
-            if not isinstance(ports, list) or not ports:
-                raise ValueError(f"{context}.params.ports must be a non-empty list: {definition_path}")
-            normalized_ports = sorted({int(port) for port in ports})
-            if len(normalized_ports) != len(ports) or any(port < 1 or port > 65535 for port in normalized_ports):
-                raise ValueError(f"{context}.params.ports must contain unique TCP ports from 1 to 65535: {definition_path}")
-            interval = duration_seconds(params.get("sample_interval", "5s"), f"{context}.params.sample_interval", required=True)
-            if interval != 5:
-                raise ValueError(f"{context}.params.sample_interval must be 5s: {definition_path}")
-            normalized_params = {"ports": normalized_ports, "sampleIntervalSeconds": interval}
 
         end_seconds = at_seconds + capture_duration
         for target in normalized_targets:

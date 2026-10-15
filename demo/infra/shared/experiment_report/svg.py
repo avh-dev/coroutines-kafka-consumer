@@ -1076,12 +1076,13 @@ def load_profile_svg(report: ExperimentReport) -> str:
         at = int(at_match.group(1)) * factor[at_match.group(2)]
         duration = int(duration_match.group(1)) * factor[duration_match.group(2)]
         step_type = str(step.get("type") or "")
-        step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
         if step_type == "tcpdump":
-            title, action = f"Kafka network packet capture • {step_title}", "diagnostic"
+            title, action = "TCP dump", "diagnostic"
         elif step_type == "kafka-network-counters":
+            step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
             title, action = step_title, "network-counters"
         else:
+            step_title = str(step.get("name") or "Diagnostic capture").replace("-", " ").replace("_", " ").strip().capitalize()
             title, action = step_title, "diagnostic"
         chaos_scenarios.append({
             "type": step_type or "diagnostic", "action": action, "title": title,
@@ -1218,7 +1219,6 @@ def load_profile_svg(report: ExperimentReport) -> str:
     body.extend(grid_lines)
     points = []
     load_vertices = []
-    phase_labels = []
     for phase in phases:
         start = float(phase["start_seconds"])
         end = start + float(phase["duration_seconds"])
@@ -1230,17 +1230,6 @@ def load_profile_svg(report: ExperimentReport) -> str:
                 (start, phase_tps(phase["start_percent"])),
                 (end, phase_tps(phase["end_percent"])),
             ]
-        )
-        dx = end_point[0] - start_point[0]
-        dy = end_point[1] - start_point[1]
-        length = max(1.0, math.hypot(dx, dy))
-        label_x = (start_point[0] + end_point[0]) / 2 + 15 * dy / length
-        label_y = (start_point[1] + end_point[1]) / 2 - 15 * dx / length
-        angle = math.degrees(math.atan2(dy, dx))
-        label = f"{phase['name']} · {format_phase_duration(float(phase['duration_seconds']))}"
-        phase_labels.append(
-            f'<text class="label" x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="middle" '
-            f'transform="rotate({angle:.2f} {label_x:.1f} {label_y:.1f})">{esc(label)}</text>'
         )
     if points:
         area = " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
@@ -1336,16 +1325,11 @@ def load_profile_svg(report: ExperimentReport) -> str:
             range_y = range_y_positions[index]
             arrow_width = max(0.3, min(6.0, (end_x - start_x) / 3))
             arrow_height = max(0.5, min(4.0, arrow_width * 2 / 3))
-            measurement_clip = (
-                ' clip-path="url(#load-profile-area)"'
-                if scenario.get("type") == "measurement"
-                else ""
-            )
             chaos_fills.append(
                 f'<rect data-chaos-kind="interval" data-range-background="overlay" '
                 f'data-scenario-type="{esc(scenario.get("type"))}" '
                 f'x="{start_x:.1f}" y="{top}" width="{max(2, end_x-start_x):.1f}" height="{plot_height}" '
-                f'fill="{color}" fill-opacity="0.38"{measurement_clip}/>'
+                f'fill="{color}" fill-opacity="0.38" clip-path="url(#load-profile-area)"/>'
             )
             chaos_overlays.extend(
                 [
@@ -1393,7 +1377,6 @@ def load_profile_svg(report: ExperimentReport) -> str:
             'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
         )
     body.extend(chaos_markers)
-    body.extend(phase_labels)
     body.append(f'<line x1="{left}" y1="{axis_y}" x2="{width-right}" y2="{axis_y}" stroke="#374151"/>')
 
     time_labels = []

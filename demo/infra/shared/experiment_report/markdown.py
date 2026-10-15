@@ -255,7 +255,14 @@ def render_markdown(report: ExperimentReport) -> str:
     )
     diagnostic_steps = []
     diagnostic_names = set()
-    for definition in [report.test_definition, *[target.test_definition for target in targets]]:
+    diagnostic_definitions = [(report.test_definition, "")]
+    diagnostic_definitions.extend(
+        (target.test_definition, str(target.configuration.get("kafka_transport") or "").lower())
+        for target in targets
+    )
+    for definition, kafka_transport in diagnostic_definitions:
+        if kafka_transport == "tls":
+            continue
         for step in definition.get("diagnostic_steps", []):
             if (
                 isinstance(step, dict)
@@ -275,13 +282,12 @@ def render_markdown(report: ExperimentReport) -> str:
         '<div><span class="metric-source source-a">A</span>Audit records</div>'
         '<div><span class="metric-source source-p">P</span>Prometheus time series</div>'
         '<div><span class="metric-source source-c">C</span>Network packet capture</div>'
-        '<div><span class="metric-source source-n">N</span>Kafka network counters (nftables)</div>'
-        '<div><span class="metric-source source-a">A</span> + <span class="metric-source source-n">N</span>Audit-normalized network counters</div>'
         '</div>'
     )
 
     def capture_title(name: str) -> str:
-        return name.replace("-", " ").replace("_", " ").strip().capitalize()
+        del name
+        return "TCP dump"
 
     def matching_captures(target: TargetReport, capture_name: str, role: str | None = None) -> list[dict[str, Any]]:
         result = []
@@ -799,7 +805,6 @@ def render_markdown(report: ExperimentReport) -> str:
             '.source-a{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}'
             '.source-p{color:#c2410c;background:#fff7ed;border-color:#fdba74}'
             '.source-c{color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd}'
-            '.source-n{color:#047857;background:#ecfdf5;border-color:#6ee7b7}'
             '.metric-source-legend{margin:.45em 0;color:#57606a}'
             '.metric-source-legend div{margin:.18em 0}'
             '.metric-source-legend .metric-source{margin-left:0;margin-right:.45em}</style>'
@@ -854,14 +859,10 @@ def render_markdown(report: ExperimentReport) -> str:
             "audit": ("A", "Audit records"),
             "prometheus": ("P", "Prometheus time series"),
             "capture": ("C", "Network packet capture"),
-            "network": ("N", "Kafka network counters (nftables)"),
+            "network": ("P", "Prometheus counters (nftables via Prometheus)"),
         }
         if source == "audit-network":
-            return (
-                '<span class="metric-source source-a" title="Audit records">A</span>'
-                ' + '
-                '<span class="metric-source source-n" title="Kafka network counters (nftables)">N</span>'
-            )
+            return '<span class="metric-source source-p" title="Prometheus counters (nftables via Prometheus)">P</span>'
         if source not in definitions:
             return ""
         letter, title = definitions[source]
@@ -945,6 +946,8 @@ def render_markdown(report: ExperimentReport) -> str:
         ],
     )
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
+    if any(target.configuration.get("kafka_transport") for target in targets):
+        row("Kafka transport", [escaped(target.configuration.get("kafka_transport") or "—") for target in targets])
     row("Replicas", [replica_configuration(target) for target in targets])
     row("HPA replicas", [hpa_configuration(target) for target in targets])
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
@@ -1104,7 +1107,7 @@ def render_markdown(report: ExperimentReport) -> str:
             return formatted(counter(role, field), 0, " packets")
 
         nested_subsection("Producer")
-        row("Published messages", formatted(counter("producer", "published_messages"), 0, ""), "audit")
+        row("Acknowledged published messages", formatted(counter("producer", "published_messages"), 0, ""), "prometheus")
         row("RX bytes", counter_bytes("producer", "rx_bytes"), "network")
         row("TX bytes", counter_bytes("producer", "tx_bytes"), "network")
         row("Total bytes", counter_bytes("producer", "total_bytes"), "network")
@@ -1116,29 +1119,42 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Total bytes per published message", compared(counter("producer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
 
         nested_subsection("Consumer")
-        row("Successfully processed messages", formatted(counter("consumer", "successful_messages"), 0, ""), "audit")
+        denominator_labels = {
+            "ckc_polled": "CKC poll records",
+            "processed_plus_dropped": "Processed + dropped records",
+        }
+        row(
+            "Consumer normalization denominator",
+            [
+                denominator_labels.get(str(value.get("consumer", {}).get("denominator_source") or ""), "—")
+                if isinstance(value.get("consumer"), dict) else "—"
+                for value in counter_values
+            ],
+            "prometheus",
+        )
+        row("Consumer records used for normalization", formatted(counter("consumer", "consumer_records"), 0, ""), "prometheus")
         row("RX bytes", counter_bytes("consumer", "rx_bytes"), "network")
         row("TX bytes", counter_bytes("consumer", "tx_bytes"), "network")
         row("Total bytes", counter_bytes("consumer", "total_bytes"), "network")
         row("RX packets", counter_packets("consumer", "rx_packets"), "network")
         row("TX packets", counter_packets("consumer", "tx_packets"), "network")
         row("Total packets", counter_packets("consumer", "total_packets"), "network")
-        row("RX bytes per processed message", compared(counter("consumer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("TX bytes per processed message", compared(counter("consumer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per processed message", compared(counter("consumer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("RX bytes per consumer record", compared(counter("consumer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("TX bytes per consumer record", compared(counter("consumer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per consumer record", compared(counter("consumer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
 
         nested_subsection("Total")
         row("Published messages", formatted(counter("total", "published_messages"), 0, ""), "audit")
-        row("Successfully processed messages", formatted(counter("total", "successful_messages"), 0, ""), "audit")
+        row("Consumer records used for normalization", formatted(counter("total", "consumer_records"), 0, ""), "prometheus")
         row("RX bytes", counter_bytes("total", "rx_bytes"), "network")
         row("TX bytes", counter_bytes("total", "tx_bytes"), "network")
         row("Total bytes", counter_bytes("total", "total_bytes"), "network")
         row("RX packets", counter_packets("total", "rx_packets"), "network")
         row("TX packets", counter_packets("total", "tx_packets"), "network")
         row("Total packets", counter_packets("total", "total_packets"), "network")
-        row("RX bytes per processed message", compared(counter("total", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("TX bytes per processed message", compared(counter("total", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per processed message", compared(counter("total", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("RX bytes per message", compared(counter("total", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("TX bytes per message", compared(counter("total", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per message", compared(counter("total", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
         row("Unusable reason", [str(value.get("reason") or "—") for value in counter_values], "audit")
     network_counter_rows = lines[network_counter_start:]
     del lines[network_counter_start:]
@@ -1155,8 +1171,8 @@ def render_markdown(report: ExperimentReport) -> str:
 
         subsection("Kafka network efficiency")
         row("Producer total bytes per published message", compared(per_message("producer"), 0, " bytes/msg"), "audit-network")
-        row("Consumer total bytes per processed message", compared(per_message("consumer"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per processed message", compared(per_message("total"), 0, " bytes/msg"), "audit-network")
+        row("Consumer total bytes per consumer record", compared(per_message("consumer"), 0, " bytes/msg"), "audit-network")
+        row("Total bytes per message", compared(per_message("total"), 0, " bytes/msg"), "audit-network")
 
     lines.extend([
         "</tbody></table>",
@@ -1670,7 +1686,7 @@ def render_markdown(report: ExperimentReport) -> str:
         step_start = float(step.get("start_seconds") or 0)
         step_duration = float(step.get("duration_seconds") or 0)
         bounds = f" · {number(step_start, 0)}–{number(step_start + step_duration, 0)} s" if step_duration else ""
-        nested_subsection(f"Packet capture · {capture_title(capture_name)}{bounds}")
+        nested_subsection(f"{capture_title(capture_name)}{bounds}")
         for topic in capture_topics(capture_name):
             network_topic_subsection(topic)
             row(

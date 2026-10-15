@@ -59,7 +59,13 @@ def emit_run_phase(phase: str, **details: Any) -> None:
 
 def normalized_diagnostic_steps(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> list[dict[str, Any]]:
     del repo_dir
-    return normalize_diagnostic_steps(definition, definition_path)
+    steps = normalize_diagnostic_steps(definition, definition_path)
+    deployment = definition.get("deployment")
+    transport = str(deployment.get("kafka_transport") or "").strip().lower() if isinstance(deployment, dict) else ""
+    # A TLS pcap cannot expose Kafka protocol or record framing.  Keep the
+    # declarative step valid for a shared target definition, but do not run it
+    # for a TLS-bound target.
+    return [] if transport == "tls" else steps
 
 
 def normalized_stub_settings(repo_dir: Path, definition: dict[str, Any], definition_path: Path) -> dict[str, Any] | None:
@@ -1035,6 +1041,7 @@ def deploy_workloads(
         application_image=f"{registry}/demo:latest",
         stubs_image=f"{registry}/demo-stubs:latest",
         load_test_image=f"{registry}/load-test:latest",
+        kafka_network_exporter_image=f"{registry}/kafka-network-exporter:latest",
         kafka_bootstrap=as_str(lab_context.get("kafka_bootstrap"), ""),
         kafka_security_protocol=as_str(lab_context.get("kafka_security_protocol"), "PLAINTEXT"),
         redis_host=as_str(lab_context.get("redis_host"), ""),
@@ -1076,6 +1083,7 @@ def deploy_load_workload(
         application_image=f"{registry}/demo:latest",
         stubs_image=f"{registry}/demo-stubs:latest",
         load_test_image=f"{registry}/load-test:latest",
+        kafka_network_exporter_image=f"{registry}/kafka-network-exporter:latest",
         kafka_bootstrap=as_str(lab_context.get("kafka_bootstrap"), ""),
         kafka_security_protocol=as_str(lab_context.get("kafka_security_protocol"), "PLAINTEXT"),
         redis_host=as_str(lab_context.get("redis_host"), ""),

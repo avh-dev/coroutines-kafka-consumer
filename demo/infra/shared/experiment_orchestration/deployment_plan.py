@@ -107,6 +107,7 @@ class DeploymentBindings:
     kafka_ssl_truststore_certificates: str = ""
     kafka_ssl_endpoint_identification_algorithm: str | None = None
     audit_port: int = 5170
+    kafka_network_exporter_image: str = "ckc-perf/kafka-network-exporter:latest"
     image_pull_policy: str = "Always"
     application_namespace: str = "ckc-app"
     load_test_namespace: str = "ckc-loadtest"
@@ -166,6 +167,7 @@ def build_deployment_plan(
             "id": target.id,
             "name": target.name,
             "implementation": target.profile,
+            "observability": copy.deepcopy(target_snapshot.get("observability") or {}),
         },
         "environment": copy.deepcopy(experiment.environment_definition or {}),
         "application": {
@@ -481,6 +483,8 @@ def _deployment(
     resources: Mapping[str, Any] | None = None,
     packet_capture: bool = False,
     network_counters: bool = False,
+    kafka_network_exporter_image: str = "ckc-perf/kafka-network-exporter:latest",
+    kafka_ports: tuple[int, ...] = (),
     probes: Mapping[str, Any] | None = None,
     test_definition: str = "canonical",
     node_selector: Mapping[str, str] | None = None,
@@ -536,14 +540,16 @@ def _deployment(
         pod_spec["nodeSelector"] = dict(node_selector)
     if tolerations:
         pod_spec["tolerations"] = [dict(item) for item in tolerations]
-    if packet_capture or network_counters:
+    if packet_capture:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
-            "capabilities": {"add": (["NET_RAW"] if packet_capture else []) + (["NET_ADMIN"] if network_counters else []), "drop": ["ALL"]},
+            "capabilities": {"add": ["NET_RAW"], "drop": ["ALL"]},
         }
     if packet_capture:
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
+    if network_counters:
+        pod_spec["initContainers"] = [_kafka_network_exporter(kafka_network_exporter_image, pull_policy, kafka_ports)]
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -556,12 +562,34 @@ def _deployment(
     }
 
 
+def _kafka_network_exporter(image: str, pull_policy: str, ports: tuple[int, ...]) -> dict[str, Any]:
+    return {
+        "name": "kafka-network-exporter", "image": image, "imagePullPolicy": pull_policy,
+        "restartPolicy": "Always", "args": ["--ports", ",".join(str(port) for port in ports), "--redis-ports", "6379", "--http-ports", "8085"],
+        "ports": [{"name": "kafka-network", "containerPort": 9406}],
+        "resources": {"requests": {"cpu": "5m", "memory": "32Mi"}, "limits": {"cpu": "50m", "memory": "64Mi"}},
+        "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"add": ["NET_ADMIN"], "drop": ["ALL"]}},
+        "startupProbe": {"httpGet": {"path": "/healthz", "port": 9406}, "periodSeconds": 1, "failureThreshold": 30},
+    }
+
+
+def _kafka_ports(bootstrap: str) -> tuple[int, ...]:
+    ports: set[int] = set()
+    for endpoint in bootstrap.split(","):
+        candidate = endpoint.strip().rsplit(":", 1)
+        if len(candidate) == 2 and candidate[1].isdigit(): ports.add(int(candidate[1]))
+    if not ports: raise ValueError("Kafka bootstrap must contain port numbers for network exporter")
+    return tuple(sorted(ports))
+
+
 def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindings) -> list[dict[str, Any]]:
     application = plan["application"]
     values = application.get("generated_values") or {}
     configuration = application.get("configuration") or {}
     runtime = application.get("runtime") or {}
     profile = str(plan["target"]["implementation"])
+    network_counters_enabled = bool(((plan["target"].get("observability") or {}).get("kafka_network_counters") or {}).get("enabled", True))
+    kafka_ports = _kafka_ports(bindings.kafka_bootstrap) if network_counters_enabled else ()
     computed_env = {
         GENERATED_ENV_NAMES[key]: value
         for key, value in (values.get("env") or {}).items()
@@ -588,10 +616,10 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "AUDIT_TCP_HOST": bindings.audit_host,
         "AUDIT_TCP_PORT": bindings.audit_port,
         "AUDIT_RUN_ID": bindings.run_id,
-        "MODEL_BASE_URL": "http://ckc-demo-stubs:8080",
-        "ETA_MODEL_BASE_URL": "http://ckc-demo-stubs:8080",
-        "FLAVOUR_MODEL_BASE_URL": "http://ckc-demo-stubs:8080",
-        "REGISTRY_BASE_URL": "http://ckc-demo-stubs:8080",
+        "MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
+        "ETA_MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
+        "FLAVOUR_MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
+        "REGISTRY_BASE_URL": "http://ckc-demo-stubs:8085",
         "MODEL_HTTP_CLIENT": computed_env.get("MODEL_HTTP_CLIENT", "ARMERIA"),
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
@@ -611,7 +639,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             run_id=bindings.run_id,
             profile="stubs",
             environment={
-                "PORT": 8080,
+                "PORT": 8085,
                 "REDIS_HOST": bindings.redis_host,
                 "REDIS_PORT": 6379,
                 "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
@@ -623,7 +651,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         {
             "apiVersion": "v1", "kind": "Service",
             "metadata": _metadata("ckc-demo-stubs", bindings.application_namespace),
-            "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": 8080, "targetPort": 8080}]},
+            "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": 8085, "targetPort": 8085}]},
         },
     ]
     probes = values.get("probes") or {
@@ -637,7 +665,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 name="ckc-demo", namespace=bindings.application_namespace, container_name="demo",
                 image=bindings.application_image, pull_policy=bindings.image_pull_policy, replicas=replicas,
                 run_id=bindings.run_id, profile=profile, environment=computed_env, resources=resources,
-                packet_capture=bindings.packet_capture_enabled, network_counters=bindings.network_counters_enabled, probes=probes,
+                packet_capture=bindings.packet_capture_enabled, network_counters=network_counters_enabled, kafka_network_exporter_image=bindings.kafka_network_exporter_image, kafka_ports=kafka_ports, probes=probes,
                 test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
                 tolerations=bindings.application_tolerations,
                 extra_labels={"ckc.dev/component": "application", "ckc.dev/workload": "combined"},
@@ -687,7 +715,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                     image=bindings.application_image, pull_policy=bindings.image_pull_policy,
                     replicas=int(workload.get("replicas", 1)), run_id=bindings.run_id, profile=profile,
                     environment=workload_environment, resources=workload.get("resources") or resources,
-                    packet_capture=bindings.packet_capture_enabled, network_counters=bindings.network_counters_enabled, probes=probes,
+                    packet_capture=bindings.packet_capture_enabled, network_counters=network_counters_enabled, kafka_network_exporter_image=bindings.kafka_network_exporter_image, kafka_ports=kafka_ports, probes=probes,
                     test_definition=bindings.test_definition, node_selector=bindings.application_node_selector,
                     tolerations=bindings.application_tolerations, extra_labels=workload_labels,
                 ),
@@ -731,6 +759,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
 
 def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dict[str, Any]:
     load = plan["workload"]["load"]
+    network_counters_enabled = bool(((plan["target"].get("observability") or {}).get("kafka_network_counters") or {}).get("enabled", True))
+    kafka_ports = _kafka_ports(bindings.kafka_bootstrap) if network_counters_enabled else ()
     shards = int(load.get("shards", 1))
     defaults = {
         "base_tps": 10000,
@@ -814,13 +844,15 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
     resources = {group: entries for group, entries in resources.items() if entries}
     if resources:
         container["resources"] = resources
-    if bindings.packet_capture_enabled or bindings.network_counters_enabled:
+    if bindings.packet_capture_enabled:
         container["securityContext"] = {
             "allowPrivilegeEscalation": False,
-            "capabilities": {"add": (["NET_RAW"] if bindings.packet_capture_enabled else []) + (["NET_ADMIN"] if bindings.network_counters_enabled else []), "drop": ["ALL"]},
+            "capabilities": {"add": ["NET_RAW"], "drop": ["ALL"]},
         }
     if bindings.packet_capture_enabled:
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
+    if network_counters_enabled:
+        container["lifecycle"] = {"preStop": {"exec": {"command": ["sh", "-c", "sleep 12"]}}}
     workload_labels = {
         "app.kubernetes.io/name": "ckc-load-test",
         "ckc.dev/test-run-id": bindings.run_id,
@@ -840,6 +872,8 @@ def _load_test_job(plan: Mapping[str, Any], bindings: DeploymentBindings) -> dic
         pod_spec["nodeSelector"] = dict(bindings.load_test_node_selector)
     if bindings.packet_capture_enabled:
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
+    if network_counters_enabled:
+        pod_spec["initContainers"] = [_kafka_network_exporter(bindings.kafka_network_exporter_image, bindings.image_pull_policy, kafka_ports)]
     # Indexed Jobs append ``-<completion-index>`` to the Job name when they
     # derive each Pod hostname. Leave room for that suffix as well as keeping
     # the Job name itself within the DNS-label limit.

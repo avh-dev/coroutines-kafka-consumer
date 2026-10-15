@@ -16,6 +16,7 @@ from .model import CriterionResult, ExperimentReport, LatencySlaResult, TargetRe
 from .prometheus import (
     STANDARD_MEASUREMENTS,
     PrometheusClient,
+    collect_kafka_network_counters,
     collect_report_time_series,
     collect_standard_measurements,
 )
@@ -1008,6 +1009,8 @@ def analyze_experiment(
     report_warnings: list[str] = []
     observed_events: list[dict[str, Any]] = []
     environment_snapshots: list[tuple[str, dict[str, Any]]] = []
+    timeline_diagnostic_steps: list[dict[str, Any]] = []
+    timeline_diagnostic_keys: set[str] = set()
     configured_targets = {
         str(item.get("name") or item.get("id")): item
         for item in (experiment.get("targets") or [])
@@ -1026,6 +1029,20 @@ def analyze_experiment(
         )
         target_phases = parse_load_profile(str(target_load_test.get("load_profile") or ""))
         target_load_duration = float(sum(phase["duration_seconds"] for phase in target_phases))
+        target_deployment = target_test_definition.get("deployment")
+        target_transport = str(
+            target_deployment.get("kafka_transport") if isinstance(target_deployment, dict) else ""
+        ).strip().lower()
+        # TLS packet captures carry encrypted payloads and add no protocol
+        # evidence.  They are intentionally absent from the common timeline.
+        if target_transport != "tls":
+            for step in target_test_definition.get("diagnostic_steps") or []:
+                if not isinstance(step, dict) or step.get("type") != "tcpdump":
+                    continue
+                key = json.dumps(step, sort_keys=True, default=str)
+                if key not in timeline_diagnostic_keys:
+                    timeline_diagnostic_steps.append(step)
+                    timeline_diagnostic_keys.add(key)
         if target_test_path != test_definition_path and target_test_definition != test_definition:
             report_warnings.append(
                 f"Target {target.get('name') or target.get('target')} uses a target-specific resolved test"
@@ -1042,9 +1059,15 @@ def analyze_experiment(
         status = load_json(status_path) if status_path.is_file() else {}
         audit_document = load_yaml(audit_path) if audit_path.is_file() else {}
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
+        configured_target = configured_targets.get(report_target_name, {})
+        implementation = str(
+            target.get("implementation")
+            or configured_target.get("implementation")
+            or ""
+        )
         warnings: list[str] = []
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
-        network_counters = network_counter_summary(run_dir)
+        network_counters = {"status": "unavailable", "source": "nftables via Prometheus"}
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
         time_series: dict[str, list[dict[str, float]]] = {}
         measurement_window_results: list[dict[str, Any]] = []
@@ -1053,6 +1076,12 @@ def analyze_experiment(
                 measurements = collect_standard_measurements(prometheus, start, target_load_duration)
             except Exception as error:
                 warnings.append(f"Prometheus measurements are unavailable: {error}")
+            try:
+                network_counters = collect_kafka_network_counters(
+                    prometheus, start, target_load_duration, run_dir.name, implementation
+                )
+            except Exception as error:
+                warnings.append(f"Kafka network counters are unavailable: {error}")
             try:
                 time_series = collect_report_time_series(prometheus, start, target_load_duration)
             except Exception as error:
@@ -1181,6 +1210,10 @@ def analyze_experiment(
             if isinstance(configured_target, dict) and isinstance(configured_target.get("application"), dict)
             else {}
         )
+        configured_lab = configured_target.get("lab") if isinstance(configured_target, dict) else {}
+        configured_kafka = configured_lab.get("kafka") if isinstance(configured_lab, dict) else {}
+        if isinstance(configured_kafka, dict) and configured_kafka.get("transport"):
+            target_configuration["kafka_transport"] = str(configured_kafka["transport"]).upper()
         if configured_application.get("deployment_mode") == "per_topic":
             target_configuration.update({
                 "deployment_mode": "per_topic",
@@ -1271,7 +1304,7 @@ def analyze_experiment(
             "stubs": test_definition.get("stubs") or {},
             "chaos_steps": test_definition.get("chaos_steps") or [],
             "chaos_scenarios": chaos_scenarios,
-            "diagnostic_steps": test_definition.get("diagnostic_steps") or [],
+            "diagnostic_steps": timeline_diagnostic_steps or test_definition.get("diagnostic_steps") or [],
             "observed_events": observed_events,
         },
         sla_profile=sla_profile,

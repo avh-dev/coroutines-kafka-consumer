@@ -12,3 +12,8 @@ output "load_test_ecr_repository_url" {
   description = "ECR repository URL for the load generator."
   value       = aws_ecr_repository.load_test.repository_url
 }
+
+output "kafka_network_exporter_ecr_repository_url" {
+  description = "ECR repository URL for the Kafka network exporter."
+  value       = aws_ecr_repository.kafka_network_exporter.repository_url
+}

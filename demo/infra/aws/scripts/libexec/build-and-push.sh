@@ -19,6 +19,7 @@ PREFIX="${REGISTRY}/ckc-load-lab-${ENVIRONMENT}"
 DEMO_IMAGE="${PREFIX}/demo:latest"
 DEMO_STUBS_IMAGE="${PREFIX}/demo-stubs:latest"
 LOAD_TEST_IMAGE="${PREFIX}/load-test:latest"
+KAFKA_NETWORK_EXPORTER_IMAGE="${PREFIX}/kafka-network-exporter:latest"
 TARGET_PLATFORM="${CKC_AWS_IMAGE_PLATFORM:-linux/amd64}"
 
 cd "${REPO_DIR}"
@@ -33,7 +34,8 @@ aws ecr describe-repositories \
   --repository-names \
   "ckc-load-lab-${ENVIRONMENT}/demo" \
   "ckc-load-lab-${ENVIRONMENT}/demo-stubs" \
-  "ckc-load-lab-${ENVIRONMENT}/load-test" >/dev/null
+  "ckc-load-lab-${ENVIRONMENT}/load-test" \
+  "ckc-load-lab-${ENVIRONMENT}/kafka-network-exporter" >/dev/null
 
 aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
 
@@ -42,8 +44,10 @@ docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo/Dock
 docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo-stubs/Dockerfile -t "${DEMO_STUBS_IMAGE}" demo/ckc-demo-stubs
 
 docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/ckc-demo-load-test/Dockerfile -t "${LOAD_TEST_IMAGE}" demo/ckc-demo-load-test
+docker buildx build --platform "${TARGET_PLATFORM}" --push -f demo/kafka-network-exporter/Dockerfile -t "${KAFKA_NETWORK_EXPORTER_IMAGE}" demo/kafka-network-exporter
 
 printf 'Pushed images:\n'
 printf '  %s\n' "${DEMO_IMAGE}"
 printf '  %s\n' "${DEMO_STUBS_IMAGE}"
 printf '  %s\n' "${LOAD_TEST_IMAGE}"
+printf '  %s\n' "${KAFKA_NETWORK_EXPORTER_IMAGE}"

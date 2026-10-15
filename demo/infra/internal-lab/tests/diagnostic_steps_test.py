@@ -60,16 +60,13 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertEqual(64 * 1024 * 1024, steps[0]["params"]["maxFileSizeBytes"])
         self.assertTrue(steps[0]["required"])
 
-    def test_kafka_network_counters_step_is_normalized(self) -> None:
-        steps = self.normalize(
-            [{
+    def test_kafka_network_counters_step_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be 'tcpdump'"):
+            self.normalize([{
                 "at": "2m", "duration": "10m", "type": "kafka-network-counters", "name": "tls-network",
                 "targets": ["application", "load-test"], "required": True,
                 "params": {"ports": [9094]},
-            }]
-        )
-        self.assertEqual([9094], steps[0]["params"]["ports"])
-        self.assertEqual(5, steps[0]["params"]["sampleIntervalSeconds"])
+            }])
 
     def test_network_counter_analysis_keeps_producer_consumer_and_total_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

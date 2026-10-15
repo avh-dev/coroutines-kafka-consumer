@@ -27,17 +27,10 @@ workload:
     order: {kafka_topic: order.events.v1, traffic_percent: 35, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
-  diagnostics:
-  - at: 5m
-    type: kafka-network-counters
-    name: tls-steady-network
-    targets: [application, load-test]
-    duration: 10m
-    required: true
-    params: {ports: [9094], sample_interval: 5s}
 targets:
 - name: ckc-tls-network-counters
   implementation: ckc
+  observability: {kafka_network_counters: {enabled: true}}
   application: {replicas: 1, hpa: {enabled: false}}
   runtime:
     env: {DEMO_CONSUMER_PROCESSING_ENABLED: true, AUDIT_LOG_ENABLED: true, METRICS_IMPLEMENTATION: MICROMETER, PROCESSING_DISPATCHER_TYPE: FIXED, WORKER_DISPATCHER_THREADS: 1}

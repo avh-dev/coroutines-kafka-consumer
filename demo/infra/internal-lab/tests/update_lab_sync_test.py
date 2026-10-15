@@ -113,7 +113,7 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("LAB_APPLICATION_TARGET", rebuild)
         self.assertIn("import-k3s-images", rebuild)
         self.assertIn('load-test)', script)
-        self.assertIn('demo|demo-stubs|load-test)', rebuild)
+        self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter)', rebuild)
         self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:

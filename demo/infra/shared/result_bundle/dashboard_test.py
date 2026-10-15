@@ -19,6 +19,45 @@ from presentation import experiment_panel_markdown
 
 
 class DashboardTest(unittest.TestCase):
+    def test_dashboard_contains_network_panels(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        rows = {panel.get("title"): panel for panel in dashboard["panels"]}
+        consumer = rows["Consumer Network"]
+        producer = rows["Producer Network"]
+
+        consumer_expressions = [target["expr"] for panel in consumer["panels"] for target in panel["targets"]]
+        consumer_titles = {panel["title"] for panel in consumer["panels"]}
+        self.assertEqual(
+            {
+                "Consumer Network Throughput",
+                "Consumer Network Throughput by Traffic Type",
+                "Consumer Network Packets",
+                "Consumer Network Packets by Traffic Type",
+                "Consumer Network Bytes per Message / Request",
+            },
+            consumer_titles,
+        )
+        self.assertTrue(all(panel["gridPos"]["w"] == 12 for panel in [*consumer["panels"], *producer["panels"]]))
+        self.assertTrue(all('role="consumer"' in expression for expression in consumer_expressions))
+        self.assertTrue(any("ckc_client_network_packets_total" in expression for expression in consumer_expressions))
+        self.assertTrue(any("ckc_demo_model_call_duration_seconds_count" in expression for expression in consumer_expressions))
+        self.assertTrue(any("lettuce_command_completion_seconds_count" in expression for expression in consumer_expressions))
+        self.assertTrue(any("kafka_topic_partition_current_offset" in expression for expression in consumer_expressions))
+        self.assertTrue(any("demo_ckc_record_dropped_total" in expression for expression in consumer_expressions))
+
+        producer_expressions = [target["expr"] for panel in producer["panels"] for target in panel["targets"]]
+        self.assertEqual(
+            {
+                "Producer Kafka Network Throughput",
+                "Producer Kafka Network Packets",
+                "Producer Kafka Bytes per Message",
+            },
+            {panel["title"] for panel in producer["panels"]},
+        )
+        self.assertTrue(all('service="kafka"' in expression and 'role="producer"' in expression for expression in producer_expressions))
+        self.assertTrue(any("ckc_load_test_producer_records_acked_total" in expression for expression in producer_expressions))
+
     def test_detects_parallel_consumer_targets_from_run_metadata(self) -> None:
         self.assertTrue(has_parallel_consumer_target([
             {"application": {"run_profile": "spring-kafka"}},

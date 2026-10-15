@@ -1467,7 +1467,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">batch.events.v1 · 40% · max 40 TPS</text>", svg)
             self.assertIn('data-topic-legend="order.events.v1"', svg)
             self.assertIn('fill="#bfdbfe" stroke="#60a5fa"', svg)
-            self.assertIn(">warmup · 10s</text>", svg)
+            self.assertNotIn(">warmup · 10s</text>", svg)
             self.assertIn(">Max load</text>", svg)
             self.assertIn(">Delete random application pod</text>", svg)
             self.assertIn(">40s–50s</text>", svg)
@@ -1527,8 +1527,6 @@ class ExperimentReportTest(unittest.TestCase):
                 sorted(chronological_card_y, reverse=True),
                 chronological_card_y,
             )
-            warmup = text_elements["warmup · 10s"]
-            self.assertRegex(warmup.attrib["transform"], r"rotate\(-\d")
             chaos_y = [
                 float(text_elements[label].attrib["y"])
                 for label in (
@@ -1561,9 +1559,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual("url(#load-profile-area)", measurement_interval.attrib.get("clip-path"))
             self.assertTrue(
                 all(
-                    "clip-path" not in element.attrib
+                    element.attrib.get("clip-path") == "url(#load-profile-area)"
                     for element in intervals
-                    if element.attrib.get("data-scenario-type") != "measurement"
                 )
             )
             duration_ranges = [
@@ -2330,68 +2327,6 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">Baseline</text>", timeline)
             self.assertIn(">Degraded</text>", timeline)
 
-    def test_report_renders_kafka_network_counters(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            summary_path = self.fixture(root)
-            resolved_test_path = root / "lab/experiments/smoke-materialized/ckc/resolved-test.yaml"
-            resolved_test = yaml.safe_load(resolved_test_path.read_text(encoding="utf-8"))
-            resolved_test["diagnostic_steps"] = [{
-                "at": "20s", "duration": "30s", "type": "kafka-network-counters", "name": "tls-network",
-                "targets": ["application", "load-test"], "params": {"ports": [9094]},
-            }]
-            self.write_yaml(resolved_test_path, resolved_test)
-            self.write_json(
-                root / "results/runs/run-a/diagnostics/network-counters/summary.json",
-                {
-                    "status": "success",
-                    "window": {"start_epoch_ms": 1786096825000, "end_epoch_ms": 1786096850000},
-                    "producer": {
-                        "published_messages": 100, "rx_bytes": 1000, "tx_bytes": 2000,
-                        "total_bytes": 3000, "rx_packets": 10, "tx_packets": 20, "total_packets": 30,
-                        "rx_bytes_per_message": 10, "tx_bytes_per_message": 20, "bytes_per_message": 30,
-                    },
-                    "consumer": {
-                        "successful_messages": 90, "rx_bytes": 4000, "tx_bytes": 5000,
-                        "total_bytes": 9000, "rx_packets": 40, "tx_packets": 50, "total_packets": 90,
-                        "rx_bytes_per_message": 44.4, "tx_bytes_per_message": 55.6, "bytes_per_message": 100,
-                    },
-                    "total": {
-                        "published_messages": 100, "successful_messages": 90, "rx_bytes": 5000, "tx_bytes": 7000,
-                        "total_bytes": 12000, "rx_packets": 50, "tx_packets": 70, "total_packets": 120,
-                        "rx_bytes_per_message": 55.6, "tx_bytes_per_message": 77.8, "bytes_per_message": 133.3,
-                    },
-                },
-            )
-
-            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
-                outputs = generate_experiment_reports(summary_path, root / "lab")
-
-            markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn("Kafka network counters", markdown)
-            self.assertIn("<th colspan=\"2\">Producer</th>", markdown)
-            self.assertIn("<th colspan=\"2\">Consumer</th>", markdown)
-            self.assertIn("<th colspan=\"2\">Total</th>", markdown)
-            self.assertIn("12,000 bytes", markdown)
-            self.assertIn("120 packets", markdown)
-            self.assertIn("133 bytes/msg", markdown)
-            self.assertIn("Kafka network counters (nftables)", markdown)
-            self.assertIn('title="Audit records">A</span> + <span class="metric-source source-n"', markdown)
-            highlights = markdown.index("### Measurement-window highlights")
-            detailed = markdown.index("## Detailed results")
-            network_in_highlights = markdown.index("Kafka network efficiency", highlights)
-            network_in_details = markdown.index("Kafka network counters", detailed)
-            self.assertLess(highlights, network_in_highlights)
-            self.assertLess(network_in_highlights, detailed)
-            self.assertLess(detailed, network_in_details)
-            self.assertIn("Producer total bytes per published message", markdown[network_in_highlights:detailed])
-            self.assertNotIn("RX packets", markdown[network_in_highlights:detailed])
-            self.assertIn("RX packets", markdown[network_in_details:])
-            timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
-            self.assertIn(">Tls network</text>", timeline)
-            self.assertIn("Kafka network counters", timeline)
-            self.assertIn('data-action="network-counters"', timeline)
-
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2485,14 +2420,14 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Kafka record average before compression", markdown)
             self.assertIn("250 bytes/msg", markdown)
             self.assertIn("lz4 · 2.50× · 60.0% saved", markdown)
-            self.assertIn("Packet capture · Max load", markdown)
+            self.assertIn("<th colspan=\"2\">TCP dump</th>", markdown)
             self.assertIn("1.60 requests/s", markdown)
             self.assertIn("1.25 records", markdown)
             self.assertIn("0.60 requests/s", markdown)
             self.assertIn("3.33 records", markdown)
             self.assertNotIn("Request efficiency ·", markdown)
             self.assertNotIn('<tr class="detail-subsection">', markdown)
-            network_start = markdown.index("Packet capture · Max load")
+            network_start = markdown.index("<th colspan=\"2\">TCP dump</th>")
             self.assertIn(
                 '<tr class="nested-subsection"><th colspan="2"><span class="topic-name">order.events.v1</span></th></tr>',
                 markdown[network_start:],
@@ -2594,7 +2529,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('class="metric-source-legend"', markdown)
             self.assertIn("Metric sources", markdown)
 
-    def test_report_renders_each_named_capture_as_a_separate_network_section(self) -> None:
+    def test_report_renders_tcp_dump_without_capture_name_in_heading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             summary_path = self.fixture(root)
@@ -2618,9 +2553,9 @@ class ExperimentReportTest(unittest.TestCase):
             with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertEqual(2, markdown.count("Packet capture ·"))
-            self.assertIn("Packet capture · Max load", markdown)
-            self.assertIn("Packet capture · After load", markdown)
+            self.assertEqual(2, markdown.count(">TCP dump"))
+            self.assertNotIn("Max load", markdown)
+            self.assertNotIn("After load", markdown)
 
     def test_report_removes_stale_environment_svg_when_evidence_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

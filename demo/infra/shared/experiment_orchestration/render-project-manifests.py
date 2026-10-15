@@ -31,6 +31,7 @@ def main() -> int:
     parser.add_argument("--application-image", required=True)
     parser.add_argument("--stubs-image", required=True)
     parser.add_argument("--load-test-image", required=True)
+    parser.add_argument("--kafka-network-exporter-image", default="ckc-perf/kafka-network-exporter:latest")
     parser.add_argument("--kafka-bootstrap", required=True)
     parser.add_argument("--kafka-security-protocol", choices=("PLAINTEXT", "SSL"), default="PLAINTEXT")
     parser.add_argument("--kafka-ssl-truststore-certificates-file", type=Path)
@@ -78,6 +79,7 @@ def main() -> int:
         application_image=args.application_image,
         stubs_image=args.stubs_image,
         load_test_image=args.load_test_image,
+        kafka_network_exporter_image=args.kafka_network_exporter_image,
         kafka_bootstrap=args.kafka_bootstrap,
         kafka_security_protocol=args.kafka_security_protocol,
         kafka_ssl_truststore_certificates=kafka_ssl_truststore_certificates,
