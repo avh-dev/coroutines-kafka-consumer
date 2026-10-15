@@ -38,8 +38,9 @@ class PrometheusMeasurementsTest(unittest.TestCase):
         )
 
         self.assertEqual(100.0, counters["consumer"]["consumer_records"])
+        self.assertEqual("success", counters["status"])
         self.assertEqual(2.0, counters["consumer"]["bytes_per_message"])
-        self.assertTrue(any("demo_ckc_poll_records_sum" in query for query in client.queries))
+        self.assertTrue(any('demo_ckc_poll_records_sum{run_id="run-1"' in query for query in client.queries))
         self.assertFalse(any("demo_ckc_record_process_duration_seconds_count" in query for query in client.queries))
 
     def test_spring_network_consumer_uses_processed_plus_dropped_fallback(self) -> None:
@@ -51,6 +52,7 @@ class PrometheusMeasurementsTest(unittest.TestCase):
 
         self.assertEqual("processed_plus_dropped", counters["consumer"]["denominator_source"])
         fallback = next(query for query in client.queries if "demo_ckc_record_dropped_total" in query)
+        self.assertIn('run_id="run-1"', fallback)
         self.assertIn("demo_ckc_record_process_duration_seconds_count", fallback)
 
 

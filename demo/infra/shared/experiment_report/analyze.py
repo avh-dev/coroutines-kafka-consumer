@@ -1092,7 +1092,7 @@ def analyze_experiment(
                     "delivery": {},
                     "topic_evidence": {},
                     "measurements": {name: None for name in STANDARD_MEASUREMENTS},
-                    "network_counters": network_counters_in_window(network_counters, start, window),
+                    "network_counters": {"status": "unavailable", "source": "nftables via Prometheus"},
                 }
                 window_start = float(window.get("start_seconds") or 0)
                 window_duration = float(window.get("duration_seconds") or 0)
@@ -1100,6 +1100,13 @@ def analyze_experiment(
                     try:
                         collected_measurements = collect_standard_measurements(
                             prometheus, start + timedelta(seconds=window_start), window_duration
+                        )
+                        window_network_counters = collect_kafka_network_counters(
+                            prometheus,
+                            start + timedelta(seconds=window_start),
+                            window_duration,
+                            run_dir.name,
+                            implementation,
                         )
                         audit_document = window_audit(audit, window, warnings)
                         result.update({
@@ -1112,6 +1119,7 @@ def analyze_experiment(
                                 if isinstance(audit_document.get("topics"), dict) else {}
                             ),
                             "measurements": collected_measurements,
+                            "network_counters": window_network_counters,
                         })
                     except Exception as error:
                         name = str(window.get("name") or "unnamed")
