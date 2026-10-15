@@ -187,7 +187,13 @@ def prometheus_scalar(metrics_url: str, expression: str) -> float | None:
     return float(value[1]) if isinstance(value, list) and len(value) == 2 else None
 
 
-def wait_for_telemetry_ready(metrics_url: str, report_path: Path, timeout_seconds: int = 300) -> str:
+def wait_for_telemetry_ready(
+    metrics_url: str,
+    report_path: Path,
+    timeout_seconds: int = 300,
+    run_id: str | None = None,
+) -> str:
+    network_selector = f'{{run_id="{run_id}"}}' if run_id else ""
     checks = {
         "application": 'min(up{job="ckc-demo"})',
         "application_metrics": 'count(ckc_demo_consumer_profile_info{job="ckc-demo"})',
@@ -197,6 +203,8 @@ def wait_for_telemetry_ready(metrics_url: str, report_path: Path, timeout_second
         "cadvisor": 'min(up{job="kubernetes-cadvisor"})',
         "pod_cpu": 'count(container_cpu_usage_seconds_total{namespace="ckc-app",container="demo"})',
         "pod_memory": 'count(container_memory_working_set_bytes{namespace="ckc-app",container="demo"})',
+        "kafka_network_rules": f"min(ckc_kafka_network_rules_present{network_selector})",
+        "kafka_network_counter_reads": f"min(ckc_kafka_network_counter_read_success{network_selector})",
     }
     deadline = time.monotonic() + timeout_seconds
     attempts: list[dict[str, Any]] = []
@@ -246,6 +254,7 @@ def validate_telemetry_coverage(
     start: str,
     end: str,
     maximum_first_sample_delay_seconds: int = 90,
+    run_id: str | None = None,
 ) -> None:
     selectors = {
         "application": "demo_ckc_record_process_duration_seconds_count",
@@ -256,7 +265,12 @@ def validate_telemetry_coverage(
         "redis_client": "lettuce_command_completion_seconds_count",
         "pod_cpu": 'container_cpu_usage_seconds_total{namespace="ckc-app",container="demo"}',
         "pod_memory": 'container_memory_working_set_bytes{namespace="ckc-app",container="demo"}',
+        "kafka_network_rules": "ckc_kafka_network_rules_present",
+        "kafka_network_counter_reads": "ckc_kafka_network_counter_read_success",
     }
+    if run_id:
+        selectors["kafka_network_rules"] += f'{{run_id="{run_id}"}}'
+        selectors["kafka_network_counter_reads"] += f'{{run_id="{run_id}"}}'
     start_epoch = datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp()
     coverage: dict[str, Any] = {}
     failures: list[str] = []
@@ -1223,7 +1237,9 @@ def main() -> None:
         if bool(lab_context.get("prometheus_bridge_enabled", True)):
             configure_prometheus_bridge(runner_home, port_forward_pid_file, port_forward_log_file)
         metrics_url = as_str(lab_context.get("metrics_url"), "http://127.0.0.1:9090")
-        telemetry_ready_at = wait_for_telemetry_ready(metrics_url, run_dir / "telemetry-readiness.json")
+        telemetry_ready_at = wait_for_telemetry_ready(
+            metrics_url, run_dir / "telemetry-readiness.json", run_id=run_id
+        )
         scheduled_start = scheduled_start_at(
             datetime.now(timezone.utc), args.start_alignment, args.minimum_lead_time_seconds
         )
@@ -1296,6 +1312,7 @@ def main() -> None:
             started_at,
             coverage_end,
             as_int(load_test.get("maximum_first_sample_delay_seconds"), 90),
+            run_id=run_id,
         )
         collect_cluster_diagnostics(run_dir, require_healthy=True)
         if diagnostics_process is not None:

@@ -5415,5 +5415,6 @@ _Date: 2026-10-14_
 
 Replaced scheduled nftables diagnostics with a target-owned Prometheus exporter sidecar for application and load-test pods.
 The feature defaults to enabled, supports an explicit target opt-out, and uses the resolved Kafka transport ports without exposing a port setting in experiment definitions.
+Made exporter initialization and collection mandatory telemetry readiness and coverage checks for the current run; successful report output no longer renders a redundant network-counter status row.
 Report aggregation now reads continuous counters at the exact boundaries of each measurement window and isolates every numerator and denominator by run ID.
 The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape, Grafana Kafka/Redis/HTTP panels, and per-window report rendering.

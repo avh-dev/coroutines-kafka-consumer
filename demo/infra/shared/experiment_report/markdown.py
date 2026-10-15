@@ -1093,7 +1093,6 @@ def render_markdown(report: ExperimentReport) -> str:
         if not any(value.get("status") != "unavailable" for value in counter_values):
             return []
         subsection("Kafka network counters")
-        row("Status", [str(value.get("status") or "unavailable") for value in counter_values])
 
         def counter(role: str, field: str) -> list[Any]:
             return [value.get(role, {}).get(field) if isinstance(value.get(role), dict) else None for value in counter_values]
