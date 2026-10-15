@@ -461,7 +461,7 @@
 | [INFRA-292](#infra-292) | Run sequential AWS CKC and Spring targets with target-specific MSK sizing, scheduled starts, TLS transport, and cost evidence. | DONE |
 | [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | DONE |
 | [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
-| [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | IN_PROGRESS |
+| [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5413,5 +5413,8 @@ Reanalyzed the preserved TLS A/B run and regenerated its report: plaintext pcap 
 
 _Date: 2026-10-14_
 
-In progress: replace the scheduled nftables diagnostic with a target-owned Prometheus exporter sidecar for application and load-test pods.
+Replaced scheduled nftables diagnostics with a target-owned Prometheus exporter sidecar for application and load-test pods.
 The feature defaults to enabled, supports an explicit target opt-out, and uses the resolved Kafka transport ports without exposing a port setting in experiment definitions.
+Made exporter initialization and collection mandatory telemetry readiness and coverage checks for the current run; successful report output no longer renders a redundant network-counter status row.
+Report aggregation now reads continuous counters at the exact boundaries of each measurement window and isolates every numerator and denominator by run ID.
+The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape, Grafana Kafka/Redis/HTTP panels, and per-window report rendering.

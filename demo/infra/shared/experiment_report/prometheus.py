@@ -380,7 +380,7 @@ def collect_kafka_network_counters(
     rules, reads = gauge("ckc_kafka_network_rules_present"), gauge("ckc_kafka_network_counter_read_success")
     if rules is None and reads is None:
         return {"status": "unavailable", "source": "nftables via Prometheus"}
-    result: dict[str, Any] = {"status": "available" if rules == 1 and reads == 1 else "unavailable", "source": "nftables via Prometheus", "rules_present": rules, "read_success": reads}
+    result: dict[str, Any] = {"status": "success" if rules == 1 and reads == 1 else "unavailable", "source": "nftables via Prometheus", "rules_present": rules, "read_success": reads}
     def denominator(role: str) -> tuple[float | None, str]:
         if role == "producer":
             query = f'sum(increase(ckc_load_test_producer_records_acked_total{{run_id="{run_id}"}}[{seconds}s]))'
@@ -388,15 +388,15 @@ def collect_kafka_network_counters(
         elif implementation in {"ckc", "ckc-sync"}:
             # CKC exposes the exact count returned from Kafka poll, which is
             # the closest denominator for consumer-side Kafka network traffic.
-            query = f'sum(increase(demo_ckc_poll_records_sum{{pod=~"ckc-demo-.+"}}[{seconds}s]))'
+            query = f'sum(increase(demo_ckc_poll_records_sum{{run_id="{run_id}", pod=~"ckc-demo-.+"}}[{seconds}s]))'
             source = "ckc_polled"
         else:
             # Spring-based implementations do not expose CKC's poll summary.
             # Count both terminal outcomes; a drop is still a record received
             # from Kafka and must not inflate bytes per record.
             query = (
-                f'(sum(increase(demo_ckc_record_process_duration_seconds_count{{pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0)) + '
-                f'(sum(increase(demo_ckc_record_dropped_total{{pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0))'
+                f'(sum(increase(demo_ckc_record_process_duration_seconds_count{{run_id="{run_id}", pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0)) + '
+                f'(sum(increase(demo_ckc_record_dropped_total{{run_id="{run_id}", pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0))'
             )
             source = "processed_plus_dropped"
         return client.query_scalar(query, end), source

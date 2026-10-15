@@ -1501,18 +1501,24 @@ class AwsSessionTest(unittest.TestCase):
             document = json.loads(report.read_text(encoding="utf-8"))
         self.assertEqual("PASS", document["status"])
         self.assertEqual(30.0, document["coverage"]["pod_cpu"]["first_sample_delay_seconds"])
+        self.assertIn("kafka_network_rules", document["coverage"])
+        self.assertIn("kafka_network_counter_reads", document["coverage"])
 
     def test_telemetry_readiness_uses_profile_neutral_application_metric(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "readiness.json"
             with patch.object(run_test_module, "prometheus_scalar", return_value=1.0):
-                run_test_module.wait_for_telemetry_ready("http://metrics", report, timeout_seconds=0)
+                run_test_module.wait_for_telemetry_ready("http://metrics", report, timeout_seconds=0, run_id="run-1")
             document = json.loads(report.read_text(encoding="utf-8"))
 
         self.assertEqual("READY", document["status"])
         self.assertEqual(
             'count(ckc_demo_consumer_profile_info{job="ckc-demo"})',
             document["checks"]["application_metrics"],
+        )
+        self.assertEqual(
+            'min(ckc_kafka_network_counter_read_success{run_id="run-1"})',
+            document["checks"]["kafka_network_counter_reads"],
         )
 
     def test_optional_consumer_drain_records_timeout_without_failing(self) -> None:

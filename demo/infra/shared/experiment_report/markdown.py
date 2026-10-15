@@ -1088,75 +1088,46 @@ def render_markdown(report: ExperimentReport) -> str:
             }
         return {}
 
-    network_counter_start = len(lines)
-    counter_values = [target.network_counters for target in targets]
-    if any(value.get("status") != "unavailable" for value in counter_values):
+    def render_network_counter_rows(counter_values: list[dict[str, Any]]) -> list[str]:
+        start_index = len(lines)
+        if not any(value.get("status") != "unavailable" for value in counter_values):
+            return []
         subsection("Kafka network counters")
-        row("Status", [str(value.get("status") or "unavailable") for value in counter_values])
 
         def counter(role: str, field: str) -> list[Any]:
-            return [
-                value.get(role, {}).get(field) if isinstance(value.get(role), dict) else None
-                for value in counter_values
-            ]
+            return [value.get(role, {}).get(field) if isinstance(value.get(role), dict) else None for value in counter_values]
 
-        def counter_bytes(role: str, field: str) -> list[str]:
+        def bytes_(role: str, field: str) -> list[str]:
             return formatted(counter(role, field), 0, " bytes")
 
-        def counter_packets(role: str, field: str) -> list[str]:
+        def packets(role: str, field: str) -> list[str]:
             return formatted(counter(role, field), 0, " packets")
 
-        nested_subsection("Producer")
-        row("Acknowledged published messages", formatted(counter("producer", "published_messages"), 0, ""), "prometheus")
-        row("RX bytes", counter_bytes("producer", "rx_bytes"), "network")
-        row("TX bytes", counter_bytes("producer", "tx_bytes"), "network")
-        row("Total bytes", counter_bytes("producer", "total_bytes"), "network")
-        row("RX packets", counter_packets("producer", "rx_packets"), "network")
-        row("TX packets", counter_packets("producer", "tx_packets"), "network")
-        row("Total packets", counter_packets("producer", "total_packets"), "network")
-        row("RX bytes per published message", compared(counter("producer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("TX bytes per published message", compared(counter("producer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per published message", compared(counter("producer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        def traffic_rows(role: str, denominator: str, message_label: str) -> None:
+            nested_subsection(role.capitalize())
+            if role == "producer":
+                row("Acknowledged published messages", formatted(counter(role, "published_messages"), 0, ""), "prometheus")
+            elif role == "consumer":
+                labels = {"ckc_polled": "CKC poll records", "processed_plus_dropped": "Processed + dropped records"}
+                row("Consumer normalization denominator", [labels.get(str(value.get("consumer", {}).get("denominator_source") or ""), "—") if isinstance(value.get("consumer"), dict) else "—" for value in counter_values], "prometheus")
+                row("Consumer records used for normalization", formatted(counter(role, "consumer_records"), 0, ""), "prometheus")
+            else:
+                row("Published messages", formatted(counter(role, "published_messages"), 0, ""), "audit")
+                row("Consumer records used for normalization", formatted(counter(role, "consumer_records"), 0, ""), "prometheus")
+            for label, field, formatter in (("RX bytes", "rx_bytes", bytes_), ("TX bytes", "tx_bytes", bytes_), ("Total bytes", "total_bytes", bytes_), ("RX packets", "rx_packets", packets), ("TX packets", "tx_packets", packets), ("Total packets", "total_packets", packets)):
+                row(label, formatter(role, field), "network")
+            row(f"RX bytes per {message_label}", compared(counter(role, "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+            row(f"TX bytes per {message_label}", compared(counter(role, "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
+            row(f"Total bytes per {message_label}", compared(counter(role, "bytes_per_message"), 0, " bytes/msg"), "audit-network")
 
-        nested_subsection("Consumer")
-        denominator_labels = {
-            "ckc_polled": "CKC poll records",
-            "processed_plus_dropped": "Processed + dropped records",
-        }
-        row(
-            "Consumer normalization denominator",
-            [
-                denominator_labels.get(str(value.get("consumer", {}).get("denominator_source") or ""), "—")
-                if isinstance(value.get("consumer"), dict) else "—"
-                for value in counter_values
-            ],
-            "prometheus",
-        )
-        row("Consumer records used for normalization", formatted(counter("consumer", "consumer_records"), 0, ""), "prometheus")
-        row("RX bytes", counter_bytes("consumer", "rx_bytes"), "network")
-        row("TX bytes", counter_bytes("consumer", "tx_bytes"), "network")
-        row("Total bytes", counter_bytes("consumer", "total_bytes"), "network")
-        row("RX packets", counter_packets("consumer", "rx_packets"), "network")
-        row("TX packets", counter_packets("consumer", "tx_packets"), "network")
-        row("Total packets", counter_packets("consumer", "total_packets"), "network")
-        row("RX bytes per consumer record", compared(counter("consumer", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("TX bytes per consumer record", compared(counter("consumer", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per consumer record", compared(counter("consumer", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
-
-        nested_subsection("Total")
-        row("Published messages", formatted(counter("total", "published_messages"), 0, ""), "audit")
-        row("Consumer records used for normalization", formatted(counter("total", "consumer_records"), 0, ""), "prometheus")
-        row("RX bytes", counter_bytes("total", "rx_bytes"), "network")
-        row("TX bytes", counter_bytes("total", "tx_bytes"), "network")
-        row("Total bytes", counter_bytes("total", "total_bytes"), "network")
-        row("RX packets", counter_packets("total", "rx_packets"), "network")
-        row("TX packets", counter_packets("total", "tx_packets"), "network")
-        row("Total packets", counter_packets("total", "total_packets"), "network")
-        row("RX bytes per message", compared(counter("total", "rx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("TX bytes per message", compared(counter("total", "tx_bytes_per_message"), 0, " bytes/msg"), "audit-network")
-        row("Total bytes per message", compared(counter("total", "bytes_per_message"), 0, " bytes/msg"), "audit-network")
+        traffic_rows("producer", "published_messages", "published message")
+        traffic_rows("consumer", "consumer_records", "consumer record")
+        traffic_rows("total", "", "message")
         row("Unusable reason", [str(value.get("reason") or "—") for value in counter_values], "audit")
-    network_counter_rows = lines[network_counter_start:]
+        return lines[start_index:]
+
+    network_counter_start = len(lines)
+    network_counter_rows = render_network_counter_rows([target.network_counters for target in targets])
     del lines[network_counter_start:]
 
     def render_network_counter_highlight(values: list[dict[str, Any]]) -> None:
@@ -1648,7 +1619,10 @@ def render_markdown(report: ExperimentReport) -> str:
                     f"Kafka network counters · {window.get('name') or 'measurement'} window · "
                     f"{number(counter_start, 0)}–{number(counter_end, 0)} s"
                 )
-                lines.extend(network_counter_rows)
+                render_network_counter_rows([
+                    result.get("network_counters", {}) if isinstance(result.get("network_counters"), dict) else {}
+                    for result in window_results
+                ])
                 rendered_network_counter_window = True
         if not rendered_network_counter_window:
             nested_subsection("Kafka network counters")
