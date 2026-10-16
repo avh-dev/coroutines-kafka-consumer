@@ -628,7 +628,7 @@ class MaterializeTest(unittest.TestCase):
             deployment["application"]["configuration"]["java_options"],
         )
         self.assertEqual("VIRTUAL", deployment["application"]["runtime"]["env"]["PROCESSING_DISPATCHER_TYPE"])
-        self.assertEqual(1, deployment["application"]["runtime"]["env"]["WORKER_DISPATCHER_THREADS"])
+        self.assertNotIn("WORKER_DISPATCHER_THREADS", deployment["application"]["runtime"]["env"])
 
 
 if __name__ == "__main__":
