@@ -24,6 +24,12 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("export LAB_APPLICATION_LINK LAB_APPLICATION_HOST LAB_APPLICATION_TARGET", script)
         self.assertIn("export LAB_APPLICATION_NODE_SELECTOR LAB_CONTROLLER_NODE_SELECTOR", script)
 
+    def test_target_runner_accepts_equals_form_java_options(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        self.assertIn("--demo-java-tool-options=*)", script)
+        self.assertIn('PLAN_HELM_ARGS+=("$1")', script)
+
     def test_target_runner_maps_per_target_workload_placement_to_lab_roles(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
         prepare = PREPARE_TEST.read_text(encoding="utf-8")
