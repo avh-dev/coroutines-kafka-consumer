@@ -170,6 +170,29 @@ directory:
 ./demo/infra/aws/scripts/run-experiment.sh cleanup <session-id>
 ```
 
+### Cost evidence
+
+Every AWS session records its exact creation-to-collection interval and queries
+Cost Explorer for `UnblendedCost`, grouped by service and filtered by its
+`SessionId` tag. The query uses a day-aligned envelope because Cost Explorer
+daily data cannot attribute a sub-day workload boundary exactly. The raw tag
+inventory and Cost Explorer responses are retained under `cost/` in the result
+and evidence bundle; the report labels an empty response as `pending`, never as
+zero cost.
+
+`SessionId` must be activated as a user-defined AWS cost-allocation tag in the
+billing account before a session can be attributed. Billing data often arrives
+after teardown, so refresh a completed session later without recreating any AWS
+resources:
+
+```bash
+./demo/infra/aws/scripts/run-experiment.sh cost-evidence <session-id> --refresh-report
+```
+
+The command only reads Cost Explorer and regenerates local report/bundle files.
+It requires credentials permitted to call `ce:ListCostAllocationTags` and
+`ce:GetCostAndUsage` in the billing account.
+
 Cleanup never keeps AWS resources merely because the test or export failed. It
 first removes Kubernetes workloads and the managed EKS node group, deletes any
 detached ENI that is explicitly owned by the cluster's Amazon VPC CNI, then destroys the lab, runner, and artifact

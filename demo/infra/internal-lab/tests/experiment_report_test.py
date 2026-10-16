@@ -2327,6 +2327,28 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn(">Baseline</text>", timeline)
             self.assertIn(">Degraded</text>", timeline)
 
+    def test_report_renders_cost_evidence_without_treating_pending_data_as_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            document = json.loads(summary_path.read_text(encoding="utf-8"))
+            document["experiments"][0]["cost_evidence"] = {
+                "status": "pending",
+                "attribution": {"tag_key": "SessionId", "tag_value": "s-example"},
+                "requested_session_window": {"start": "2026-10-15T10:00:00Z", "end": "2026-10-15T11:00:00Z"},
+                "cost_explorer_time_period": {"start": "2026-10-15", "end": "2026-10-16"},
+                "reason": "Cost Explorer data has not settled.",
+            }
+            summary_path.write_text(json.dumps(document), encoding="utf-8")
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+
+        self.assertIn("AWS cost evidence", markdown)
+        self.assertIn("SessionId=s-example", markdown)
+        self.assertIn("Cost Explorer data has not settled.", markdown)
+        self.assertNotIn("Attributed unblended cost", markdown)
+
     def test_report_separates_expected_freshness_drops_from_queue_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

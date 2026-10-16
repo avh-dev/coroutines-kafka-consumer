@@ -83,6 +83,7 @@ class ExperimentReport:
     test_definition: dict[str, Any]
     sla_profile: dict[str, Any] | None
     targets: list[TargetReport]
+    cost_evidence: dict[str, Any] = field(default_factory=dict)
     environment_topologies: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 

@@ -1202,6 +1202,32 @@ def render_markdown(report: ExperimentReport) -> str:
     row("Delivery requirements", [escaped(target.delivery_evaluation_status) for target in targets])
     row("Latency requirements", [escaped(target.latency_evaluation_status) for target in targets])
 
+    cost_evidence = report.cost_evidence
+    if cost_evidence:
+        section("AWS cost evidence")
+        status = str(cost_evidence.get("status") or "unavailable")
+        attribution = cost_evidence.get("attribution") if isinstance(cost_evidence.get("attribution"), dict) else {}
+        window = cost_evidence.get("requested_session_window") if isinstance(cost_evidence.get("requested_session_window"), dict) else {}
+        period = cost_evidence.get("cost_explorer_time_period") if isinstance(cost_evidence.get("cost_explorer_time_period"), dict) else {}
+        summary = cost_evidence.get("summary") if isinstance(cost_evidence.get("summary"), dict) else {}
+        cost = summary.get("total_unblended_cost")
+        currency = summary.get("currency") or "USD"
+        same = lambda value: [escaped(value) for _ in targets]
+        row("Collection status", same(status))
+        row("Attribution", same(f"{attribution.get('tag_key') or '—'}={attribution.get('tag_value') or '—'}"))
+        row("Requested session window", same(f"{window.get('start') or '—'} to {window.get('end') or '—'}"))
+        row("Cost Explorer period", same(f"{period.get('start') or '—'} to {period.get('end') or '—'} (daily)"))
+        if status == "available" and cost is not None:
+            row("Attributed unblended cost", same(f"{cost} {currency}"))
+            for service in summary.get("services") or []:
+                if isinstance(service, dict):
+                    row(
+                        f"Cost · {service.get('service') or 'Unspecified service'}",
+                        same(f"{service.get('unblended_cost') or '0'} {service.get('currency') or currency}"),
+                    )
+        else:
+            row("Availability", same(str(cost_evidence.get("reason") or "Cost data is not available yet.")))
+
     for window_index, window in enumerate(measurement_windows):
         if not isinstance(window, dict):
             continue

@@ -1317,6 +1317,10 @@ def analyze_experiment(
         },
         sla_profile=sla_profile,
         targets=targets,
+        cost_evidence=(
+            experiment_summary.get("cost_evidence")
+            if isinstance(experiment_summary.get("cost_evidence"), dict) else {}
+        ),
         environment_topologies=resolved_environment_topologies(environment_snapshots),
         warnings=report_warnings,
     )

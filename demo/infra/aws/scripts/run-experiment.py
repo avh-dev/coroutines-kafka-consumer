@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.request
 import uuid
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -41,6 +42,8 @@ TERMINAL_SSM_STATUSES = {"Success", "Cancelled", "Failed", "TimedOut", "Undelive
 RUN_PHASE_PREFIX = "CKC_RUN_PHASE "
 MIN_TARGET_WATCHDOG_SECONDS = 3600
 TARGET_WATCHDOG_SAFETY_SECONDS = 1800
+COST_EXPLORER_REGION = "us-east-1"
+COST_ALLOCATION_TAG = "SessionId"
 
 
 def utc_now() -> datetime:
@@ -69,6 +72,66 @@ def slug(value: str, limit: int = 40) -> str:
 
 def generated_session_id() -> str:
     return f"s-{utc_now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
+
+def parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def cost_explorer_period(started_at: str | None, collected_at: datetime) -> tuple[dict[str, str], dict[str, str]]:
+    """Return the precise session bounds and Cost Explorer's date-aligned bounds.
+
+    Cost Explorer's daily data cannot represent a sub-day experiment exactly.
+    The two ranges are both retained in evidence so consumers do not mistake the
+    day envelope for an exact workload-only cost.
+    """
+    start = parse_utc(started_at) or collected_at
+    exact = {
+        "start": utc_text(start),
+        "end": utc_text(collected_at),
+    }
+    return exact, {
+        "start": start.date().isoformat(),
+        "end": (collected_at.date() + timedelta(days=1)).isoformat(),
+    }
+
+
+def decimal_amount(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
+
+
+def summarize_cost_and_usage(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    services: dict[str, Decimal] = {}
+    unit = "USD"
+    groups_seen = 0
+    for page in pages:
+        for day in page.get("ResultsByTime", []) or []:
+            for group in day.get("Groups", []) or []:
+                keys = group.get("Keys") or []
+                service = str(keys[0]) if keys else "Unspecified service"
+                metric = (group.get("Metrics") or {}).get("UnblendedCost") or {}
+                amount = decimal_amount(metric.get("Amount"))
+                unit = str(metric.get("Unit") or unit)
+                services[service] = services.get(service, Decimal("0")) + amount
+                groups_seen += 1
+    total = sum(services.values(), Decimal("0"))
+    return {
+        "groups_seen": groups_seen,
+        "currency": unit,
+        "total_unblended_cost": format(total, "f"),
+        "services": [
+            {"service": service, "unblended_cost": format(amount, "f"), "currency": unit}
+            for service, amount in sorted(services.items(), key=lambda item: (-item[1], item[0]))
+        ],
+    }
 
 
 def load_profile_seconds(profile: str) -> int:
@@ -349,6 +412,112 @@ class SessionController:
                 print(f"    AWS read failed; retrying in {delay}s ({attempt}/{attempts})", flush=True)
                 time.sleep(delay)
         raise last_error or RuntimeError("AWS read failed")
+
+    def collect_cost_evidence(self) -> dict[str, Any]:
+        """Persist the attributable Cost Explorer view without treating missing data as zero.
+
+        AWS billing data is eventually consistent.  This method is deliberately
+        non-fatal: a completed workload must still retain its performance
+        evidence when billing permissions or newly activated tags have not yet
+        produced cost data.  The resulting status makes that limitation explicit.
+        """
+        collected = utc_now()
+        requested_window, time_period = cost_explorer_period(self.state.get("created_at"), collected)
+        evidence_dir = self.session_dir / "cost-evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        evidence: dict[str, Any] = {
+            "schema_version": 1,
+            "collected_at": utc_text(collected),
+            "status": "unavailable",
+            "source": "AWS Cost Explorer",
+            "cost_explorer_region": COST_EXPLORER_REGION,
+            "attribution": {"tag_key": COST_ALLOCATION_TAG, "tag_value": self.config["session_id"]},
+            "requested_session_window": requested_window,
+            "cost_explorer_time_period": time_period,
+            "granularity": "DAILY",
+            "metric": "UnblendedCost",
+            "group_by": "SERVICE",
+            "raw": {
+                "cost_allocation_tags": "cost-allocation-tags.json",
+                "cost_and_usage": "cost-and-usage.json",
+            },
+        }
+        try:
+            tag_query = [
+                "ce", "list-cost-allocation-tags", "--region", COST_EXPLORER_REGION,
+            ]
+            tag_pages: list[dict[str, Any]] = []
+            next_tag_token: str | None = None
+            while True:
+                page_query = tag_query if next_tag_token is None else [*tag_query, "--next-token", next_tag_token]
+                tags = self.aws_json(page_query) or {}
+                if not isinstance(tags, dict):
+                    raise RuntimeError("Cost allocation tag inventory returned a non-object response")
+                tag_pages.append(tags)
+                next_tag_token = tags.get("NextToken")
+                if not next_tag_token:
+                    break
+            json_write(evidence_dir / "cost-allocation-tags.json", {"pages": tag_pages})
+            allocation_tags = [
+                tag
+                for page in tag_pages
+                for tag in (page.get("CostAllocationTags", []) or [])
+                if isinstance(tag, dict)
+            ]
+            tag_active = any(
+                str(item.get("TagKey")) == COST_ALLOCATION_TAG
+                and str(item.get("Status", "")).lower() == "active"
+                for item in allocation_tags
+            )
+            evidence["cost_allocation_tag_active"] = tag_active
+            if not tag_active:
+                evidence["status"] = "tag_not_active"
+                evidence["reason"] = (
+                    "Cost allocation tag SessionId is not active in AWS Billing; "
+                    "Cost Explorer cannot attribute this session yet."
+                )
+            else:
+                cost_filter = {"Tags": {"Key": COST_ALLOCATION_TAG, "Values": [self.config["session_id"]]}}
+                query = [
+                    "ce", "get-cost-and-usage", "--region", COST_EXPLORER_REGION,
+                    "--time-period", f"Start={time_period['start']},End={time_period['end']}",
+                    "--granularity", "DAILY", "--metrics", "UnblendedCost",
+                    "--group-by", "Type=DIMENSION,Key=SERVICE",
+                    "--filter", json.dumps(cost_filter, separators=(",", ":")),
+                ]
+                pages: list[dict[str, Any]] = []
+                next_page_token: str | None = None
+                while True:
+                    page_query = query if next_page_token is None else [*query, "--next-page-token", next_page_token]
+                    response = self.aws_json(page_query) or {}
+                    if not isinstance(response, dict):
+                        raise RuntimeError("Cost Explorer returned a non-object response")
+                    pages.append(response)
+                    next_page_token = response.get("NextPageToken")
+                    if not next_page_token:
+                        break
+                json_write(evidence_dir / "cost-and-usage.json", {"pages": pages})
+                summary = summarize_cost_and_usage(pages)
+                evidence["summary"] = summary
+                if summary["groups_seen"] and decimal_amount(summary["total_unblended_cost"]) > 0:
+                    evidence["status"] = "available"
+                else:
+                    evidence["status"] = "pending"
+                    evidence["reason"] = (
+                        "Cost Explorer returned no attributable non-zero session cost yet; "
+                        "retry after AWS billing data has settled."
+                    )
+        except Exception as error:
+            evidence["status"] = "unavailable"
+            evidence["reason"] = f"Cost Explorer collection failed: {error}"
+        json_write(evidence_dir / "cost-evidence.json", evidence)
+        self.state["cost_evidence"] = {
+            "status": evidence["status"],
+            "collected_at": evidence["collected_at"],
+            "path": str(evidence_dir / "cost-evidence.json"),
+        }
+        self.save()
+        return evidence
 
     def wait_for_runner(self, instance_id: str, timeout_seconds: int = 900) -> None:
         region = self.config["region"]
@@ -1626,6 +1795,34 @@ class SessionController:
         self.state["audit_summary"] = next(iter(summaries.values())) if len(summaries) == 1 else None
         self.save()
 
+    def attach_cost_evidence(self, result_root: Path, summary_document: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        source = self.session_dir / "cost-evidence" / "cost-evidence.json"
+        if not source.is_file():
+            return None
+        cost_dir = result_root / "cost"
+        cost_dir.mkdir(parents=True, exist_ok=True)
+        for item in sorted(source.parent.iterdir()):
+            if item.is_file():
+                shutil.copy2(item, cost_dir / item.name)
+        evidence = json.loads(source.read_text(encoding="utf-8"))
+        if summary_document is not None:
+            summary_document["cost_evidence"] = evidence
+        return evidence
+
+    def refresh_cost_evidence(self, refresh_report: bool = False) -> dict[str, Any]:
+        evidence = self.collect_cost_evidence()
+        result_root_value = self.state.get("local_result_dir")
+        result_root = Path(result_root_value) if result_root_value else None
+        summary_path = result_root / "summary.json" if result_root else None
+        if summary_path and summary_path.is_file():
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.attach_cost_evidence(result_root, summary)
+            json_write(summary_path, summary)
+            if refresh_report and self.config.get("mode") == "experiment":
+                self.generate_local_experiment_report()
+                self.finalize_bundle()
+        return evidence
+
     def prepare_experiment_bundle(self) -> None:
         if self.config.get("mode") != "experiment":
             return
@@ -1673,6 +1870,7 @@ class SessionController:
             }],
             "exit_code": next((target["exit_code"] for target in targets if target["exit_code"]), 0),
         }
+        self.attach_cost_evidence(result_root, document)
         json_write(result_root / "summary.json", document)
 
         first_run = Path(next(iter(local_results.values())))
@@ -2035,6 +2233,16 @@ def parse_args() -> argparse.Namespace:
     for name in ("status", "cleanup"):
         child = subparsers.add_parser(name)
         child.add_argument("session_id")
+    cost_parser = subparsers.add_parser(
+        "cost-evidence",
+        help="Refresh Cost Explorer evidence for a completed AWS session without starting infrastructure.",
+    )
+    cost_parser.add_argument("session_id")
+    cost_parser.add_argument(
+        "--refresh-report",
+        action="store_true",
+        help="Regenerate the local report and canonical evidence bundle after collecting billing data.",
+    )
     return parser.parse_args()
 
 
@@ -2062,6 +2270,11 @@ def main() -> None:
         if failures:
             raise SystemExit("Cleanup incomplete:\n- " + "\n- ".join(failures))
         print(f"AWS session is clean: {args.session_id}")
+        return
+    if args.command == "cost-evidence":
+        controller = load_controller(work_dir, args.session_id)
+        evidence = controller.refresh_cost_evidence(args.refresh_report)
+        print(json.dumps(evidence, indent=2, sort_keys=True))
         return
 
     session_id = slug(args.session_id, 35) if args.session_id else generated_session_id()
@@ -2116,6 +2329,7 @@ def main() -> None:
         controller.state["failure"] = {"at": utc_text(), "message": str(error)}
         controller.save()
     cleanup_failures = controller.cleanup()
+    controller.collect_cost_evidence()
     post_processing_error: Exception | None = None
     if controller.state.get("artifacts_verified"):
         try:
