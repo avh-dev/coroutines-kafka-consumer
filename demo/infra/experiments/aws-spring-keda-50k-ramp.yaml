@@ -217,7 +217,7 @@ environments:
           disk_size_gib: 100
       kafka:
         mode: msk
-        msk_version: 4.1.x
+        msk_version: 4.1.x.kraft
         msk_brokers: 3
         msk_instance_type: kafka.m7g.xlarge
         msk_volume_size_gib: 100

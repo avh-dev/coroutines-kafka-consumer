@@ -716,14 +716,14 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertTrue(definitions)
         self.assertEqual(
-            [(name, "4.1.x") for name, _ in definitions],
+            [(name, "4.1.x.kraft") for name, _ in definitions],
             definitions,
         )
         variables = (REPO_ROOT / "demo/infra/aws/assets/terraform/load-lab/variables.tf").read_text(
             encoding="utf-8"
         )
         self.assertIn('variable "msk_kafka_version"', variables)
-        self.assertIn('default     = "4.1.x"', variables)
+        self.assertIn('default     = "4.1.x.kraft"', variables)
 
 
 if __name__ == "__main__":

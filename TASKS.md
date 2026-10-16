@@ -5425,7 +5425,7 @@ The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape
 
 _Date: 2026-10-16_
 
-Replace the retired 3.7.x MSK version in AWS experiment definitions and the Terraform default with 4.1.x.
+Replace the retired 3.7.x MSK version in AWS experiment definitions and the Terraform default with KRaft-only 4.1.x.kraft.
 Keep Standard broker types, which support Kafka 4.1 and enable later evaluation of the Kafka Queues preview feature.
-Update every provisioned-MSK experiment and the Terraform default, with a regression test that requires 4.1.x consistently.
+Update every provisioned-MSK experiment and the Terraform default, with a regression test that requires 4.1.x.kraft consistently.
 Verification: 40 shared orchestration tests, 72 AWS session tests, and Terraform validation pass. No AWS workload was launched.
