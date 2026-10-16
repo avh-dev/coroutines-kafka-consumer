@@ -21,7 +21,9 @@ DEFAULT_LOAD_TEST_RESOURCES = {
     "cpu_request": "500m",
     "memory_request": "512Mi",
     "memory_limit": "1Gi",
+    "java_options": "-XX:+UseSerialGC",
 }
+DEFAULT_APPLICATION_JAVA_OPTIONS = "-XX:+UseSerialGC"
 DEFAULT_STUB_DEPLOYMENT = {
     "replicas": 1,
     "workers": 4,
@@ -618,7 +620,10 @@ def canonical_targets(experiment: Mapping[str, Any]) -> list[dict[str, Any]]:
         for required in ("application", "runtime"):
             if required not in target:
                 raise ValueError(f"Experiment targets[{index}] must define {required} explicitly")
-        targets.append(copy.deepcopy(target))
+        normalized_target = copy.deepcopy(target)
+        application = normalized_target["application"]
+        application.setdefault("java_options", DEFAULT_APPLICATION_JAVA_OPTIONS)
+        targets.append(normalized_target)
     return targets
 
 

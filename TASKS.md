@@ -465,6 +465,7 @@
 | [INFRA-296](#infra-296) | Collect attributable AWS cost evidence for each experiment session. | DONE |
 | [INFRA-297](#infra-297) | Prepare a local TLS 5k comparison of Spring, CKC, and single-carrier CKC-sync virtual threads. | DONE |
 | [INFRA-298](#infra-298) | Upgrade provisioned MSK experiment definitions to Kafka 4.1 for Standard-broker compatibility and Queue preview support. | DONE |
+| [INFRA-299](#infra-299) | Use Serial GC for every experiment JVM. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5450,3 +5451,12 @@ Replace the retired 3.7.x MSK version in AWS experiment definitions and the Terr
 Keep Standard broker types, which support Kafka 4.1 and enable later evaluation of the Kafka Queues preview feature.
 Update every provisioned-MSK experiment and the Terraform default, with a regression test that requires 4.1.x.kraft consistently.
 Verification: 40 shared orchestration tests, 72 AWS session tests, and Terraform validation pass. No AWS workload was launched.
+
+<a id="infra-299"></a>
+### INFRA-299 - Use Serial GC for experiment JVMs
+
+_Date: 2026-10-16_
+
+Make `-XX:+UseSerialGC` the load-test and application JVM defaults and replace every explicit G1 override.
+Apply the application default while resolving every canonical target, so manifests that omit JVM options do not silently fall back to the JDK's G1 default.
+Verification: 53 shared orchestration tests and 194 internal-lab tests pass; an audit confirms that every explicit application option selects Serial GC.

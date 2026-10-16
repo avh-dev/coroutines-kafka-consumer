@@ -20,6 +20,11 @@ class ExperimentDefinitionTest(unittest.TestCase):
         self.assertEqual("internal-lab", resolved.environment)
         self.assertIsNotNone(resolved.snapshot)
         self.assertEqual("experiment", resolved.test.source_name)
+        self.assertEqual("-XX:+UseSerialGC", resolved.test.definition["load_test"]["java_options"])
+        self.assertTrue(all(
+            target.definition["application"]["java_tool_options"] == "-XX:+UseSerialGC"
+            for target in resolved.targets
+        ))
 
     def test_rejects_external_test_and_sla_profile_indirection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

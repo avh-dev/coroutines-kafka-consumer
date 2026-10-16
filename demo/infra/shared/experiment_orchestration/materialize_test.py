@@ -622,6 +622,7 @@ class MaterializeTest(unittest.TestCase):
             deployment["workload"]["diagnostics"][0],
         )
         self.assertEqual(
+            "-XX:+UseSerialGC "
             "-Djdk.virtualThreadScheduler.parallelism=1 "
             "-Djdk.virtualThreadScheduler.maxPoolSize=1",
             deployment["application"]["configuration"]["java_options"],
