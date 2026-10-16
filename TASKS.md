@@ -464,6 +464,7 @@
 | [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | DONE |
 | [INFRA-296](#infra-296) | Collect attributable AWS cost evidence for each experiment session. | DONE |
 | [INFRA-297](#infra-297) | Prepare a local TLS 5k comparison of Spring, CKC, and single-carrier CKC-sync virtual threads. | DONE |
+| [INFRA-298](#infra-298) | Upgrade provisioned MSK experiment definitions to Kafka 4.1 for Standard-broker compatibility and Queue preview support. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5439,3 +5440,13 @@ Prepare an internal-lab TLS experiment at 5k TPS with sequential Spring/JDK, fix
 Constrain the virtual-thread scheduler to one carrier so its business execution model is directly comparable to CKC's single worker dispatcher.
 Measure the middle of the 15-minute steady plateau and preserve a later 30-second TLS packet capture from both application and load-test pods.
 Verification: 52 focused shared orchestration tests and 193 internal-lab tests pass; the manifest materializes all three targets with TLS, the 7m–11m window, the 11m30s TLS pcap, and both one-carrier scheduler flags. The installed lab was synchronized and a dry-run request completed without starting a workload.
+
+<a id="infra-298"></a>
+### INFRA-298 - Upgrade provisioned MSK to Kafka 4.1
+
+_Date: 2026-10-16_
+
+Replace the retired 3.7.x MSK version in AWS experiment definitions and the Terraform default with KRaft-only 4.1.x.kraft.
+Keep Standard broker types, which support Kafka 4.1 and enable later evaluation of the Kafka Queues preview feature.
+Update every provisioned-MSK experiment and the Terraform default, with a regression test that requires 4.1.x.kraft consistently.
+Verification: 40 shared orchestration tests, 72 AWS session tests, and Terraform validation pass. No AWS workload was launched.
