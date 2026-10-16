@@ -140,6 +140,7 @@ targets:
   application:
     <<: *single_replica_application
     java_options: >-
+      -XX:+UseSerialGC
       -Djdk.virtualThreadScheduler.parallelism=1
       -Djdk.virtualThreadScheduler.maxPoolSize=1
   runtime:

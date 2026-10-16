@@ -62,7 +62,7 @@ workload:
     memory_request: 768Mi
     cpu_limit: null
     memory_limit: 1280Mi
-    java_options: -Xms256m -Xmx768m -XX:+UseG1GC
+    java_options: -Xms256m -Xmx768m -XX:+UseSerialGC
     consumer_drain_timeout_seconds: 60
     consumer_drain_required: false
     telemetry_settle_seconds: 180

@@ -351,7 +351,7 @@ class DeploymentPlanTest(unittest.TestCase):
         )["spec"]["template"]["spec"]["containers"][0]
         application_environment = {item["name"]: item["value"] for item in application_container["env"] if "value" in item}
 
-        self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
+        self.assertEqual("-Xms256m -Xmx768m -XX:+UseSerialGC", load_environment["JAVA_TOOL_OPTIONS"])
         self.assertEqual("1280Mi", load_container["resources"]["limits"]["memory"])
         self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("32768", load_environment["BATCH_KAFKA_PRODUCER_BATCH_SIZE"])
@@ -460,7 +460,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("32768", load_environment["ORDER_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("32768", load_environment["BATCH_KAFKA_PRODUCER_BATCH_SIZE"])
         self.assertEqual("32768", load_environment["TELEMETRY_KAFKA_PRODUCER_BATCH_SIZE"])
-        self.assertEqual("-Xms256m -Xmx768m -XX:+UseG1GC", load_environment["JAVA_TOOL_OPTIONS"])
+        self.assertEqual("-Xms256m -Xmx768m -XX:+UseSerialGC", load_environment["JAVA_TOOL_OPTIONS"])
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, load_container["resources"]["requests"])
         self.assertEqual({"memory": "1280Mi"}, load_container["resources"]["limits"])
         self.assertEqual("true", application_environment["DEMO_CONSUMER_PROCESSING_ENABLED"])
