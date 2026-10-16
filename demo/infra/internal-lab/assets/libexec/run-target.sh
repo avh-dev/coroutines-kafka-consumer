@@ -245,6 +245,10 @@ while [ "$#" -gt 0 ]; do
       PLAN_MANUAL_ARGS+=("$1" "${2:?$1 requires a positive integer}")
       shift 2
       ;;
+    --demo-java-tool-options=*)
+      PLAN_HELM_ARGS+=("$1")
+      shift
+      ;;
     --demo-java-tool-options|--demo-cpu-request|--demo-memory-request|--demo-cpu-limit|--demo-memory-limit|--hpa-enabled|--hpa-min-replicas|--hpa-max-replicas|--hpa-target-cpu-utilization-percentage|--hpa-scale-down-stabilization-window-seconds)
       PLAN_HELM_ARGS+=("$1" "${2:?$1 requires a value}")
       shift 2
