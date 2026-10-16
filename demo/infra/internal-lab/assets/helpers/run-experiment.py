@@ -386,7 +386,7 @@ def helm_override_args(helm: dict[str, Any]) -> list[str]:
     args: list[str] = []
     env = helm.get("env") or {}
     if "javaToolOptions" in env:
-        args.extend(["--demo-java-tool-options", env_value(env["javaToolOptions"])])
+        args.append(f"--demo-java-tool-options={env_value(env['javaToolOptions'])}")
     resources = helm.get("resources") or {}
     requests = resources.get("requests") or {}
     limits = resources.get("limits") or {}
@@ -408,7 +408,7 @@ def application_override_args(application: dict[str, Any]) -> list[str]:
     if "replicas" in application:
         args.extend(["--replicas", env_value(application["replicas"])])
     if "java_tool_options" in application:
-        args.extend(["--demo-java-tool-options", env_value(application["java_tool_options"])])
+        args.append(f"--demo-java-tool-options={env_value(application['java_tool_options'])}")
     resources = application.get("resources") or {}
     if not isinstance(resources, dict):
         raise ValueError("target.application.resources must be an object")
