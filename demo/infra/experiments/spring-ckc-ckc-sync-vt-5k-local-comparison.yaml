@@ -1,0 +1,161 @@
+schema_version: 2
+name: spring-ckc-ckc-sync-vt-5k-local-comparison
+description: >-
+  Sequential 5k/s TLS comparison of proven Spring/JDK and single-worker CKC
+  settings with synchronous CKC business logic on virtual threads constrained to
+  one carrier thread.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    flavour: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    base_tps: 5000
+    producer_capacity_tps: {order: 5000, batch: 5000, telemetry: 5000}
+    load_profile: 0 -> (5m, warm-up) -> 100 -> (15m, steady) -> 100 -> (2m, cool-down) -> 0
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    workers: 100
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 500
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_timeout_seconds: 300
+    consumer_drain_required: true
+    telemetry_settle_seconds: 65
+    maximum_first_sample_delay_seconds: 90
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    telemetry_kafka_producer_linger_ms: 150
+    telemetry_kafka_producer_batch_size: 16384
+  measurement_windows:
+  - name: steady-state
+    start: 7m
+    duration: 4m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 35
+      max_e2e_latency_ms: 2000
+      contract: {delivery: at_least_once, ordering: per_key}
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 25
+      max_e2e_latency_ms: 2000
+      contract: {delivery: at_least_once, ordering: per_key}
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 1000
+      contract: {semantics: freshness_first, delivery: not_guaranteed, ordering: not_guaranteed}
+  diagnostics:
+  - name: steady-tls-kafka
+    at: 11m30s
+    duration: 30s
+    type: tcpdump
+    required: true
+    targets: [application, load-test]
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 19092 or tcp port 19093 or tcp port 19094
+      max_file_size: 256Mi
+targets:
+- name: spring-kafka.jdk-tuned
+  implementation: spring-kafka
+  application:
+    replicas: 1
+    resources:
+      requests: {cpu: '1', memory: 1Gi}
+      limits: {cpu: '4', memory: 3Gi}
+    hpa: {enabled: false}
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: JDK
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 600
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 500
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 250
+    planning_latency: {order_ms: 25, batch_ms: 25, telemetry_ms: 70}
+    parallelism: [partitions, pollers]
+    topics:
+      order: {partitions: 58, pollers: 58, processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING}
+      batch: {partitions: 41, pollers: 41, processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING}
+      telemetry: {partitions: 182, pollers: 182, processing_mode: HARDCODED_FRESHNESS_FIRST_DROP_EXPIRED}
+- &ckc_fixed
+  name: ckc.fixed.1-tuned
+  implementation: ckc
+  application: &single_replica_application
+    replicas: 1
+    resources:
+      requests: {cpu: '1', memory: 1Gi}
+      limits: {cpu: '4', memory: 3Gi}
+    hpa: {enabled: false}
+  runtime: &ckc_fixed_runtime
+    env: &ckc_fixed_env
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      JDK_HTTP_CLIENT_EXECUTOR: DEFAULT
+      MODEL_SYNC_HTTP_CLIENT: ARMERIA
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    parallelism: [workers]
+    topics: &ckc_fixed_topics
+      order: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 2, workers: 500, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
+  workload: &ckc_workload
+    load:
+      kafka_producer_linger_ms: 300
+      telemetry_kafka_producer_linger_ms: 300
+      order_kafka_producer_batch_size: 524288
+      batch_kafka_producer_batch_size: 524288
+      telemetry_kafka_producer_batch_size: 131072
+- <<: *ckc_fixed
+  name: ckc-sync.virtual.1carrier
+  implementation: ckc-sync
+  application:
+    <<: *single_replica_application
+    java_options: >-
+      -Djdk.virtualThreadScheduler.parallelism=1
+      -Djdk.virtualThreadScheduler.maxPoolSize=1
+  runtime:
+    <<: *ckc_fixed_runtime
+    env:
+      <<: *ckc_fixed_env
+      PROCESSING_DISPATCHER_TYPE: VIRTUAL
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: cluster
+        brokers: 3
+        replication_factor: 3
+        min_insync_replicas: 2
+        transport: tls
+        resources: {cpu_per_broker: 1, memory_per_broker: 2Gi, heap_per_broker: 1Gi}

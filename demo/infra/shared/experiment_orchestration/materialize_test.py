@@ -577,6 +577,58 @@ class MaterializeTest(unittest.TestCase):
             ],
         )
 
+    def test_materializes_local_tls_spring_ckc_sync_virtual_thread_comparison(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/spring-ckc-ckc-sync-vt-5k-local-comparison.yaml"
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            deployment = yaml.safe_load(
+                materialized[2].deployment_plan_path.read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(
+            ["spring-kafka.jdk-tuned", "ckc.fixed.1-tuned", "ckc-sync.virtual.1carrier"],
+            [target.target.name for target in materialized],
+        )
+        self.assertEqual(
+            "0 -> (5m, warm-up) -> 100 -> (15m, steady) -> 100 -> (2m, cool-down) -> 0",
+            experiment.snapshot["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            [{"name": "steady-state", "start_seconds": 420, "duration_seconds": 240}],
+            experiment.targets[0].test.definition["load_test"]["measurement_windows"],
+        )
+        self.assertEqual("tls", deployment["environment"]["lab"]["kafka"]["transport"])
+        self.assertEqual(
+            {
+                "name": "steady-tls-kafka",
+                "at": "11m30s",
+                "duration": "30s",
+                "type": "tcpdump",
+                "required": True,
+                "targets": ["application", "load-test"],
+                "params": {
+                    "interface": "auto",
+                    "snaplen": 0,
+                    "filter": "tcp port 19092 or tcp port 19093 or tcp port 19094",
+                    "max_file_size": "256Mi",
+                },
+            },
+            deployment["workload"]["diagnostics"][0],
+        )
+        self.assertEqual(
+            "-Djdk.virtualThreadScheduler.parallelism=1 "
+            "-Djdk.virtualThreadScheduler.maxPoolSize=1",
+            deployment["application"]["configuration"]["java_options"],
+        )
+        self.assertEqual("VIRTUAL", deployment["application"]["runtime"]["env"]["PROCESSING_DISPATCHER_TYPE"])
+        self.assertEqual(1, deployment["application"]["runtime"]["env"]["WORKER_DISPATCHER_THREADS"])
+
 
 if __name__ == "__main__":
     unittest.main()

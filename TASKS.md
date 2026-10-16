@@ -462,6 +462,7 @@
 | [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | DONE |
 | [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
 | [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | DONE |
+| [INFRA-297](#infra-297) | Prepare a local TLS 5k comparison of Spring, CKC, and single-carrier CKC-sync virtual threads. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5418,3 +5419,13 @@ The feature defaults to enabled, supports an explicit target opt-out, and uses t
 Made exporter initialization and collection mandatory telemetry readiness and coverage checks for the current run; successful report output no longer renders a redundant network-counter status row.
 Report aggregation now reads continuous counters at the exact boundaries of each measurement window and isolates every numerator and denominator by run ID.
 The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape, Grafana Kafka/Redis/HTTP panels, and per-window report rendering.
+
+<a id="infra-297"></a>
+### INFRA-297 - Compare Spring, CKC, and CKC-sync virtual threads locally
+
+_Date: 2026-10-16_
+
+Prepare an internal-lab TLS experiment at 5k TPS with sequential Spring/JDK, fixed-single-worker CKC, and CKC-sync virtual-thread targets.
+Constrain the virtual-thread scheduler to one carrier so its business execution model is directly comparable to CKC's single worker dispatcher.
+Measure the middle of the 15-minute steady plateau and preserve a later 30-second TLS packet capture from both application and load-test pods.
+Verification: 52 focused shared orchestration tests and 193 internal-lab tests pass; the manifest materializes all three targets with TLS, the 7m–11m window, the 11m30s TLS pcap, and both one-carrier scheduler flags. The installed lab was synchronized and a dry-run request completed without starting a workload.
