@@ -706,6 +706,25 @@ class DeploymentPlanTest(unittest.TestCase):
             ],
         )
 
+    def test_all_provisioned_msk_experiments_default_to_kafka_4_1(self) -> None:
+        definitions = []
+        for source in sorted((REPO_ROOT / "demo/infra/experiments").glob("*.yaml")):
+            experiment = yaml.safe_load(source.read_text(encoding="utf-8"))
+            kafka = ((experiment.get("environments") or {}).get("aws") or {}).get("lab", {}).get("kafka") or {}
+            if kafka.get("mode") == "msk":
+                definitions.append((source.name, kafka.get("msk_version")))
+
+        self.assertTrue(definitions)
+        self.assertEqual(
+            [(name, "4.1.x") for name, _ in definitions],
+            definitions,
+        )
+        variables = (REPO_ROOT / "demo/infra/aws/assets/terraform/load-lab/variables.tf").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('variable "msk_kafka_version"', variables)
+        self.assertIn('default     = "4.1.x"', variables)
+
 
 if __name__ == "__main__":
     unittest.main()

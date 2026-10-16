@@ -239,7 +239,7 @@ variable "kubernetes_kafka_brokers" {
 variable "msk_kafka_version" {
   description = "Apache Kafka version for the MSK cluster when kafka_mode=msk."
   type        = string
-  default     = "3.7.x"
+  default     = "4.1.x"
 }
 
 variable "msk_number_of_broker_nodes" {

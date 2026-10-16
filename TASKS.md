@@ -462,6 +462,7 @@
 | [INFRA-293](#infra-293) | Measure Kafka client network bytes per successfully processed message without TLS packet decryption. | DONE |
 | [INFRA-294](#infra-294) | Make Kafka client transport target-specific on dual-transport labs and add a CKC 5k TLS A/B experiment. | DONE |
 | [INFRA-295](#infra-295) | Publish continuous Kafka client network counters through Prometheus-native exporter sidecars. | DONE |
+| [INFRA-298](#infra-298) | Upgrade provisioned MSK experiment definitions to Kafka 4.1 for Standard-broker compatibility and Queue preview support. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5418,3 +5419,13 @@ The feature defaults to enabled, supports an explicit target opt-out, and uses t
 Made exporter initialization and collection mandatory telemetry readiness and coverage checks for the current run; successful report output no longer renders a redundant network-counter status row.
 Report aggregation now reads continuous counters at the exact boundaries of each measurement window and isolates every numerator and denominator by run ID.
 The successful internal TLS A/B evidence confirms the sidecar, Prometheus scrape, Grafana Kafka/Redis/HTTP panels, and per-window report rendering.
+
+<a id="infra-298"></a>
+### INFRA-298 - Upgrade provisioned MSK to Kafka 4.1
+
+_Date: 2026-10-16_
+
+Replace the retired 3.7.x MSK version in AWS experiment definitions and the Terraform default with 4.1.x.
+Keep Standard broker types, which support Kafka 4.1 and enable later evaluation of the Kafka Queues preview feature.
+Update every provisioned-MSK experiment and the Terraform default, with a regression test that requires 4.1.x consistently.
+Verification: 40 shared orchestration tests, 72 AWS session tests, and Terraform validation pass. No AWS workload was launched.

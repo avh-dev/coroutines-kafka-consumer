@@ -272,7 +272,7 @@ environments:
         disk_size_gib: 100
       kafka:
         mode: msk
-        msk_version: 3.7.x
+        msk_version: 4.1.x
         msk_brokers: 3
         msk_instance_type: kafka.m5.large
         msk_volume_size_gib: 50
