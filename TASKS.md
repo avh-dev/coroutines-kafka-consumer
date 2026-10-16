@@ -468,6 +468,7 @@
 | [INFRA-299](#infra-299) | Use Serial GC for every experiment JVM. | DONE |
 | [INFRA-300](#infra-300) | Forward dash-prefixed application JVM options safely. | DONE |
 | [INFRA-301](#infra-301) | Accept equals-form JVM options in the target runner. | DONE |
+| [INFRA-302](#infra-302) | Remove fixed-dispatcher settings from the virtual-thread target. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5478,3 +5479,11 @@ _Date: 2026-10-16_
 
 Teach the shell target runner to retain `--demo-java-tool-options=<value>` as one planner argument instead of treating it as a second positional test definition.
 Verification: Bash syntax check, 43 focused tests, and 196 internal-lab tests pass.
+
+<a id="infra-302"></a>
+### INFRA-302 - Remove fixed-dispatcher settings from the virtual-thread target
+
+_Date: 2026-10-16_
+
+Keep the one-carrier JVM scheduler bounds for CKC-sync/VT, but do not inherit `WORKER_DISPATCHER_THREADS`, which is valid only for a fixed dispatcher.
+Verification: materialization asserts fixed and virtual dispatcher settings separately; 53 shared and 196 internal-lab tests pass.
