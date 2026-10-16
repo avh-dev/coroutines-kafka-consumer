@@ -466,6 +466,7 @@
 | [INFRA-297](#infra-297) | Prepare a local TLS 5k comparison of Spring, CKC, and single-carrier CKC-sync virtual threads. | DONE |
 | [INFRA-298](#infra-298) | Upgrade provisioned MSK experiment definitions to Kafka 4.1 for Standard-broker compatibility and Queue preview support. | DONE |
 | [INFRA-299](#infra-299) | Use Serial GC for every experiment JVM. | DONE |
+| [INFRA-300](#infra-300) | Forward dash-prefixed application JVM options safely. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5460,3 +5461,11 @@ _Date: 2026-10-16_
 Make `-XX:+UseSerialGC` the load-test and application JVM defaults and replace every explicit G1 override.
 Apply the application default while resolving every canonical target, so manifests that omit JVM options do not silently fall back to the JDK's G1 default.
 Verification: 53 shared orchestration tests and 194 internal-lab tests pass; an audit confirms that every explicit application option selects Serial GC.
+
+<a id="infra-300"></a>
+### INFRA-300 - Forward dash-prefixed application JVM options safely
+
+_Date: 2026-10-16_
+
+Pass JVM options with an equals-form CLI argument so values such as `-XX:+UseSerialGC` cannot be parsed as a new planner option.
+Verification: 26 focused runner tests, 195 internal-lab tests, and 41 shared orchestration tests pass.

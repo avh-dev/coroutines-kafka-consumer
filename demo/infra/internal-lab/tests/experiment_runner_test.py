@@ -24,6 +24,18 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_jvm_options_starting_with_a_dash_use_equals_form(self) -> None:
+        expected = ["--demo-java-tool-options=-XX:+UseSerialGC -Xmx768m"]
+
+        self.assertEqual(
+            expected,
+            RUNNER.helm_override_args({"env": {"javaToolOptions": "-XX:+UseSerialGC -Xmx768m"}}),
+        )
+        self.assertEqual(
+            expected,
+            RUNNER.application_override_args({"java_tool_options": "-XX:+UseSerialGC -Xmx768m"}),
+        )
+
     def test_notification_environment_describes_configured_host_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             lab_root = Path(directory)
