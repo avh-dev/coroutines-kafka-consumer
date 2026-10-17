@@ -44,6 +44,13 @@ MIN_TARGET_WATCHDOG_SECONDS = 3600
 TARGET_WATCHDOG_SAFETY_SECONDS = 1800
 COST_EXPLORER_REGION = "us-east-1"
 COST_ALLOCATION_TAG = "SessionId"
+# This is deliberately conservative. An unknown type is recreated rather than
+# asking the MSK API to perform a potentially unsupported reduction.
+MSK_BROKER_CAPACITY_ORDER = {
+    "kafka.t3.small": 1,
+    "kafka.m7g.large": 2,
+    "kafka.m7g.xlarge": 3,
+}
 
 
 def utc_now() -> datetime:
@@ -163,6 +170,17 @@ def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: in
         + TARGET_WATCHDOG_SAFETY_SECONDS
     )
     return max(MIN_TARGET_WATCHDOG_SECONDS, configured_floor_seconds, expected_lifecycle_seconds)
+
+
+def msk_broker_transition_action(current_type: str, desired_type: str) -> str:
+    """Choose the safe lifecycle action for a per-target MSK broker type."""
+    if current_type == desired_type:
+        return "preserve"
+    current_capacity = MSK_BROKER_CAPACITY_ORDER.get(current_type)
+    desired_capacity = MSK_BROKER_CAPACITY_ORDER.get(desired_type)
+    if current_capacity is not None and desired_capacity is not None and desired_capacity > current_capacity:
+        return "upgrade"
+    return "recreate"
 
 
 class CommandError(RuntimeError):
@@ -795,17 +813,38 @@ class SessionController:
         })
         self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
-        lab_outputs["runner_instance_type"] = runner_outputs.get("instance_type")
-        lab_outputs["runner_root_volume_size"] = runner_outputs.get("root_volume_size")
+        self.configure_lab_on_runner(lab_outputs, runner_outputs)
+        self.phase("LAB_READY")
+
+    def configure_lab_on_runner(
+        self,
+        lab_outputs: dict[str, Any],
+        runner_outputs: dict[str, Any] | None = None,
+    ) -> None:
+        """Publish the current lab endpoints and configure workloads against them."""
+        config = self.config
+        session_id = config["session_id"]
+        region = config["region"]
+        context_path = self.session_dir / "provisioned-lab.json"
+        previous_outputs: dict[str, Any] = {}
+        if context_path.is_file():
+            previous_outputs = json.loads(context_path.read_text(encoding="utf-8"))
+        if runner_outputs:
+            lab_outputs["runner_instance_type"] = runner_outputs.get("instance_type")
+            lab_outputs["runner_root_volume_size"] = runner_outputs.get("root_volume_size")
+        else:
+            for key in ("runner_instance_type", "runner_root_volume_size"):
+                if key in previous_outputs:
+                    lab_outputs[key] = previous_outputs[key]
         context_path = self.session_dir / "provisioned-lab.json"
         json_write(context_path, lab_outputs)
         context_key = f"sessions/{session_id}/provisioned-lab.json"
         self.run([
-            "aws", "s3", "cp", str(context_path), f"s3://{artifact_outputs['bucket_name']}/{context_key}",
+            "aws", "s3", "cp", str(context_path), f"s3://{self.state['artifact_bucket']}/{context_key}",
             "--region", region, "--only-show-errors",
         ])
         remote_context = f"/opt/ckc-runner/config/provisioned-lab-{session_id}.json"
-        context_uri = f"s3://{artifact_outputs['bucket_name']}/{context_key}"
+        context_uri = f"s3://{self.state['artifact_bucket']}/{context_key}"
         self.ssm(
             " && ".join([
                 "set -euo pipefail",
@@ -821,7 +860,6 @@ class SessionController:
             "configure disposable lab",
             7200,
         )
-        self.phase("LAB_READY")
 
     def transition_msk_for_target(self, target: dict[str, Any]) -> bool:
         desired_type = str(((target.get("lab") or {}).get("kafka") or {}).get("msk_instance_type") or "").strip()
@@ -830,8 +868,11 @@ class SessionController:
         if self.config["kafka"].get("mode") != "msk":
             raise RuntimeError(f"Target {target['id']!r} requests MSK resizing but the lab does not use MSK")
         current_type = str(self.config["kafka"].get("instance_type") or "")
-        if current_type == desired_type:
+        action = msk_broker_transition_action(current_type, desired_type)
+        if action == "preserve":
             return False
+        if action == "recreate":
+            return self.recreate_msk_for_target(target, current_type, desired_type)
         context_path = f"/opt/ckc-runner/config/load-lab-{self.config['aws_environment']}.json"
         command = "\n".join([
             "set -euo pipefail",
@@ -879,6 +920,57 @@ class SessionController:
         })
         self.state.setdefault("msk_transitions", []).append(evidence)
         self.config["kafka"]["instance_type"] = desired_type
+        self.config.setdefault("terraform_lab_inputs", {})["msk_broker_instance_type"] = desired_type
+        self.state["terraform"]["lab"]["variables"]["msk_broker_instance_type"] = desired_type
+        self.save()
+        return True
+
+    def recreate_msk_for_target(self, target: dict[str, Any], current_type: str, desired_type: str) -> bool:
+        """Replace only the MSK cluster when a later target needs less capacity.
+
+        MSK broker-type updates are retained for known capacity upgrades.  A
+        downscale gets a fresh cluster instead, then the Kubernetes workloads
+        are configured against the new bootstrap endpoints.
+        """
+        config = self.config
+        lab_stack = self.state.get("terraform", {}).get("lab", {})
+        if not lab_stack.get("created"):
+            raise RuntimeError("Cannot recreate MSK: Terraform lab stack is not available")
+        lab_module = self.repo / str(lab_stack["module"])
+        lab_variables = self.stack_variables("lab")
+        lab_variables["msk_broker_instance_type"] = desired_type
+        transition_started_at = utc_text()
+        self.phase("RECREATING_MSK", target_id=target["id"], target_instance_type=desired_type)
+        self.ssm(
+            "CKC_LOAD_LAB_SKIP_TERRAFORM=true "
+            "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/destroy-lab.sh "
+            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])}",
+            f"remove Kubernetes workloads before recreating MSK for {target['name']}",
+            1800,
+        )
+        self.record_stack("lab", lab_module, lab_variables, [])
+        self.terraform(
+            "lab",
+            lab_module,
+            "apply",
+            lab_variables,
+            ["-replace=aws_msk_cluster.load_lab[0]"],
+        )
+        lab_outputs = self.terraform_outputs("lab", lab_module)
+        self.configure_lab_on_runner(lab_outputs)
+        evidence = {
+            "operation_arn": None,
+            "before": current_type,
+            "after": desired_type,
+            "status": "recreated",
+            "target_id": target["id"],
+            "started_at": transition_started_at,
+            "completed_at": utc_text(),
+            "desired_instance_type": desired_type,
+        }
+        self.state.setdefault("msk_transitions", []).append(evidence)
+        self.config["kafka"]["instance_type"] = desired_type
+        self.config.setdefault("terraform_lab_inputs", {})["msk_broker_instance_type"] = desired_type
         self.save()
         return True
 

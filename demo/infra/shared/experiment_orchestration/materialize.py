@@ -56,6 +56,8 @@ def materialize_target(
         repo_dir=repo_dir,
     )
 
+    target_kafka = ((target.definition.get("lab") or {}).get("kafka") or {})
+    environment_kafka = (((experiment.environment_definition or {}).get("lab") or {}).get("kafka") or {})
     definition = copy.deepcopy(target.test.definition)
     definition["name"] = str(definition.get("name") or experiment.name)
     definition["deployment"] = {
@@ -63,7 +65,9 @@ def materialize_target(
         "target_id": target.id,
         "target_name": target.name,
         "annotation_label": str(target.definition.get("annotation_label") or target.name),
-        "kafka_transport": ((target.definition.get("lab") or {}).get("kafka") or {}).get("transport"),
+        # Transport normally belongs to the fixed experiment environment. A
+        # target can still override it for a deliberate TLS/plaintext A/B.
+        "kafka_transport": target_kafka.get("transport") or environment_kafka.get("transport"),
         "values": values,
         "run_plan": plan,
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),

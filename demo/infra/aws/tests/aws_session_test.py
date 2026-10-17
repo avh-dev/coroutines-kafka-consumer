@@ -1039,6 +1039,66 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(8, config["eks"]["node_groups"]["application"]["max_size"])
         self.assertEqual(3000, config["targets"][0]["duration_seconds"])
 
+    def test_hourly_tls_qualification_materializes_spring_then_shared_ckc_msk(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-hourly-50k-tls-qualification.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=7200,
+        )
+        source = REPO_ROOT / args.experiment
+        resolved = session_module.resolve_experiment_definition(source, environment="aws")
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("tls", resolved.environment_definition["lab"]["kafka"]["transport"])
+        self.assertEqual(
+            "0 -> (5m, normal-ramp-1) -> 1 -> (5m, normal-ramp-2) -> 6 -> "
+            "(5m, normal-ramp-3) -> 28 -> (5m, normal-ramp-4) -> 73 -> "
+            "(5m, normal-ramp-5) -> 100 -> (10m, steady) -> 100 -> "
+            "(5m, normal-cool-down-1) -> 73 -> (5m, normal-cool-down-2) -> 28 -> "
+            "(5m, normal-cool-down-3) -> 6 -> (5m, normal-cool-down-4) -> 1 -> "
+            "(5m, normal-cool-down-5) -> 0",
+            resolved.test.definition["load_test"]["load_profile"],
+        )
+        self.assertEqual([{"name": "steady-state", "start_seconds": 1500, "duration_seconds": 600}], resolved.test.definition["load_test"]["measurement_windows"])
+        self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
+        self.assertEqual(
+            ["spring-kafka.per-topic-keda-1-5", "ckc.hpa-1-12", "ckc-sync.virtual-1carrier-hpa-1-12"],
+            [target["name"] for target in config["targets"]],
+        )
+        self.assertEqual(
+            ["kafka.m7g.xlarge", "kafka.t3.small", "kafka.t3.small"],
+            [target["lab"]["kafka"]["msk_instance_type"] for target in config["targets"]],
+        )
+        self.assertTrue(all(target["duration_seconds"] == 3600 for target in config["targets"]))
+        self.assertTrue(all(target["start_alignment"] == "utc_hour" for target in config["targets"]))
+        virtual = resolved.targets[2].definition
+        self.assertEqual("VIRTUAL", virtual["env"]["PROCESSING_DISPATCHER_TYPE"])
+        self.assertNotIn("WORKER_DISPATCHER_THREADS", virtual["env"])
+        self.assertIn("-Djdk.virtualThreadScheduler.parallelism=1", virtual["application"]["java_tool_options"])
+        self.assertIn("-Djdk.virtualThreadScheduler.maxPoolSize=1", virtual["application"]["java_tool_options"])
+
+    def test_msk_broker_transitions_upgrade_but_recreate_for_downgrade(self) -> None:
+        self.assertEqual("preserve", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.t3.small"))
+        self.assertEqual("upgrade", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.m7g.xlarge"))
+        self.assertEqual("recreate", session_module.msk_broker_transition_action("kafka.m7g.xlarge", "kafka.t3.small"))
+        self.assertEqual("recreate", session_module.msk_broker_transition_action("kafka.unknown.small", "kafka.m7g.xlarge"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"]["kafka"] = {"mode": "msk", "instance_type": "kafka.m7g.xlarge"}
+            target = {"id": "ckc", "name": "CKC", "lab": {"kafka": {"msk_instance_type": "kafka.t3.small"}}}
+            with patch.object(controller, "recreate_msk_for_target", return_value=True) as recreate:
+                self.assertTrue(controller.transition_msk_for_target(target))
+
+        recreate.assert_called_once_with(target, "kafka.m7g.xlarge", "kafka.t3.small")
+
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
