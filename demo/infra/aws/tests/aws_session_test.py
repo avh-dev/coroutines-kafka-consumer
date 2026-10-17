@@ -173,6 +173,15 @@ class AwsSessionTest(unittest.TestCase):
         rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
         self.assertLessEqual(len(rendered_prefix), 38)
 
+    def test_msk_security_group_admits_plaintext_and_tls_listeners(self) -> None:
+        terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
+        msk_security_group = terraform.split('resource "aws_security_group" "msk"', 1)[1].split(
+            'resource "aws_security_group" "elasticache"', 1
+        )[0]
+        self.assertIn('from_port   = 9092', msk_security_group)
+        self.assertIn('from_port   = 9094', msk_security_group)
+        self.assertIn('description = "Kafka TLS from inside the load-lab VPC"', msk_security_group)
+
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
         java_commands: list[list[str]] = []
