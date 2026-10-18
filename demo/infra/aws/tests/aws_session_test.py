@@ -1445,7 +1445,7 @@ class AwsSessionTest(unittest.TestCase):
             controller.cleanup_remote_lab = lambda: actions.append("remote")
             controller.prepare_lab_destroy = lambda: actions.append("prepare")
             controller.delete_session_eks_cluster = lambda: actions.append("cluster")
-            controller.destroy_stack = lambda stack: actions.append(stack)
+            controller.destroy_stack = lambda stack, variables=None: actions.append(stack)
             controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
             controller.verify_cleanup = lambda: actions.append("verify")
             controller.prune_terraform_cache = lambda: actions.append("prune")
@@ -1459,7 +1459,7 @@ class AwsSessionTest(unittest.TestCase):
             controller.cleanup_remote_lab = lambda: None
             controller.prepare_lab_destroy = lambda: (_ for _ in ()).throw(RuntimeError("temporary EKS outage"))
             controller.delete_session_eks_cluster = lambda: None
-            controller.destroy_stack = lambda _stack: None
+            controller.destroy_stack = lambda _stack, variables=None: None
             controller.delete_cloudwatch_log_group = lambda: None
             controller.verify_cleanup = lambda: None
             controller.prune_terraform_cache = lambda: None
@@ -1471,6 +1471,54 @@ class AwsSessionTest(unittest.TestCase):
             ["EKS node-group pre-cleanup: temporary EKS outage"],
             controller.state["cleanup_warnings"],
         )
+
+    def test_cleanup_keeps_runner_when_lab_destroy_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            actions: list[str] = []
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: None
+            controller.delete_session_eks_cluster = lambda: None
+
+            def destroy_stack(stack: str, variables: dict[str, object] | None = None) -> None:
+                actions.append(stack)
+                if stack == "lab":
+                    raise RuntimeError("subnet still has a dependency")
+
+            controller.destroy_stack = destroy_stack
+            controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
+            controller.verify_cleanup = lambda: actions.append("verify")
+            controller.prune_terraform_cache = lambda: actions.append("prune")
+            failures = controller.cleanup()
+
+        self.assertEqual(["lab", "logs", "verify"], actions)
+        self.assertIn("lab destroy: subnet still has a dependency", failures)
+
+    def test_cleanup_disables_runner_peering_when_runner_was_already_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["terraform"] = {
+                "lab": {"created": True, "variables": {"enable_runner_observability_peering": True}},
+                "runner": {"created": False},
+            }
+            received_variables: list[dict[str, object] | None] = []
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: None
+            controller.delete_session_eks_cluster = lambda: None
+
+            def destroy_stack(stack: str, variables: dict[str, object] | None = None) -> None:
+                if stack == "lab":
+                    received_variables.append(variables)
+
+            controller.destroy_stack = destroy_stack
+            controller.delete_cloudwatch_log_group = lambda: None
+            controller.verify_cleanup = lambda: None
+            controller.prune_terraform_cache = lambda: None
+            failures = controller.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertEqual([{"enable_runner_observability_peering": False}], received_variables)
+        self.assertTrue(controller.state["lab_destroy_without_runner"])
 
     def test_cleanup_removes_tagged_eks_cluster_outside_terraform_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -414,12 +414,12 @@ class SessionController:
         }
         self.save()
 
-    def destroy_stack(self, stack: str) -> None:
+    def destroy_stack(self, stack: str, variables: dict[str, Any] | None = None) -> None:
         item = self.state.get("terraform", {}).get(stack)
         if not item or not item.get("created"):
             return
         module = self.repo / item["module"]
-        self.terraform(stack, module, "destroy", item["variables"], item.get("extra"))
+        self.terraform(stack, module, "destroy", variables or item["variables"], item.get("extra"))
         item["created"] = False
         item["destroyed_at"] = utc_text()
         self.save()
@@ -1668,11 +1668,28 @@ class SessionController:
             self.delete_session_eks_cluster()
         except Exception as error:
             failures.append(f"EKS cluster pre-cleanup: {error}")
-        for stack in ("lab", "runner", "artifacts"):
-            try:
-                self.destroy_stack(stack)
-            except Exception as error:
-                failures.append(f"{stack} destroy: {error}")
+        lab_variables: dict[str, Any] | None = None
+        if not self.state.get("terraform", {}).get("runner", {}).get("created"):
+            # A previous incomplete cleanup may already have removed the runner.
+            # Disable resources whose data sources refer to that VPC, otherwise
+            # Terraform cannot even plan the remaining lab teardown.
+            lab_variables = self.stack_variables("lab")
+            lab_variables["enable_runner_observability_peering"] = False
+            self.state["lab_destroy_without_runner"] = True
+            self.save()
+        try:
+            self.destroy_stack("lab", variables=lab_variables)
+        except Exception as error:
+            failures.append(f"lab destroy: {error}")
+        else:
+            # The runner VPC is a dependency of the lab peering.  Keep it (and
+            # the evidence bucket) intact after a failed lab destroy so retrying
+            # cleanup has all Terraform data sources available.
+            for stack in ("runner", "artifacts"):
+                try:
+                    self.destroy_stack(stack)
+                except Exception as error:
+                    failures.append(f"{stack} destroy: {error}")
         try:
             self.delete_cloudwatch_log_group()
         except Exception as error:
