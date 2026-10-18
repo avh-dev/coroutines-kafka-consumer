@@ -1444,19 +1444,21 @@ class AwsSessionTest(unittest.TestCase):
             actions: list[str] = []
             controller.cleanup_remote_lab = lambda: actions.append("remote")
             controller.prepare_lab_destroy = lambda: actions.append("prepare")
+            controller.delete_session_eks_cluster = lambda: actions.append("cluster")
             controller.destroy_stack = lambda stack: actions.append(stack)
             controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
             controller.verify_cleanup = lambda: actions.append("verify")
             controller.prune_terraform_cache = lambda: actions.append("prune")
             failures = controller.cleanup()
         self.assertEqual([], failures)
-        self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+        self.assertEqual(["remote", "prepare", "cluster", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
 
     def test_cleanup_preparation_failure_is_warning_when_verification_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.cleanup_remote_lab = lambda: None
             controller.prepare_lab_destroy = lambda: (_ for _ in ()).throw(RuntimeError("temporary EKS outage"))
+            controller.delete_session_eks_cluster = lambda: None
             controller.destroy_stack = lambda _stack: None
             controller.delete_cloudwatch_log_group = lambda: None
             controller.verify_cleanup = lambda: None
@@ -1469,6 +1471,40 @@ class AwsSessionTest(unittest.TestCase):
             ["EKS node-group pre-cleanup: temporary EKS outage"],
             controller.state["cleanup_warnings"],
         )
+
+    def test_cleanup_removes_tagged_eks_cluster_outside_terraform_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            cluster_name = "ckc-load-lab-s-1234567890"
+            with (
+                patch.object(controller, "aws_json", return_value={"cluster": {
+                    "arn": "arn:aws:eks:us-east-1:123456789012:cluster/ckc-load-lab-s-1234567890",
+                    "tags": {"SessionId": controller.config["session_id"]},
+                }}),
+                patch.object(controller, "run") as run_command,
+            ):
+                controller.delete_session_eks_cluster()
+
+        self.assertEqual(cluster_name, controller.state["deleted_session_eks_cluster"])
+        self.assertEqual([
+            ["aws", "eks", "delete-cluster", "--region", "us-east-1", "--name", cluster_name],
+            ["aws", "eks", "wait", "cluster-deleted", "--region", "us-east-1", "--name", cluster_name],
+        ], [call.args[0] for call in run_command.call_args_list])
+
+    def test_cleanup_refuses_eks_cluster_with_another_session_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            with (
+                patch.object(controller, "aws_json", return_value={"cluster": {
+                    "arn": "arn:aws:eks:us-east-1:123456789012:cluster/foreign",
+                    "tags": {"SessionId": "another-session"},
+                }}),
+                patch.object(controller, "run") as run_command,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "SessionId tag"):
+                    controller.delete_session_eks_cluster()
+
+        run_command.assert_not_called()
 
     def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

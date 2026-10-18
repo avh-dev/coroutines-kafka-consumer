@@ -1608,6 +1608,45 @@ class SessionController:
             self.state["deleted_orphaned_cni_enis"] = sorted(deleted)
             self.save()
 
+    def delete_session_eks_cluster(self) -> None:
+        """Remove the session EKS cluster even when Terraform never recorded it.
+
+        A controller interruption can happen after AWS has accepted EKS cluster
+        creation but before Terraform persists that resource in its state file.
+        Terraform cannot then discover the cluster during ``destroy``; its
+        control-plane ENIs keep the VPC subnets and security groups alive.  The
+        cluster name is deterministic, but require the session tag as a second
+        guard before issuing an irreversible delete.
+        """
+        region = self.config["region"]
+        cluster_name = f"ckc-load-lab-{self.config['aws_environment']}"
+        response = self.aws_json([
+            "eks", "describe-cluster", "--region", region, "--name", cluster_name,
+        ], check=False) or {}
+        cluster = response.get("cluster") or {}
+        cluster_arn = cluster.get("arn")
+        if not cluster_arn:
+            return
+        tags = cluster.get("tags") or self.aws_json([
+            "eks", "list-tags-for-resource", "--region", region,
+            "--resource-arn", cluster_arn,
+        ], check=False) or {}
+        if isinstance(tags, dict) and "tags" in tags:
+            tags = tags["tags"]
+        if not isinstance(tags, dict) or tags.get("SessionId") != self.config["session_id"]:
+            raise RuntimeError(
+                f"Refusing to delete EKS cluster {cluster_name}: its SessionId tag does not match this session."
+            )
+        self.run([
+            "aws", "eks", "delete-cluster", "--region", region, "--name", cluster_name,
+        ])
+        self.run([
+            "aws", "eks", "wait", "cluster-deleted", "--region", region,
+            "--name", cluster_name,
+        ])
+        self.state["deleted_session_eks_cluster"] = cluster_name
+        self.save()
+
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
         self.notify("cleanup_started", {
@@ -1625,6 +1664,10 @@ class SessionController:
             self.prepare_lab_destroy()
         except Exception as error:
             warnings.append(f"EKS node-group pre-cleanup: {error}")
+        try:
+            self.delete_session_eks_cluster()
+        except Exception as error:
+            failures.append(f"EKS cluster pre-cleanup: {error}")
         for stack in ("lab", "runner", "artifacts"):
             try:
                 self.destroy_stack(stack)
