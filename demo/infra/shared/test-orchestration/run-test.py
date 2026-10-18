@@ -759,8 +759,54 @@ def collect_cluster_diagnostics(run_dir: Path, require_healthy: bool = False) ->
         )
 
 
-def wait_for_job(job_name: str, timeout_seconds: int) -> None:
-    run(["kubectl", "-n", "ckc-loadtest", "wait", "--for=condition=Complete", f"job/{job_name}", f"--timeout={timeout_seconds}s"])
+def collect_job_failure_diagnostics(job_name: str, run_dir: Path) -> Path:
+    """Preserve the terminal Job state before Kubernetes or cleanup removes it."""
+    diagnostics_dir = run_dir / "job-diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    namespace = "ckc-loadtest"
+    job = kubectl_json(["kubectl", "-n", namespace, "get", "job", job_name, "-o", "json"])
+    (diagnostics_dir / "job.json").write_text(json_dump(job) + "\n", encoding="utf-8")
+    description = run(["kubectl", "-n", namespace, "describe", "job", job_name], capture_output=True, check=False)
+    (diagnostics_dir / "job.describe.txt").write_text(description, encoding="utf-8")
+    pods = kubectl_json([
+        "kubectl", "-n", namespace, "get", "pods", "-l", f"job-name={job_name}", "-o", "json",
+    ])
+    (diagnostics_dir / "pods.json").write_text(json_dump(pods) + "\n", encoding="utf-8")
+    for item in pods.get("items", []):
+        pod_name = str((item.get("metadata") or {}).get("name") or "")
+        if not pod_name:
+            continue
+        pod_description = run(
+            ["kubectl", "-n", namespace, "describe", "pod", pod_name], capture_output=True, check=False,
+        )
+        (diagnostics_dir / f"{pod_name}.describe.txt").write_text(pod_description, encoding="utf-8")
+        pod_log = run(["kubectl", "-n", namespace, "logs", pod_name, "--all-containers=true"], capture_output=True, check=False)
+        (diagnostics_dir / f"{pod_name}.log").write_text(pod_log, encoding="utf-8")
+    return diagnostics_dir
+
+
+def job_failure_reason(job: dict[str, Any]) -> str:
+    for condition in (job.get("status") or {}).get("conditions") or []:
+        if condition.get("type") == "Failed" and condition.get("status") == "True":
+            reason = str(condition.get("reason") or "JobFailed")
+            message = str(condition.get("message") or "")
+            return f"{reason}: {message}".rstrip(": ")
+    return "Job did not reach Complete"
+
+
+def wait_for_job(job_name: str, timeout_seconds: int, run_dir: Path) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        job = kubectl_json(["kubectl", "-n", "ckc-loadtest", "get", "job", job_name, "-o", "json"])
+        conditions = (job.get("status") or {}).get("conditions") or []
+        if any(item.get("type") == "Complete" and item.get("status") == "True" for item in conditions):
+            return
+        if any(item.get("type") == "Failed" and item.get("status") == "True" for item in conditions):
+            diagnostics_dir = collect_job_failure_diagnostics(job_name, run_dir)
+            raise RuntimeError(f"Load-test Job {job_name} failed: {job_failure_reason(job)}; see {diagnostics_dir}")
+        time.sleep(2)
+    diagnostics_dir = collect_job_failure_diagnostics(job_name, run_dir)
+    raise TimeoutError(f"Load-test Job {job_name} did not reach Complete within {timeout_seconds}s; see {diagnostics_dir}")
 
 
 def delete_job(job_name: str) -> None:
@@ -1297,7 +1343,10 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-        wait_for_job(job_name, wait_timeout_seconds)
+        # The Job has the same active deadline.  Give the API one poll interval
+        # after it expires so its terminal Failed condition is reported instead
+        # of replacing the useful Kubernetes reason with a controller timeout.
+        wait_for_job(job_name, wait_timeout_seconds + 30, run_dir)
         emit_run_phase("workload_finished")
         wait_for_consumer_drain(
             metrics_url,

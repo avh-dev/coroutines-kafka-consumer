@@ -1731,6 +1731,25 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("cpu: '1'", manifest)
         self.assertIn("memory: 2Gi", manifest)
 
+    def test_kubernetes_kafka_keeps_cpu_for_the_smoke_generator_and_has_safe_ephemeral_storage(self) -> None:
+        create_lab = (AWS_ROOT / "runner-assets" / "bin" / "create-lab.sh").read_text(encoding="utf-8")
+        self.assertIn("controller:\n  replicaCount: ${KAFKA_BROKERS}\n  # The Kubernetes Kafka lab", create_lab)
+        self.assertIn("cpu: 250m", create_lab)
+        self.assertIn("ephemeral-storage: 10Gi", create_lab)
+
+    def test_failed_load_job_is_reported_without_waiting_for_the_outer_timeout(self) -> None:
+        failed_job = {"status": {"conditions": [{
+            "type": "Failed", "status": "True", "reason": "DeadlineExceeded", "message": "Job was active too long",
+        }]}}
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(run_test_module, "kubectl_json", return_value=failed_job),
+                patch.object(run_test_module, "collect_job_failure_diagnostics", return_value=Path(directory) / "job-diagnostics") as collect,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "DeadlineExceeded"):
+                    run_test_module.wait_for_job("smoke", 120, Path(directory))
+        collect.assert_called_once_with("smoke", Path(directory))
+
     def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "coverage.json"

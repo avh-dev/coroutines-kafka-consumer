@@ -1125,6 +1125,21 @@ extraEnvVars:
     value: "1"
 controller:
   replicaCount: ${KAFKA_BROKERS}
+  # The Kubernetes Kafka lab is deliberately small.  Three controllers must
+  # leave enough schedulable CPU for the load generator on a two-node smoke
+  # cluster; 250m is ample for its control-plane-only smoke workload.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 100Mi
+    limits:
+      cpu: 750m
+      memory: 768Mi
+      # Kafka's log segments and container stdout share the node's ephemeral
+      # filesystem when persistence is disabled.  The chart default of 2Gi
+      # caused broker eviction before even a 10 TPS smoke could run.
+      ephemeral-storage: 10Gi
   persistence:
     enabled: false
 broker:
