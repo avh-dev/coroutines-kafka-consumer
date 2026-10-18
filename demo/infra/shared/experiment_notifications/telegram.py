@@ -269,8 +269,8 @@ def message_for(event: str, payload: dict[str, Any]) -> str:
         ])
     if event == "target_waiting_for_start":
         lines = [
-            f"⏳ Load generator ready: {payload.get('name') or 'unknown'}",
-            f"Scheduled start: {payload.get('scheduled_start') or 'unknown'}",
+            f"⏳ Load generator submitted: {payload.get('name') or 'unknown'}",
+            f"Scheduled load start: {payload.get('scheduled_start') or 'unknown'}",
         ]
         if payload.get("wait_seconds") not in (None, ""):
             lines.append(f"Waiting: {format_duration(payload['wait_seconds'])}")

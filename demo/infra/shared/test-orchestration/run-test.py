@@ -26,7 +26,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
-from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
+from experiment_orchestration.deployment_plan import STUB_SERVICE_PORT, DeploymentBindings, render_project_manifests
 from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker, exact_group_regex
 
 
@@ -560,7 +560,7 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
         process = subprocess.Popen(
             [
                 "kubectl", "-n", "ckc-app", "port-forward", "service/ckc-demo-stubs",
-                f"{local_port}:8080", "--address", "127.0.0.1",
+                f"{local_port}:{STUB_SERVICE_PORT}", "--address", "127.0.0.1",
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -1269,6 +1269,11 @@ def main() -> None:
             started_at,
             wait_timeout_seconds,
             run_dir / "generated",
+        )
+        emit_run_phase(
+            "target_waiting_for_start",
+            scheduled_start=started_at,
+            wait_seconds=max(0, int((scheduled_start - datetime.now(timezone.utc)).total_seconds())),
         )
         metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")

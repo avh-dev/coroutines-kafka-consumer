@@ -190,6 +190,7 @@ class CommandError(RuntimeError):
 class TargetRunProgress:
     def __init__(self) -> None:
         self.workload_finished = False
+        self.waiting_for_start = False
         self.drain_started_at: float | None = None
         self.drain_lag: float | None = None
         self.drain_wait_notified = False
@@ -213,7 +214,14 @@ class TargetRunProgress:
             except json.JSONDecodeError:
                 continue
             phase = event.get("phase")
-            if phase == "workload_finished" and not self.workload_finished:
+            if phase == "target_waiting_for_start" and not self.waiting_for_start:
+                self.waiting_for_start = True
+                notifications.append({
+                    "event": "target_waiting_for_start",
+                    "scheduled_start": event.get("scheduled_start"),
+                    "wait_seconds": event.get("wait_seconds"),
+                })
+            elif phase == "workload_finished" and not self.workload_finished:
                 self.workload_finished = True
                 notifications.append({"event": "workload_finished"})
             elif phase == "consumer_drain_started" and self.drain_started_at is None:
@@ -1061,7 +1069,7 @@ class SessionController:
                 'cat "$phase_log"; exit "$status"'
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
-            self.notify("target_started", {
+            self.notify("target_generator_preparing", {
                 "experiment": config["experiment_name"],
                 "environment": {"name": "aws", "detail": config["region"]},
                 "index": index,
@@ -1088,7 +1096,18 @@ class SessionController:
                     output = str(invocation.get("StandardOutputContent", ""))
                     output += str(invocation.get("StandardErrorContent", ""))
                 for progress_event in run_progress.observe(output):
-                    if progress_event["event"] == "workload_finished":
+                    if progress_event["event"] == "target_waiting_for_start":
+                        self.notify("target_waiting_for_start", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "scheduled_start": progress_event["scheduled_start"],
+                            "wait_seconds": progress_event["wait_seconds"],
+                        })
+                    elif progress_event["event"] == "workload_finished":
                         self.notify("target_workload_finished", {
                             "experiment": config["experiment_name"],
                             "environment": {"name": "aws", "detail": config["region"]},

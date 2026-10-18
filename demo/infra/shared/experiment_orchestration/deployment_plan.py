@@ -13,6 +13,7 @@ import yaml
 from .definition import ResolvedExperiment, ResolvedTarget
 
 
+STUB_SERVICE_PORT = 8085
 DEPLOYMENT_PLAN_VERSION = 1
 GENERATED_ENV_NAMES = {
     "experimentTargetName": "EXPERIMENT_TARGET_NAME",
@@ -565,7 +566,7 @@ def _deployment(
 def _kafka_network_exporter(image: str, pull_policy: str, ports: tuple[int, ...]) -> dict[str, Any]:
     return {
         "name": "kafka-network-exporter", "image": image, "imagePullPolicy": pull_policy,
-        "restartPolicy": "Always", "args": ["--ports", ",".join(str(port) for port in ports), "--redis-ports", "6379", "--http-ports", "8085"],
+        "restartPolicy": "Always", "args": ["--ports", ",".join(str(port) for port in ports), "--redis-ports", "6379", "--http-ports", str(STUB_SERVICE_PORT)],
         "ports": [{"name": "kafka-network", "containerPort": 9406}],
         "resources": {"requests": {"cpu": "5m", "memory": "32Mi"}, "limits": {"cpu": "50m", "memory": "64Mi"}},
         "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"add": ["NET_ADMIN"], "drop": ["ALL"]}},
@@ -616,10 +617,10 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "AUDIT_TCP_HOST": bindings.audit_host,
         "AUDIT_TCP_PORT": bindings.audit_port,
         "AUDIT_RUN_ID": bindings.run_id,
-        "MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
-        "ETA_MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
-        "FLAVOUR_MODEL_BASE_URL": "http://ckc-demo-stubs:8085",
-        "REGISTRY_BASE_URL": "http://ckc-demo-stubs:8085",
+        "MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
+        "ETA_MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
+        "FLAVOUR_MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
+        "REGISTRY_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
         "MODEL_HTTP_CLIENT": computed_env.get("MODEL_HTTP_CLIENT", "ARMERIA"),
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
@@ -639,7 +640,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             run_id=bindings.run_id,
             profile="stubs",
             environment={
-                "PORT": 8085,
+                "PORT": STUB_SERVICE_PORT,
                 "REDIS_HOST": bindings.redis_host,
                 "REDIS_PORT": 6379,
                 "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
@@ -651,7 +652,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         {
             "apiVersion": "v1", "kind": "Service",
             "metadata": _metadata("ckc-demo-stubs", bindings.application_namespace),
-            "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": 8085, "targetPort": 8085}]},
+            "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}]},
         },
     ]
     probes = values.get("probes") or {

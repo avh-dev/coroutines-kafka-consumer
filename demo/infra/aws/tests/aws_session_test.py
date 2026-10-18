@@ -494,7 +494,7 @@ class AwsSessionTest(unittest.TestCase):
             ):
                 controller.execute_test()
 
-        self.assertEqual("target_started", notify.call_args_list[0].args[0])
+        self.assertEqual("target_generator_preparing", notify.call_args_list[0].args[0])
         self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
         self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
         self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
@@ -523,6 +523,45 @@ class AwsSessionTest(unittest.TestCase):
             '"status":"DRAINED","timestamp":"1970-01-01T00:02:15Z"}'
         )
         self.assertEqual([], progress.observe(finished_output, now=140))
+
+    def test_target_progress_reports_the_resolved_aligned_start_once(self) -> None:
+        progress = session_module.TargetRunProgress()
+        output = (
+            'CKC_RUN_PHASE {"phase":"target_waiting_for_start",'
+            '"scheduled_start":"2026-10-18T08:00:00Z","wait_seconds":2741}'
+        )
+
+        self.assertEqual([{
+            "event": "target_waiting_for_start",
+            "scheduled_start": "2026-10-18T08:00:00Z",
+            "wait_seconds": 2741,
+        }], progress.observe(output))
+        self.assertEqual([], progress.observe(output))
+
+    def test_configure_stubs_forwards_the_declared_service_port(self) -> None:
+        class Response:
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            process = SimpleNamespace(
+                poll=lambda: None,
+                terminate=lambda: None,
+                wait=lambda **_kwargs: None,
+            )
+            with (
+                patch.object(run_test_module.subprocess, "Popen", return_value=process) as popen,
+                patch.object(run_test_module.urllib.request, "urlopen", return_value=Response()),
+            ):
+                run_test_module.configure_stubs({"errorRatePercent": 0}, Path(directory) / "stubs.log")
+
+        self.assertEqual(
+            f"18081:{run_test_module.STUB_SERVICE_PORT}",
+            popen.call_args.args[0][5],
+        )
 
     def test_runner_phase_events_are_mirrored_to_the_dedicated_progress_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -689,7 +728,7 @@ class AwsSessionTest(unittest.TestCase):
                     controller.execute_test()
 
         self.assertEqual(
-            ["target_started", "target_workload_finished"],
+            ["target_generator_preparing", "target_workload_finished"],
             [call.args[0] for call in notify.call_args_list],
         )
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
