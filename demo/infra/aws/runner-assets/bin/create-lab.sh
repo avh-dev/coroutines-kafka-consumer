@@ -296,6 +296,22 @@ data:
         source_labels = ["__meta_kubernetes_pod_label_ckc_dev_workload"]
         target_label = "workload"
       }
+      # Network exporters run inside the producer Job and application pods.
+      # Preserve this role at scrape time: reports and dashboards must not
+      # infer it from a transient pod name.
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex = "ckc-loadtest"
+        target_label = "role"
+        replacement = "producer"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_ckc_dev_component"]
+        separator = ";"
+        regex = "ckc-app;application"
+        target_label = "role"
+        replacement = "consumer"
+      }
     }
     prometheus.scrape "ckc_kafka_network" {
       targets = discovery.relabel.ckc_kafka_network.output

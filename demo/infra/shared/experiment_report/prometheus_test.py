@@ -18,6 +18,16 @@ class RecordingPrometheusClient:
         return 100.0
 
 
+class LegacyAwsNetworkClient(RecordingPrometheusClient):
+    def query_scalar(self, query: str, at: datetime) -> float | None:
+        self.queries.append(query)
+        if "rules_present" in query or "read_success" in query:
+            return 1.0
+        if 'role="' in query:
+            return None
+        return 100.0
+
+
 class PrometheusMeasurementsTest(unittest.TestCase):
     def test_msk_credit_query_matches_cloudwatch_exporter_name(self) -> None:
         query = STANDARD_MEASUREMENTS["msk_cpu_credit_balance_min"]
@@ -54,6 +64,19 @@ class PrometheusMeasurementsTest(unittest.TestCase):
         fallback = next(query for query in client.queries if "demo_ckc_record_dropped_total" in query)
         self.assertIn('run_id="run-1"', fallback)
         self.assertIn("demo_ckc_record_process_duration_seconds_count", fallback)
+
+    def test_network_counters_fall_back_to_legacy_aws_namespace_labels(self) -> None:
+        client = LegacyAwsNetworkClient()
+
+        counters = collect_kafka_network_counters(
+            client, datetime(2026, 10, 14, tzinfo=timezone.utc), 60, "run-1", "ckc"
+        )
+
+        self.assertEqual("success", counters["status"])
+        self.assertEqual(100.0, counters["producer"]["rx_bytes"])
+        self.assertEqual(100.0, counters["consumer"]["tx_bytes"])
+        self.assertTrue(any('namespace="ckc-loadtest"' in query for query in client.queries))
+        self.assertTrue(any('namespace="ckc-app"' in query for query in client.queries))
 
 
 if __name__ == "__main__":

@@ -145,6 +145,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
         self.assertIn('discovery.relabel "ckc_kafka_network"', script)
+        self.assertIn('target_label = "role"\n        replacement = "producer"', script)
+        self.assertIn('regex = "ckc-app;application"\n        target_label = "role"\n        replacement = "consumer"', script)
         self.assertIn(
             'prometheus.scrape "ckc_kafka_network" {\n'
             '      targets = discovery.relabel.ckc_kafka_network.output\n'
