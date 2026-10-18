@@ -135,6 +135,15 @@ class AwsSessionTest(unittest.TestCase):
             "telemetry_settle_seconds": 180,
         }, configured_floor_seconds=12000))
 
+    def test_hour_aligned_target_watchdog_covers_the_full_wait_to_next_hour(self) -> None:
+        self.assertEqual(9240, session_module.target_watchdog_seconds({
+            "start_alignment": "utc_hour",
+            "minimum_lead_time_seconds": 300,
+            "duration_seconds": 3600,
+            "consumer_drain_timeout_seconds": 60,
+            "telemetry_settle_seconds": 180,
+        }))
+
     def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
@@ -555,6 +564,30 @@ class AwsSessionTest(unittest.TestCase):
             "wait_seconds": 2741,
         }], progress.observe(output))
         self.assertEqual([], progress.observe(output))
+
+    def test_target_progress_reports_actual_target_start_once(self) -> None:
+        progress = session_module.TargetRunProgress()
+        output = (
+            'CKC_RUN_PHASE {"phase":"target_started",'
+            '"scheduled_start":"2026-10-18T08:00:00Z"}'
+        )
+
+        self.assertEqual([{
+            "event": "target_started",
+            "scheduled_start": "2026-10-18T08:00:00Z",
+        }], progress.observe(output))
+        self.assertEqual([], progress.observe(output))
+
+    def test_aligned_load_job_deadline_includes_the_actual_wait_to_the_hour(self) -> None:
+        now = datetime(2026, 10, 18, 18, 16, 48, tzinfo=timezone.utc)
+        scheduled = run_test_module.scheduled_start_at(now, "utc_hour", 300)
+
+        self.assertEqual(datetime(2026, 10, 18, 19, 0, tzinfo=timezone.utc), scheduled)
+        self.assertEqual(2592, run_test_module.scheduled_wait_seconds(scheduled, now))
+        self.assertEqual(
+            6312,
+            run_test_module.load_job_deadline_seconds(scheduled, now, 3600, 120),
+        )
 
     def test_configure_stubs_forwards_the_declared_service_port(self) -> None:
         class Response:

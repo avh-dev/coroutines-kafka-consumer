@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -1187,6 +1188,29 @@ def scheduled_start_at(now: datetime, alignment: str, minimum_lead_time_seconds:
     return (earliest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
 
 
+def scheduled_wait_seconds(scheduled_start: datetime, now: datetime) -> int:
+    """Return the whole-second wait a Job must survive before load can begin."""
+    return max(0, math.ceil((scheduled_start - now).total_seconds()))
+
+
+def load_job_deadline_seconds(
+    scheduled_start: datetime,
+    now: datetime,
+    load_profile_seconds: int,
+    job_wait_buffer_seconds: int,
+) -> int:
+    """Cover actual alignment wait, workload duration, and shutdown buffer."""
+    return scheduled_wait_seconds(scheduled_start, now) + load_profile_seconds + job_wait_buffer_seconds
+
+
+def wait_for_scheduled_start(scheduled_start: datetime) -> None:
+    while True:
+        remaining = (scheduled_start - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 1.0))
+
+
 def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir)
@@ -1230,7 +1254,6 @@ def main() -> None:
             )
     if args.minimum_lead_time_seconds < 0:
         raise ValueError("minimum-lead-time-seconds must not be negative")
-    wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds + args.minimum_lead_time_seconds
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
         raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
@@ -1286,14 +1309,21 @@ def main() -> None:
         telemetry_ready_at = wait_for_telemetry_ready(
             metrics_url, run_dir / "telemetry-readiness.json", run_id=run_id
         )
+        schedule_resolved_at = datetime.now(timezone.utc)
         scheduled_start = scheduled_start_at(
-            datetime.now(timezone.utc), args.start_alignment, args.minimum_lead_time_seconds
+            schedule_resolved_at, args.start_alignment, args.minimum_lead_time_seconds
+        )
+        scheduled_wait = scheduled_wait_seconds(scheduled_start, schedule_resolved_at)
+        active_deadline_seconds = load_job_deadline_seconds(
+            scheduled_start, schedule_resolved_at, load_profile_seconds, args.job_wait_buffer_seconds
         )
         started_at = scheduled_start.isoformat(timespec="seconds").replace("+00:00", "Z")
         metadata["started_at"] = started_at
         metadata["scheduled_start_at"] = started_at
         metadata["start_alignment"] = args.start_alignment
         metadata["minimum_lead_time_seconds"] = args.minimum_lead_time_seconds
+        metadata["scheduled_wait_seconds"] = scheduled_wait
+        metadata["load_job_active_deadline_seconds"] = active_deadline_seconds
         metadata["telemetry_ready_at"] = telemetry_ready_at
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         annotation_label = as_str(deployment.get("annotation_label"), deployment_profile(deployment) or run_id)
@@ -1313,13 +1343,13 @@ def main() -> None:
             network_counters_enabled,
             run_id,
             started_at,
-            wait_timeout_seconds,
+            active_deadline_seconds,
             run_dir / "generated",
         )
         emit_run_phase(
             "target_waiting_for_start",
             scheduled_start=started_at,
-            wait_seconds=max(0, int((scheduled_start - datetime.now(timezone.utc)).total_seconds())),
+            wait_seconds=scheduled_wait,
         )
         metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
@@ -1343,10 +1373,12 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+        wait_for_scheduled_start(scheduled_start)
+        emit_run_phase("target_started", scheduled_start=started_at)
         # The Job has the same active deadline.  Give the API one poll interval
         # after it expires so its terminal Failed condition is reported instead
         # of replacing the useful Kubernetes reason with a controller timeout.
-        wait_for_job(job_name, wait_timeout_seconds + 30, run_dir)
+        wait_for_job(job_name, active_deadline_seconds + 30, run_dir)
         emit_run_phase("workload_finished")
         wait_for_consumer_drain(
             metrics_url,

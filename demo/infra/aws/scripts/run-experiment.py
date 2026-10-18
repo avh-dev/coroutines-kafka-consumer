@@ -162,8 +162,15 @@ def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: in
         value = target.get(name)
         return max(0, int(default if value is None else value))
 
+    minimum_lead_seconds = phase_seconds("minimum_lead_time_seconds", 0)
+    alignment_wait_seconds = minimum_lead_seconds
+    if target.get("start_alignment") == "utc_hour":
+        # A target can become ready immediately after an hour boundary and
+        # must then remain alive until the next boundary, not merely the
+        # configured minimum lead time.
+        alignment_wait_seconds = max(alignment_wait_seconds, 3600)
     expected_lifecycle_seconds = (
-        phase_seconds("minimum_lead_time_seconds", 0)
+        alignment_wait_seconds
         + phase_seconds("duration_seconds", 0)
         + phase_seconds("consumer_drain_timeout_seconds", 300)
         + phase_seconds("telemetry_settle_seconds", 65)
@@ -189,6 +196,7 @@ class CommandError(RuntimeError):
 
 class TargetRunProgress:
     def __init__(self) -> None:
+        self.target_started = False
         self.workload_finished = False
         self.waiting_for_start = False
         self.drain_started_at: float | None = None
@@ -220,6 +228,12 @@ class TargetRunProgress:
                     "event": "target_waiting_for_start",
                     "scheduled_start": event.get("scheduled_start"),
                     "wait_seconds": event.get("wait_seconds"),
+                })
+            elif phase == "target_started" and not self.target_started:
+                self.target_started = True
+                notifications.append({
+                    "event": "target_started",
+                    "scheduled_start": event.get("scheduled_start"),
                 })
             elif phase == "workload_finished" and not self.workload_finished:
                 self.workload_finished = True
@@ -1106,6 +1120,20 @@ class SessionController:
                             "name": target["name"],
                             "scheduled_start": progress_event["scheduled_start"],
                             "wait_seconds": progress_event["wait_seconds"],
+                        })
+                    elif progress_event["event"] == "target_started":
+                        self.notify("target_started", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "profile": target.get("profile"),
+                            "replicas": target.get("replicas"),
+                            "base_tps": target.get("base_tps"),
+                            "expected_duration_seconds": target.get("duration_seconds"),
+                            "scheduled_start": progress_event.get("scheduled_start"),
                         })
                     elif progress_event["event"] == "workload_finished":
                         self.notify("target_workload_finished", {
