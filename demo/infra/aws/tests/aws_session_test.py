@@ -149,6 +149,10 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('discovery.relabel "ckc_kafka_network"', script)
         self.assertIn('target_label = "role"\n        replacement = "producer"', script)
         self.assertIn('regex = "ckc-app;application"\n        target_label = "role"\n        replacement = "consumer"', script)
+        alloy_config = script.split("deploy_observability_agent()", 1)[1].split(
+            "deploy_kafka_exporter()", 1
+        )[0]
+        self.assertNotIn("#", alloy_config)
         self.assertIn(
             'prometheus.scrape "ckc_kafka_network" {\n'
             '      targets = discovery.relabel.ckc_kafka_network.output\n'

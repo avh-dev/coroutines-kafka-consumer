@@ -306,9 +306,9 @@ data:
         source_labels = ["__meta_kubernetes_pod_label_ckc_dev_workload"]
         target_label = "workload"
       }
-      # Network exporters run inside the producer Job and application pods.
-      # Preserve this role at scrape time: reports and dashboards must not
-      # infer it from a transient pod name.
+      // Network exporters run inside the producer Job and application pods.
+      // Preserve this role at scrape time: reports and dashboards must not
+      // infer it from a transient pod name.
       rule {
         source_labels = ["__meta_kubernetes_namespace"]
         regex = "ckc-loadtest"
