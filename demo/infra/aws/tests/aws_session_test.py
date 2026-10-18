@@ -145,6 +145,13 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
         self.assertIn('discovery.relabel "ckc_kafka_network"', script)
+        self.assertIn(
+            'prometheus.scrape "ckc_kafka_network" {\n'
+            '      targets = discovery.relabel.ckc_kafka_network.output\n'
+            '      scrape_interval = "5s"\n'
+            '      scrape_timeout = "4s"',
+            script,
+        )
         self.assertNotIn('rule { source_labels = ["__meta_kubernetes_pod_container_port_number"];', script)
         self.assertNotIn("; action =", script)
         self.assertNotIn("export-loki.py", export_script)

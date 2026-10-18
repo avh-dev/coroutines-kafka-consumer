@@ -300,6 +300,7 @@ data:
     prometheus.scrape "ckc_kafka_network" {
       targets = discovery.relabel.ckc_kafka_network.output
       scrape_interval = "5s"
+      scrape_timeout = "4s"
       forward_to = [prometheus.remote_write.runner.receiver]
     }
 
