@@ -28,8 +28,17 @@ class MaterializeTest(unittest.TestCase):
                 yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))["deployment"]["kafka_transport"]
                 for target in targets
             ]
+            terraform_inputs = yaml.safe_load(
+                (Path(directory) / "environment" / "terraform-lab-inputs.json").read_text(encoding="utf-8")
+            )
 
         self.assertEqual(["tls", "tls", "tls"], transports)
+        self.assertEqual(["m7i.xlarge"], terraform_inputs["support_node_instance_types"])
+        self.assertEqual((1, 1, 1), (
+            terraform_inputs["support_node_desired_size"],
+            terraform_inputs["support_node_min_size"],
+            terraform_inputs["support_node_max_size"],
+        ))
 
     def test_smoke_uses_two_minute_single_target_with_useful_traffic_windows(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
