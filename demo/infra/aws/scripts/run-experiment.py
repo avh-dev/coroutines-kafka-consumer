@@ -2106,6 +2106,10 @@ class SessionController:
             self.run([
                 "docker", "run", "-d", "--name", container_name,
                 "-p", f"127.0.0.1:{port}:9090",
+                # The metrics directory belongs to the operator checkout.
+                # Do not leave root-owned VictoriaMetrics files behind after
+                # a report regeneration.
+                "--user", f"{os.getuid()}:{os.getgid()}",
                 "-v", f"{metrics_dir.resolve()}:/victoria-metrics-data",
                 "victoriametrics/victoria-metrics:v1.102.1",
                 "-storageDataPath=/victoria-metrics-data",

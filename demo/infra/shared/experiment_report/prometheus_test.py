@@ -23,6 +23,8 @@ class LegacyAwsNetworkClient(RecordingPrometheusClient):
         self.queries.append(query)
         if "rules_present" in query or "read_success" in query:
             return 1.0
+        if "demo_ckc_poll_records_sum" in query and 'run_id="' in query:
+            return None
         if 'role="' in query:
             return None
         return 100.0
@@ -75,6 +77,7 @@ class PrometheusMeasurementsTest(unittest.TestCase):
         self.assertEqual("success", counters["status"])
         self.assertEqual(100.0, counters["producer"]["rx_bytes"])
         self.assertEqual(100.0, counters["consumer"]["tx_bytes"])
+        self.assertEqual(100.0, counters["consumer"]["consumer_records"])
         self.assertTrue(any('namespace="ckc-loadtest"' in query for query in client.queries))
         self.assertTrue(any('namespace="ckc-app"' in query for query in client.queries))
 

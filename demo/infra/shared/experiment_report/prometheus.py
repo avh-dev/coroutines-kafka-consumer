@@ -408,7 +408,15 @@ def collect_kafka_network_counters(
                 f'(sum(increase(demo_ckc_record_dropped_total{{run_id="{run_id}", pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0))'
             )
             source = "processed_plus_dropped"
-        return client.query_scalar(query, end), source
+        count = client.query_scalar(query, end)
+        if count is None and role == "consumer" and implementation in {"ckc", "ckc-sync"}:
+            # See the equivalent counter fallback above.  Application metrics
+            # from the first AWS exporter revision did not yet retain run_id.
+            count = client.query_scalar(
+                f'sum(increase(demo_ckc_poll_records_sum{{namespace="ckc-app", pod=~"ckc-demo-.+"}}[{seconds}s]))',
+                end,
+            )
+        return count, source
     total_rx = total_tx = total_rx_packets = total_tx_packets = 0.0
     for role, result_key in (("producer", "published_messages"), ("consumer", "consumer_records")):
         rx = value("ckc_kafka_client_network_bytes_total", role, "receive") or 0.0

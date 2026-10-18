@@ -144,6 +144,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "pod"', script)
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
+        self.assertIn('discovery.relabel "ckc_demo"', script)
+        self.assertIn('source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]\n        target_label  = "run_id"', script)
         self.assertIn('discovery.relabel "ckc_kafka_network"', script)
         self.assertIn('target_label = "role"\n        replacement = "producer"', script)
         self.assertIn('regex = "ckc-app;application"\n        target_label = "role"\n        replacement = "consumer"', script)
@@ -1738,6 +1740,10 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("controller:\n  replicaCount: ${KAFKA_BROKERS}\n  # The Kubernetes Kafka lab", create_lab)
         self.assertIn("cpu: 250m", create_lab)
         self.assertIn("ephemeral-storage: 10Gi", create_lab)
+
+    def test_report_regeneration_runs_victoriametrics_as_the_operator(self) -> None:
+        controller_source = (AWS_ROOT / "scripts" / "run-experiment.py").read_text(encoding="utf-8")
+        self.assertIn('"--user", f"{os.getuid()}:{os.getgid()}"', controller_source)
 
     def test_failed_load_job_is_reported_without_waiting_for_the_outer_timeout(self) -> None:
         failed_job = {"status": {"conditions": [{

@@ -179,6 +179,16 @@ data:
       }
 
       rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
